@@ -1,0 +1,98 @@
+# Holes for the symdiff project, in teaching order.
+# stage: a hole is opened in every starter stage >= its stage (fading: more holes later).
+# trivial: plausible-but-wrong bodies. Mutation testing (`tutor holemap symdiff --check`)
+#   requires each to make at least one test fail; otherwise the tests are too weak.
+
+project = "symdiff"
+package = "SymDiff"
+stages = [1, 2]
+
+[[hole]]
+id = "product_rule"
+stage = 1
+kc = "multiple-dispatch-recursion"
+file = "src/SymDiff.jl"
+summary = "deriv(t::Mul, x): the n-ary product rule, without mutating the input"
+trivial = [
+  "return Add(Term[deriv(a, x) for a in t.args])",
+  "return Const(0)",
+  """
+  summands = Term[]
+  for i in eachindex(t.args)
+      factors = t.args
+      factors[i] = deriv(t.args[i], x)
+      push!(summands, Mul(copy(factors)))
+  end
+  return Add(summands)
+  """,
+]
+
+[[hole]]
+id = "pvar_binding"
+stage = 1
+kc = "unification-binding"
+file = "src/SymDiff.jl"
+summary = "match_pattern(p::PVar, t, b): bind a pattern variable consistently"
+trivial = [
+  "b2 = copy(b); b2[p.name] = t; return b2",
+  "return b",
+  "b[p.name] = t; return b",
+]
+
+[[hole]]
+id = "size_measure"
+stage = 1
+kc = "termination-measure"
+file = "src/SymDiff.jl"
+summary = "is_size_decreasing(r): a termination argument for rewrite rules"
+trivial = [
+  "return nodecount(r.lhs) > nodecount(r.rhs)",
+  "return true",
+  "return nodecount(r.lhs) >= nodecount(r.rhs)",
+]
+
+[[hole]]
+id = "canonical_sum"
+stage = 2
+kc = "canonical-forms"
+file = "src/SymDiff.jl"
+summary = "mk_add(args): flatten, fold constants, collect like terms, sort"
+trivial = [
+  "return Add(args)",
+  """
+  flat = Term[]
+  for a in args
+      a isa Add ? append!(flat, a.args) : push!(flat, a)
+  end
+  return length(flat) == 1 ? flat[1] : Add(sort!(flat))
+  """,
+]
+
+[[hole]]
+id = "chain_rule"
+stage = 2
+kc = "multiple-dispatch-parametric"
+file = "src/SymDiff.jl"
+summary = "deriv(t::Fn{F}, x): the chain rule via dfn"
+trivial = [
+  "return dfn(func(t), t.arg)",
+  "return deriv(t.arg, x)",
+]
+
+[[hole]]
+id = "rewrite_innermost"
+stage = 2
+kc = "rewriting-strategy"
+file = "src/SymDiff.jl"
+summary = "rewrite_budgeted!(budget, t, rules): innermost rewriting to a normal form"
+trivial = [
+  "return t",
+  """
+  t = map_children(c -> rewrite_budgeted!(budget, c, rules), t)
+  for r in rules
+      b = match_pattern(r.lhs, t)
+      b === nothing || return substitute(r.rhs, b)
+  end
+  return t
+  """,
+]

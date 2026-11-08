@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Wrapper: pinned Julia (via juliaup), repo-local depot, one thread, offline Pkg.
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/env.sh"
+exec julia "+$JULIA_PIN" --startup-file=no --history-file=no --threads=1 \
+  --project="$TUTOR_ROOT" "$TUTOR_ROOT/bin/tutor.jl" "$@"

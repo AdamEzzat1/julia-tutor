@@ -1,0 +1,16 @@
+name = "JuliaTutor"
+uuid = "7e1c6a52-3b4f-4d8e-9a61-2f0b9c4d5e10"
+authors = ["julia-tutor contributors"]
+version = "0.1.0"
+
+[deps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
+JuliaSyntax = "70703baa-626e-46a2-a12c-08ffd08c73b4"
+TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+JET = "=0.9.14"
+JuliaSyntax = "=1.0.2"
+julia = "=1.10.13"

@@ -1,0 +1,121 @@
+id = "L01-dispatch"
+title = "Multiple dispatch: the most specific method wins, on all arguments"
+kcs = ["multiple-dispatch"]
+prerequisites = []
+# Answer keys verified by `tutor lessons verify` on this exact release.
+verified_on = "1.10.13"
+
+body = '''
+A Julia function is a set of *methods*. When you call it, Julia looks at the
+runtime types of *all* the arguments and runs the most specific method that
+applies. The order in which the methods were defined does not matter, and
+neither do the declared types of the variables or containers the values came
+from.
+
+If two methods apply and neither is more specific than the other, the call is
+ambiguous and throws a `MethodError`. The fix is a method for the intersection,
+not reordering definitions.
+
+In the symdiff project, `deriv(t::Mul, x)`, `deriv(t::Pow, x)` and
+`deriv(t::Fn{typeof(sin)}, x)` are separate methods of one function. Dispatch
+replaces the `if t isa Mul ... elseif ...` chain you might write elsewhere.
+'''
+
+[[check]]
+id = "specificity"
+prompt = "Three methods of `f`, defined in this order. What is printed?"
+code = '''
+f(x::Number) = "number"
+f(x::Integer) = "integer"
+f(x) = "anything"
+println(f(3), " ", f(2.5), " ", f("hi"))
+'''
+options = [
+  "integer number anything",
+  "number number anything",
+  "anything anything anything",
+  "integer integer anything",
+]
+answer = 1
+hint = "For each call, list the methods whose signature accepts the argument, then ask which of those is the narrowest. Definition order plays no part."
+explanation = "3 is an Int, so both `::Number` and `::Integer` apply and `Integer` is more specific. 2.5 is a Float64, a Number but not an Integer. \"hi\" matches only the untyped method."
+
+  [[check.misconception]]
+  option = 2
+  id = "first-match-wins"
+  feedback = "That is how an `if`/`elseif` chain or pattern-match order works, but Julia does not try methods in definition order."
+
+  [[check.misconception]]
+  option = 3
+  id = "redefinition-replaces"
+  feedback = "In Python a second `def f` replaces the first. In Julia, a definition with a *different* signature adds a method; only an identical signature replaces one."
+
+  [[check.misconception]]
+  option = 4
+  id = "float-converts-to-integer"
+  feedback = "Julia never converts arguments to pick a method. 2.5 is a Float64, and Float64 is not a subtype of Integer."
+
+[[check]]
+id = "ambiguity"
+prompt = "Neither method is more specific for `g(1, 2)`. What is printed?"
+code = '''
+g(x::Int, y) = 1
+g(x, y::Int) = 2
+try
+    println(g(1, 2))
+catch err
+    println(typeof(err))
+end
+'''
+options = ["1", "2", "MethodError", "AmbiguityError"]
+answer = 3
+hint = "Both methods apply. Is either signature a subtype of the other? If not, Julia refuses to guess, and you are asked for the exception's type."
+explanation = "Each method is more specific in one argument, so neither wins and the call is ambiguous. Julia reports this as a `MethodError` whose message says \"ambiguous\". Defining `g(x::Int, y::Int)` resolves it."
+
+  [[check.misconception]]
+  option = 1
+  id = "first-match-wins"
+  feedback = "Definition order does not break ties between methods."
+
+  [[check.misconception]]
+  option = 2
+  id = "last-definition-wins"
+  feedback = "A later method with a different signature does not override an earlier one; both stay in the method table."
+
+  [[check.misconception]]
+  option = 4
+  id = "invented-exception-type"
+  feedback = "There is no `AmbiguityError` type in Base. Ambiguity is reported as a `MethodError` (read its message)."
+
+[[check]]
+id = "runtime-types"
+prompt = "The vector is declared to hold `Shape`s. What is printed?"
+code = '''
+abstract type Shape end
+struct Circle <: Shape end
+struct Square <: Shape end
+collide(a::Shape, b::Shape) = "generic"
+collide(a::Circle, b::Square) = "circle-square"
+collide(a::Square, b::Circle) = "square-circle"
+shapes = Shape[Circle(), Square()]
+println(collide(shapes[2], shapes[1]))
+'''
+options = ["square-circle", "generic", "circle-square", "MethodError"]
+answer = 1
+hint = "Dispatch uses the type of each *value* at the moment of the call. What are the types of the two values passed, and in which order?"
+explanation = "`shapes[2]` is a Square and `shapes[1]` a Circle at run time. The container's element type `Shape` does not hide that. Julia picks `collide(::Square, ::Circle)`."
+
+  [[check.misconception]]
+  option = 2
+  id = "static-type-dispatch"
+  feedback = "In Java or C++, overloads are chosen from declared (static) types, which would give the generic method. Julia dispatches on runtime types."
+
+  [[check.misconception]]
+  option = 3
+  id = "argument-order-irrelevant"
+  feedback = "Dispatch is on the ordered tuple of argument types; (Square, Circle) and (Circle, Square) are different signatures."
+
+  [[check.misconception]]
+  option = 4
+  id = "abstract-container-blocks-dispatch"
+  feedback = "Values taken out of a `Vector{Shape}` keep their concrete types, so the specific methods apply."

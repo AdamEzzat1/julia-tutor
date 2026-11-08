@@ -1,0 +1,141 @@
+id = "L02-concrete-types"
+title = "Concrete and abstract types in containers and struct fields"
+kcs = ["concrete-types", "container-element-types"]
+prerequisites = ["L01-dispatch"]
+# Answer keys verified by `tutor lessons verify` on this exact release.
+# Type printing changed in 1.6 (`Array{Any,1}` became `Vector{Any}`); re-verify on upgrade.
+verified_on = "1.10.13"
+
+body = '''
+A *concrete* type can have instances (Float64, Vector{Float64}, your structs);
+an *abstract* type (Real, AbstractVector, Term) only groups other types. The
+compiler generates fast code when it knows concrete types: the layout of a
+value, which method to call, whether a value fits in a register.
+
+Two places where novices accidentally lose that knowledge:
+
+* containers: `[]` has no elements to infer from, so it is a `Vector{Any}`;
+* struct fields: `x::Real` means "any Real", so every read checks the type at
+  run time.
+
+Note the difference between an abstract *element* type and an abstract
+*container* type: `Vector{Real}` is concrete (a vector of boxed Reals), while
+`Vector` without a parameter is not a concrete type at all.
+
+Parametric types are *invariant*: `Vector{Int}` is not a subtype of
+`Vector{Integer}`. Write `Vector{<:Integer}` for "a vector of some Integer type".
+
+In the symdiff project, `Add.args::Vector{Term}` is deliberate. It is a concrete
+container of an abstract element type, because a tree mixes node kinds. The
+`evaluate` methods restore type stability with `::T` assertions.
+'''
+
+[[check]]
+id = "empty-literal"
+prompt = "What is printed?"
+code = '''
+println(typeof([]))
+'''
+options = ["Vector{Any}", "Vector{Nothing}", "Vector{Union{}}", "Array"]
+answer = 1
+hint = "An empty literal gives Julia no element to infer a type from. Which element type accepts anything that might be pushed into it later?"
+explanation = "`[]` is `Vector{Any}`. To get an empty vector of a specific type, write `Float64[]` or `Vector{Float64}()`."
+
+  [[check.misconception]]
+  option = 2
+  id = "empty-means-nothing"
+  feedback = "`Nothing` is the type of the value `nothing`; a vector of it could only ever hold `nothing`s."
+
+  [[check.misconception]]
+  option = 3
+  id = "empty-means-bottom"
+  feedback = "`Union{}` (the type with no values) is what inference uses for code that never returns. An empty literal gets the most permissive element type instead."
+
+  [[check.misconception]]
+  option = 4
+  id = "untyped-list"
+  feedback = "Like a Python list, it can hold anything, but Julia still gives it a full type with an element type and a dimension."
+
+[[check]]
+id = "concreteness"
+prompt = "What is printed?"
+code = '''
+println(isconcretetype(Vector{Real}), " ", isconcretetype(Vector), " ", isconcretetype(Real))
+'''
+options = ["true false false", "false false false", "false true false", "true true false"]
+answer = 1
+hint = "Can you create an instance of `Vector{Real}`? Of `Vector` without saying what it holds? Concreteness is about whether the type itself can have instances."
+explanation = "`Vector{Real}` is concrete: `Real[1, 2.5]` is an instance (its elements are boxed). `Vector` alone is a `UnionAll` (the element type is missing), and `Real` is abstract."
+
+  [[check.misconception]]
+  option = 2
+  id = "abstract-param-makes-abstract"
+  feedback = "An abstract *parameter* does not make the container abstract. `Vector{Real}` is one specific concrete type."
+
+  [[check.misconception]]
+  option = 3
+  id = "unparameterized-is-concrete"
+  feedback = "`Vector` without a parameter stands for every `Vector{T}`. It is not itself a type with instances."
+
+  [[check.misconception]]
+  option = 4
+  id = "unparameterized-is-concrete"
+  feedback = "`Vector` without a parameter stands for every `Vector{T}`. It is not itself a type with instances."
+
+[[check]]
+id = "invariance"
+prompt = "What is printed?"
+code = '''
+println(Vector{Int} <: Vector{Integer}, " ", Vector{Int} <: Vector{<:Integer})
+'''
+options = ["false true", "true true", "false false", "true false"]
+answer = 1
+hint = "A `Vector{Integer}` must accept `push!(v, big(1))`. Could a `Vector{Int}` honour that promise?"
+explanation = "Parametric types are invariant: `Vector{Int}` is not a `Vector{Integer}` even though `Int <: Integer`. `Vector{<:Integer}` means \"`Vector{T}` for some `T <: Integer`\", which includes it."
+
+  [[check.misconception]]
+  option = 2
+  id = "covariant-containers"
+  feedback = "Java arrays and Python's typing for read-only sequences are covariant; Julia's parametric types are not."
+
+  [[check.misconception]]
+  option = 3
+  id = "where-syntax-unknown"
+  feedback = "`Vector{<:Integer}` is shorthand for `Vector{T} where T<:Integer`, which `Vector{Int}` belongs to."
+
+  [[check.misconception]]
+  option = 4
+  id = "covariant-containers"
+  feedback = "Both halves are backwards: invariance rejects the first, the `<:` wildcard accepts the second."
+
+[[check]]
+id = "field-types"
+prompt = "Two ways to declare a numeric field. What is printed?"
+code = '''
+struct A
+    x::Real
+end
+struct B{T<:Real}
+    x::T
+end
+println(fieldtype(A, :x), " ", fieldtype(B{Float64}, :x), " ", isconcretetype(fieldtype(A, :x)))
+'''
+options = ["Real Float64 false", "Float64 Float64 true", "Real Real false", "Real Float64 true"]
+answer = 1
+hint = "A field's type comes from the declaration (and the type parameters), never from a value stored later. What did each declaration say?"
+explanation = "`A.x` is declared `Real` for every `A`, whatever value it holds, so code reading it cannot know the concrete type. `B{Float64}.x` is `Float64` because the parameter fixes it. The checker rule JT002 points at fields like `A.x`."
+
+  [[check.misconception]]
+  option = 2
+  id = "value-determines-field-type"
+  feedback = "Storing a Float64 in `A(1.5).x` does not change the declared field type, which is still `Real`."
+
+  [[check.misconception]]
+  option = 3
+  id = "parameter-not-specialised"
+  feedback = "In `B{Float64}`, `T` is `Float64`, so the field `x::T` has type `Float64`."
+
+  [[check.misconception]]
+  option = 4
+  id = "abstract-is-concrete-at-runtime"
+  feedback = "`isconcretetype` asks about the declared type `Real`, which is abstract regardless of what is stored."

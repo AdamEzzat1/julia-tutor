@@ -1,0 +1,26 @@
+# Not yet run: written in the vertical-slice session, verify on first push (M0 DoD).
+name: CI
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      JULIA_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install juliaup and the pinned Julia
+        run: |
+          curl -fsSL https://install.julialang.org | sh -s -- --yes --default-channel "$(cat JULIA_VERSION)"
+          echo "$HOME/.juliaup/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        with:
+          path: .depot
+          key: depot-${{ hashFiles('JULIA_VERSION', 'Manifest.toml', 'projects/*/reference/Manifest.toml') }}
+      - name: Instantiate (the only networked step)
+        run: |
+          source scripts/env.sh
+          JULIA_PKG_OFFLINE=false julia_pinned --project=. -e 'using Pkg; Pkg.instantiate()'
+          for p in projects/*/reference; do JULIA_PKG_OFFLINE=false julia_pinned --project="$p" -e 'using Pkg; Pkg.instantiate()'; done
+      - name: Verify everything
+        run: scripts/verify_all.sh
