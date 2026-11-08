@@ -11,7 +11,7 @@
 module Lessons
 
 using TOML, Dates
-using ..Models, ..Runner
+using ..Models, ..Runner, ..Progress
 
 export Lesson, Check, load_lessons, verify_lessons, run_lesson, validate_lessons
 
@@ -129,16 +129,9 @@ end
 
 const LETTERS = "abcdefgh"
 
-function load_state(path::String)
-    isfile(path) ? TOML.parsefile(path) : Dict{String,Any}("kc" => Dict{String,Any}(), "items" => Dict{String,Any}())
-end
-
-function save_state(path::String, state)
-    mkpath(dirname(abspath(path)))
-    open(path, "w") do io
-        TOML.print(io, state; sorted = true)
-    end
-end
+# One state file for lessons and hole attempts (src/progress.jl).
+const load_state = Progress.load_state
+const save_state = Progress.save_state
 
 """
     run_lesson(lesson; input, output, state_path, today)

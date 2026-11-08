@@ -22,6 +22,8 @@ for p in projects/*/; do
   ./tutor holemap "$name" --check
   step "$name: measurement baseline"
   ./tutor baseline "$name" --check
+  step "$name: explain on fixtures vs golden outputs"
+  ./tutor fixtures "$name" --check
 done
 step "lesson answer keys"
 ./tutor lessons verify

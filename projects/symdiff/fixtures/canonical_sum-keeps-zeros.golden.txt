@@ -1,0 +1,26 @@
+== tutor explain: symdiff, stage 2 ==
+
+Start here: hole `canonical_sum` at src/SymDiff.jl:291
+  why: 1 of the 1 failing testsets depend on it (Ochiai 0.33); 8 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: canonical-forms.
+
+Tests: 13/14 testsets pass
+  FAIL SymDiff/canonical form: sums  [1 failed, 0 errored; depends on: canonical_sum]
+       test/runtests.jl:76 FAIL simplify(@term((3x + y) - 3x)) == y  evaluated: 0 + y == y
+
+Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
+  1. canonical_sum      0.33  implemented  failing-deps=1 passing-deps=8  src/SymDiff.jl:291
+  2. product_rule       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:438
+  3. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:558
+  4. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl:642
+  5. chain_rule         0.0   implemented  failing-deps=0 passing-deps=1  src/SymDiff.jl:464
+  6. rewrite_innermost  0.0   implemented  failing-deps=0 passing-deps=1  src/SymDiff.jl:670
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations derivative(bench): 904  (reference 904)
+  allocations evaluate(bench, Float64): 25  (reference 25)
+  allocations simplify(bench): 146  (reference 146)
+  JET: not run (pass --jet); it adds about a minute

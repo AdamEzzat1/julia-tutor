@@ -13,7 +13,7 @@ module Explain
 using TOML
 using JuliaSyntax
 const JS = JuliaSyntax
-using ..Syntax, ..Checker, ..Scaffold, ..Runner, ..Models, ..HoleMap
+using ..Syntax, ..Checker, ..Scaffold, ..Runner, ..Models, ..HoleMap, ..Progress
 
 export explain, measure, ExplainResult
 
@@ -28,8 +28,10 @@ struct HoleView
 end
 
 struct ExplainResult
-    text::String
+    text::String                                   # deterministic: goldens compare it
     exitcode::Int
+    timings::Vector{Pair{String,Float64}}          # wall-clock seconds; never in `text`
+    observations::Vector{Progress.Observation}     # for the learner model (src/progress.jl)
 end
 
 """Signature text of each hole's function in the reference: id => (file, signature)."""
@@ -80,12 +82,12 @@ function locate_holes(p::Scaffold.ProjectSpec, stage::Int, dir::String)
 end
 
 """Run the project's measure.jl in a fresh process; `nothing` if the project has none."""
-function measure(p::Scaffold.ProjectSpec, dir::String; timeout = 600)
+function measure(p::Scaffold.ProjectSpec, dir::String; jet::Bool = false, timeout = 600)
     script = joinpath(p.dir, "measure.jl")
     isfile(script) || return nothing
     out = tempname() * ".toml"
     env = Runner.julia_env(; extra_load_path = [TUTOR_ROOT])
-    _, timed_out, log = Runner.run_julia_script(script, [out]; project = abspath(dir), timeout, env)
+    _, timed_out, log = Runner.run_julia_script(script, jet ? [out, "--jet"] : [out]; project = abspath(dir), timeout, env)
     isfile(out) || return Dict{String,Any}("error" => timed_out ? "timed out" :
                                            "measurement process failed: " * first(split(strip(log) * "\n", '\n')))
     d = TOML.parsefile(out)
@@ -100,13 +102,16 @@ function read_stage(dir::String)
     return d["project"], d["stage"]
 end
 
-function explain(p::Scaffold.ProjectSpec, dir::String; hints::Int = 1, run_measurements::Bool = true)
+function explain(p::Scaffold.ProjectSpec, dir::String; hints::Int = 1, run_measurements::Bool = true,
+                 jet::Bool = false)
     _, stage = read_stage(dir)
     io = IOBuffer()
     println(io, "== tutor explain: $(p.name), stage $stage ==")
+    timings = Pair{String,Float64}[]
+    timed(f, label) = (t0 = time_ns(); r = f(); push!(timings, label => (time_ns() - t0) / 1e9); r)
 
-    rep = Runner.run_tests(dir)
-    findings = Checker.check_paths([joinpath(dir, "src")]; relative_to = dir)
+    rep = timed(() -> Runner.run_tests(dir), "tests (fresh process)")
+    findings = timed(() -> Checker.check_paths([joinpath(dir, "src")]; relative_to = dir), "static checker")
     holes = locate_holes(p, stage, dir)
     hm = HoleMap.load_holemap(p)
     deps = Dict{String,Vector{String}}()
@@ -115,7 +120,8 @@ function explain(p::Scaffold.ProjectSpec, dir::String; hints::Int = 1, run_measu
             deps[h] = String.(ts)
         end
     end
-    meas = run_measurements && isempty(rep.crash) ? measure(p, dir) : nothing
+    meas = run_measurements && isempty(rep.crash) ?
+           timed(() -> measure(p, dir; jet), jet ? "measurements incl. JET" : "measurements") : nothing
     base_path = joinpath(p.dir, "measure_baseline.toml")
     baseline = isfile(base_path) ? TOML.parsefile(base_path) : nothing
 
@@ -251,12 +257,29 @@ function explain(p::Scaffold.ProjectSpec, dir::String; hints::Int = 1, run_measu
             println(io, "  JET report_opt(evaluate): $(jet["evaluate_runtime_dispatch_reports"]) runtime-dispatch " *
                         "reports (expected: the tree's children are abstractly typed)")
         else
-            println(io, "  JET: $(get(jet, "status", "not run"))")
+            println(io, "  JET: $(get(jet, "status", "not run"))" *
+                        (startswith(get(jet, "status", ""), "not run") ? "; it adds about a minute" : ""))
+        end
+    end
+
+    # ---- learner-model observations (the caller applies them to the state) -----
+    observations = Progress.Observation[]
+    if isempty(parse_errors) && isempty(rep.crash)
+        excused = Set(t.name for t in rep.testsets
+                      if !Runner.ok(t) && t.failed == 0 && t.errored == t.todo_errors)
+        for hv in holes
+            (hv.status == "implemented" && hv.line !== nothing) || continue
+            verdict = Progress.observe(hv.id, deps, failing, hole_ids; excused)
+            verdict in (:correct, :incorrect) || continue
+            src = join(readlines(joinpath(dir, hv.file))[hv.line:hv.last_line], '\n')
+            spec = p.holes[findfirst(h -> h.id == hv.id, p.holes)]
+            push!(observations, Progress.Observation(p.name, hv.id, spec.kc, verdict === :correct,
+                                                     Progress.attempt_hash(src)))
         end
     end
 
     code = (isempty(failing) && isempty(rep.crash) && Checker.exit_code(findings) == 0) ? 0 : 1
-    return ExplainResult(String(take!(io)), code)
+    return ExplainResult(String(take!(io)), code, timings, observations)
 end
 
 end # module Explain

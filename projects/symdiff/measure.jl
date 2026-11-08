@@ -1,11 +1,11 @@
 # Measurements for the symdiff project (run in a fresh process by `tutor explain`).
-# Usage: julia --project=<pkgdir> measure.jl <out.toml>
+# Usage: julia --project=<pkgdir> measure.jl <out.toml> [--jet]
 #
 # Measured, not guessed (invariant 8):
 # * inferred return types of hole functions, from the compiler (Base.return_types);
 # * allocation counts after a warm-up call (first-call compilation excluded),
 #   single-threaded;
-# * JET's optimisation report (runtime-dispatch count) for `evaluate`, if the
+# * with --jet only: JET's runtime-dispatch report count for `evaluate`, if the
 #   pinned JET loads. JET is tied to compiler internals: on failure we report
 #   "unavailable" instead of guessing.
 
@@ -60,15 +60,20 @@ allocs["evaluate(bench, Float64)"] = measure_allocs(b -> evaluate(b, Dict(:x => 
 results["allocations"] = allocs
 BENCH === nothing || (results["bench_nodecount"] = nodecount(BENCH))
 
+# JET is opt-in (--jet): loading it dominates explain's latency.
 jet = Dict{String,Any}()
-try
-    @eval using JET
-    BENCH === nothing && error("bench could not be built (simplify raised)")
-    rep = JET.report_opt(evaluate, (typeof(BENCH), Dict{Symbol,Float64}))
-    jet["evaluate_runtime_dispatch_reports"] = length(JET.get_reports(rep))
-    jet["status"] = "ok (JET $(pkgversion(JET)))"
-catch err
-    jet["status"] = "unavailable: " * first(split(sprint(showerror, err), '\n'))
+if !("--jet" in ARGS)
+    jet["status"] = "not run (pass --jet)"
+else
+    try
+        @eval using JET
+        BENCH === nothing && error("bench could not be built (simplify raised)")
+        rep = JET.report_opt(evaluate, (typeof(BENCH), Dict{Symbol,Float64}))
+        jet["evaluate_runtime_dispatch_reports"] = length(JET.get_reports(rep))
+        jet["status"] = "ok (JET $(pkgversion(JET)))"
+    catch err
+        jet["status"] = "unavailable: " * first(split(sprint(showerror, err), '\n'))
+    end
 end
 results["jet"] = jet
 

@@ -7,7 +7,8 @@ Components: `Syntax` (JuliaSyntax helpers + scope resolver), `Checker`
 (misconception rules), `Scaffold` (holes cut from reference solutions),
 `Runner` (subprocess test runs), `Models` (BKT, SM-2, Ochiai), `Explain`
 (joins tests, findings, measurements and the test-to-hole map), `Lessons`
-(predict-the-output checks with verified answer keys).
+(predict-the-output checks with verified answer keys), `Progress` (BKT over
+time from lessons and hole attempts).
 """
 module JuliaTutor
 
@@ -28,7 +29,9 @@ include("models.jl")
 include("scaffold.jl")
 include("runner.jl")
 include("holemap.jl")
+include("progress.jl")
 include("explain.jl")
+include("fixtures.jl")
 include("lessons.jl")
 
 end # module

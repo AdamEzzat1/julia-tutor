@@ -21,6 +21,7 @@ struct TestsetResult
     passed::Int
     failed::Int
     errored::Int
+    todo_errors::Int             # how many of the errors are a hole's TODO(hole:...) error
     messages::Vector{String}
     holes::Vector{String}        # hole ids seen in TODO(hole:...) errors
 end
@@ -101,7 +102,7 @@ function run_tests(pkgdir::AbstractString; timeout::Real = 600)
     end
     d = TOML.parsefile(out)
     rm(out; force = true)
-    sets = [TestsetResult(t["name"], t["passed"], t["failed"], t["errored"],
+    sets = [TestsetResult(t["name"], t["passed"], t["failed"], t["errored"], t["todo_errors"],
                           String.(t["messages"]), String.(t["holes"])) for t in d["testsets"]]
     return TestReport(sets, d["crash"], timed_out, log)
 end

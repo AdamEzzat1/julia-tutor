@@ -13,7 +13,10 @@ source scripts/env.sh                       # pins depot, threads, offline Pkg; 
 ./tutor scaffold symdiff [--check]          # (re)generate / diff starter stages
 ./tutor start symdiff 1 work/s1             # copy a stage to work on (work/ is gitignored)
 ./tutor test work/s1                        # per-testset results
-./tutor explain symdiff work/s1 --hints=1   # tests + findings + measurements + where to start
+./tutor explain symdiff work/s1 --hints=1   # tests + findings + measurements + where to start;
+                                            # records attempts in .tutor/state.toml (--no-record), --jet adds JET
+./tutor progress                            # learner model: BKT per KC, hole attempts, reviews due
+./tutor fixtures symdiff [--check]          # explain on buggy fixtures vs golden outputs (~45 s)
 ./tutor holemap symdiff [--check]           # measured test->hole map + mutation tests (slow, ~5 min)
 ./tutor baseline symdiff [--check]          # measurements of the reference
 ./tutor lessons verify                      # run every lesson snippet on the pinned Julia
@@ -37,11 +40,14 @@ src/checker.jl, src/rules/    checker core + one file per rule (JT001-JT007)
 src/scaffold.jl               holes cut from reference by `# HOLE: id` markers
 src/runner.jl, src/child/     fresh-process test runs (NOT a sandbox, see M3)
 src/holemap.jl                measured test->hole map + mutation testing
-src/explain.jl                the explain step
+src/explain.jl                the explain step (deterministic text + timings + observations)
+src/progress.jl               learner model over time: hole-attempt evidence, BKT, `tutor progress`
+src/fixtures.jl               explain fixtures and golden outputs
 src/models.jl                 BKT, SM-2, Ochiai (pure functions)
 src/lessons.jl, lessons/      predict-the-output lessons, verified keys
 projects/symdiff/             reference/ (package), holes.toml, measure.jl,
                               holemap.toml + measure_baseline.toml (generated),
+                              fixtures.toml + fixtures/*.golden.txt (generated),
                               starter/stageN (generated, never hand-edited)
 docs/DESIGN.md                the four questions, project choice, instability list
 ```
@@ -59,6 +65,7 @@ milestone's PR description (template at the end).
 | Symbolic AI engineer | Symbolic projects: term representation, unification, rewriting/simplification, search, termination and confluence arguments | A rewrite system has no termination argument; a "prover"/"planner" claim isn't backed by a soundness test on known cases |
 | Numerical analyst / scientific computing engineer | Scientific projects: algorithms, tolerances, convergence tests, conservation checks, floating-point honesty | A tolerance is picked to make a test pass rather than derived; a test compares floats with `==`; a "correct" solver isn't checked for its convergence order |
 | PL / static-analysis engineer | Checker rules on JuliaSyntax trees, scope resolution, use of JET results, the scaffolder | A rule matches text instead of tree/scope; a rule claims type knowledge only inference can give; a rule has no negative test |
+| Scientific ML engineer (from M10) | The ude project: UDE structure, adjoint method choice, AD backend, training protocol | The AD backend or `sensealg` is left to a default; a fit tolerance is called "derived" when it was calibrated; a test asserts behaviour outside the training range; gradients aren't cross-checked by a second method |
 | Performance & runtime engineer | Allocation and type-stability measurement: `@allocated`, `@inferred`, JET `report_opt`, AllocCheck, thread and BLAS counts | A performance "finding" is inferred where it could be measured; a verdict depends on first-call compilation, thread count or BLAS threads |
 | Test engineer | Tests as the specification, mutation testing, fixed RNG and thread count | A test checks code shape instead of behaviour; a hole passes with a trivial body; a stochastic test can flake |
 | Sandbox / security engineer | Running untrusted student code safely | Any path executes student code outside the sandbox; `ccall`, `run`, Libdl, Pkg, network, eval-generated escapes aren't contained by the OS sandbox (not just a static ban) |
@@ -135,10 +142,13 @@ every role above has had the chance to object (recorded in the PR).
   style tests; 2 lessons with verified keys; explain step; BKT, SM-2, Ochiai.
   *DoD:* `verify_all.sh` green; holemap shows every hole is depended on and every
   trivial body is caught.
-* **M2 Explain and learner model:** BKT per hole KC from test outcomes over
-  time; `tutor progress`; explain fixtures for every hole (at least one buggy
-  student version each) with golden outputs; latency report in explain.
-  *DoD:* golden-output tests; learning scientist signs off hint wording.
+* **M2 Explain and learner model (done except the human sign-off):** BKT per
+  hole KC from test outcomes over time (one observation per distinct version of
+  a hole, unambiguous evidence only: `src/progress.jl`); `tutor progress`; 7
+  explain fixtures (every hole, plus a parse error) with golden outputs checked
+  by `tutor fixtures --check` in `verify_all.sh`; latency report in explain;
+  JET opt-in (`--jet`). *DoD:* golden-output tests (done); learning scientist
+  signs off hint wording (**pending: needs a human reviewer**).
 * **M3 Sandbox:** bubblewrap on Linux, Docker elsewhere (DESIGN.md §4); read-only
   depot; writable tmpfs first depot entry; no network; cgroup limits. *DoD:* the
   escape suite (DESIGN.md §4) is contained, in CI; invariant 7 enforced (the
@@ -159,7 +169,24 @@ every role above has had the chance to object (recorded in the PR).
 * **M7 Latency:** PackageCompiler sysimage with Test, TOML and the runner child.
   *DoD:* measured before/after numbers in the PR; adopted only if it helps.
 * **M8 Julia upgrade rehearsal** (procedure above), to the next LTS when it exists.
-* **M9+ datalog, fvsolve, mcmc (StableRNGs.jl justified there), capstone bridge.**
+* **M9 Third project: qsim (state-vector simulator, LinearAlgebra only).**
+  *DoD:* norm preservation to a derived `c·g·eps`, gate identities, Bell/GHZ,
+  QFT vs the explicit DFT matrix (n ≤ 6), dense `kron` oracle (n ≤ 5); ≥ 5 holes
+  over ≥ 2 stages with zero-allocation kernels measured; a separate pinned
+  `projects/qsim/crosscheck/` environment (Yao 0.9.3) agreeing on seeded random
+  circuits with the qubit-order mapping stated; a benchmark *report* (not a
+  test); a lesson on qubit endianness.
+* **M10 Fourth project: ude (universal differential equation, SciML).**
+  Requires M4 (the student's odeint) and M7 (latency). *DoD:* every package
+  justified in the PR (OrdinaryDiffEq, SciMLSensitivity, one AD backend, Lux,
+  Optimization, StableRNGs), with measured Manifest size, precompile and load
+  time; AD backend and `sensealg` pinned explicitly; gradients checked adjoint vs
+  forward AD vs central differences with derived tolerances; a hand-written
+  adjoint hole matching SciMLSensitivity; stiffness measured (step counts);
+  invariant 9 amended in this PR for *calibrated* fit tolerances (seed set and
+  failure rate stated); simulated data only; no extrapolation asserted.
+* **M11+ datalog, fvsolve, mcmc (StableRNGs.jl justified there or in M10),
+  capstone bridge.**
 
 ## Known gaps (be honest about them in reports)
 
@@ -169,7 +196,13 @@ every role above has had the chance to object (recorded in the PR).
   that, explain prints "unavailable" and must not guess.
 * Ochiai's spectrum is the measured test-to-hole map, not line coverage.
 * Latency (measured, DESIGN.md §4): `tutor test` 15–17 s, `tutor explain`
-  ~110 s (mostly JET in the measurement process). Too slow for a tight loop: M7.
+  ~20 s without JET (the default), ~110 s with `--jet`. M7 aims lower.
+* Golden outputs pin allocation counts and inferred types measured on Windows;
+  they should hold on Linux on the same Julia, but that is unverified until CI
+  runs.
+* BKT parameters for hole attempts are priors (`Progress.CODE_BKT`), not fitted
+  (fitting is M6). Mastery from code is coarse: one observation per distinct
+  attempt per hole, and failures shared between holes are not recorded at all.
 * The allocation bench is built by the student's own `simplify`; explain only
   compares with the reference when `bench_nodecount` matches the baseline.
 * Pattern matching in symdiff is positional (no AC matching); documented in

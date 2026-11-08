@@ -15,20 +15,98 @@ not order systems.
 |---|---|---|---|---|---|
 | 1 | **symdiff**: symbolic differentiation + canonical simplifier + term rewriting with a termination measure (built) | Symbolic AI | Multiple dispatch for per-node rules (`deriv(::Mul)`, `dfn(::typeof(sin), u)`), parametric `Fn{F}`, `Expr` → term via a macro | Exact rational evaluation against known derivatives; idempotence and order-independence over an exhaustive small-term enumeration; soundness of rules on known cases; `is_size_decreasing` proves termination | Exact arithmetic, no RNG |
 | 2 | **odeint**: adaptive Dormand–Prince 5(4) with step control and dense output | Scientific | Generic over number types (Float64, BigFloat, dual numbers) without code changes; zero-allocation inner loop is measurable | Fitted convergence order of the fixed-step method (slope 5 ± 0.15 in the asymptotic regime); global error proportional to tolerance; energy drift on Kepler grows linearly (non-symplectic), not exponentially; exact solutions for linear systems | No RNG; tolerances derived from the method's error constant |
-| 3 | **datalog**: Datalog with semi-naive evaluation and stratified negation | Symbolic AI | Dispatch on literal kinds, `Set{Tuple}` relations, a macro for rules | Naive and semi-naive evaluation give the same model; transitive closure on known graphs; unstratifiable programs rejected | Relations are sets; output sorted |
-| 4 | **fvsolve**: finite-volume advection/heat in 1-D/2-D with flux limiters | Scientific | Column-major loops, `@views`, broadcast fusion; allocation counts matter | Mass conserved to `n·eps·|mass|`; 2nd-order convergence on smooth data, 1st near shocks; TVD property of the limiter; CFL violations detected | No RNG |
-| 5 | **mcmc**: Metropolis–Hastings and HMC on known targets | Scientific / statistical | Generic log-densities, multiple dispatch on proposal kinds | Fixed-seed reproducibility of the whole chain; posterior means within k·MCSE (ESS-based) with a stated flake probability; detailed balance on a discrete target, checked exactly | Needs a version-stable RNG: StableRNGs.jl earns its place here |
+| 3 | **qsim**: state-vector quantum circuit simulator from scratch, then cross-checked and benchmarked against Yao.jl | Scientific (quantum) | Strided bit-twiddling kernels over `Vector{ComplexF64}` without building `2^n × 2^n` matrices; dispatch on gate types (`apply!(ψ, ::H, q)`); generic over `ComplexF32`/`ComplexF64` | Unit norm preserved to `c·g·eps` after `g` gates; gate identities (`HZH = X`, `CNOT² = I`); Bell/GHZ amplitudes; the QFT circuit equals the explicit DFT matrix for n ≤ 6; agreement with a dense `kron` oracle for n ≤ 5; agreement with Yao on seeded random circuits (separate environment) | Exact probabilities in tests; sampling only with StableRNGs and a stated false-failure probability |
+| 4 | **ude**: universal differential equation (known physics + learned neural correction) fit to simulated data, on the SciML stack (OrdinaryDiffEq, SciMLSensitivity) | Scientific ML | The place Julia's ecosystem is clearly ahead: adjoint sensitivities, stiff solvers and AD composed in one stack | Gradients: adjoint vs forward-mode AD vs central differences, tolerance derived (see Bridge); the student's hand-written adjoint for a 2-parameter correction matches SciMLSensitivity; stiffness *measured* (explicit-solver step count on Robertson vs an implicit solver); recovery of a known missing term on simulated data, on the training range only | Fixed StableRNG for noise and weight init; fit tolerances are *calibrated*, not derived (see below) |
+| 5 | **datalog**: Datalog with semi-naive evaluation and stratified negation | Symbolic AI | Dispatch on literal kinds, `Set{Tuple}` relations, a macro for rules | Naive and semi-naive evaluation give the same model; transitive closure on known graphs; unstratifiable programs rejected | Relations are sets; output sorted |
+| 6 | **fvsolve**: finite-volume advection/heat in 1-D/2-D with flux limiters | Scientific | Column-major loops, `@views`, broadcast fusion; allocation counts matter | Mass conserved to `n·eps·|mass|`; 2nd-order convergence on smooth data, 1st near shocks; TVD property of the limiter; CFL violations detected | No RNG |
+| 7 | **mcmc**: Metropolis–Hastings and HMC on known targets | Scientific / statistical | Generic log-densities, multiple dispatch on proposal kinds | Fixed-seed reproducibility of the whole chain; posterior means within k·MCSE (ESS-based) with a stated flake probability; detailed balance on a discrete target, checked exactly | Needs a version-stable RNG: StableRNGs.jl earns its place here |
 
 Other candidates considered: a STRIPS/PDDL-lite planner with A* (good for
 admissibility proofs, overlaps with datalog for search), a DPLL SAT solver
 (excellent tests, little that is Julia-specific), N-body with a symplectic
 integrator (good conservation tests; folded into odeint as a later stage).
 
-**Order: symdiff, then odeint.** symdiff first because its correctness is exact
-(no tolerance authoring on day one), it teaches the core language ideas
-(dispatch, parametric types, `Expr`, immutability, `==`/`hash`), and its
-termination and soundness questions are real symbolic-AI content. odeint second
-because it is the cleanest early test of numerical honesty.
+**Order: symdiff, odeint, qsim, ude; then datalog, fvsolve, mcmc.** symdiff
+first because its correctness is exact (no tolerance authoring on day one), it
+teaches the core language ideas (dispatch, parametric types, `Expr`,
+immutability, `==`/`hash`), and its termination and soundness questions are
+real symbolic-AI content. odeint second because it is the cleanest early test
+of numerical honesty. qsim third: stdlib-only, nearly exact, cheap to author,
+and its kernels are where allocation and type-stability measurement pays off.
+ude fourth, deliberately after odeint and after the latency milestone (M7): a
+student who has written an adaptive Runge–Kutta solver understands what
+`solve` and an adjoint are doing, and SciML's load time would otherwise make
+the edit-test loop unusable.
+
+### qsim: scope and honest limits
+
+* **Student package: LinearAlgebra only.** Holes: a single-qubit gate on qubit
+  `k` as a strided pair loop (no `kron`), controlled gates via bit masks,
+  measurement with collapse and renormalisation, the QFT as a circuit, and the
+  expectation of a Pauli string without forming its matrix.
+* **Yao lives in a separate, pinned cross-check environment**
+  (`projects/qsim/crosscheck/`). Yao 0.9.3 declares Julia 1.10 support in the
+  registry; a joint resolve is **unverified**. The student package never depends
+  on it; `tutor` runs it as a measurement, like JET: seeded random circuits,
+  compared amplitude by amplitude to `c·g·eps`.
+* **Qubit ordering is the trap.** Yao numbers qubits little-endian (qubit 1 is
+  the least significant bit of the index; to be confirmed on the pinned version
+  when the environment is built), while textbooks write `|q₁q₂…⟩` big-endian.
+  The cross-check maps conventions explicitly, and it becomes a lesson ("which
+  index holds the amplitude of |10⟩?") with endianness as the misconception.
+* **Benchmarks are a report, not a test** (invariant 3: no clocks in tests):
+  single-threaded, machine named, labelled nondeterministic. Expect Yao to be
+  faster (specialised kernels, years of tuning). The lesson is *why*
+  (allocation, branch-free bit tricks, SIMD), not winning.
+* **Black Opal study and the quantum game stay outside the tutor.** The
+  simulator can later export circuits and target states (e.g. states reachable
+  in k Clifford gates, found by breadth-first search) for the game. That is an
+  export format, not a tutor feature, and it is not planned here.
+
+### ude: scope, costs, and what must not be oversold
+
+* **"Julia is clearly ahead" is fair for this stack.** SciMLSensitivity offers
+  many adjoint methods (backsolve, interpolating, quadrature, checkpointing)
+  that compose with stiff solvers and several AD backends. **"No real
+  equivalent in Rust" is too strong:** Rust has ODE crates with sensitivity
+  support (e.g. diffsol), just nothing I know of with this breadth wired to
+  neural-network libraries (**unverified survey**; nothing benchmarked).
+* **Use the sub-packages, not the `DifferentialEquations` umbrella**, which
+  pulls in SDE/DDE/jump solvers the project never uses: OrdinaryDiffEq 7.8.1,
+  SciMLSensitivity 7.119.14, one pinned AD backend, Lux 1.31.5, Optimization
+  5.9.1 plus one optimiser package, StableRNGs 1.1.0. These are the newest
+  versions whose registry metadata declares Julia 1.10 support (checked
+  2026-11-08 from the local registry snapshot). This breaks the stdlib-only
+  default on purpose: the milestone PR justifies each package and records the
+  *measured* Manifest size, precompile time and load time. None is measured
+  yet; expect them to dominate every other cost in the repo.
+* **AD-backend churn is the main instability.** Zygote 0.7.16 is in
+  maintenance mode; Enzyme 0.13.219 is fast but tied to LLVM and Julia internals
+  and can break on a patch release; SciMLSensitivity's default `sensealg` has
+  changed between releases. The reference and the tests pin the backend and
+  `sensealg` explicitly and never rely on defaults.
+* **Make it teach adjoints, not just call them.** Holes:
+  * the UDE right-hand side (in place, zero allocations, measured);
+  * the loss over a `solve`;
+  * a hand-written continuous adjoint for a 2-parameter correction, solved
+    backwards with the student's own odeint and checked against
+    SciMLSensitivity;
+  * diagnosing stiffness (measure explicit-solver steps on Robertson, then switch
+    to an implicit solver);
+  * optionally, sparse regression (STLSQ, by hand) that turns the learned
+    correction back into a symbolic term printed by symdiff.
+* **Training forces an invariant-9 amendment, made in the ude milestone and not
+  before.** A fitted network's error has no a-priori bound. Tests derive
+  tolerances wherever one exists (gradients, solver accuracy, the hand adjoint).
+  For fit quality, they use a tolerance *calibrated* over a stated seed set,
+  with a stated failure rate, and the test says "calibrated". Fit quality is
+  asserted only on the training range; extrapolation is shown in a lesson, never
+  asserted.
+* **Simulated data only in tests** (known ground truth). Real data may appear
+  in a lesson or a stretch goal, never as a pass/fail criterion.
+* **Authoring cost: the most expensive project here.** Every tolerance needs a
+  derivation or a calibration run, CI grows by the SciML precompile, and a Julia
+  or package upgrade (M8) will most likely break this project first.
 
 **Bridge (symbolic Jacobian → implicit/Rosenbrock solver, checked against
 finite differences): worth it, but as a later capstone, not as a coupling between
@@ -170,9 +248,10 @@ Plan (milestone M3):
 running, wall clock, 2026-11-08): bare `julia -e 1` ~1 s; `tutor check` on the
 reference 3 s; the symdiff reference suite 6.9 s of test time inside a 9 s
 process; `tutor test` on the stage-1 starter 15–17 s end to end (tutor process +
-child, dominated by compiling SymDiff and its tests); `tutor explain` 109 s, of
-which most is the measurement process loading JET and running `report_opt`
-(`--no-measure` skips it). `tutor holemap` (22 variants, 4 at a time) ~5.5 min;
+child, dominated by compiling SymDiff and its tests); `tutor explain` 109 s with JET, of
+which most is the measurement process loading JET and running `report_opt`.
+JET is now opt-in (`--jet`, M2): explain takes ~20 s without it (tests 8.6–9.7 s,
+checker 1 s, measurements the rest). `tutor holemap` (22 variants, 4 at a time) ~5.5 min;
 `verify_all.sh` ~18 min. Too slow for an edit-test loop at the explain level:
 that is what M7 (and making JET opt-in) must fix. Options:
 * **fresh process per run (chosen now):** isolation and determinism for free;

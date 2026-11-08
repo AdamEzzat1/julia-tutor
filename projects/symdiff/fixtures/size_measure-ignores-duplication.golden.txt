@@ -1,0 +1,23 @@
+== tutor explain: symdiff, stage 1 ==
+
+Start here: hole `size_measure` at src/SymDiff.jl:642
+  why: 1 of the 1 failing testsets depend on it (Ochiai 0.71); 1 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: termination-measure.
+
+Tests: 13/14 testsets pass
+  FAIL SymDiff/termination measure  [1 failed, 0 errored; depends on: size_measure]
+       test/runtests.jl:210 FAIL !(is_size_decreasing(@rule(sin(cos(exp(~a))) => ~a + ~a)))
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. size_measure       0.71  implemented  failing-deps=1 passing-deps=1  src/SymDiff.jl:642
+  2. product_rule       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:438
+  3. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:558
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations derivative(bench): 904  (reference 904)
+  allocations evaluate(bench, Float64): 25  (reference 25)
+  allocations simplify(bench): 146  (reference 146)
+  JET: not run (pass --jet); it adds about a minute

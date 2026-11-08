@@ -1,0 +1,17 @@
+== tutor explain: symdiff, stage 1 ==
+
+Start here: src/SymDiff.jl:681:14: the file does not parse (parse error: Expected `end`).
+  Nothing else can be checked until it does.
+
+Tests: 0/0 testsets pass; crash: LoadError: Failed to precompile SymDiff [5b2f0d8e-6a3c-4f71-b1e9-3c8d7a2e4f60].
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. product_rule       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl
+  2. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl
+  3. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl
+
+Static findings (1):
+  src/SymDiff.jl:681:14: ERROR JT000 parse error: Expected `end`
+
+Measurements (fresh process, 1 thread, after warm-up):
+  skipped (test run crashed)

@@ -4,7 +4,7 @@
 using Test, TOML, Dates
 using JuliaSyntax
 using JuliaTutor
-using JuliaTutor: Syntax, Checker, Models, Scaffold, Runner, Explain, Lessons, HoleMap
+using JuliaTutor: Syntax, Checker, Models, Scaffold, Runner, Explain, Lessons, HoleMap, Progress, Fixtures
 
 const ROOT = JuliaTutor.ROOT
 const FAST = get(ENV, "TUTOR_FAST", "0") == "1"
@@ -211,6 +211,69 @@ end
     @test saved["items"]["L01-dispatch/runtime-types"]["repetitions"] == 0 # quality 1
     @test saved["items"]["L01-dispatch/runtime-types"]["due"] == "2026-11-09"
     @test 0 < saved["kc"]["multiple-dispatch"] < 1
+end
+
+@testset "learner model: evidence from hole attempts" begin
+    deps = Dict("a" => ["T1", "T2"], "b" => ["T2", "T3"], "c" => String[])
+    stage = ["a", "b", "c"]
+    @test Progress.observe("a", deps, Set{String}(), stage) == :correct
+    @test Progress.observe("a", deps, Set(["T1"]), stage) == :incorrect     # T1 depends on a only
+    @test Progress.observe("a", deps, Set(["T2"]), stage) == :ambiguous     # T2 is shared with b
+    @test Progress.observe("b", deps, Set(["T2", "T3"]), stage) == :incorrect
+    @test Progress.observe("c", deps, Set(["T1"]), stage) == :no_evidence   # no dependent testset
+    # A hole of a later stage is not a competing explanation at this stage.
+    @test Progress.observe("a", deps, Set(["T2"]), ["a"]) == :incorrect
+    # T2 fails only through b's TODO error: excused, so a's fix is credited ...
+    @test Progress.observe("a", deps, Set(["T2"]), stage; excused = Set(["T2"])) == :correct
+    # ... but an excused testset is never the only evidence.
+    @test Progress.observe("b", Dict("b" => ["T2"]), Set(["T2"]), ["b"]; excused = Set(["T2"])) == :no_evidence
+
+    @test Progress.attempt_hash("x = 1\n  y") == Progress.attempt_hash("x=1 y")   # whitespace-insensitive
+    @test Progress.attempt_hash("x = 1") != Progress.attempt_hash("x = 2")
+
+    # BKT with CODE_BKT (p_guess 0.05, p_slip 0.15, p_learn 0.15) from the 0.2 prior,
+    # hand-computed: incorrect -> 0.0379747 + 0.9620253 * 0.15 = 0.1822785;
+    # correct -> 0.8095238 + 0.1904762 * 0.15 = 0.8380952.
+    state = Dict{String,Any}()
+    o1 = Progress.Observation("symdiff", "product_rule", "kc1", false, "h1")
+    lines = Progress.apply_observations!(state, [o1])
+    @test isapprox(state["kc"]["kc1"], 0.1822785; atol = 1e-6)
+    @test occursin("attempt 1, incorrect", only(lines))
+    # The same code again is not new evidence (no mastery inflation by re-running).
+    lines = Progress.apply_observations!(state, [o1])
+    @test occursin("not counted again", only(lines))
+    @test isapprox(state["kc"]["kc1"], 0.1822785; atol = 1e-6)
+    @test state["holes"]["symdiff/product_rule"]["attempts"] == 1
+    st2 = Dict{String,Any}()
+    Progress.apply_observations!(st2, [Progress.Observation("symdiff", "product_rule", "kc1", true, "h2")])
+    @test isapprox(st2["kc"]["kc1"], 0.8380952; atol = 1e-6)
+
+    # The progress report is deterministic given state and date.
+    state["items"] = Dict{String,Any}("L01-dispatch/specificity" => Dict("due" => "2026-11-08"),
+                                      "L01-dispatch/ambiguity" => Dict("due" => "2026-11-20"))
+    rep = Progress.format_progress(state; today = Date(2026, 11, 8))
+    @test rep == Progress.format_progress(deepcopy(state); today = Date(2026, 11, 8))
+    @test occursin("symdiff/product_rule", rep) && occursin("attempts 1, correct 0, last incorrect", rep)
+    @test occursin("L01-dispatch/specificity (due 2026-11-08)", rep)
+    @test !occursin("L01-dispatch/ambiguity (due", rep)
+end
+
+@testset "explain fixtures: structure" begin
+    fx = Fixtures.load_fixtures(SYMDIFF)
+    @test Fixtures.validate_fixtures(SYMDIFF, fx) == String[]
+    @test Set(f.hole for f in fx) ⊇ Set(h.id for h in SYMDIFF.holes)          # every hole has one
+    @test all(f -> isfile(Fixtures.golden_path(SYMDIFF, f)), fx)
+    # Each fixture's body really differs from the reference body (it is a bug).
+    # (Compared with the reference materialised the same way: markers stripped.)
+    refdir = HoleMap.materialize(SYMDIFF, Dict{String,String}())
+    ref = read(joinpath(refdir, "src", "SymDiff.jl"), String)
+    rm(refdir; recursive = true)
+    @test all(fx) do f
+        dir = Fixtures.materialize(SYMDIFF, f)
+        changed = read(joinpath(dir, "src", "SymDiff.jl"), String) != ref
+        rm(dir; recursive = true)
+        changed
+    end
 end
 
 if !FAST

@@ -1,0 +1,27 @@
+== tutor explain: symdiff, stage 2 ==
+
+Start here: hole `rewrite_innermost` at src/SymDiff.jl:670
+  why: 1 of the 1 failing testsets depend on it (Ochiai 1.0).
+  Read its docstring: it is the specification. Knowledge component: rewriting-strategy.
+
+Tests: 13/14 testsets pass
+  FAIL SymDiff/rewriting  [2 failed, 0 errored; depends on: canonical_sum, pvar_binding, rewrite_innermost]
+       test/runtests.jl:197 FAIL rewrite(@term(x * (y + (z + w))), [R_DIST]) == @term(x * y + (x * z + x * w))  evaluated: x * y + x * (z + w) == x * y + (x * z + x * w)
+       test/runtests.jl:201 FAIL rewrite(@term(x + y), [R_COMM]; maxsteps = 100)  evaluated: ErrorException
+
+Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
+  1. rewrite_innermost  1.0   implemented  failing-deps=1 passing-deps=0  src/SymDiff.jl:670
+  2. pvar_binding       0.58  implemented  failing-deps=1 passing-deps=2  src/SymDiff.jl:558
+  3. canonical_sum      0.33  implemented  failing-deps=1 passing-deps=8  src/SymDiff.jl:291
+  4. product_rule       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:438
+  5. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl:642
+  6. chain_rule         0.0   implemented  failing-deps=0 passing-deps=1  src/SymDiff.jl:464
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations derivative(bench): 904  (reference 904)
+  allocations evaluate(bench, Float64): 25  (reference 25)
+  allocations simplify(bench): 146  (reference 146)
+  JET: not run (pass --jet); it adds about a minute

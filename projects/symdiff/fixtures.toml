@@ -1,0 +1,142 @@
+# Explain fixtures for symdiff: realistic buggy student versions, one bug each.
+#
+# Each fixture is the reference with exactly one hole replaced by `body`, at
+# starter `stage` (so the other holes are correct: the fixture isolates one
+# misconception). `tutor fixtures symdiff` runs explain on each and writes
+# fixtures/<name>.golden.txt; `--check` re-runs and diffs (verify_all.sh).
+#
+# expect_start: what explain's "Start here" must name: a hole id, or "JT000"
+# for a parse error. This is the behavioural claim; the golden pins the rest.
+# Unlike holes.toml's `trivial` bodies (mutants that only have to fail a test),
+# these are what a student plausibly writes, tied to a named misconception.
+
+[[fixture]]
+name = "product_rule-aliasing"
+hole = "product_rule"
+stage = 1
+expect_start = "product_rule"
+misconception = "assignment-copies-arrays"
+description = "`factors = t.args` is believed to copy; it aliases, so every summand writes into the input"
+body = """
+summands = Term[]
+for i in eachindex(t.args)
+    factors = t.args
+    factors[i] = deriv(t.args[i], x)
+    push!(summands, Mul(copy(factors)))
+end
+return Add(summands)
+"""
+
+[[fixture]]
+name = "pvar_binding-mutates-bindings"
+hole = "pvar_binding"
+stage = 1
+expect_start = "pvar_binding"
+misconception = "mutating-arguments-is-harmless"
+description = "extends `b` in place, so a failed branch of a match leaves bindings behind"
+body = """
+if haskey(b, p.name)
+    return b[p.name] == t ? b : nothing
+end
+b[p.name] = t
+return b
+"""
+
+[[fixture]]
+name = "size_measure-ignores-duplication"
+hole = "size_measure"
+stage = 1
+expect_start = "size_measure"
+misconception = "rule-size-is-instance-size"
+description = "checks that rhs variables occur in lhs, not how often: `f(~u) => g(~u, ~u)` is accepted"
+body = """
+nodecount(r.lhs) > nodecount(r.rhs) || return false
+lhs_vars = varcounts(r.lhs)
+return all(v -> haskey(lhs_vars, v), keys(varcounts(r.rhs)))
+"""
+
+[[fixture]]
+name = "product_rule-parse-error"
+hole = "product_rule"
+stage = 1
+expect_start = "JT000"
+misconception = "none (syntax)"
+description = "a `for` without its `end`: nothing else can be checked until the file parses"
+body = """
+summands = Term[]
+for i in eachindex(t.args)
+    factors = copy(t.args)
+    factors[i] = deriv(t.args[i], x)
+    push!(summands, Mul(factors))
+return Add(summands)
+"""
+
+[[fixture]]
+name = "canonical_sum-keeps-zeros"
+hole = "canonical_sum"
+stage = 2
+expect_start = "canonical_sum"
+misconception = "canonical-form-is-just-sorting"
+description = "collects like terms but keeps summands whose coefficient cancels to 0 (`x - x` stays `0x`)"
+body = """
+flat = Term[]
+for a in args
+    a isa Add ? append!(flat, a.args) : push!(flat, a)
+end
+c = 0 // 1
+parts = Tuple{Term,Rational{Int}}[]
+for a in flat
+    if a isa Const
+        c += a.val
+    else
+        k, rest = coeff_and_rest(a)
+        push!(parts, (rest, k))
+    end
+end
+sort!(parts; by = first)
+summands = Term[]
+i = firstindex(parts)
+while i <= lastindex(parts)
+    rest, k = parts[i]
+    j = i + 1
+    while j <= lastindex(parts) && parts[j][1] == rest
+        k += parts[j][2]
+        j += 1
+    end
+    push!(summands, isone(k) ? rest : mk_mul(Term[Const(k), rest]))
+    i = j
+end
+isempty(summands) && return Const(c)
+iszero(c) && length(summands) == 1 && return summands[1]
+return Add(iszero(c) ? summands : Term[Const(c); summands])
+"""
+
+[[fixture]]
+name = "chain_rule-missing-inner"
+hole = "chain_rule"
+stage = 2
+expect_start = "chain_rule"
+misconception = "chain-rule-outer-only"
+description = "returns f'(u) and forgets the factor du/dx"
+body = """
+return dfn(func(t), t.arg)
+"""
+
+[[fixture]]
+name = "rewrite_innermost-single-pass"
+hole = "rewrite_innermost"
+stage = 2
+expect_start = "rewrite_innermost"
+misconception = "one-pass-reaches-normal-form"
+description = "applies a rule once at the root but does not rewrite the result again"
+body = """
+t = map_children(c -> rewrite_budgeted!(budget, c, rules), t)
+for r in rules
+    b = match_pattern(r.lhs, t)
+    b === nothing && continue
+    budget[] -= 1
+    budget[] < 0 && error("rewrite: step budget exhausted")
+    return substitute(r.rhs, b)
+end
+return t
+"""
