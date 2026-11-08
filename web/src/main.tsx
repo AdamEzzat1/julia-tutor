@@ -1,0 +1,32 @@
+import { StrictMode, type ComponentType } from "react";
+import { createRoot } from "react-dom/client";
+import "./styles.css";
+import { ExplainView } from "./views/Explain";
+import { HeroView } from "./views/Hero";
+import { HoleMapView } from "./views/HoleMap";
+import { LessonsView } from "./views/Lessons";
+import { RulesView } from "./views/Rules";
+
+// Quarto pages contain <div class="jt-mount" data-view="..."></div>; one bundle
+// serves every page and mounts the view each one asks for.
+const VIEWS: Record<string, ComponentType> = {
+  hero: HeroView,
+  lessons: LessonsView,
+  explain: ExplainView,
+  holemap: HoleMapView,
+  rules: RulesView,
+};
+
+for (const el of document.querySelectorAll<HTMLElement>(".jt-mount")) {
+  const View = VIEWS[el.dataset.view ?? ""];
+  if (!View) {
+    el.textContent = `Unknown view: ${el.dataset.view}`;
+    continue;
+  }
+  el.classList.add("jt");
+  createRoot(el).render(
+    <StrictMode>
+      <View />
+    </StrictMode>,
+  );
+}

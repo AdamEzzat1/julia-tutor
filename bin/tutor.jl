@@ -13,9 +13,10 @@
 #   tutor lessons verify                      run every lesson snippet, check keys
 #   tutor lesson <id> [--state=path]          take a lesson interactively
 #   tutor rules                               list rules with FP risk and hints
+#   tutor site-data [--check]                 export site/data/tutor.json for the website
 
 using JuliaTutor
-using JuliaTutor: Checker, Scaffold, Runner, HoleMap, Explain, Lessons, Progress, Fixtures
+using JuliaTutor: Checker, Scaffold, Runner, HoleMap, Explain, Lessons, Progress, Fixtures, SiteData
 using TOML, Dates
 
 const ROOT = JuliaTutor.ROOT
@@ -92,6 +93,20 @@ function cmd_explain(args)
         println("  ", rpad(label, 26), round(s; digits = 1), " s")
     end
     return r.exitcode
+end
+
+function cmd_site_data(args)
+    text = SiteData.to_json(SiteData.site_data())
+    path = joinpath(ROOT, "site", "data", "tutor.json")
+    if hasflag(args, "check")
+        same = isfile(path) && read(path, String) == text
+        println(same ? "site/data/tutor.json is up to date" : "site/data/tutor.json is stale: run `tutor site-data`")
+        return same ? 0 : 1
+    end
+    mkpath(dirname(path))
+    write(path, text)
+    println("wrote site/data/tutor.json ($(length(text)) bytes)")
+    return 0
 end
 
 function cmd_progress(args)
@@ -198,7 +213,8 @@ end
 const COMMANDS = Dict("check" => cmd_check, "scaffold" => cmd_scaffold, "start" => cmd_start,
                       "test" => cmd_test, "explain" => cmd_explain, "holemap" => cmd_holemap,
                       "baseline" => cmd_baseline, "lessons" => cmd_lessons, "lesson" => cmd_lesson,
-                      "rules" => cmd_rules, "progress" => cmd_progress, "fixtures" => cmd_fixtures)
+                      "rules" => cmd_rules, "progress" => cmd_progress, "fixtures" => cmd_fixtures,
+                      "site-data" => cmd_site_data)
 
 function main(args)
     JuliaTutor.check_julia_version()

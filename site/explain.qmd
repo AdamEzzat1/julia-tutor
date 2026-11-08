@@ -1,0 +1,7 @@
+---
+title: "Explain, on real bugs"
+subtitle: "Seven buggy student versions of the symdiff project, one misconception each, with the exact report `tutor explain` produces."
+---
+
+::: {.jt-mount data-view="explain"}
+:::

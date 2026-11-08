@@ -1,0 +1,10 @@
+---
+title: "Design decisions"
+subtitle: "Projects, tooling, the checker platform, sandboxing and latency: what was chosen, what was rejected, and what is not yet verified."
+toc: true
+toc-location: right
+---
+
+::: {.design-doc}
+{{< include ../docs/DESIGN.md >}}
+:::

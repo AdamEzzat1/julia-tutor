@@ -1,0 +1,7 @@
+---
+title: "Checker rules"
+subtitle: "Each rule targets one misconception, states its false-positive risk, and hints in three levels. Level 1 never gives the answer."
+---
+
+::: {.jt-mount data-view="rules"}
+:::

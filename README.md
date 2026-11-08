@@ -25,6 +25,8 @@ JULIA_PKG_OFFLINE=false julia_pinned --project=. -e 'using Pkg; Pkg.instantiate(
 * `CLAUDE.md`: roles, invariants, milestones, how to continue the work.
 * `docs/DESIGN.md`: project choice, tool landscape, checker platform,
   sandboxing and latency, what is not stable.
+* Website: lessons, explain gallery, hole map and rules, built from the same
+  verified data (`site/`, `web/`; deployed to GitHub Pages by CI).
 
-Status: vertical slice (M1). **The test runner is not a sandbox yet (M3):** only
+Status: M1 slice + M2 (explain fixtures, learner model) + website. **The test runner is not a sandbox yet (M3):** only
 run your own code with it.

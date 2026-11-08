@@ -33,5 +33,6 @@ include("progress.jl")
 include("explain.jl")
 include("fixtures.jl")
 include("lessons.jl")
+include("sitedata.jl")
 
 end # module

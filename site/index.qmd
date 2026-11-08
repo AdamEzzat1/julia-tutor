@@ -1,0 +1,21 @@
+---
+pagetitle: "julia-tutor · a symbolic tutor for Julia"
+---
+
+::: {.jt-mount data-view="hero"}
+:::
+
+## What makes the feedback trustworthy
+
+Each kind of feedback names where it came from, so you can check it.
+
+| Feedback | Comes from | How it is kept honest |
+|---|---|---|
+| "Start here: hole `product_rule`" | Ochiai ranking over the **measured** test-to-hole map | Each hole was opened alone in the reference and the full suite re-run; every plausible-but-wrong body must fail a test |
+| `JT003 ... mutates its argument` | A checker rule on the JuliaSyntax tree | Every rule has positive, negative and two-correct-styles tests, an honest false-positive note and a 3-level hint ladder |
+| "return type inferred as `Fn`..." | The compiler (`Base.return_types`) in a fresh process | Measured, never guessed; compared to the reference's baseline |
+| A lesson's answer key | Running the snippet on Julia 1.10.13 | `tutor lessons verify` re-runs every snippet; no other option may match |
+
+The site shows the same data the command-line tutor uses: lessons, rule metadata, the hole map and the
+explain reports are exported by `tutor site-data`, and the build fails if that export is stale.
+Your lesson progress on this site lives only in this browser.

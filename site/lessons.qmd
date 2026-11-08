@@ -1,0 +1,7 @@
+---
+title: "Lessons"
+subtitle: "Predict the output. A wrong first answer gets feedback on the misconception behind it and a hint, then one more try."
+---
+
+::: {.jt-mount data-view="lessons"}
+:::

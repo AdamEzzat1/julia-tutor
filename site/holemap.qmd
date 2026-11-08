@@ -1,0 +1,7 @@
+---
+title: "The hole map"
+subtitle: "Which tests depend on which hole, measured by opening each hole alone, and the ranking explain builds from it."
+---
+
+::: {.jt-mount data-view="holemap"}
+:::

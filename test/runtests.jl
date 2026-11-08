@@ -4,7 +4,7 @@
 using Test, TOML, Dates
 using JuliaSyntax
 using JuliaTutor
-using JuliaTutor: Syntax, Checker, Models, Scaffold, Runner, Explain, Lessons, HoleMap, Progress, Fixtures
+using JuliaTutor: Syntax, Checker, Models, Scaffold, Runner, Explain, Lessons, HoleMap, Progress, Fixtures, SiteData
 
 const ROOT = JuliaTutor.ROOT
 const FAST = get(ENV, "TUTOR_FAST", "0") == "1"
@@ -256,6 +256,22 @@ end
     @test occursin("symdiff/product_rule", rep) && occursin("attempts 1, correct 0, last incorrect", rep)
     @test occursin("L01-dispatch/specificity (due 2026-11-08)", rep)
     @test !occursin("L01-dispatch/ambiguity (due", rep)
+end
+
+@testset "website data export" begin
+    d = SiteData.site_data()
+    @test SiteData.to_json(d) == SiteData.to_json(SiteData.site_data())          # deterministic
+    @test SiteData.to_json(Dict("a" => "q\"\\\n\t\u01", "b" => Any[1, 2.5, true, nothing])) ==
+          "{\n  \"a\": \"q\\\"\\\\\\n\\t\\u0001\",\n  \"b\": [\n    1,\n    2.5,\n    true,\n    null\n  ]\n}\n"
+    # The keys the site grades with are the verified keys, unchanged.
+    for (l, x) in zip(Lessons.load_lessons(), d["lessons"]), (c, y) in zip(l.checks, x["checks"])
+        @test y["answer"] == c.answer && y["options"] == c.options
+    end
+    @test length(d["rules"]) == length(Checker.RULES)
+    @test all(r -> r["example"] !== nothing && r["example"]["message"] !== nothing, d["rules"])
+    p = only(d["projects"])
+    @test all(h -> !isempty(h["spec"]) && !occursin("TODO(hole:", h["spec"]), p["holes"])
+    @test length(p["fixtures"]) == length(Fixtures.load_fixtures(SYMDIFF))
 end
 
 @testset "explain fixtures: structure" begin

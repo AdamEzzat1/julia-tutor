@@ -1,0 +1,675 @@
+{
+  "generated_by": "tutor site-data (do not edit; regenerate)",
+  "julia": "1.10.13",
+  "lessons": [
+    {
+      "body": "A Julia function is a set of *methods*. When you call it, Julia looks at the\nruntime types of *all* the arguments and runs the most specific method that\napplies. The order in which the methods were defined does not matter, and\nneither do the declared types of the variables or containers the values came\nfrom.\n\nIf two methods apply and neither is more specific than the other, the call is\nambiguous and throws a `MethodError`. The fix is a method for the intersection,\nnot reordering definitions.\n\nIn the symdiff project, `deriv(t::Mul, x)`, `deriv(t::Pow, x)` and\n`deriv(t::Fn{typeof(sin)}, x)` are separate methods of one function. Dispatch\nreplaces the `if t isa Mul ... elseif ...` chain you might write elsewhere.",
+      "checks": [
+        {
+          "answer": 1,
+          "code": "f(x::Number) = \"number\"\nf(x::Integer) = \"integer\"\nf(x) = \"anything\"\nprintln(f(3), \" \", f(2.5), \" \", f(\"hi\"))\n",
+          "explanation": "3 is an Int, so both `::Number` and `::Integer` apply and `Integer` is more specific. 2.5 is a Float64, a Number but not an Integer. \"hi\" matches only the untyped method.",
+          "hint": "For each call, list the methods whose signature accepts the argument, then ask which of those is the narrowest. Definition order plays no part.",
+          "id": "specificity",
+          "misconceptions": [
+            {
+              "feedback": "That is how an `if`/`elseif` chain or pattern-match order works, but Julia does not try methods in definition order.",
+              "id": "first-match-wins",
+              "option": 2
+            },
+            {
+              "feedback": "In Python a second `def f` replaces the first. In Julia, a definition with a *different* signature adds a method; only an identical signature replaces one.",
+              "id": "redefinition-replaces",
+              "option": 3
+            },
+            {
+              "feedback": "Julia never converts arguments to pick a method. 2.5 is a Float64, and Float64 is not a subtype of Integer.",
+              "id": "float-converts-to-integer",
+              "option": 4
+            }
+          ],
+          "options": [
+            "integer number anything",
+            "number number anything",
+            "anything anything anything",
+            "integer integer anything"
+          ],
+          "prompt": "Three methods of `f`, defined in this order. What is printed?"
+        },
+        {
+          "answer": 3,
+          "code": "g(x::Int, y) = 1\ng(x, y::Int) = 2\ntry\n    println(g(1, 2))\ncatch err\n    println(typeof(err))\nend\n",
+          "explanation": "Each method is more specific in one argument, so neither wins and the call is ambiguous. Julia reports this as a `MethodError` whose message says \"ambiguous\". Defining `g(x::Int, y::Int)` resolves it.",
+          "hint": "Both methods apply. Is either signature a subtype of the other? If not, Julia refuses to guess, and you are asked for the exception's type.",
+          "id": "ambiguity",
+          "misconceptions": [
+            {
+              "feedback": "Definition order does not break ties between methods.",
+              "id": "first-match-wins",
+              "option": 1
+            },
+            {
+              "feedback": "A later method with a different signature does not override an earlier one; both stay in the method table.",
+              "id": "last-definition-wins",
+              "option": 2
+            },
+            {
+              "feedback": "There is no `AmbiguityError` type in Base. Ambiguity is reported as a `MethodError` (read its message).",
+              "id": "invented-exception-type",
+              "option": 4
+            }
+          ],
+          "options": [
+            "1",
+            "2",
+            "MethodError",
+            "AmbiguityError"
+          ],
+          "prompt": "Neither method is more specific for `g(1, 2)`. What is printed?"
+        },
+        {
+          "answer": 1,
+          "code": "abstract type Shape end\nstruct Circle <: Shape end\nstruct Square <: Shape end\ncollide(a::Shape, b::Shape) = \"generic\"\ncollide(a::Circle, b::Square) = \"circle-square\"\ncollide(a::Square, b::Circle) = \"square-circle\"\nshapes = Shape[Circle(), Square()]\nprintln(collide(shapes[2], shapes[1]))\n",
+          "explanation": "`shapes[2]` is a Square and `shapes[1]` a Circle at run time. The container's element type `Shape` does not hide that. Julia picks `collide(::Square, ::Circle)`.",
+          "hint": "Dispatch uses the type of each *value* at the moment of the call. What are the types of the two values passed, and in which order?",
+          "id": "runtime-types",
+          "misconceptions": [
+            {
+              "feedback": "In Java or C++, overloads are chosen from declared (static) types, which would give the generic method. Julia dispatches on runtime types.",
+              "id": "static-type-dispatch",
+              "option": 2
+            },
+            {
+              "feedback": "Dispatch is on the ordered tuple of argument types; (Square, Circle) and (Circle, Square) are different signatures.",
+              "id": "argument-order-irrelevant",
+              "option": 3
+            },
+            {
+              "feedback": "Values taken out of a `Vector{Shape}` keep their concrete types, so the specific methods apply.",
+              "id": "abstract-container-blocks-dispatch",
+              "option": 4
+            }
+          ],
+          "options": [
+            "square-circle",
+            "generic",
+            "circle-square",
+            "MethodError"
+          ],
+          "prompt": "The vector is declared to hold `Shape`s. What is printed?"
+        }
+      ],
+      "id": "L01-dispatch",
+      "kcs": [
+        "multiple-dispatch"
+      ],
+      "prerequisites": [],
+      "title": "Multiple dispatch: the most specific method wins, on all arguments",
+      "verified_on": "1.10.13"
+    },
+    {
+      "body": "A *concrete* type can have instances (Float64, Vector{Float64}, your structs);\nan *abstract* type (Real, AbstractVector, Term) only groups other types. The\ncompiler generates fast code when it knows concrete types: the layout of a\nvalue, which method to call, whether a value fits in a register.\n\nTwo places where novices accidentally lose that knowledge:\n\n* containers: `[]` has no elements to infer from, so it is a `Vector{Any}`;\n* struct fields: `x::Real` means \"any Real\", so every read checks the type at\n  run time.\n\nNote the difference between an abstract *element* type and an abstract\n*container* type: `Vector{Real}` is concrete (a vector of boxed Reals), while\n`Vector` without a parameter is not a concrete type at all.\n\nParametric types are *invariant*: `Vector{Int}` is not a subtype of\n`Vector{Integer}`. Write `Vector{<:Integer}` for \"a vector of some Integer type\".\n\nIn the symdiff project, `Add.args::Vector{Term}` is deliberate. It is a concrete\ncontainer of an abstract element type, because a tree mixes node kinds. The\n`evaluate` methods restore type stability with `::T` assertions.",
+      "checks": [
+        {
+          "answer": 1,
+          "code": "println(typeof([]))\n",
+          "explanation": "`[]` is `Vector{Any}`. To get an empty vector of a specific type, write `Float64[]` or `Vector{Float64}()`.",
+          "hint": "An empty literal gives Julia no element to infer a type from. Which element type accepts anything that might be pushed into it later?",
+          "id": "empty-literal",
+          "misconceptions": [
+            {
+              "feedback": "`Nothing` is the type of the value `nothing`; a vector of it could only ever hold `nothing`s.",
+              "id": "empty-means-nothing",
+              "option": 2
+            },
+            {
+              "feedback": "`Union{}` (the type with no values) is what inference uses for code that never returns. An empty literal gets the most permissive element type instead.",
+              "id": "empty-means-bottom",
+              "option": 3
+            },
+            {
+              "feedback": "Like a Python list, it can hold anything, but Julia still gives it a full type with an element type and a dimension.",
+              "id": "untyped-list",
+              "option": 4
+            }
+          ],
+          "options": [
+            "Vector{Any}",
+            "Vector{Nothing}",
+            "Vector{Union{}}",
+            "Array"
+          ],
+          "prompt": "What is printed?"
+        },
+        {
+          "answer": 1,
+          "code": "println(isconcretetype(Vector{Real}), \" \", isconcretetype(Vector), \" \", isconcretetype(Real))\n",
+          "explanation": "`Vector{Real}` is concrete: `Real[1, 2.5]` is an instance (its elements are boxed). `Vector` alone is a `UnionAll` (the element type is missing), and `Real` is abstract.",
+          "hint": "Can you create an instance of `Vector{Real}`? Of `Vector` without saying what it holds? Concreteness is about whether the type itself can have instances.",
+          "id": "concreteness",
+          "misconceptions": [
+            {
+              "feedback": "An abstract *parameter* does not make the container abstract. `Vector{Real}` is one specific concrete type.",
+              "id": "abstract-param-makes-abstract",
+              "option": 2
+            },
+            {
+              "feedback": "`Vector` without a parameter stands for every `Vector{T}`. It is not itself a type with instances.",
+              "id": "unparameterized-is-concrete",
+              "option": 3
+            },
+            {
+              "feedback": "`Vector` without a parameter stands for every `Vector{T}`. It is not itself a type with instances.",
+              "id": "unparameterized-is-concrete",
+              "option": 4
+            }
+          ],
+          "options": [
+            "true false false",
+            "false false false",
+            "false true false",
+            "true true false"
+          ],
+          "prompt": "What is printed?"
+        },
+        {
+          "answer": 1,
+          "code": "println(Vector{Int} <: Vector{Integer}, \" \", Vector{Int} <: Vector{<:Integer})\n",
+          "explanation": "Parametric types are invariant: `Vector{Int}` is not a `Vector{Integer}` even though `Int <: Integer`. `Vector{<:Integer}` means \"`Vector{T}` for some `T <: Integer`\", which includes it.",
+          "hint": "A `Vector{Integer}` must accept `push!(v, big(1))`. Could a `Vector{Int}` honour that promise?",
+          "id": "invariance",
+          "misconceptions": [
+            {
+              "feedback": "Java arrays and Python's typing for read-only sequences are covariant; Julia's parametric types are not.",
+              "id": "covariant-containers",
+              "option": 2
+            },
+            {
+              "feedback": "`Vector{<:Integer}` is shorthand for `Vector{T} where T<:Integer`, which `Vector{Int}` belongs to.",
+              "id": "where-syntax-unknown",
+              "option": 3
+            },
+            {
+              "feedback": "Both halves are backwards: invariance rejects the first, the `<:` wildcard accepts the second.",
+              "id": "covariant-containers",
+              "option": 4
+            }
+          ],
+          "options": [
+            "false true",
+            "true true",
+            "false false",
+            "true false"
+          ],
+          "prompt": "What is printed?"
+        },
+        {
+          "answer": 1,
+          "code": "struct A\n    x::Real\nend\nstruct B{T<:Real}\n    x::T\nend\nprintln(fieldtype(A, :x), \" \", fieldtype(B{Float64}, :x), \" \", isconcretetype(fieldtype(A, :x)))\n",
+          "explanation": "`A.x` is declared `Real` for every `A`, whatever value it holds, so code reading it cannot know the concrete type. `B{Float64}.x` is `Float64` because the parameter fixes it. The checker rule JT002 points at fields like `A.x`.",
+          "hint": "A field's type comes from the declaration (and the type parameters), never from a value stored later. What did each declaration say?",
+          "id": "field-types",
+          "misconceptions": [
+            {
+              "feedback": "Storing a Float64 in `A(1.5).x` does not change the declared field type, which is still `Real`.",
+              "id": "value-determines-field-type",
+              "option": 2
+            },
+            {
+              "feedback": "In `B{Float64}`, `T` is `Float64`, so the field `x::T` has type `Float64`.",
+              "id": "parameter-not-specialised",
+              "option": 3
+            },
+            {
+              "feedback": "`isconcretetype` asks about the declared type `Real`, which is abstract regardless of what is stored.",
+              "id": "abstract-is-concrete-at-runtime",
+              "option": 4
+            }
+          ],
+          "options": [
+            "Real Float64 false",
+            "Float64 Float64 true",
+            "Real Real false",
+            "Real Float64 true"
+          ],
+          "prompt": "Two ways to declare a numeric field. What is printed?"
+        }
+      ],
+      "id": "L02-concrete-types",
+      "kcs": [
+        "concrete-types",
+        "container-element-types"
+      ],
+      "prerequisites": [
+        "L01-dispatch"
+      ],
+      "title": "Concrete and abstract types in containers and struct fields",
+      "verified_on": "1.10.13"
+    }
+  ],
+  "projects": [
+    {
+      "baseline": {
+        "allocations": {
+          "derivative(bench)": 904,
+          "evaluate(bench, Float64)": 25,
+          "simplify(bench)": 146
+        },
+        "bench_nodecount": 22,
+        "inferred": {
+          "canonical_sum": "Term",
+          "chain_rule": "Mul",
+          "product_rule": "Add",
+          "pvar_binding": "Union{Nothing, Dict{Symbol, Term}}",
+          "rewrite_innermost": "Any",
+          "size_measure": "Bool"
+        },
+        "jet": {
+          "evaluate_runtime_dispatch_reports": 1,
+          "status": "ok (JET 0.9.14)"
+        }
+      },
+      "deps": {
+        "canonical_sum": [
+          "SymDiff/canonical form: products and powers",
+          "SymDiff/canonical form: sums",
+          "SymDiff/derivative: chain rule and elementary functions",
+          "SymDiff/derivative: polynomials (exact)",
+          "SymDiff/derivative: product rule",
+          "SymDiff/parsing and printing",
+          "SymDiff/rewriting",
+          "SymDiff/simplify: idempotent, order-independent, sound (exhaustive)",
+          "SymDiff/type stability (measured with @inferred)"
+        ],
+        "chain_rule": [
+          "SymDiff/derivative: chain rule and elementary functions"
+        ],
+        "product_rule": [
+          "SymDiff/derivative: chain rule and elementary functions",
+          "SymDiff/derivative: polynomials (exact)",
+          "SymDiff/derivative: product rule"
+        ],
+        "pvar_binding": [
+          "SymDiff/pattern matching",
+          "SymDiff/rewriting",
+          "SymDiff/type stability (measured with @inferred)"
+        ],
+        "rewrite_innermost": [
+          "SymDiff/rewriting"
+        ],
+        "size_measure": [
+          "SymDiff/termination measure",
+          "SymDiff/type stability (measured with @inferred)"
+        ]
+      },
+      "fixtures": [
+        {
+          "body": "summands = Term[]\nfor i in eachindex(t.args)\n    factors = t.args\n    factors[i] = deriv(t.args[i], x)\n    push!(summands, Mul(copy(factors)))\nend\nreturn Add(summands)\n",
+          "description": "`factors = t.args` is believed to copy; it aliases, so every summand writes into the input",
+          "expect_start": "product_rule",
+          "golden": "== tutor explain: symdiff, stage 1 ==\n\nStart here: hole `product_rule` at src/SymDiff.jl:438\n  why: 3 of the 3 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: multiple-dispatch-recursion.\n\nTests: 11/14 testsets pass\n  FAIL SymDiff/derivative: polynomials (exact)  [2 failed, 1 errored; depends on: product_rule]\n       test/runtests.jl:131 FAIL exact(derivative(p, :x), v) == dp(v)  evaluated: 1//1 == -119//1\n       test/runtests.jl:131 FAIL exact(derivative(p, :x), v) == dp(v)  evaluated: 1//1 == 7//9\n  FAIL SymDiff/derivative: product rule  [11 failed, 0 errored; depends on: product_rule]\n       test/runtests.jl:140 FAIL derivative(@term(x * y), :y) == x  evaluated: 0 == x\n       test/runtests.jl:142 FAIL exact(derivative(@term(x ^ 2 * (x + 1)), :x), v) == 3 * v ^ 2 + 2v  evaluated: 0//1 == 8//1\n  FAIL SymDiff/derivative: chain rule and elementary functions  [4 failed, 1 errored; depends on: product_rule]\n       test/runtests.jl:157 FAIL derivative(@term(exp(2x)), :x) == simplify(@term(2 * exp(2x)))  evaluated: 0 == 2 * exp(2x)\n       test/runtests.jl:167 FAIL isapprox(num(derivative(f, :x), v), df(v); rtol = RTOL_ELEMENTARY)  evaluated: isapprox(0.0, 6.322383382851318; rtol = 2.220446049250313e-13)\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. product_rule       1.0   implemented  failing-deps=3 passing-deps=0  src/SymDiff.jl:438\n  2. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:558\n  3. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl:642\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations derivative(bench): 682  (reference 904)\n  allocations evaluate(bench, Float64): 25  (reference 25)\n  allocations simplify(bench): 146  (reference 146)\n  JET: not run (pass --jet); it adds about a minute\n",
+          "hole": "product_rule",
+          "misconception": "assignment-copies-arrays",
+          "name": "product_rule-aliasing",
+          "stage": 1
+        },
+        {
+          "body": "if haskey(b, p.name)\n    return b[p.name] == t ? b : nothing\nend\nb[p.name] = t\nreturn b\n",
+          "description": "extends `b` in place, so a failed branch of a match leaves bindings behind",
+          "expect_start": "pvar_binding",
+          "golden": "== tutor explain: symdiff, stage 1 ==\n\nStart here: hole `pvar_binding` at src/SymDiff.jl:558\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.58); 2 of its dependent testsets pass.\n  finding inside it: JT003 `match_pattern` mutates its argument `b` but its name has no `!` (line 562)\n  Read its docstring: it is the specification. Knowledge component: unification-binding.\n\nTests: 13/14 testsets pass\n  FAIL SymDiff/pattern matching  [1 failed, 0 errored; depends on: pvar_binding]\n       test/runtests.jl:187 FAIL isempty(empty_b)  evaluated: isempty(Dict{Symbol, Term}(:a => x))\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. pvar_binding       0.58  implemented  failing-deps=1 passing-deps=2  src/SymDiff.jl:558\n  2. product_rule       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:438\n  3. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl:641\n\nStatic findings (1):\n  src/SymDiff.jl:562:5: WARN JT003 `match_pattern` mutates its argument `b` but its name has no `!`\n      hint 1: After calling this function, is the caller's argument still the value it passed in?\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations derivative(bench): 904  (reference 904)\n  allocations evaluate(bench, Float64): 25  (reference 25)\n  allocations simplify(bench): 146  (reference 146)\n  JET: not run (pass --jet); it adds about a minute\n",
+          "hole": "pvar_binding",
+          "misconception": "mutating-arguments-is-harmless",
+          "name": "pvar_binding-mutates-bindings",
+          "stage": 1
+        },
+        {
+          "body": "nodecount(r.lhs) > nodecount(r.rhs) || return false\nlhs_vars = varcounts(r.lhs)\nreturn all(v -> haskey(lhs_vars, v), keys(varcounts(r.rhs)))\n",
+          "description": "checks that rhs variables occur in lhs, not how often: `f(~u) => g(~u, ~u)` is accepted",
+          "expect_start": "size_measure",
+          "golden": "== tutor explain: symdiff, stage 1 ==\n\nStart here: hole `size_measure` at src/SymDiff.jl:642\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.71); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: termination-measure.\n\nTests: 13/14 testsets pass\n  FAIL SymDiff/termination measure  [1 failed, 0 errored; depends on: size_measure]\n       test/runtests.jl:210 FAIL !(is_size_decreasing(@rule(sin(cos(exp(~a))) => ~a + ~a)))\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. size_measure       0.71  implemented  failing-deps=1 passing-deps=1  src/SymDiff.jl:642\n  2. product_rule       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:438\n  3. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:558\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations derivative(bench): 904  (reference 904)\n  allocations evaluate(bench, Float64): 25  (reference 25)\n  allocations simplify(bench): 146  (reference 146)\n  JET: not run (pass --jet); it adds about a minute\n",
+          "hole": "size_measure",
+          "misconception": "rule-size-is-instance-size",
+          "name": "size_measure-ignores-duplication",
+          "stage": 1
+        },
+        {
+          "body": "summands = Term[]\nfor i in eachindex(t.args)\n    factors = copy(t.args)\n    factors[i] = deriv(t.args[i], x)\n    push!(summands, Mul(factors))\nreturn Add(summands)\n",
+          "description": "a `for` without its `end`: nothing else can be checked until the file parses",
+          "expect_start": "JT000",
+          "golden": "== tutor explain: symdiff, stage 1 ==\n\nStart here: src/SymDiff.jl:681:14: the file does not parse (parse error: Expected `end`).\n  Nothing else can be checked until it does.\n\nTests: 0/0 testsets pass; crash: LoadError: Failed to precompile SymDiff [5b2f0d8e-6a3c-4f71-b1e9-3c8d7a2e4f60].\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. product_rule       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl\n  2. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl\n  3. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl\n\nStatic findings (1):\n  src/SymDiff.jl:681:14: ERROR JT000 parse error: Expected `end`\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  skipped (test run crashed)\n",
+          "hole": "product_rule",
+          "misconception": "none (syntax)",
+          "name": "product_rule-parse-error",
+          "stage": 1
+        },
+        {
+          "body": "flat = Term[]\nfor a in args\n    a isa Add ? append!(flat, a.args) : push!(flat, a)\nend\nc = 0 // 1\nparts = Tuple{Term,Rational{Int}}[]\nfor a in flat\n    if a isa Const\n        c += a.val\n    else\n        k, rest = coeff_and_rest(a)\n        push!(parts, (rest, k))\n    end\nend\nsort!(parts; by = first)\nsummands = Term[]\ni = firstindex(parts)\nwhile i <= lastindex(parts)\n    rest, k = parts[i]\n    j = i + 1\n    while j <= lastindex(parts) && parts[j][1] == rest\n        k += parts[j][2]\n        j += 1\n    end\n    push!(summands, isone(k) ? rest : mk_mul(Term[Const(k), rest]))\n    i = j\nend\nisempty(summands) && return Const(c)\niszero(c) && length(summands) == 1 && return summands[1]\nreturn Add(iszero(c) ? summands : Term[Const(c); summands])\n",
+          "description": "collects like terms but keeps summands whose coefficient cancels to 0 (`x - x` stays `0x`)",
+          "expect_start": "canonical_sum",
+          "golden": "== tutor explain: symdiff, stage 2 ==\n\nStart here: hole `canonical_sum` at src/SymDiff.jl:291\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.33); 8 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: canonical-forms.\n\nTests: 13/14 testsets pass\n  FAIL SymDiff/canonical form: sums  [1 failed, 0 errored; depends on: canonical_sum]\n       test/runtests.jl:76 FAIL simplify(@term((3x + y) - 3x)) == y  evaluated: 0 + y == y\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. canonical_sum      0.33  implemented  failing-deps=1 passing-deps=8  src/SymDiff.jl:291\n  2. product_rule       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:438\n  3. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:558\n  4. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl:642\n  5. chain_rule         0.0   implemented  failing-deps=0 passing-deps=1  src/SymDiff.jl:464\n  6. rewrite_innermost  0.0   implemented  failing-deps=0 passing-deps=1  src/SymDiff.jl:670\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations derivative(bench): 904  (reference 904)\n  allocations evaluate(bench, Float64): 25  (reference 25)\n  allocations simplify(bench): 146  (reference 146)\n  JET: not run (pass --jet); it adds about a minute\n",
+          "hole": "canonical_sum",
+          "misconception": "canonical-form-is-just-sorting",
+          "name": "canonical_sum-keeps-zeros",
+          "stage": 2
+        },
+        {
+          "body": "return dfn(func(t), t.arg)\n",
+          "description": "returns f'(u) and forgets the factor du/dx",
+          "expect_start": "chain_rule",
+          "golden": "== tutor explain: symdiff, stage 2 ==\n\nStart here: hole `chain_rule` at src/SymDiff.jl:464\n  why: 1 of the 1 failing testsets depend on it (Ochiai 1.0).\n  measured: return type inferred as `Fn{typeof(cos)}`; the reference infers `Mul`\n  Read its docstring: it is the specification. Knowledge component: multiple-dispatch-parametric.\n\nTests: 13/14 testsets pass\n  FAIL SymDiff/derivative: chain rule and elementary functions  [17 failed, 0 errored; depends on: canonical_sum, chain_rule, product_rule]\n       test/runtests.jl:157 FAIL derivative(@term(exp(2x)), :x) == simplify(@term(2 * exp(2x)))  evaluated: exp(2x) == 2 * exp(2x)\n       test/runtests.jl:167 FAIL isapprox(num(derivative(f, :x), v), df(v); rtol = RTOL_ELEMENTARY)  evaluated: isapprox(0.9959527330119943, 0.5975716398071965; rtol = 2.220446049250313e-13)\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. chain_rule         1.0   implemented  failing-deps=1 passing-deps=0  src/SymDiff.jl:464\n       measured: return type inferred as `Fn{typeof(cos)}`; the reference infers `Mul`\n  2. product_rule       0.58  implemented  failing-deps=1 passing-deps=2  src/SymDiff.jl:438\n  3. canonical_sum      0.33  implemented  failing-deps=1 passing-deps=8  src/SymDiff.jl:291\n  4. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:558\n  5. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl:642\n  6. rewrite_innermost  0.0   implemented  failing-deps=0 passing-deps=1  src/SymDiff.jl:670\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations derivative(bench): 607  (reference 904)\n  allocations evaluate(bench, Float64): 25  (reference 25)\n  allocations simplify(bench): 146  (reference 146)\n  JET: not run (pass --jet); it adds about a minute\n",
+          "hole": "chain_rule",
+          "misconception": "chain-rule-outer-only",
+          "name": "chain_rule-missing-inner",
+          "stage": 2
+        },
+        {
+          "body": "t = map_children(c -> rewrite_budgeted!(budget, c, rules), t)\nfor r in rules\n    b = match_pattern(r.lhs, t)\n    b === nothing && continue\n    budget[] -= 1\n    budget[] < 0 && error(\"rewrite: step budget exhausted\")\n    return substitute(r.rhs, b)\nend\nreturn t\n",
+          "description": "applies a rule once at the root but does not rewrite the result again",
+          "expect_start": "rewrite_innermost",
+          "golden": "== tutor explain: symdiff, stage 2 ==\n\nStart here: hole `rewrite_innermost` at src/SymDiff.jl:670\n  why: 1 of the 1 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: rewriting-strategy.\n\nTests: 13/14 testsets pass\n  FAIL SymDiff/rewriting  [2 failed, 0 errored; depends on: canonical_sum, pvar_binding, rewrite_innermost]\n       test/runtests.jl:197 FAIL rewrite(@term(x * (y + (z + w))), [R_DIST]) == @term(x * y + (x * z + x * w))  evaluated: x * y + x * (z + w) == x * y + (x * z + x * w)\n       test/runtests.jl:201 FAIL rewrite(@term(x + y), [R_COMM]; maxsteps = 100)  evaluated: ErrorException\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. rewrite_innermost  1.0   implemented  failing-deps=1 passing-deps=0  src/SymDiff.jl:670\n  2. pvar_binding       0.58  implemented  failing-deps=1 passing-deps=2  src/SymDiff.jl:558\n  3. canonical_sum      0.33  implemented  failing-deps=1 passing-deps=8  src/SymDiff.jl:291\n  4. product_rule       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:438\n  5. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl:642\n  6. chain_rule         0.0   implemented  failing-deps=0 passing-deps=1  src/SymDiff.jl:464\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations derivative(bench): 904  (reference 904)\n  allocations evaluate(bench, Float64): 25  (reference 25)\n  allocations simplify(bench): 146  (reference 146)\n  JET: not run (pass --jet); it adds about a minute\n",
+          "hole": "rewrite_innermost",
+          "misconception": "one-pass-reaches-normal-form",
+          "name": "rewrite_innermost-single-pass",
+          "stage": 2
+        }
+      ],
+      "holes": [
+        {
+          "file": "src/SymDiff.jl",
+          "id": "product_rule",
+          "kc": "multiple-dispatch-recursion",
+          "spec": "    deriv(t::Mul, x::Sym) -> Term\n\nn-ary product rule: d(a₁·a₂·…·aₙ)/dx = Σᵢ a₁·…·(daᵢ/dx)·…·aₙ, as an `Add` of\n`n` `Mul`s. Must not mutate `t` (or `t.args`).",
+          "stage": 1,
+          "summary": "deriv(t::Mul, x): the n-ary product rule, without mutating the input",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/SymDiff.jl",
+          "id": "pvar_binding",
+          "kc": "unification-binding",
+          "spec": "    match_pattern(p::PVar, t::Term, b::Bindings) -> Union{Bindings,Nothing}\n\nA pattern variable matches any term, but consistently: if `p.name` is already\nbound in `b`, it matches only a term equal to the bound one (then return `b`);\notherwise return a *copy* of `b` extended with `p.name => t`. Never mutate `b`.",
+          "stage": 1,
+          "summary": "match_pattern(p::PVar, t, b): bind a pattern variable consistently",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/SymDiff.jl",
+          "id": "size_measure",
+          "kc": "termination-measure",
+          "spec": "    is_size_decreasing(r::Rule) -> Bool\n\n`true` when *every* instance of `r` strictly shrinks the term's `nodecount`, which\nproves that rewriting with a set of such rules terminates under any strategy.\n\nCondition: `nodecount(r.lhs) > nodecount(r.rhs)` **and** every pattern variable\noccurs in `r.rhs` at most as many times as in `r.lhs` (a variable duplicated on\nthe right can be bound to an arbitrarily large term).\n\nWhy it suffices: for a substitution σ, size(lσ) − size(rσ) =\n(size(l) − size(r)) + Σᵥ (occₗ(v) − occᵣ(v))·(size(σv) − 1) > 0, and replacing a\nsubterm by a smaller one shrinks the whole term.",
+          "stage": 1,
+          "summary": "is_size_decreasing(r): a termination argument for rewrite rules",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/SymDiff.jl",
+          "id": "canonical_sum",
+          "kc": "canonical-forms",
+          "spec": "    mk_add(args::Vector{Term}) -> Term\n\nCanonical sum of already-canonical `args`:\n\n1. Flatten: an `Add` among `args` contributes its own arguments.\n2. Fold all `Const`s into one rational constant `c`.\n3. Write every other summand as `k * rest` (see `coeff_and_rest`) and combine\n   summands with equal `rest` by adding their `k`s. Drop those whose `k` is 0.\n4. Rebuild each summand as `rest` (when `k == 1`) or `mk_mul(Term[Const(k), rest])`,\n   in increasing `isless` order of `rest`.\n5. Return `Const(c)` if nothing else is left; the single summand if `c == 0` and\n   only one is left; otherwise `Add` with `Const(c)` first (omitted when `c == 0`).\n\nExamples: `x + x -> 2x`, `3x + y - 3x -> y`, `1 + x + 2 -> 3 + x`.",
+          "stage": 2,
+          "summary": "mk_add(args): flatten, fold constants, collect like terms, sort",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/SymDiff.jl",
+          "id": "chain_rule",
+          "kc": "multiple-dispatch-parametric",
+          "spec": "    deriv(t::Fn{F}, x::Sym) -> Term\n\nChain rule: d f(u)/dx = f'(u) · du/dx. The outer derivative f'(u) is `dfn(f, u)`,\nwhere `f = func(t)` and `u = t.arg`.",
+          "stage": 2,
+          "summary": "deriv(t::Fn{F}, x): the chain rule via dfn",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/SymDiff.jl",
+          "id": "rewrite_innermost",
+          "kc": "rewriting-strategy",
+          "spec": "    rewrite_budgeted!(budget::Ref{Int}, t, rules) -> Term\n\nInnermost rewriting. First rewrite every child of `t` (use `map_children`). Then\ntry the rules *in order* at the root; for the first whose `lhs` matches, spend one\nstep of `budget` (if `budget[]` would go below zero, throw\n`error(\"rewrite: step budget exhausted\")`), substitute the bindings into its\n`rhs`, and rewrite *that result* again, because it may contain new redexes. If no\nrule matches, return the term. Mutates only `budget`, which by Julia's\nconvention for `!` functions comes first.",
+          "stage": 2,
+          "summary": "rewrite_budgeted!(budget, t, rules): innermost rewriting to a normal form",
+          "trivial_bodies": 2
+        }
+      ],
+      "mutants": {
+        "canonical_sum": [
+          {
+            "caught": true,
+            "failing_testsets": 7,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 6,
+            "trivial": 2
+          }
+        ],
+        "chain_rule": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          }
+        ],
+        "product_rule": [
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 3
+          }
+        ],
+        "pvar_binding": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 3
+          }
+        ],
+        "rewrite_innermost": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          }
+        ],
+        "size_measure": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 3
+          }
+        ]
+      },
+      "name": "symdiff",
+      "package": "SymDiff",
+      "problems": [],
+      "stages": [
+        1,
+        2
+      ],
+      "testsets": [
+        "SymDiff/canonical form: products and powers",
+        "SymDiff/canonical form: sums",
+        "SymDiff/construction and equality",
+        "SymDiff/derivative: chain rule and elementary functions",
+        "SymDiff/derivative: polynomials (exact)",
+        "SymDiff/derivative: product rule",
+        "SymDiff/no method ambiguities",
+        "SymDiff/parsing and printing",
+        "SymDiff/pattern matching",
+        "SymDiff/rewriting",
+        "SymDiff/simplify: idempotent, order-independent, sound (exhaustive)",
+        "SymDiff/soundness of rewrite rules on known cases",
+        "SymDiff/termination measure",
+        "SymDiff/type stability (measured with @inferred)"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "example": {
+        "code": "x = []",
+        "line": 1,
+        "message": "`[]` creates a Vector{Any}"
+      },
+      "fp_risk": "Low for the fact (`[]` is always a `Vector{Any}`, `Dict()` a `Dict{Any,Any}`: that is syntax, not inference). Medium for the advice: a heterogeneous container is sometimes intended. Comparisons such as `x == []` are skipped.",
+      "hints": [
+        "What element type does this container get when it is created empty? Try `typeof(...)` on it in the REPL.",
+        "An empty literal has no elements to infer an element type from, so Julia uses `Any`. Everything you push into it is then stored boxed, and code reading from it cannot know the element type.",
+        "Name the element type: `Term[]`, `Float64[]`, `Vector{Int}()` or `Dict{Symbol,Int}()`."
+      ],
+      "id": "JT001",
+      "kc": "container-element-types",
+      "measured_by": "explain: inferred return types of the enclosing function (Base.return_types)",
+      "name": "vector-any-literal",
+      "severity": "WARN"
+    },
+    {
+      "example": {
+        "code": "struct P\n    x::Real\nend",
+        "line": 2,
+        "message": "field `x::Real` is an abstract type"
+      },
+      "fp_risk": "Only Base's abstract numeric/container/function types and unparameterized Base containers are flagged, never user-defined abstract types: a recursive tree whose children are `::Term` is the right design. Untyped fields are flagged (they are `::Any`); that is a false positive for rarely-read metadata. Names shadowed by a type defined in the same file and struct type parameters are excluded.",
+      "hints": [
+        "When Julia compiles code that reads this field, what does it know about the value's type from the declaration alone?",
+        "A field declared with an abstract type (or no type, which means `Any`) can hold values of many concrete types, so every read must check the type at run time, and the value is stored boxed.",
+        "Use a concrete type (`x::Float64`, `v::Vector{Float64}`) or make the struct parametric: `struct P{T<:Real}; x::T; end`."
+      ],
+      "id": "JT002",
+      "kc": "concrete-field-types",
+      "measured_by": "explain: inferred return types of functions reading the field",
+      "name": "abstract-field-type",
+      "severity": "WARN"
+    },
+    {
+      "example": {
+        "code": "function scale(v, a)\n    v .= v .* a\nend",
+        "line": 2,
+        "message": "`scale` mutates its argument `v` but its name has no `!`"
+      },
+      "fp_risk": "Detects writes into a positional parameter (`p[i] = `, `p.f = `, `p .= `, `p[i] += `) and passing it as the first argument of a `!` function. Skipped when the parameter is rebound anywhere in the body (`p = copy(p)`). Misses mutation through aliases (`q = p; q[1] = 0`) and through non-`!` callees.",
+      "hints": [
+        "After calling this function, is the caller's argument still the value it passed in?",
+        "This function changes one of its arguments in place. Julia's convention is that such functions end in `!`, so callers know their data may change; without it, a caller reusing the argument gets a silent aliasing bug.",
+        "Either rename it with a trailing `!` (and update callers), or work on a `copy` of the argument so the caller's value is untouched."
+      ],
+      "id": "JT003",
+      "kc": "mutation-convention",
+      "measured_by": "test: callers' inputs compared before/after the call (behavioural)",
+      "name": "mutates-without-bang",
+      "severity": "WARN"
+    },
+    {
+      "example": {
+        "code": "function total!(v)\n    return sum(v)\nend",
+        "line": 1,
+        "message": "`total!` ends in `!` but no method of it in this file mutates anything"
+      },
+      "fp_risk": "Only fires when no method of the same name in the file writes into anything, calls any `!` function, or uses `.=`; mutation hidden in a non-`!` helper is missed, which would be a false positive.",
+      "hints": [
+        "What does the trailing `!` in a Julia function name promise its callers?",
+        "By convention `!` marks functions that modify (at least) one argument. This function, in every method in this file, leaves its arguments unchanged.",
+        "Remove the `!` from the name, or, if it is meant to update an argument in place, make it do that."
+      ],
+      "id": "JT004",
+      "kc": "mutation-convention",
+      "measured_by": "none (naming convention)",
+      "name": "bang-without-mutation",
+      "severity": "ADVICE"
+    },
+    {
+      "example": {
+        "code": "for i in 1:length(x)\n    println(x[i])\nend",
+        "line": 1,
+        "message": "loop over `1:length(x)`"
+      },
+      "fp_risk": "High as a bug claim: for a plain `Vector`, 1:length(x) is correct, which is why this is ADVICE. It matters for generic code (OffsetArrays, views with offset axes) and when the loop indexes a different array than the one measured.",
+      "hints": [
+        "Which indices does this loop visit, and are those guaranteed to be valid indices of the array for every `AbstractArray`?",
+        "`1:length(x)` assumes indices start at 1 and are linear. Arrays with other axes exist, and the range is also easy to pair with the wrong array.",
+        "Iterate the array's own indices: `for i in eachindex(x)` (or `axes(x, 1)`, or `pairs(x)` when you need both index and value)."
+      ],
+      "id": "JT005",
+      "kc": "generic-indexing",
+      "measured_by": "none (generic-programming advice)",
+      "name": "one-to-length-loop",
+      "severity": "ADVICE"
+    },
+    {
+      "example": {
+        "code": "@test 0.1 + 0.2 == 0.3",
+        "line": 1,
+        "message": "exact `==` comparison with float literal `0.3` in a test"
+      },
+      "fp_risk": "Only comparisons with a float *literal* are seen; `a == b` between two float variables needs types and is not flagged. `x == 0.0` is sometimes exactly what is meant (guarding a division), so outside `@test` this is ADVICE; inside `@test` it is WARN because tests must state a tolerance (invariant 9).",
+      "hints": [
+        "Is the value on the other side of this comparison computed with rounding? If so, how close to the literal is it guaranteed to be?",
+        "Most decimal literals (0.1, 0.3) are not exactly representable in binary, and computed floats carry rounding error, so exact equality can fail for a correct computation (try `0.1 + 0.2 == 0.3`).",
+        "Compare with a tolerance you can justify: `isapprox(a, b; rtol = ...)` or `a ≈ b`, and write down where the tolerance comes from."
+      ],
+      "id": "JT006",
+      "kc": "floating-point-comparison",
+      "measured_by": "none (the failure is numerical, not measurable statically)",
+      "name": "float-literal-equality",
+      "severity": "WARN"
+    },
+    {
+      "example": {
+        "code": "G = 9.81\nfunction fall(t)\n    return 0.5 * G * t^2\nend",
+        "line": 3,
+        "message": "`fall` reads non-const global `G`"
+      },
+      "fp_risk": "Scope comes from syntax.jl's resolver, which over-approximates locals (nested scopes are merged), so it can miss a read but should not invent one. Globals created via `eval`, another file's `include`, or macros are not seen. The finding is a location; whether it costs anything is measured.",
+      "hints": [
+        "Inside this function, what does the compiler know about the type of this name? Could another part of the program assign it a different type later?",
+        "A non-`const` global can be rebound to a value of any type at any time, so code that reads it cannot be specialised on its type: every use is a dynamic lookup, and the function's return type often becomes `Any`.",
+        "Declare it `const` if it never changes, or pass it in as an argument (then the function is specialised on its type)."
+      ],
+      "id": "JT007",
+      "kc": "global-scope-performance",
+      "measured_by": "explain: inferred return types of the function (measured)",
+      "name": "nonconst-global-read",
+      "severity": "WARN"
+    }
+  ]
+}

@@ -2,3 +2,8 @@
 .tutor/
 work/
 *.cov
+# website build outputs (rebuilt by CI; see site/_quarto.yml)
+web/node_modules/
+site/_site/
+site/.quarto/
+site/assets/app/

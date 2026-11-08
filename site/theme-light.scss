@@ -1,0 +1,25 @@
+/*-- scss:defaults --*/
+$body-bg: #f6f2ea;
+$body-color: #1f1b26;
+$link-color: #3657c8;
+$primary: #8a4fae;
+$secondary: #776f82;
+$success: #2f7d22;
+$danger: #b8352d;
+$warning: #9a6512;
+$info: #3657c8;
+$border-color: #e2dbcd;
+$font-family-sans-serif: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+$font-family-monospace: "JetBrains Mono", ui-monospace, Consolas, monospace;
+$headings-font-family: "Newsreader", Georgia, serif;
+$headings-font-weight: 600;
+$navbar-bg: #1f1b26;
+$navbar-fg: #ece7f3;
+$navbar-hl: #ffffff;
+$footer-bg: #f0ebe1;
+$code-color: #8a4fae;
+$code-bg: #f0ebe1;
+$table-border-color: #e2dbcd;
+
+/*-- scss:rules --*/
+.navbar { border-bottom: 3px solid #8a4fae; }
