@@ -1,4 +1,3 @@
-# Not yet run: written in the vertical-slice session, verify on first push (M0 DoD).
 name: CI
 on: [push, pull_request]
 jobs:
