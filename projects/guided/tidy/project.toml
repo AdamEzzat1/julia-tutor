@@ -1,0 +1,446 @@
+name = "tidy"
+package = "Tidy"
+env = "data"
+status = "ready"
+title = "Tidy: clean and summarise a messy sensor CSV"
+summary = "Build a small package that reads a CSV of temperature and humidity readings with three kinds of missing marker, mixed units and inconsistent site names, cleans it without losing information, summarises it per site and day with split-apply-combine, and writes the summary back out so it reads in again unchanged. You write the code and the tests."
+kcs = ["packages", "testing", "csv", "dataframes", "missing-values", "split-apply-combine"]
+reading = '''
+Prerequisites: course unit 21 (DataFrames and CSV) and unit 12 (modules).
+`data/readings.csv` is the file this project is about; open it and look at
+it before you start. Every function you write takes and returns plain
+values (an `IO`, a `DataFrame`), so you can test it with small tables you
+build in the test itself.
+'''
+
+[[milestone]]
+id = 0
+title = "A package with a test suite"
+min_score = 1.0
+goal = '''
+Create the package by hand once, so you know what each file is for.
+
+1. In this folder start Julia and run `using Pkg; Pkg.generate("Tidy")`.
+   It creates `Tidy/Project.toml` (the package's name, a UUID that
+   identifies it, and later its dependencies) and `Tidy/src/Tidy.jl`.
+   Move both up into this folder (`Project.toml` and `src/` next to
+   `data/`), and delete the empty `Tidy/` folder.
+2. `src/Tidy.jl` must define `module Tidy ... end`. Everything the package
+   offers lives inside it.
+3. From the julia-tutor folder, run `./tutor guided deps <this folder>` to
+   add CSV and DataFrames to `[deps]` (on a machine with network access,
+   `Pkg.add(["CSV", "DataFrames"])` with this folder active does the same).
+4. Create `test/runtests.jl`. It starts with `using Tidy, Test` and holds
+   `@testset` blocks with `@test` checks. Put one check in it now, for
+   example that `Tidy` is a module.
+5. Run `./tutor guided check <this folder>`. The check loads your package
+   and runs your tests in the sandbox.
+'''
+
+  [[milestone.api]]
+  signature = "module Tidy"
+  doc = "Defined in src/Tidy.jl."
+
+  [[milestone.behaviour]]
+  id = "package-layout"
+  kc = "packages"
+  spec = "`src/Tidy.jl` defines a module named `Tidy` that loads without errors."
+  hints = [
+    "A package is a module whose name matches its file name under src/.",
+    "Open src/Tidy.jl: its first code line should be `module Tidy` and its last `end`.",
+    "If loading fails, the error above names the line; a `using` of a package missing from the environment is the usual cause.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Any check that runs counts here.",
+    "`@test Tidy isa Module` is enough for milestone 0.",
+    "Put it inside a `@testset` so the report names it.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why does the package's `Project.toml` carry a UUID as well as the name?"
+  choices = [
+    "Two packages may share a name; Pkg tells them apart by UUID",
+    "Julia uses it as a cache key to compile the module faster on later loads",
+    "It is a licence key that the General registry checks",
+  ]
+  answer = 1
+  explain = "Names are not unique across registries and private code, so Pkg identifies every package by its UUID; the name is what you type in `using`."
+  misconceptions = [
+    "",
+    "Compilation does not use the UUID; precompile caches are keyed by it only to keep two same-named packages apart.",
+    "There is no licence check: the UUID is generated at random by `Pkg.generate` and identifies the package.",
+  ]
+
+[[milestone]]
+id = 1
+title = "Reading the file"
+min_score = 0.8
+must_cover = ["column-types", "time-parsed", "missing-markers", "path-or-io"]
+goal = '''
+Write a reader that turns the CSV text into a table with the right column
+types. Look at `data/readings.csv`: some temperatures are written as whole
+numbers, three different markers mean "no value", and times have a space
+between the date and the clock time.
+'''
+
+  [[milestone.api]]
+  signature = "read_readings(io::IO) -> DataFrame"
+  doc = "Columns site, time, temp, unit, humidity, in that order."
+
+  [[milestone.api]]
+  signature = "read_readings(path::AbstractString) -> DataFrame"
+  doc = "The same for a file name: one method per argument type."
+
+  [[milestone.behaviour]]
+  id = "column-types"
+  kc = "csv"
+  spec = "`site` and `unit` are `String` columns; `temp` and `humidity` are `Float64` (or `Union{Missing, Float64}`) even when every value in the file is a whole number."
+  hints = [
+    "CSV.jl guesses each column's type from the values it sees; a guess is not always the type you want.",
+    "A column of whole numbers is guessed as `Int64`, and text columns get CSV's own string type unless you ask for `String`.",
+    "Pass the column types you want to `CSV.read` (see unit 21, \"Reading and writing CSV\") instead of relying on the guess.",
+  ]
+  answer_tokens = ["types =", "stringtype"]
+  test_hints = [
+    "Check the element type of each column, not only its values.",
+    "Read a file where every temperature is a whole number and check that the column is still `Float64`.",
+    "`nonmissingtype(eltype(df.temp)) == Float64` tests the type with or without missing values.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "time-parsed"
+  kc = "csv"
+  spec = "`time` is a `DateTime` column parsed from `yyyy-mm-dd HH:MM`."
+  hints = [
+    "Times in this file are not in the format CSV.jl tries by default.",
+    "The space between date and clock time is the difference from the ISO form with a `T`.",
+    "Tell `CSV.read` how the times are written; the format string uses `yyyy`, `mm`, `dd`, `HH` and `MM`.",
+  ]
+  answer_tokens = ["dateformat"]
+  test_hints = [
+    "Check one parsed time against the value you expect.",
+    "Compare `df.time[1]` with a `DateTime(...)` you build in the test, and check the column's element type.",
+    "Use a time with nonzero minutes (like 16:30) so a parser that drops minutes is caught.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "missing-markers"
+  kc = "missing-values"
+  spec = "`NA`, an empty field and `-` all become `missing`, and reading the file logs no parse warnings."
+  hints = [
+    "The file has more than one way of saying \"no value\".",
+    "Count them: there are three markers in data/readings.csv, and CSV.jl treats only one of them as missing by default.",
+    "`CSV.read` accepts a vector of strings that mean missing.",
+  ]
+  answer_tokens = ["missingstring"]
+  test_hints = [
+    "Write a small CSV in the test that uses each marker.",
+    "Check `ismissing` on a value written as `NA`, one written as `-`, and an empty field, in a numeric column.",
+    "With a forced column type an unknown marker still ends up `missing`, but with a warning: `@test_logs min_level = Logging.Warn f(x)` fails if `f(x)` warns.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "path-or-io"
+  kc = "multiple-dispatch"
+  spec = "Given a file name, `read_readings` returns the same table as for an `IO` with the same contents."
+  hints = [
+    "The two methods should share one implementation.",
+    "The path method can open the file and hand the stream to the IO method.",
+    "`open(f, path)` calls `f` on the open stream and closes it afterwards.",
+  ]
+  answer_tokens = ["open(read_readings"]
+  test_hints = [
+    "Test the path method, not only the IO one.",
+    "Write your sample text to a temporary file (`mktempdir()`) and read it back by name.",
+    "Compare the two tables with `isequal` (missing values make `==` return `missing`).",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why is `read_readings(path::AbstractString)` a second method rather than an `if x isa IO` branch inside one function?"
+  choices = [
+    "Others can add a method for a new source without editing yours",
+    "An `if` on argument types is a syntax error inside a Julia function",
+    "Julia runs the two methods in parallel and keeps the first result",
+  ]
+  answer = 1
+  explain = "Methods keyed on argument types are how Julia code is extended: each source type gets its own small method, and the shared work lives in one place."
+  misconceptions = [
+    "",
+    "`isa` checks work and are sometimes the right tool; methods are preferred because they are open for extension and keep each case small.",
+    "Methods are alternatives chosen per call, not concurrent tasks.",
+  ]
+
+[[milestone]]
+id = 2
+title = "Cleaning without losing information"
+min_score = 0.8
+must_cover = ["normalize-site", "fahrenheit", "duplicates", "range-flag", "no-mutation"]
+goal = '''
+Turn the table from milestone 1 into one you can trust: one spelling per
+site, one temperature unit, no repeated rows, and a flag for readings
+that cannot be right. Flag them, do not drop them: someone may want to
+know how many readings each sensor got wrong.
+'''
+
+  [[milestone.api]]
+  signature = "clean(df::DataFrame) -> DataFrame"
+  doc = "A new table with the columns of `df` plus a Bool column `valid`; `df` itself is not changed."
+
+  [[milestone.behaviour]]
+  id = "normalize-site"
+  kc = "dataframes"
+  spec = "Site names have surrounding spaces removed and are lower-case (`\" North \"` becomes `\"north\"`)."
+  hints = [
+    "Two spellings of one site would become two groups in milestone 3.",
+    "There are two differences between `\" North \"` and `\"north\"`.",
+    "Apply a string function to every element of the column with broadcasting.",
+  ]
+  answer_tokens = ["lowercase", "strip"]
+  test_hints = [
+    "Give `clean` a site name that differs from the cleaned one in more than one way.",
+    "Include both a capital letter and a space in one test name.",
+    "Compare the whole `site` column with the vector you expect.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "fahrenheit"
+  kc = "dataframes"
+  spec = "Rows with unit `F` have their temperature converted to Celsius and their unit set to `C`; Celsius rows and missing temperatures are unchanged."
+  hints = [
+    "Every temperature in the result should be in the same unit, and the `unit` column should say so.",
+    "Check your conversion on two values you know: water freezes at 32 °F and boils at 212 °F.",
+    "Celsius = (Fahrenheit - 32) scaled by the ratio of the two degree sizes; then update the unit as well.",
+  ]
+  answer_tokens = ["5 / 9", "5/9"]
+  test_hints = [
+    "Test a Fahrenheit value whose Celsius value you know exactly.",
+    "212 °F is 100 °C; compare with `≈` and a stated `rtol`, never `==` on floats.",
+    "Also check the `unit` column after cleaning: a conversion that leaves `F` behind is a bug.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "duplicates"
+  kc = "dataframes"
+  spec = "Rows that are equal after the cleaning above are removed, keeping the first one, in the original order."
+  hints = [
+    "Look at rows 3 and 4 of data/readings.csv.",
+    "Whether two rows are duplicates depends on when you compare them: before or after the site names and units are fixed.",
+    "Remove duplicates after normalising, and use the DataFrames function that keeps the first occurrence.",
+  ]
+  answer_tokens = ["unique"]
+  test_hints = [
+    "Put an exact duplicate in your test table and count the rows after cleaning.",
+    "Add a pair of rows that only become equal after cleaning (`\"A \"` and `\"a\"`).",
+    "Check which rows remain, not only how many, so a version that keeps the last copy or reorders is caught.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "range-flag"
+  kc = "missing-values"
+  spec = "`valid` is false when the temperature is missing or outside -50 to 60 °C, or the humidity is outside 0 to 100 %; a missing humidity alone does not make a row invalid. The bounds themselves are valid. No row is dropped."
+  hints = [
+    "The rule has three parts; check each against the spec separately.",
+    "Think about the edges: exactly 60 °C, exactly 0 %, and a row whose humidity is missing.",
+    "Write a small function of (temp, humidity) for the rule and broadcast it over the two columns.",
+  ]
+  answer_tokens = ["<=", "ismissing(humidity) ||"]
+  test_hints = [
+    "Test a valid row, an invalid row, and a row on each bound.",
+    "Include a row with a missing humidity but a good temperature: it is valid.",
+    "Check the number of rows too: invalid rows are flagged, not removed.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "no-mutation"
+  kc = "mutation"
+  spec = "The `DataFrame` passed in is the same after the call as before it."
+  hints = [
+    "A function without `!` in its name should leave its arguments alone.",
+    "Assigning a column of `out` changes `df` too when `out` and `df` are the same object.",
+    "Start from a copy of the input.",
+  ]
+  answer_tokens = ["copy("]
+  test_hints = [
+    "Keep a copy of the input, call `clean`, and compare.",
+    "Use an input that cleaning would change (a Fahrenheit row, a messy site name).",
+    "Compare with `isequal`, which treats two missings as equal.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why flag invalid readings in a `valid` column instead of deleting those rows in `clean`?"
+  choices = [
+    "Bad rows are evidence about the sensors, which a later step may need",
+    "Deleting rows from a DataFrame copies every column, which is slow for big files",
+    "A DataFrame cannot have rows removed once it has been created",
+  ]
+  answer = 1
+  explain = "Cleaning should not destroy information that a later step may need; `summarize` filters on `valid`, and anyone can still ask which sensor misbehaved."
+  misconceptions = [
+    "",
+    "Filtering is a single pass over the columns; speed is not the reason.",
+    "`deleteat!`, `filter!` and indexing remove rows; the choice here is about keeping information.",
+  ]
+
+[[milestone]]
+id = 3
+title = "Split, apply, combine"
+min_score = 0.8
+must_cover = ["valid-only", "group-by-day", "humidity-skipmissing", "sorted"]
+goal = '''
+Summarise a cleaned table: one row per site and calendar day, over the
+valid readings only.
+'''
+
+  [[milestone.api]]
+  signature = "summarize(df::DataFrame) -> DataFrame"
+  doc = "Input: the output of `clean`. Output columns: site, date (a `Date`), n, mean_temp, max_temp, mean_humidity."
+
+  [[milestone.behaviour]]
+  id = "valid-only"
+  kc = "split-apply-combine"
+  spec = "Only rows with `valid == true` are counted and averaged."
+  hints = [
+    "The summary should not see readings the cleaning step flagged.",
+    "Select the rows before grouping, not after.",
+    "Index the table with the Bool column as the row selector.",
+  ]
+  answer_tokens = ["df.valid,"]
+  test_hints = [
+    "Include an invalid row with an extreme temperature in your test table.",
+    "Check `n` and `max_temp` for the group that holds the invalid row.",
+    "An extreme value makes a wrong mean or maximum obvious.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "group-by-day"
+  kc = "split-apply-combine"
+  spec = "Groups are (site, calendar day); `date` is a `Date` column."
+  hints = [
+    "`time` holds a date and a clock time; the summary is per day.",
+    "Make a `date` column from `time` before grouping.",
+    "`Date(dt)` drops the clock time from a `DateTime`; group by the site and that column.",
+  ]
+  answer_tokens = ["Date.("]
+  test_hints = [
+    "Use two days for one site in your test.",
+    "Check the number of groups and the `n` of each.",
+    "Use two days of the same month, so a grouping by month is caught.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "humidity-skipmissing"
+  kc = "missing-values"
+  spec = "`mean_humidity` is the mean of the humidity values present in the group, and `missing` when the group has none."
+  hints = [
+    "`mean` of a vector that contains `missing` is `missing`.",
+    "Skip the missing values, and think about what the mean of nothing should be.",
+    "A small helper that collects the present values and returns `missing` when there are none, passed to `combine`.",
+  ]
+  answer_tokens = ["skipmissing", "isempty"]
+  test_hints = [
+    "Put one missing humidity in a group that has other humidity values.",
+    "Add a group whose humidity values are all missing and check the result is `missing`.",
+    "`NaN` is not `missing`: test with `ismissing`.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "sorted"
+  kc = "dataframes"
+  spec = "Rows are sorted by site, then by date."
+  hints = [
+    "The order of groups follows the order they appear in unless you ask for another.",
+    "Sort the result, on two columns.",
+    "`sort!` takes a vector of column names.",
+  ]
+  answer_tokens = ["sort!("]
+  test_hints = [
+    "Put the sites in your test table out of alphabetical order.",
+    "Check the whole `site` and `date` columns of the result.",
+    "Make the first site in the input sort last, so input order and sorted order differ.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "`combine(groupby(v, [:site, :date]), :humidity => mean => :mean_humidity)` gives `missing` for a day where one humidity reading is missing. Why?"
+  choices = [
+    "`mean` propagates `missing`: one missing value makes the sum missing",
+    "`groupby` drops missing values before `combine` sees them",
+    "`combine` converts missing values to zero",
+  ]
+  answer = 1
+  explain = "Missing values propagate through arithmetic by design, so a mean is never silently computed over fewer values than you think; `skipmissing` makes skipping them explicit."
+  misconceptions = [
+    "",
+    "`groupby` keeps every row; the groups are made from the key columns, not the values.",
+    "Nothing in DataFrames turns missing into zero for you; that would bias the mean.",
+  ]
+
+[[milestone]]
+id = 4
+title = "Writing it back"
+min_score = 1.0
+must_cover = ["missing-as-NA", "rounding", "round-trip"]
+goal = '''
+Write a summary as CSV for people and other programs, and read such a file
+back into a table with the same columns and types.
+'''
+
+  [[milestone.api]]
+  signature = "write_summary(io::IO, s::DataFrame) -> nothing"
+  doc = "A header line; dates as yyyy-mm-dd; mean_temp, max_temp and mean_humidity rounded to 2 decimals; NA for missing."
+
+  [[milestone.api]]
+  signature = "read_summary(io::IO) -> DataFrame"
+  doc = "Read what write_summary wrote: site::String, date::Date, n::Int, the three numbers as Float64 (or with missing)."
+
+  [[milestone.behaviour]]
+  id = "missing-as-NA"
+  kc = "csv"
+  spec = "A missing value is written as `NA`."
+  hints = [
+    "By default CSV.jl writes nothing at all for a missing value.",
+    "A reader of the file cannot tell an empty field from a value someone forgot; the spec asks for a visible marker.",
+    "`CSV.write` takes the marker to write as a keyword.",
+  ]
+  answer_tokens = ["missingstring"]
+  test_hints = [
+    "Write a summary with a missing humidity and look at the text.",
+    "Compare the written text, or the last field of that line, with what you expect.",
+    "Check the exact line, not just that the text contains `NA` somewhere.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "rounding"
+  kc = "csv"
+  spec = "The three numeric summary columns are rounded to 2 decimals in the file (the table passed in is not changed)."
+  hints = [
+    "A mean like 20.333333333333332 is noise in a report.",
+    "Round the values on a copy, just before writing.",
+    "`round` has a keyword for the number of decimals (see `?round`); it handles one value, and `missing` passes through it unchanged.",
+  ]
+  answer_tokens = ["digits = 2", "digits=2"]
+  test_hints = [
+    "Use a value with more than two decimals in your test summary.",
+    "Check the written text for the rounded value.",
+    "Pick a value whose third decimal rounds up (1.006), so truncation is caught too.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "round-trip"
+  kc = "csv"
+  spec = "`read_summary(io)` of what `write_summary` wrote gives the same column names, `String` sites, `Date` dates and the rounded numbers, with `missing` where `NA` was written."
+  hints = [
+    "Reading has the same pitfalls as milestone 1.",
+    "The marker you wrote must be read back as missing, and text should come back as `String`.",
+    "Pass the missing marker and the column types to `CSV.read`.",
+  ]
+  answer_tokens = ["missingstring", "stringtype"]
+  test_hints = [
+    "Write, read back, and compare the tables.",
+    "Check the column types after reading, and the missing value.",
+    "A summary with a missing humidity catches a reader that does not know the marker.",
+  ]

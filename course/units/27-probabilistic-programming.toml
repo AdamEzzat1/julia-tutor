@@ -1,0 +1,1308 @@
+id = "27-probabilistic-programming"
+title = "Probabilistic programming with Turing.jl"
+track = "ecosystem"
+env = "turing"
+status = "ready"
+summary = "Distributions as values, generative models written as Julia functions with @model and ~, posterior sampling with NUTS, and how to read MCMC output: Monte Carlo error, effective sample size, R-hat, prior and posterior predictive checks, and the other inference methods Turing offers."
+kcs = ["distributions", "bayesian-inference", "mcmc", "mcmc-diagnostics", "posterior-predictive", "probabilistic-programming"]
+prerequisites = ["26-machine-learning"]
+
+[[section]]
+title = "Distributions are values"
+body = '''
+[Distributions.jl](https://juliastats.org/Distributions.jl/stable/) (version
+0.25 here, loaded by `using Turing`, which re-exports it) represents a
+probability distribution as an ordinary Julia value: `Normal(170, 10)` is a
+struct holding a mean and a standard deviation. Every distribution answers
+the same questions through the same generic functions:
+
+* `rand(rng, d)` and `rand(rng, d, n)` draw samples (pass a seeded RNG such as
+  `Xoshiro(1)` to make them reproducible);
+* `pdf(d, x)` and `logpdf(d, x)` give the density (or the probability, for a
+  discrete distribution) at `x`;
+* `mean`, `std`, `var`, `quantile(d, q)` and `cdf(d, x)` describe its shape.
+
+Code written against these functions works for every distribution, which is
+how Turing can accept any of them on the right of a `~`.
+
+`logpdf` matters more than `pdf` in practice: the probability of a whole data
+set is a product of many numbers below 1, which underflows to `0.0` in
+floating point, while the sum of their logarithms stays an ordinary number.
+
+A maximum likelihood fit (`fit(Bernoulli, flips)`) returns one number. An
+estimate from finite data has sampling error, and that single number does not
+say how large it is. Bayesian inference answers with a distribution over the
+parameter instead.
+'''
+
+  [[section.example]]
+  caption = "Draws, moments, a density and a probability from one distribution value"
+  code = '''
+using Turing, Random
+d = Normal(170, 10)          # heights in cm
+rng = Xoshiro(1)
+println(round.(rand(rng, d, 4); digits = 2))
+println(mean(d), " ", std(d), " ", quantile(d, 0.975))
+println(pdf(d, 170), "  ", logpdf(d, 170))
+println(cdf(d, 190) - cdf(d, 150))      # mass within two standard deviations
+'''
+
+  [[section.example]]
+  caption = "Why sums of log densities."
+  notice = "Notice that the product of 2000 densities is exactly `0.0`, while the sum of their logs is an ordinary negative number."
+  code = '''
+using Turing, Random
+x = rand(Xoshiro(2), Normal(0, 1), 2000)
+println(prod(pdf.(Normal(0, 1), x)))
+println(sum(logpdf.(Normal(0, 1), x)))
+'''
+
+  [[section.example]]
+  caption = "A generative model by hand, and fitting it back."
+  notice = "Notice that the fitted `p` is the fraction of heads in these 50 flips, not the 0.7 that generated them."
+  code = '''
+using Turing, Random
+rng = Xoshiro(3)
+p_true = 0.7
+flips = rand(rng, Bernoulli(p_true), 50)     # Bool vector: true = heads
+println(count(flips), " heads in ", length(flips))
+fit(Bernoulli, flips)                        # maximum likelihood: the fraction of heads
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The mean of a `Beta(a, b)` distribution is `a / (a + b)`. What does this print?"
+  code = '''
+using Turing
+mean(Beta(2, 3))
+'''
+  choices = ["0.6", "0.4", "0.6666666666666666"]
+  answer = 2
+  explain = "`Beta(2, 3)` has mean 2 / (2 + 3) = 0.4. As a prior for a coin's heads probability it says \"probably below one half\", worth about 2 + 3 = 5 earlier flips."
+  misconceptions = [
+    "That is b / (a + b), the mean of `Beta(3, 2)`: the first parameter counts heads, the second tails.",
+    "",
+    "That is a / b, a ratio of the two parameters, not a mean.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A model scores 2000 observations. Why do inference libraries add `logpdf` values instead of multiplying `pdf` values?"
+  choices = [
+    "The product of 2000 densities underflows to 0.0, while the sum of logs does not",
+    "`logpdf` is defined for more distributions than `pdf`, including discrete ones",
+    "Multiplying densities double-counts observations that are independent of each other",
+  ]
+  answer = 1
+  explain = "For independent observations the joint density *is* the product, so the mathematics is the same. The problem is floating point: a product of thousands of numbers below 1 leaves the range of `Float64`, as the second example shows, while the sum of their logarithms stays representable."
+  misconceptions = [
+    "",
+    "Both are defined for the same distributions, discrete ones included; `logpdf` is often computed directly for accuracy, but that is not the reason here.",
+    "For independent observations the product is exactly the joint density, each observation counted once; the issue is only representing it.",
+  ]
+
+[[section]]
+title = "A model is a function: @model and ~"
+body = '''
+A Turing model is a Julia function marked with `@model`. Each line
+`x ~ D` says "x is distributed as D". What happens to `x` depends on where
+it comes from:
+
+* if `x` is a **function argument with a value** (data), the line is an
+  *observation*: Turing adds `logpdf(D, x)` to the log density;
+* otherwise `x` is a **parameter**: a sampler will propose values for it, and
+  the line adds its prior `logpdf`.
+
+The coin model below has one parameter, the heads probability `p`, with a
+uniform `Beta(1, 1)` prior, and observes ten flips. Calling `coin(y)` builds
+a model object (nothing runs yet). `sample(rng, model, NUTS(), 1000;
+progress = false)` draws 1000 values of `p` from the **posterior**, the
+distribution of `p` given the data. The result is a chain, here a `VNChain`
+from [FlexiChains.jl](https://juliabayes.org/FlexiChains.jl/stable), which
+Turing 0.49 uses by default (older tutorials show MCMCChains.jl's `Chains`;
+the ideas are the same). Index it with `@varname(p)` to get the draws as an
+iterations-by-chains matrix.
+
+The same model also runs *forward*. `rand(rng, coin(missing_data))` draws
+everything that is not observed from the prior: a model is a recipe for
+generating data, and inference runs that recipe backwards. Conditioning can
+also be written as an operation on a model: `m | (; y = data)` fixes `y` to
+the data, which is useful when one model definition serves both directions.
+
+The `Info: Found initial step size` line in the output is NUTS reporting its
+first tuning step on stderr; it is normal.
+'''
+
+  [[section.example]]
+  caption = "The coin's posterior."
+  notice = "Notice the iterations × chains shape, a posterior mean below the raw fraction 0.7 (the uniform prior counts as one extra head and one extra tail), and a wide 90% interval: ten flips say little."
+  code = '''
+using Turing, Random
+@model function coin(y)
+    p ~ Beta(1, 1)
+    for i in eachindex(y)
+        y[i] ~ Bernoulli(p)
+    end
+end
+y = [1, 0, 1, 1, 0, 1, 1, 1, 0, 1]          # 7 heads in 10 flips
+chain = sample(Xoshiro(1), coin(y), NUTS(), 1000; progress = false)
+ps = chain[@varname(p)]
+println(size(ps))
+println(round(mean(ps); digits = 3), "  ", round.(quantile(vec(ps), [0.05, 0.95]); digits = 3))
+'''
+
+  [[section.example]]
+  caption = "One model, two directions: generate from the prior, then condition with `|`."
+  notice = "Notice that `rand` returns a `VarNamedTuple` holding both `p` and the simulated `y`."
+  code = '''
+using Turing, Random
+@model function flips(n)
+    p ~ Beta(1, 1)
+    y ~ filldist(Bernoulli(p), n)       # n independent flips as one vector
+end
+draw = rand(Xoshiro(4), flips(5))       # p and y both drawn from the prior
+println(draw)
+data = [true, true, false, true, true]
+conditioned_model = flips(5) | (; y = data)
+chain = sample(Xoshiro(5), conditioned_model, NUTS(), 1000; progress = false)
+round(mean(chain[@varname(p)]); digits = 3)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In `@model function coin(y) ... y[i] ~ Bernoulli(p) ... end`, called as `coin([1, 0, 1])`, what does the line `y[i] ~ Bernoulli(p)` do during sampling?"
+  choices = [
+    "It draws a fresh value for `y[i]` from `Bernoulli(p)` at every iteration",
+    "It checks that `y[i]` is 0 or 1 and otherwise has no effect on sampling",
+    "It adds `logpdf(Bernoulli(p), y[i])` to the log density that NUTS samples",
+  ]
+  answer = 3
+  explain = "`y` was passed in with values, and a `~` on a variable that has a value (a function argument holding data, or a variable fixed with `|`) is an observation: it scores the data under the current parameters. Only variables without a value are sampled."
+  misconceptions = [
+    "That is what happens to a variable with no value (a parameter, or `y` passed as `missing`); observed data is never resampled.",
+    "The line is the likelihood: removing it would leave the posterior equal to the prior.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The flips model ends with `y ~ filldist(Bernoulli(p), n)`. What does `rand(rng, flips(5))` return?"
+  choices = [
+    "Only `y`: five simulated flips, with `p` held at its prior mean 0.5",
+    "`p` drawn from its prior, and five flips `y` drawn given that `p`",
+    "An error: `rand` needs observed data before the model can run",
+  ]
+  answer = 2
+  explain = "Nothing is observed in `flips(5)`, so `p` and `y` are both random: `rand` runs the generative recipe forward and returns every variable that is not observed. This is what a prior predictive check samples."
+  misconceptions = [
+    "`p` is also unobserved, so it is drawn too (not fixed at a summary of its prior); `y` depends on it.",
+    "",
+    "A model without data is a valid model of the prior; sampling it needs no data.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "`logjoint(model, params)` evaluates the model's log density (log prior plus log likelihood) at given parameter values. One flip, observed heads (`y = 1`), at `p = 0.25`: what does this print?"
+  code = '''
+using Turing
+@model function one_flip(y)
+    p ~ Beta(1, 1)
+    y ~ Bernoulli(p)
+end
+logjoint(one_flip(1), (; p = 0.25))
+'''
+  choices = ["0.0", "-1.3862943611198906", "-0.2876820724517809"]
+  answer = 2
+  explain = "The uniform prior has density 1 on [0, 1], so it adds log(1) = 0; the observation adds `logpdf(Bernoulli(0.25), 1)` = log(0.25) = -1.386. This number, as a function of `p`, is all a sampler ever sees of the model."
+  misconceptions = [
+    "That is only the log prior: the `y ~ Bernoulli(p)` line adds the log likelihood of the observed flip.",
+    "",
+    "That is log(0.75), the probability of tails: `y = 1` is heads, which has probability `p`.",
+  ]
+
+[[section]]
+title = "Checking the sampler against the exact answer"
+body = '''
+For the coin with a `Beta(a, b)` prior and `s` heads in `n` flips the
+posterior is known in closed form: it is `Beta(a + s, b + n - s)` (the Beta
+prior is *conjugate* to the Bernoulli likelihood). Its mean is
+`(a + s) / (a + b + n)`. Here that is (1 + 7) / (2 + 10) = 2/3.
+
+The sampled mean is close to 2/3 but not equal: a mean of finitely many
+draws has **Monte Carlo error**. If the draws were independent, its standard
+error would be `std / sqrt(N)`. MCMC draws are correlated (each one starts
+from the previous), so a chain of `N` draws carries the information of fewer
+independent ones: the **effective sample size** (ESS). The Monte Carlo
+standard error is about `std / sqrt(ESS)`, and `mcse` estimates it from the
+chain.
+
+`ess`, `rhat` and `mcse` come from MCMCDiagnosticTools.jl through
+FlexiChains; Turing does not export them, so load them with
+`using Turing.FlexiChains: ess, mcse`. `summarystats(chain)` prints them all
+in one table.
+
+A gap of one or two MCSEs is expected; a gap of ten is a bug in the model or
+a sampler that has not explored the posterior.
+
+The model below writes `y .~ Bernoulli(p)`, a broadcast `~` that means the
+same as the loop.
+
+A seeded chain is reproducible on one machine. On another CPU the last bits
+of a floating-point result can differ (whether a multiply and an add are fused
+into one instruction, for example), and a chain amplifies such a difference:
+after a few hundred steps the draws, and so the last printed digits of the
+means and ESS values in this unit, may change. The conclusions do not.
+'''
+
+  [[section.example]]
+  caption = "Sampled against exact."
+  notice = "Notice that the gap is smaller than one MCSE, and that the 1000 draws are worth fewer independent ones (ESS)."
+  code = '''
+using Turing, Random
+using Turing.FlexiChains: ess, mcse
+@model function coin(y)
+    p ~ Beta(1, 1)
+    y .~ Bernoulli(p)
+end
+y = [1, 0, 1, 1, 0, 1, 1, 1, 0, 1]
+a, b, s, n = 1, 1, sum(y), length(y)
+exact = Beta(a + s, b + n - s)
+chain = sample(Xoshiro(1), coin(y), NUTS(), 1000; progress = false)
+ps = vec(chain[@varname(p)])
+println("exact mean   ", round(mean(exact); digits = 4), "   exact std ", round(std(exact); digits = 4))
+println("sampled mean ", round(mean(ps); digits = 4), "   sampled std ", round(std(ps); digits = 4))
+println("gap          ", round(abs(mean(ps) - mean(exact)); digits = 4))
+println("ESS          ", round(Int, ess(chain)[@varname(p)]), " of ", length(ps))
+println("MCSE         ", round(mcse(chain)[@varname(p)]; digits = 4))
+'''
+
+  [[section.example]]
+  caption = "Ten seeds, ten estimates: their spread is the Monte Carlo error."
+  notice = "Notice that the standard deviation of the ten means is close to the MCSE that `mcse` estimated from a single chain in the previous example."
+  code = '''
+using Turing, Random, Statistics
+@model function coin(y)
+    p ~ Beta(1, 1)
+    y .~ Bernoulli(p)
+end
+y = [1, 0, 1, 1, 0, 1, 1, 1, 0, 1]
+est = [mean(sample(Xoshiro(seed), coin(y), NUTS(), 1000; progress = false, verbose = false)[@varname(p)])
+       for seed in 1:10]
+println(round.(est; digits = 4))
+println("spread (std of the 10 estimates): ", round(std(est); digits = 4))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "With a `Beta(2, 2)` prior and 3 heads in 4 flips, what is the exact posterior mean, computed with rationals?"
+  code = '''
+a, b, s, n = 2, 2, 3, 4
+(a + s) // (a + b + n)
+'''
+  choices = ["3//4", "5//8", "2//3"]
+  answer = 2
+  explain = "The posterior is Beta(2 + 3, 2 + 1) = Beta(5, 3), with mean 5/8. The prior acts like 2 extra heads and 2 extra tails, pulling the raw fraction 3/4 toward 1/2."
+  misconceptions = [
+    "That is s / n, the fraction of heads, which ignores the prior (it is the maximum likelihood estimate).",
+    "",
+    "That is the posterior mode (a + s - 1) / (a + b + n - 2), not the mean.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A chain has 1000 draws, posterior standard deviation 0.13 and ESS 250. About how far from the exact posterior mean do you expect the sampled mean to be?"
+  choices = [
+    "About 0.13 / sqrt(1000) = 0.004",
+    "About 0.13, one posterior standard deviation",
+    "Zero: NUTS is exact",
+    "About 0.13 / sqrt(250) = 0.008",
+  ]
+  answer = 4
+  explain = "The Monte Carlo standard error is the posterior standard deviation divided by the square root of the effective sample size. Correlation between successive draws makes the chain worth 250 independent draws, not 1000."
+  misconceptions = [
+    "That formula assumes independent draws; MCMC draws are correlated, so the error is larger.",
+    "The posterior std describes uncertainty about `p` itself; the error of the *estimate of its mean* shrinks with the number of effective draws.",
+    "NUTS samples the exact posterior only in the limit; any finite chain gives estimates with Monte Carlo error.",
+    "",
+  ]
+
+[[section]]
+title = "What a sampler does, and what \"converged\" means"
+body = '''
+A Markov chain Monte Carlo (MCMC) sampler builds a sequence of parameter
+values where each value is a random move from the previous one, constructed
+so that, in the long run, values appear with the frequency the posterior
+assigns them. Two consequences follow.
+
+* **Warm-up.** The chain starts at an arbitrary point. NUTS also has to tune
+  its step size and its scale for each parameter. `NUTS()` spends
+  `min(1000, N ÷ 2)` extra iterations adapting and drops them, so the chain
+  you get has `N` draws taken after adaptation.
+* **Autocorrelation.** Successive draws depend on each other. Turing's
+  `MH()` proposes a fresh value drawn from the prior and accepts it with the
+  Metropolis probability; a rejection repeats the old value. NUTS follows the
+  gradient of the log density (ForwardDiff computes it) along a simulated
+  trajectory and makes long moves that are rarely rejected.
+
+**R-hat** compares several chains started at different points: if they all
+explore the same distribution, the spread between chains matches the spread
+within each, and R-hat is close to 1 (values above 1.01 are a warning in
+current practice). Run several chains with
+`sample(rng, model, NUTS(), MCMCSerial(), N, nchains)`. `MCMCThreads()` runs
+them in parallel but only helps when Julia started with several threads.
+
+What these diagnostics can and cannot tell you: a low R-hat and a large ESS
+show that the chains agree and that the estimates have small Monte Carlo
+error. They cannot prove that the sampler found every region of the
+posterior (all chains can miss the same mode), and they say nothing about
+whether the *model* is right. NUTS also warns about **divergent transitions**,
+which mean the sampler hit a region it could not integrate accurately; treat
+those as a reason to reparametrize, not as noise.
+
+On a one-parameter posterior with a uniform prior, like the coin's, MH and
+NUTS are not far apart. With many parameters a proposal from the prior almost
+never lands where the posterior is, nearly every MH step is rejected, and the
+gap in ESS grows by orders of magnitude.
+'''
+
+  [[section.example]]
+  caption = "MH and NUTS on the same posterior (exact mean 2/3)."
+  notice = "Notice that both find the mean, but the MH draws are more autocorrelated and give fewer effective draws."
+  code = '''
+using Turing, Random, Statistics
+using Turing.FlexiChains: ess
+@model function coin(y)
+    p ~ Beta(1, 1)
+    y .~ Bernoulli(p)
+end
+y = [1, 0, 1, 1, 0, 1, 1, 1, 0, 1]
+lag1(x) = cor(x[1:end-1], x[2:end])
+for (name, alg) in (("MH  ", MH()), ("NUTS", NUTS()))
+    chain = sample(Xoshiro(1), coin(y), alg, 2000; progress = false, verbose = false)
+    ps = vec(chain[@varname(p)])
+    println(name, "  mean ", round(mean(ps); digits = 3),
+            "  lag-1 autocorrelation ", round(lag1(ps); digits = 2),
+            "  ESS ", round(Int, ess(chain)[@varname(p)]), " of 2000")
+end
+'''
+
+  [[section.example]]
+  caption = "Four chains: R-hat compares them."
+  notice = "Notice that the four NUTS chains agree (R-hat near 1), while four MH chains of 30 draws each do not (R-hat above the 1.01 warning level, and few effective draws out of 120)."
+  code = '''
+using Turing, Random
+using Turing.FlexiChains: ess, rhat
+@model function coin(y)
+    p ~ Beta(1, 1)
+    y .~ Bernoulli(p)
+end
+y = [1, 0, 1, 1, 0, 1, 1, 1, 0, 1]
+nuts = sample(Xoshiro(7), coin(y), NUTS(), MCMCSerial(), 500, 4; progress = false, verbose = false)
+println(size(nuts[@varname(p)]))
+println("NUTS: R-hat ", round(rhat(nuts)[@varname(p)]; digits = 3), "  ESS ", round(Int, ess(nuts)[@varname(p)]))
+short = sample(Xoshiro(7), coin(y), MH(), MCMCSerial(), 30, 4; progress = false)
+println("MH, 30 draws each: R-hat ", round(rhat(short)[@varname(p)]; digits = 3),
+        "  ESS ", round(Int, ess(short)[@varname(p)]))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Four chains give R-hat = 1.001 and ESS = 3000 for every parameter. What have you learned?"
+  choices = [
+    "The chains agree, but a region none of them reached could still be missing",
+    "The model is right for this data, so predictive checks can be skipped",
+    "The sampler has visited every mode of the posterior at least once",
+    "Nothing: R-hat is only informative when a single chain is run",
+  ]
+  answer = 1
+  explain = "R-hat and ESS are statements about the chains: they agree, and they carry many effective draws, so the posterior means have small Monte Carlo error. They are evidence against non-convergence, not a proof of convergence, and they do not check the model against reality (that is what predictive checks are for)."
+  misconceptions = [
+    "",
+    "Diagnostics check the sampler, not the model: a wrong likelihood is sampled just as accurately.",
+    "If every chain is stuck in the same mode, they agree perfectly and R-hat is still near 1.",
+    "R-hat is defined by comparing chains (split R-hat also compares the halves of each chain); several chains are what makes it informative.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`MH()` gives an ESS of 150 from 2000 draws, NUTS an ESS of 800. Why is the MH chain worth so few independent draws?"
+  choices = [
+    "MH draws come from the prior, not from the posterior",
+    "MH ignores the posterior's shape, so many proposals are rejected",
+    "MH discards its warm-up, so its chain holds fewer real draws",
+  ]
+  answer = 2
+  explain = "Both chains target the same posterior. MH has no gradient information: `MH()` proposes from the prior (a random walk with `MH(cov)`), and a rejected proposal repeats the previous value. Long runs of repeated values mean high autocorrelation and low ESS."
+  misconceptions = [
+    "MH *proposes* from the prior, but the accept/reject step makes the chain target the posterior; it just explores it slowly, which the low ESS measures.",
+    "",
+    "Discarding warm-up changes which draws are kept, not how correlated they are; NUTS discards its adaptation steps too, and both chains hold 2000 draws.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Julia was started with one thread. What does `sample(rng, model, NUTS(), MCMCThreads(), 1000, 4)` do?"
+  choices = [
+    "It fails with an error, because only one thread is available",
+    "It starts four threads for the duration of the call, then stops them",
+    "It runs the four chains in turn on the one thread, with a warning",
+  ]
+  answer = 3
+  explain = "The number of threads is fixed when Julia starts (`julia --threads=4`). With one thread, `MCMCThreads()` warns and runs the chains in turn on that thread, so it is no faster than `MCMCSerial()`, which is why the examples here use `MCMCSerial()`."
+  misconceptions = [
+    "It still runs: the chains are tasks, and one thread can run them in turn.",
+    "A running Julia process cannot add threads; the count comes from the `--threads` option or `JULIA_NUM_THREADS`.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "`NUTS()` adapts for `min(1000, N ÷ 2)` iterations. What is the size of the draws matrix after asking for 400 draws?"
+  code = '''
+using Turing, Random
+@model function coin(y)
+    p ~ Beta(1, 1)
+    y .~ Bernoulli(p)
+end
+chain = sample(Xoshiro(1), coin([1, 0, 1]), NUTS(), 400; progress = false, verbose = false)
+size(chain[@varname(p)])
+'''
+  choices = ["(400, 1)", "(200, 1)", "(600, 1)"]
+  answer = 1
+  explain = "The 200 adaptation iterations are run in addition to the 400 you asked for and then dropped, so the chain holds exactly 400 draws from one chain. Warm-up costs time, not draws."
+  misconceptions = [
+    "",
+    "The adaptation steps are not taken out of the 400; they are extra iterations before them.",
+    "The adaptation steps are run but discarded (`discard_adapt = true` by default), so they do not appear in the chain.",
+  ]
+
+[[section]]
+title = "Regression, and checking a model with predictions"
+body = '''
+Linear regression as a generative model: an intercept `α`, a slope `β` and a
+noise level `σ` get priors, and each `y[i]` is normal around `α + β * x[i]`.
+`MvNormal(μ, σ^2 * I)` scores the whole vector at once (`I` is the identity
+matrix, re-exported by Turing). `σ` must be positive, so its prior is
+`truncated(Normal(0, 2); lower = 0)`; NUTS samples it on an unconstrained
+scale (log σ) and maps back, which you never see.
+
+Two checks use the model's ability to generate data:
+
+* **Prior predictive check**, before seeing data: sample the parameters from
+  the prior (`Prior()` as the sampler, or `rand`) and simulate `y`. If the
+  simulated data are absurd (heights of 10 km), the priors are wrong.
+* **Posterior predictive**: for each posterior draw, simulate new `y` at
+  new inputs. `predict(rng, model(x_new, missing), chain)` does exactly that:
+  passing `missing` for `y` turns it from data into something to generate.
+  The spread of the predictions includes both the uncertainty in `α, β, σ`
+  and the noise `σ`, which is why it is wider than the spread of `α + β x`.
+'''
+
+  [[section.example]]
+  caption = "Fitting simulated data with known parameters (α = 1, β = 2, σ = 0.5)."
+  notice = "Notice that each posterior mean is close to the true value and each 90% interval contains it."
+  code = '''
+using Turing, Random, LinearAlgebra
+@model function linreg(x, y)
+    α ~ Normal(0, 10)
+    β ~ Normal(0, 10)
+    σ ~ truncated(Normal(0, 2); lower = 0)
+    y ~ MvNormal(α .+ β .* x, σ^2 * I)
+end
+rng = Xoshiro(10)
+x = collect(range(0, 5; length = 30))
+y = 1.0 .+ 2.0 .* x .+ 0.5 .* randn(rng, 30)       # true α = 1, β = 2, σ = 0.5
+chain = sample(Xoshiro(11), linreg(x, y), NUTS(), 1000; progress = false)
+for v in (@varname(α), @varname(β), @varname(σ))
+    d = vec(chain[v])
+    println(v, "  mean ", round(mean(d); digits = 2), "  90% interval ",
+            round.(quantile(d, [0.05, 0.95]); digits = 2))
+end
+'''
+
+  [[section.example]]
+  caption = "Prior predictive: what do these priors say about y at x = 5 before any data?"
+  notice = "Notice that the 90% range spans more than a hundred units around zero, while the real data there are near 11: these priors are vague. Thirty points overwhelm them in this model, but the check makes that a decision instead of an accident."
+  code = '''
+using Turing, Random, LinearAlgebra
+@model function linreg(x, y)
+    α ~ Normal(0, 10)
+    β ~ Normal(0, 10)
+    σ ~ truncated(Normal(0, 2); lower = 0)
+    y ~ MvNormal(α .+ β .* x, σ^2 * I)
+end
+x = collect(range(0, 5; length = 30))
+prior = sample(Xoshiro(12), linreg(x, missing), Prior(), 1000; progress = false)
+y_at_5 = [ys[end] for ys in vec(prior[@varname(y)])]    # simulated y at x = 5
+round.(quantile(y_at_5, [0.05, 0.5, 0.95]); digits = 1)
+'''
+
+  [[section.example]]
+  caption = "Posterior predictive at new inputs (the data stop at x = 5)."
+  notice = "Notice that at each x the new-`y` interval is wider than the line's, and that both are wider at x = 10 than at x = 6: the posterior is less certain the farther you extrapolate."
+  code = '''
+using Turing, Random, LinearAlgebra
+@model function linreg(x, y)
+    α ~ Normal(0, 10)
+    β ~ Normal(0, 10)
+    σ ~ truncated(Normal(0, 2); lower = 0)
+    y ~ MvNormal(α .+ β .* x, σ^2 * I)
+end
+rng = Xoshiro(10)
+x = collect(range(0, 5; length = 30))
+y = 1.0 .+ 2.0 .* x .+ 0.5 .* randn(rng, 30)
+chain = sample(Xoshiro(11), linreg(x, y), NUTS(), 1000; progress = false, verbose = false)
+x_new = [6.0, 10.0]
+pred = predict(Xoshiro(13), linreg(x_new, missing), chain)
+ynew = reduce(hcat, vec(pred[@varname(y)]))           # 2 × 1000 matrix
+lines = vec(chain[@varname(α)]) .+ vec(chain[@varname(β)]) .* x_new'   # α + β x, 1000 × 2
+for j in 1:2
+    println("x = ", x_new[j], "  line 90%: ", round.(quantile(lines[:, j], [0.05, 0.95]); digits = 2),
+            "  new y 90%: ", round.(quantile(ynew[j, :], [0.05, 0.95]); digits = 2))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why is the 90% interval for a new `y` at x = 10 wider than the 90% interval for the line `α + β * 10`?"
+  choices = [
+    "A new observation adds the noise `σ` to the line's uncertainty",
+    "`predict` uses fewer draws than the chain, so its quantiles are noisier",
+    "The line's interval is computed from the true parameters, not the draws",
+  ]
+  answer = 1
+  explain = "The line interval reflects only what we do not know about `α` and `β`. A new observation is the line plus fresh noise with standard deviation `σ`, so its interval adds that spread. With more data the line interval shrinks toward zero width; the prediction interval does not shrink below the noise."
+  misconceptions = [
+    "",
+    "`predict` produces one prediction per posterior draw, the same number as the chain.",
+    "Both intervals come from the posterior draws; the true parameters are never used after simulating the data.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A prior predictive check of a model for adult heights (in cm) gives simulated heights from -400 to 700. What should you do?"
+  choices = [
+    "Nothing: thirty or more data points will overwhelm any prior",
+    "Tighten the priors until simulated adult heights look plausible",
+    "Run more NUTS iterations so the prior predictive settles down",
+  ]
+  answer = 2
+  explain = "A prior predictive check tests what the model believes before data. Wide priors are not neutral: they claim negative heights are plausible. Tighten them so simulated data stay in a plausible range, before fitting. With little data, or in models with many parameters, such priors shape the posterior and can slow down the sampler."
+  misconceptions = [
+    "With enough data that is often true for simple models, but not with little data or many parameters; running the check costs one call to `sample` with `Prior()`.",
+    "",
+    "Sampling the prior longer does not change what the prior says; the range would stay the same.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The regression's noise prior is `truncated(Normal(0, 2); lower = 0)`, a half-normal. What prior mean does it give `σ`?"
+  code = '''
+using Turing
+round(mean(truncated(Normal(0, 2); lower = 0)); digits = 3)
+'''
+  choices = ["0.0", "2.0", "1.596"]
+  answer = 3
+  explain = "Cutting off the negative half moves the mean to 2 * sqrt(2 / π) = 1.596. Truncation renormalizes the remaining density; it does not keep the original mean 0."
+  misconceptions = [
+    "That is the mean of the untruncated `Normal(0, 2)`; with the negative half removed, all the mass is above zero.",
+    "That is the scale parameter, the standard deviation of the untruncated normal, not the mean of the half-normal.",
+    "",
+  ]
+
+[[section]]
+title = "Other inference: MH, Prior, point estimates and variational inference"
+body = '''
+`sample` takes the inference algorithm as an argument, so changing method is
+a one-word edit:
+
+* `NUTS()`: the default choice for continuous parameters; needs gradients.
+* `HMC(ε, n_leapfrog)`: Hamiltonian Monte Carlo with a fixed step size and
+  path length (NUTS chooses the length itself).
+* `MH()`: Metropolis-Hastings, no gradients; works for any model, including
+  ones whose log density cannot be differentiated, but its ESS per draw falls
+  quickly as the number of parameters grows.
+* `Prior()`: ignores the data and samples the prior.
+* `Gibbs(...)`, `PG(...)`, `SMC()`: for models with discrete parameters,
+  which gradient-based samplers cannot handle.
+
+Point estimates skip sampling: `maximum_a_posteriori(rng, model)` finds the
+posterior mode (MAP) and `maximum_likelihood(rng, model)` the maximum of the
+likelihood alone (MLE), both by numerical optimisation (LBFGS from Optim.jl by
+default). For the coin both have closed forms, so the example checks them.
+A mode is one number: it gives no uncertainty.
+
+**Variational inference** (`vi(rng, model, q_meanfield_gaussian, iters)`)
+fits a simple distribution (here independent normals on the unconstrained
+scale) to the posterior by optimisation. It replaces sampling by an
+optimisation problem, which is the usual reason to use it on large models or
+data sets, but the answer is only as good as the family: a mean-field
+Gaussian cannot represent correlations or several modes, and no diagnostic
+like R-hat tells you how far off it is. See the
+[variational inference tutorial](https://turinglang.org/docs/tutorials/variational-inference/).
+
+No sampler wins on every posterior; ESS is the measurement that tells you.
+Fixed HMC settings that work on one model can fail on another, which is why
+NUTS adapts them.
+'''
+
+  [[section.example]]
+  caption = "MAP and MLE for the coin, against their formulas."
+  notice = "Notice that the optimiser matches both to five digits: it stops at a convergence tolerance, not at the exact maximum, which is why the example rounds."
+  code = '''
+using Turing, Random
+@model function coin(y)
+    p ~ Beta(2, 2)
+    y .~ Bernoulli(p)
+end
+y = [1, 0, 1, 1, 0, 1, 1, 1, 0, 1]
+s, n = sum(y), length(y)
+map_est = maximum_a_posteriori(Xoshiro(1), coin(y))
+mle_est = maximum_likelihood(Xoshiro(1), coin(y))
+println("MAP ", round(map_est.params[@varname(p)]; digits = 5), "   formula (a + s - 1) / (a + b + n - 2) = ", round((2 + s - 1) / (4 + n - 2); digits = 5))
+println("MLE ", round(mle_est.params[@varname(p)]; digits = 5), "   formula s / n = ", s / n)
+'''
+
+  [[section.example]]
+  caption = "HMC with a fixed step size against NUTS."
+  notice = "Notice that on this posterior the fixed-step HMC gets more effective draws than NUTS, even more than the 1000 draws it made: that happens when successive draws are *negatively* correlated (a trajectory that overshoots to the other side of the mean)."
+  code = '''
+using Turing, Random
+using Turing.FlexiChains: ess
+@model function coin(y)
+    p ~ Beta(2, 2)
+    y .~ Bernoulli(p)
+end
+y = [1, 0, 1, 1, 0, 1, 1, 1, 0, 1]
+exact = mean(Beta(2 + 7, 2 + 3))
+for (name, alg) in (("HMC(0.1, 10)", HMC(0.1, 10)), ("NUTS()      ", NUTS()))
+    chain = sample(Xoshiro(2), coin(y), alg, 1000; progress = false, verbose = false)
+    println(name, "  mean ", round(mean(chain[@varname(p)]); digits = 3),
+            " (exact ", round(exact; digits = 3), ")  ESS ", round(Int, ess(chain)[@varname(p)]))
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "With a `Beta(1, 1)` (uniform) prior, the posterior mode equals the maximum likelihood estimate. For 7 heads in 10 flips, what does this formula give?"
+  code = '''
+a, b, s, n = 1, 1, 7, 10
+(a + s - 1) / (a + b + n - 2)
+'''
+  choices = ["0.6666666666666666", "0.7", "0.75"]
+  answer = 2
+  explain = "(1 + 7 - 1) / (1 + 1 + 10 - 2) = 7/10. A flat prior adds nothing to the log density at the maximum, so MAP and MLE coincide; the posterior *mean* (8/12) is different."
+  misconceptions = [
+    "That is the posterior mean (a + s) / (a + b + n), not the mode.",
+    "",
+    "That would be (s + 2) / (n + 2), the mean under a Beta(2, 2) prior with the counts shifted; the formula has a - 1 and b - 1.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A model has a discrete parameter `k ~ Categorical(3)`. Why does `sample(model, NUTS(), 1000)` not work for it?"
+  choices = [
+    "NUTS needs a gradient, and a discrete parameter has none",
+    "Turing cannot represent discrete distributions as parameters",
+    "Categorical parameters need far more than 1000 iterations to mix",
+  ]
+  answer = 1
+  explain = "Hamiltonian methods move along the gradient of the log density with respect to every parameter, and an integer parameter has no gradient. For discrete parameters use a sampler that does not need it (`MH`, `PG`), or `Gibbs` to combine one for the discrete part with NUTS for the continuous part, or sum the discrete parameter out of the model by hand."
+  misconceptions = [
+    "",
+    "Discrete distributions work fine as priors and as likelihoods; observing a `Bernoulli` is exactly what the coin model does.",
+    "The problem is not the number of iterations: a gradient-based move is not defined for an integer.",
+  ]
+
+[[section]]
+title = "Models are Julia code: compared with Stan and PyMC"
+body = '''
+In [Stan](https://mc-stan.org/) a model is written in a separate language
+and compiled to C++; in [PyMC](https://www.pymc.io/) it is a graph of
+PyTensor operations built by Python code. A Turing model is an ordinary
+Julia function: loops, `if`, your own functions, other packages. Anything
+that ForwardDiff can differentiate (the default AD backend; `adtype =
+AutoMooncake()` and others can be passed to `NUTS`) can appear between the
+`~` lines, including an ODE solver. The cost of this freedom: Stan checks a
+model at compile time and has over a decade of tuning for its sampler; in
+Turing a model that is slow to evaluate (type-unstable, allocating in a loop)
+makes every sampler iteration slow, and the performance rules from the
+performance unit apply.
+
+The example below fits a logistic growth curve computed by a hand-written
+loop, a function Turing knows nothing about. `x := expr` records a derived
+quantity in the chain next to the parameters.
+'''
+
+  [[section.example]]
+  caption = "Any Julia function in a model: a growth curve from a loop."
+  notice = "Notice that the posterior means of `r` and `K` recover the values used to simulate the data (0.6 and 40), and that the derived `final` can be summarised like any parameter."
+  code = '''
+using Turing, Random
+function logistic_curve(r, K, n; x0 = 1.0)
+    x = zeros(typeof(r), n)
+    x[1] = x0
+    for t in 2:n
+        x[t] = x[t-1] + r * x[t-1] * (1 - x[t-1] / K)
+    end
+    return x
+end
+@model function growth(obs)
+    r ~ truncated(Normal(0.5, 0.5); lower = 0)
+    K ~ truncated(Normal(50, 30); lower = 1)
+    σ ~ truncated(Normal(0, 5); lower = 0)
+    curve = logistic_curve(r, K, length(obs))
+    obs ~ MvNormal(curve, σ^2 * I)
+    final := curve[end]
+end
+obs = logistic_curve(0.6, 40.0, 15) .+ 1.5 .* randn(Xoshiro(20), 15)
+chain = sample(Xoshiro(21), growth(obs), NUTS(), 500; progress = false, verbose = false)
+for v in (@varname(r), @varname(K), @varname(final))
+    println(v, "  ", round(mean(chain[v]); digits = 2))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A Turing model calls your own Julia function `f(θ)` between two `~` lines. What must `f` support for NUTS to work?"
+  choices = [
+    "It must be written in Turing's own modelling language, not plain Julia",
+    "It must accept ForwardDiff's dual numbers, not only `Float64`",
+    "Nothing: NUTS estimates the gradients by finite differences",
+  ]
+  answer = 2
+  explain = "The model is plain Julia, so any generic function works, but ForwardDiff calls it with `Dual` numbers so that the gradient can flow through it. A function that allocates `zeros(n)` (always `Float64`) and writes duals into it fails; `zeros(typeof(r), n)`, as in the growth example, keeps it generic."
+  misconceptions = [
+    "That describes Stan; in Turing the model body is ordinary Julia code.",
+    "",
+    "The default backend is ForwardDiff, which propagates exact derivatives through the code; it is not a finite-difference approximation.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A likelihood needs the solution of an ODE whose coefficients are model parameters. How do you write that in Turing?"
+  choices = [
+    "Solve the ODE once before sampling and pass the solution in as data",
+    "Call a Julia ODE solver inside the `@model` body, before the `~` line",
+    "Write the ODE in a Stan-style model block that Turing compiles to C++",
+  ]
+  answer = 2
+  explain = "A Turing model is a Julia function, so the body can call a solver from DifferentialEquations.jl (or a hand-written loop, like the growth curve) on the current parameter values and then observe the data around the solution. Stan has built-in ODE solvers too (`ode_rk45`, `ode_bdf`); the difference is that Turing can use any Julia code, as long as it accepts ForwardDiff's dual numbers."
+  misconceptions = [
+    "The solution depends on the parameters, so it must be recomputed at every evaluation of the log density; a solution computed once fixes them at one value.",
+    "",
+    "That describes Stan's workflow; Turing has no separate modelling language, the model body is ordinary Julia.",
+  ]
+
+[[section]]
+title = "Where to go next"
+body = '''
+`summarystats` prints the standard table for every parameter: mean, std,
+MCSE, bulk and tail ESS, R-hat and quantiles (the `…` marks columns cut to
+fit the width). It is the first thing to look at after any `sample` call.
+
+* [Turing documentation](https://turinglang.org/docs/) and its tutorials
+  (hierarchical models, Gaussian mixtures, ODE models). Reach for these when
+  your model has groups that share information, latent classes, or dynamics.
+* [Distributions.jl](https://juliastats.org/Distributions.jl/stable/) for
+  the full list of distributions, `truncated`, `product_distribution`. Reach
+  for it when you need a likelihood or prior this unit did not use.
+* [FlexiChains.jl](https://juliabayes.org/FlexiChains.jl/stable) for
+  indexing, summaries and plotting of chains. Reach for it when you want
+  trace plots, per-chain summaries, or the draws of one variable in a shape
+  you choose.
+* `Gibbs` for models mixing discrete and continuous parameters, and
+  submodels (`to_submodel`) for building models from pieces. Reach for
+  `Gibbs` when a model has a discrete parameter you cannot sum out, and for
+  submodels when the same block (a prior, a regression) appears in several
+  models.
+'''
+
+  [[section.example]]
+  caption = "summarystats: one table of means, intervals and diagnostics."
+  notice = "Notice that its mean, std and MCSE are the numbers computed by hand for the same chain in section 3."
+  code = '''
+using Turing, Random
+using Turing.FlexiChains: summarystats
+@model function coin(y)
+    p ~ Beta(1, 1)
+    y .~ Bernoulli(p)
+end
+y = [1, 0, 1, 1, 0, 1, 1, 1, 0, 1]
+chain = sample(Xoshiro(1), coin(y), NUTS(), 1000; progress = false, verbose = false)
+summarystats(chain)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A mixture model gives each data point a discrete cluster label `z[i] ~ Categorical(3)`, and the clusters have continuous means. Which approach samples it?"
+  choices = [
+    "`Gibbs`: a particle sampler for the labels, NUTS for the means",
+    "`NUTS()` alone, after rounding a continuous label to an integer in the model",
+    "`vi` with a mean-field Gaussian over the labels and the means together",
+  ]
+  answer = 1
+  explain = "`Gibbs` alternates between samplers, each updating some of the variables: one that needs no gradient (`PG`, `MH`) for the discrete labels, and NUTS for the continuous means. The other option is to sum the labels out of the likelihood by hand, which leaves a model NUTS can sample alone."
+  misconceptions = [
+    "",
+    "Rounding makes the log density piecewise constant in the label: its gradient is zero almost everywhere, so NUTS gets no information and the result is wrong.",
+    "A Gaussian family is continuous, so it cannot represent a discrete label, and a mean-field fit cannot represent the correlation between labels and means.",
+  ]
+
+[[problem]]
+id = "beta-bernoulli-posterior-mean"
+title = "The exact posterior mean of a coin"
+difficulty = "warm-up"
+kcs = ["bayesian-inference", "distributions"]
+entry = "posterior_mean"
+packages = ["Turing"]
+prompt = '''
+A coin has heads probability `p` with prior `Beta(a, b)`, and `y` is a
+vector of observed flips (`1` = heads, `0` = tails). The posterior is
+`Beta(a + s, b + n - s)` where `s` is the number of heads and `n` the number
+of flips. Write `posterior_mean(a, b, y)` that returns the exact posterior
+mean of `p` as a `Rational{Int}` (`a` and `b` are positive `Int`s). No
+sampling is needed.
+
+```julia
+posterior_mean(1, 1, [1, 0, 1, 1, 0, 1, 1, 1, 0, 1])   # 2//3
+posterior_mean(2, 5, Int[])                            # 2//7 (no data: the prior mean)
+```
+'''
+starter = '''
+function posterior_mean(a, b, y)
+    # your code here
+end
+'''
+reference = '''
+function posterior_mean(a, b, y)
+    s = count(==(1), y)
+    return (a + s) // (a + b + length(y))
+end
+'''
+cases = [
+  "1, 1, [1, 0, 1, 1, 0, 1, 1, 1, 0, 1]",
+  "2, 5, Int[]",
+  "2, 2, [1, 1, 1]",
+  "3, 1, [0, 0, 0, 0]",
+]
+gen = "rng -> [(rand(rng, 1:20), rand(rng, 1:20), rand(rng, 0:1, rand(rng, 0:40))) for _ in 1:20]"
+hints = [
+  "The mean of `Beta(α, β)` is `α / (α + β)`; here α and β are the updated parameters.",
+  "Check your function on the second example call: with no data it must return the prior mean, and the result must be a `Rational`, not a `Float64`.",
+]
+
+  [problem.perf]
+  args = "2, 3, rand(rng, 0:1, n)"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "ignores the prior: the fraction of heads"
+  code = '''
+posterior_mean(a, b, y) = count(==(1), y) // length(y)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "posterior mode instead of the mean"
+  code = '''
+function posterior_mean(a, b, y)
+    s = count(==(1), y)
+    return (a + s - 1) // (a + b + length(y) - 2)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Float64 instead of an exact rational"
+  code = '''
+posterior_mean(a, b, y) = (a + sum(y)) / (a + b + length(y))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sum(y) counts the heads too"
+  code = '''
+posterior_mean(a, b, y) = (a + sum(y)) // (a + b + length(y))
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "adds the tails to the first Beta parameter"
+  code = '''
+function posterior_mean(a, b, y)
+    s = count(==(1), y)
+    return (a + length(y) - s) // (a + b + length(y))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "filters the heads into a new vector first"
+  code = '''
+posterior_mean(a, b, y) = (a + length(filter(==(1), y))) // (a + b + length(y))
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "posterior-predictive-exceedance"
+title = "Posterior predictive probability from samples"
+difficulty = "core"
+kcs = ["posterior-predictive", "distributions"]
+entry = "prob_exceeds"
+packages = ["Turing"]
+prompt = '''
+A regression model `y ~ Normal(α + β x, σ)` has been sampled: `α`, `β` and
+`σ` are equal-length vectors of posterior draws (draw `i` is
+`(α[i], β[i], σ[i])`). Write `prob_exceeds(α, β, σ, x, t)` that returns the
+posterior predictive probability that a **new** observation at input `x`
+is greater than `t`:
+
+the average over draws of P(y > t) for `y ~ Normal(α[i] + β[i] * x, σ[i])`.
+
+Use the exact normal tail probability for each draw (`ccdf` from
+Distributions, available after `using Turing`), not simulated `y` values.
+
+```julia
+prob_exceeds([0.0], [1.0], [1.0], 2.0, 2.0)            # 0.5
+prob_exceeds([0.0, 1.0], [1.0, 1.0], [1.0, 1.0], 2.0, 3.0)
+# (ccdf(Normal(2, 1), 3) + ccdf(Normal(3, 1), 3)) / 2 = 0.3293...
+```
+
+The grader measures speed and allocations against a loop that allocates
+nothing.
+'''
+starter = '''
+using Turing
+
+function prob_exceeds(α, β, σ, x, t)
+    # your code here
+end
+'''
+reference = '''
+using Turing
+
+function prob_exceeds(α, β, σ, x, t)
+    total = 0.0
+    for i in eachindex(α, β, σ)
+        total += ccdf(Normal(α[i] + β[i] * x, σ[i]), t)
+    end
+    return total / length(α)
+end
+'''
+# A sum of n positive terms in a different order differs by at most about
+# n * eps relative (n <= 10^4 here: 2e-12), so rtol = 1e-10 accepts any
+# summation order (mean over a generator, pairwise sums) and nothing else.
+compare = "isapprox"
+rtol = 1e-10
+cases = [
+  "[0.0], [1.0], [1.0], 2.0, 2.0",
+  "[0.0, 1.0], [1.0, 1.0], [1.0, 1.0], 2.0, 3.0",
+  "[1.0, 1.2, 0.8, 1.1], [2.0, 1.9, 2.2, 2.0], [0.5, 0.4, 0.7, 0.5], 4.0, 10.0",
+]
+gen = "rng -> [(n = rand(rng, 1:60); (1 .+ 0.3 .* randn(rng, n), 2 .+ 0.2 .* randn(rng, n), 0.3 .+ rand(rng, n), 5 * rand(rng), 2 + 10 * rand(rng))) for _ in 1:20]"
+hints = [
+  "For one draw, P(y > t) is the upper tail of a normal distribution; average it over the draws.",
+  "The grader compares allocations with a loop that builds no vectors.",
+]
+
+  [problem.perf]
+  args = "1 .+ 0.3 .* randn(rng, n), 2 .+ 0.2 .* randn(rng, n), 0.3 .+ rand(rng, n), 1.5, 4.0"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "plugs in the posterior means (ignores parameter uncertainty)"
+  code = '''
+using Turing, Statistics
+prob_exceeds(α, β, σ, x, t) = ccdf(Normal(mean(α) + mean(β) * x, mean(σ)), t)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "P(α + β x > t): the line, without the observation noise"
+  code = '''
+prob_exceeds(α, β, σ, x, t) = count(i -> α[i] + β[i] * x > t, eachindex(α)) / length(α)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "cdf instead of ccdf (the lower tail)"
+  code = '''
+using Turing
+prob_exceeds(α, β, σ, x, t) = sum(i -> cdf(Normal(α[i] + β[i] * x, σ[i]), t), eachindex(α)) / length(α)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "broadcasts: builds a vector of Normals and a vector of tail probabilities"
+  code = '''
+using Turing, Statistics
+prob_exceeds(α, β, σ, x, t) = mean(ccdf.(Normal.(α .+ β .* x, σ), t))
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "starts the sum at the integer 0"
+  code = '''
+using Turing
+function prob_exceeds(α, β, σ, x, t)
+    total = 0
+    for i in eachindex(α, β, σ)
+        total += ccdf(Normal(α[i] + β[i] * x, σ[i]), t)
+    end
+    return total / length(α)
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "mean over a generator"
+  code = '''
+using Turing, Statistics
+prob_exceeds(α, β, σ, x, t) = mean(ccdf(Normal(a + b * x, s), t) for (a, b, s) in zip(α, β, σ))
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "regression-model-bug"
+title = "Fix the regression model"
+difficulty = "core"
+kcs = ["probabilistic-programming", "distributions"]
+entry = "regression_logjoint"
+packages = ["Turing"]
+prompt = '''
+The starter code is meant to implement this linear regression model:
+
+* priors `α ~ Normal(0, 10)`, `β ~ Normal(0, 10)` and a half-normal
+  `σ ~ truncated(Normal(0, 2); lower = 0)`;
+* each `y[i]` independent and normal, with mean `α + β * x[i]` and
+  **standard deviation** `σ`.
+
+`regression_logjoint(x, y, α, β, σ)` returns the model's log joint density
+(log prior plus log likelihood) at the given parameter values, the number a
+sampler sees. The code runs without an error, but the model is not the one
+described above, so NUTS would fit the wrong thing. Find the bug and fix it.
+Keep `regression_logjoint` returning `logjoint` of the model as a `Float64`.
+
+```julia
+regression_logjoint([0.0, 1.0, 2.0, 3.0], [1.1, 2.8, 5.3, 6.9], 1.0, 2.0, 2.0)
+```
+'''
+starter = '''
+using Turing
+
+@model function linreg(x, y)
+    α ~ Normal(0, 10)
+    β ~ Normal(0, 10)
+    σ ~ truncated(Normal(0, 2); lower = 0)
+    y ~ MvNormal(α .+ β .* x, σ * I)
+end
+
+regression_logjoint(x, y, α, β, σ) = logjoint(linreg(x, y), (; α = α, β = β, σ = σ))
+'''
+reference = '''
+using Turing
+
+@model function linreg(x, y)
+    α ~ Normal(0, 10)
+    β ~ Normal(0, 10)
+    σ ~ truncated(Normal(0, 2); lower = 0)
+    y ~ MvNormal(α .+ β .* x, σ^2 * I)
+end
+
+regression_logjoint(x, y, α, β, σ) = logjoint(linreg(x, y), (; α = α, β = β, σ = σ))
+'''
+# The log joint is a sum of n + 3 terms that are all negative here (sigma >= 0.5
+# keeps every normal log density below -log(0.5) - 0.919 < 0; the Normal(0, 10)
+# prior's log density is at most -3.2 and the half-normal's at most -0.92), so
+# there is no cancellation: a different summation
+# order (a loop of Normal terms against MvNormal's closed form) changes the
+# result by at most about (n + 3) * eps relative, below 1e-14 for n <= 40.
+# rtol = 1e-10 accepts every correct formulation; the bugs are O(1) off.
+compare = "isapprox"
+rtol = 1e-10
+cases = [
+  "[0.0, 1.0, 2.0, 3.0], [1.1, 2.8, 5.3, 6.9], 1.0, 2.0, 2.0",
+  "[0.0, 1.0, 2.0, 3.0], [1.1, 2.8, 5.3, 6.9], 1.0, 2.0, 0.5",
+  "[0.5], [3.0], 0.0, 1.0, 1.5",
+]
+gen = "rng -> [(n = rand(rng, 1:40); x = 5 .* rand(rng, n); (x, 1 .+ 2 .* x .+ 0.5 .* randn(rng, n), 1 + 0.5 * randn(rng), 2 + 0.3 * randn(rng), 0.5 + 2.5 * rand(rng))) for _ in 1:20]"
+hints = [
+  "Compare what each distribution's parameters mean in Distributions.jl with what the model description asks for.",
+  "Evaluate the model at `σ = 1` and at `σ = 2` and compare with a sum of `logpdf(Normal(...), y[i])` terms written by hand.",
+]
+# No perf section: evaluating the log density is dominated by DynamicPPL's
+# model machinery, which the learner does not write, and the bug is about
+# what the model means, not how fast it runs.
+
+  [[problem.variant]]
+  label = "the variance passed as Normal's standard deviation"
+  code = '''
+using Turing
+@model function linreg(x, y)
+    α ~ Normal(0, 10)
+    β ~ Normal(0, 10)
+    σ ~ truncated(Normal(0, 2); lower = 0)
+    for i in eachindex(y)
+        y[i] ~ Normal(α + β * x[i], σ^2)
+    end
+end
+regression_logjoint(x, y, α, β, σ) = logjoint(linreg(x, y), (; α = α, β = β, σ = σ))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sqrt(σ) * I: square root instead of square"
+  code = '''
+using Turing
+@model function linreg(x, y)
+    α ~ Normal(0, 10)
+    β ~ Normal(0, 10)
+    σ ~ truncated(Normal(0, 2); lower = 0)
+    y ~ MvNormal(α .+ β .* x, sqrt(σ) * I)
+end
+regression_logjoint(x, y, α, β, σ) = logjoint(linreg(x, y), (; α = α, β = β, σ = σ))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a loop of Normal(μ, σ) observations"
+  code = '''
+using Turing
+@model function linreg(x, y)
+    α ~ Normal(0, 10)
+    β ~ Normal(0, 10)
+    σ ~ truncated(Normal(0, 2); lower = 0)
+    for i in eachindex(y)
+        y[i] ~ Normal(α + β * x[i], σ)
+    end
+end
+regression_logjoint(x, y, α, β, σ) = logjoint(linreg(x, y), (; α = α, β = β, σ = σ))
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "turing-poisson-rate"
+title = "A Poisson rate with Turing"
+difficulty = "stretch"
+kcs = ["probabilistic-programming", "mcmc"]
+entry = "posterior_rate_mean"
+packages = ["Turing"]
+prompt = '''
+Counts `y` (a `Vector{Int}`, events per day) come from a Poisson
+distribution with unknown rate `λ`. Earlier studies suggest a rate around
+2, so the prior is `λ ~ LogNormal(log(2), 0.25)`. This prior is not
+conjugate to the Poisson, so there is no closed form for the posterior.
+
+Write `posterior_rate_mean(y, seed)` that defines this model in Turing,
+draws **300** samples with `NUTS()` using `Xoshiro(seed)` as the RNG (and
+`progress = false`), and returns the posterior mean of `λ` as a `Float64`.
+
+```julia
+posterior_rate_mean([6, 4, 7, 5, 6], 1)   # about 3.7 (between the prior's 2 and the data's 5.6)
+```
+
+Your answer is compared with the reference's run with a tolerance that
+allows for Monte Carlo error, so a model written differently from the
+reference (a loop, broadcasting `.~`, `filldist`) also passes.
+'''
+starter = '''
+using Turing, Random
+
+function posterior_rate_mean(y, seed)
+    # define the model with @model, sample it, return the mean of λ
+end
+'''
+reference = '''
+using Turing, Random
+
+@model function poisson_rate(y)
+    λ ~ LogNormal(log(2), 0.25)
+    for i in eachindex(y)
+        y[i] ~ Poisson(λ)
+    end
+end
+
+function posterior_rate_mean(y, seed)
+    chain = sample(Xoshiro(seed), poisson_rate(y), NUTS(), 300; progress = false, verbose = false)
+    return mean(chain[@varname(λ)])
+end
+'''
+# Tolerance from Monte Carlo error, not from a passing run. A learner's model
+# written differently (filldist, .~) evaluates the log density in another
+# floating-point order, so its seeded chain diverges from the reference's and
+# behaves like an independent run. Each run's mean has standard error
+# sd_post / sqrt(ESS); the difference of two runs has sqrt(2) times that.
+# Measured in the container (20 seeds, 300 NUTS draws, exact mean by
+# quadrature on a grid): case 1 exact mean 3.688, sd_post 0.629, ESS 103-183,
+# std of the 20 estimates 0.060 (1.6% relative); case 2 exact mean 1.390,
+# sd_post 0.268, ESS 92-190, std 0.023 (1.7%). The difference of two runs has
+# a relative sd of about 2.4%, so rtol = 0.1 is about 4 standard deviations
+# (a false failure well below 1 in 10^4 per case). The wrong answers the
+# variants give are far outside: the prior alone (mean 2.06) is 44% and 48%
+# off, the data mean (5.6, 0.625) 52% and 55% off.
+compare = "isapprox"
+rtol = 0.1
+check_type = true
+cases = [
+  "[6, 4, 7, 5, 6], 1",
+  "[0, 1, 0, 2, 1, 0, 1, 0], 2",
+]
+hints = [
+  "The model needs a prior for `λ` and a likelihood for the counts, and the counts must reach the model as data so that Turing observes them instead of sampling them.",
+  "The coin model in section 2 has the same shape; only the prior and the likelihood change.",
+]
+# No perf section: the time is spent in NUTS and in loading Turing, not in
+# code the learner writes, and the answer is a Monte Carlo estimate.
+
+  [[problem.variant]]
+  label = "forgets to pass the data: samples the prior"
+  code = '''
+using Turing, Random
+@model function rate_model()
+    λ ~ LogNormal(log(2), 0.25)
+end
+function posterior_rate_mean(y, seed)
+    chain = sample(Xoshiro(seed), rate_model(), NUTS(), 300; progress = false, verbose = false)
+    return mean(chain[@varname(λ)])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns the data mean (the maximum likelihood estimate)"
+  code = '''
+posterior_rate_mean(y, seed) = sum(y) / length(y)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "LogNormal(2, 0.25): the first parameter is the log of the median, not the median"
+  code = '''
+using Turing, Random
+@model function rate_model(y)
+    λ ~ LogNormal(2, 0.25)
+    y .~ Poisson(λ)
+end
+function posterior_rate_mean(y, seed)
+    chain = sample(Xoshiro(seed), rate_model(y), NUTS(), 300; progress = false, verbose = false)
+    return mean(chain[@varname(λ)])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "filldist and conditioning with |"
+  code = '''
+using Turing, Random
+@model function rate_model(n)
+    λ ~ LogNormal(log(2), 0.25)
+    y ~ filldist(Poisson(λ), n)
+end
+function posterior_rate_mean(y, seed)
+    m = rate_model(length(y)) | (; y = y)
+    chain = sample(Xoshiro(seed), m, NUTS(), 300; progress = false)
+    return mean(chain[@varname(λ)])
+end
+'''
+  expect = ["correct"]

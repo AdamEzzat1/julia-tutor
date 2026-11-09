@@ -13,10 +13,16 @@
 #   tutor lessons verify                      run every lesson snippet, check keys
 #   tutor lesson <id> [--state=path]          take a lesson interactively
 #   tutor rules                               list rules with FP risk and hints
-#   tutor site-data [--check]                 export site/data/tutor.json for the website
+#   tutor site-data [--check]                 export site/data/{tutor,course}.json for the website
+#   tutor course list|verify|record|setup [unit...]  the course: example outputs, grader self-tests, envs
+#   tutor run <file.jl> [--env=E] [--file]    run code like the sandbox does (fresh process)
+#   tutor practice [list | <id> [file.jl]]     show a practice problem, or grade a solution
+#   tutor serve [--port=8765] [--allow-origin=URL]  local server for the website sandbox
+#   tutor guided list|show|start|deps|check|quiz|verify ...  guided build projects (docs/GUIDED.md)
 
 using JuliaTutor
-using JuliaTutor: Checker, Scaffold, Runner, HoleMap, Explain, Lessons, Progress, Fixtures, SiteData
+using JuliaTutor: Checker, Scaffold, Runner, HoleMap, Explain, Lessons, Progress, Fixtures, SiteData,
+                  Course, Practice, Server
 using TOML, Dates
 
 const ROOT = JuliaTutor.ROOT
@@ -96,17 +102,44 @@ function cmd_explain(args)
 end
 
 function cmd_site_data(args)
-    text = SiteData.to_json(SiteData.site_data())
-    path = joinpath(ROOT, "site", "data", "tutor.json")
-    if hasflag(args, "check")
-        same = isfile(path) && read(path, String) == text
-        println(same ? "site/data/tutor.json is up to date" : "site/data/tutor.json is stale: run `tutor site-data`")
-        return same ? 0 : 1
+    files = [("tutor.json", SiteData.to_json(SiteData.site_data())),
+             ("course.json", SiteData.to_json(SiteData.course_data())),
+             ("guided.json", SiteData.to_json(JuliaTutor.Guided.site_data()))]
+    stale = 0
+    for (name, text) in files
+        path = joinpath(ROOT, "site", "data", name)
+        if hasflag(args, "check")
+            same = isfile(path) && read(path, String) == text
+            println(same ? "site/data/$name is up to date" : "site/data/$name is stale: run `tutor site-data`")
+            stale += !same
+        else
+            mkpath(dirname(path))
+            write(path, text)
+            println("wrote site/data/$name ($(length(text)) bytes)")
+        end
     end
-    mkpath(dirname(path))
-    write(path, text)
-    println("wrote site/data/tutor.json ($(length(text)) bytes)")
-    return 0
+    # Figures: copies of course/outputs/figures, byte for byte; extra files are stale too.
+    figdir = joinpath(ROOT, "site", "assets", "figures")
+    figs = SiteData.course_figures()
+    want = Set(first.(figs))
+    have = isdir(figdir) ? Set("assets/figures/" * replace(relpath(joinpath(r, f), figdir), '\\' => '/')
+                               for (r, _, fs) in walkdir(figdir) for f in fs) : Set{String}()
+    if hasflag(args, "check")
+        bad = [p for (p, b) in figs if !isfile(joinpath(ROOT, "site", p)) || read(joinpath(ROOT, "site", p)) != b]
+        extra = setdiff(have, want)
+        ok = isempty(bad) && isempty(extra)
+        println(ok ? "site/assets/figures is up to date ($(length(figs)) figures)" :
+                     "site/assets/figures is stale ($(length(bad)) missing or changed, $(length(extra)) extra): run `tutor site-data`")
+        stale += !ok
+    else
+        rm(figdir; recursive = true, force = true)
+        for (p, b) in figs
+            dest = joinpath(ROOT, "site", p)
+            mkpath(dirname(dest)); write(dest, b)
+        end
+        println("wrote site/assets/figures ($(length(figs)) figures)")
+    end
+    return stale == 0 ? 0 : 1
 end
 
 function cmd_progress(args)
@@ -210,11 +243,276 @@ function cmd_rules(_)
     return 0
 end
 
-const COMMANDS = Dict("check" => cmd_check, "scaffold" => cmd_scaffold, "start" => cmd_start,
+
+
+# ---- course, sandbox and practice ------------------------------------------------
+
+function cmd_course(args)
+    use_sandbox!(args) || return 2
+    pos = positional(args)
+    isempty(pos) && (println("usage: tutor course <list|verify|record|setup> [unit...]"); return 2)
+    sub, rest = pos[1], pos[2:end]
+    units = Course.load_course()
+    pick(us) = isempty(rest) ? us : filter(u -> u.id in rest || any(r -> startswith(u.id, r * "-"), rest), us)
+    if sub == "list"
+        for u in units
+            println(rpad(u.id, 30), rpad(u.track, 12), rpad(u.status, 8), length(u.problems), " problems  ", u.title)
+        end
+        return 0
+    elseif sub == "record"
+        for u in pick(units)
+            u.status == "ready" || continue
+            println("recording ", u.id, " ...")
+            d = Practice.record_unit(u; figures = Course.figures_dir(u))
+            mkpath(dirname(Course.outputs_path(u)))
+            write(Course.outputs_path(u), Practice.outputs_text(d))
+            bad = [k for (k, v) in d["examples"] if !v["ok"]]
+            isempty(bad) || println("  note: $(length(bad)) example(s) end in an error (intended ones show an ERROR line)")
+        end
+        return 0
+    elseif sub == "verify"
+        # Naming units checks only those (a missing prerequisite may still be
+        # being written); a full verify also checks the syllabus as a whole.
+        problems = Course.validate_course(isempty(rest) ? units : pick(units); strict = isempty(rest))
+        foreach(p -> println("PROBLEM: ", p), problems)
+        isempty(problems) || return 1
+        for u in pick(units)
+            u.status == "ready" || continue
+            println("verifying ", u.id, " ...")
+            append!(problems, Practice.verify_unit(u; grade_variants = !hasflag(args, "no-grade")))
+        end
+        foreach(p -> println("PROBLEM: ", p), problems)
+        println(isempty(problems) ? "course verified on Julia $(VERSION)" : "$(length(problems)) problem(s)")
+        return isempty(problems) ? 0 : 1
+    elseif sub == "setup"
+        # The only networked course step: install and precompile the pinned
+        # ecosystem environments into the repo-local depot.
+        envs = isempty(rest) ? sort!(unique([u.env for u in units if u.env != "base"])) : rest
+        for e in envs
+            dir = Course.env_dir(e)
+            println("instantiating course/envs/$e ...")
+            cmd = `$(Base.julia_cmd()) --startup-file=no --project=$dir -e "using Pkg; Pkg.instantiate(); Pkg.precompile()"`
+            run(addenv(cmd, "JULIA_PKG_OFFLINE" => "false"))
+            # Load every package once, here, with the network allowed: some
+            # fetch lazy artifacts on first load (PythonCall's micromamba_jll and
+            # pixi_jll), which would otherwise happen in every sandbox run (a
+            # network request, and "Downloading artifact" in recorded outputs).
+            pkgs = Practice.env_deps(e)
+            isempty(pkgs) && continue
+            cmd = `$(Base.julia_cmd()) --startup-file=no --project=$dir -e "using $(join(pkgs, ", "))"`
+            # the sandbox's settings (Null CondaPkg backend, no GR window), network on
+            run(addenv(cmd, Runner.julia_env()..., "JULIA_PKG_OFFLINE" => "false"))
+        end
+        return 0
+    end
+    println("unknown subcommand $sub"); return 2
+end
+
+function cmd_run(args)
+    use_sandbox!(args) || return 2
+    pos = positional(args)
+    length(pos) == 1 || (println("usage: tutor run <file.jl> [--env=base] [--file] [--timeout=60]"); return 2)
+    r = Practice.run_code(read(pos[1], String); env = flag(args, "env", "base"),
+                          mode = hasflag(args, "file") ? "file" : "repl",
+                          timeout = parse(Float64, flag(args, "timeout", "60")))
+    print(r.output)
+    return r.ok ? 0 : 1
+end
+
+function cmd_practice(args)
+    use_sandbox!(args) || return 2
+    pos = positional(args)
+    units = Course.load_course()
+    if isempty(pos) || pos[1] == "list"
+        for u in units, p in u.problems
+            println(rpad(p.id, 28), rpad(p.difficulty, 9), rpad(u.id, 26), p.title)
+        end
+        return 0
+    end
+    found = Course.find_problem(units, pos[1])
+    found === nothing && (println("no problem $(pos[1]); see `tutor practice list`"); return 2)
+    u, p = found
+    if length(pos) == 1
+        println(p.title, "  [", p.difficulty, ", unit ", u.id, "]\n\n", strip(p.prompt), "\n\nStarter:\n", p.starter)
+        println("\nWrite your solution to a file, then: tutor practice $(p.id) <file.jl>")
+        return 0
+    end
+    r = Practice.grade(p, read(pos[2], String); env = u.env)
+    print(Practice.format_grade(r))
+    r["status"] == "passed" || isempty(p.hints) || println("\nHint: ", p.hints[1])
+    return r["status"] == "passed" ? 0 : 1
+end
+
+function cmd_serve(args)
+    port = parse(Int, flag(args, "port", string(Server.DEFAULT_PORT)))
+    extra = [String(split(a, "=", limit = 2)[2]) for a in args if startswith(a, "--allow-origin=")]
+    return Server.serve(; port, origins = vcat(Server.DEFAULT_ORIGINS, extra),
+                        site = flag(args, "site", "https://adamezzat1.github.io/julia-tutor/"),
+                        token_file = flag(args, "token-file", Server.TOKEN_FILE),
+                        sandbox = Symbol(flag(args, "sandbox", "docker")))
+end
+
+# `--sandbox=docker` on run/practice/course: the same container `tutor serve` uses
+# (checking the course inside it). The default for those is a plain process.
+function use_sandbox!(args)
+    s = flag(args, "sandbox", "none")
+    s in ("none", "docker") || (println("--sandbox must be docker or none"); return false)
+    if s == "docker"
+        why = Runner.sandbox_problem()
+        why === nothing || (println(why); return false)
+    end
+    Runner.SANDBOX[] = Symbol(s)
+    return true
+end
+
+function cmd_sandbox(args)
+    pos = positional(args)
+    sub = isempty(pos) ? "" : pos[1]
+    if sub == "build"
+        Sys.which("docker") === nothing && (println("Docker is not installed (no `docker` on PATH)."); return 1)
+        println("building $(Runner.SANDBOX_IMAGE) (downloads julia:1.10.13 and the course packages the first time) ...")
+        Runner.build_sandbox()
+        return 0
+    elseif sub == "check"
+        why = Runner.sandbox_problem()
+        why === nothing || (println(why); return 1)
+        Runner.SANDBOX[] = :docker
+        checks = [("runs Julia", "VERSION", r"1\.10\.13"),
+                  ("no network", "using Sockets; try connect(\"1.1.1.1\", 53); \"connected\" catch e; \"blocked\" end", r"blocked"),
+                  ("read-only system", "try touch(\"/usr/x\"); \"wrote\" catch e; \"blocked\" end", r"blocked"),
+                  ("ecosystem packages", "using DataFrames; nrow(DataFrame(a = 1:3))", r"^3$"m)]
+        checks = [(w, c, x, w == "ecosystem packages" ? "data" : "base") for (w, c, x) in checks]
+        # Every environment loads, as the run-time user, printing nothing else:
+        # no "Precompiling" (nothing may compile at run time) and no "WARNING:
+        # using X.f in module Main conflicts" (a child helper shadowing an export).
+        for e in sort!(readdir(joinpath(Course.COURSE_DIR, "envs")))
+            pkgs = Practice.env_deps(e)
+            (e in ("base", "data") || isempty(pkgs)) && continue
+            push!(checks, ("env $e loads", "using " * join(pkgs, ", ") * "; :loaded", r"\A:loaded\s*\z", e))
+        end
+        bad = 0
+        for (what, code, want, env) in checks
+            r = Practice.run_code(code; env, timeout = 240)
+            ok = occursin(want, r.output)
+            println(ok ? "  ok    " : "  FAIL  ", what, ok ? "" : ": " * strip(r.output))
+            bad += !ok
+        end
+        return bad == 0 ? 0 : 1
+    end
+    println("usage: tutor sandbox <build|check>"); return 2
+end
+
+# ---- guided build projects (docs/GUIDED.md) -------------------------------------------
+
+using JuliaTutor: Guided
+
+const GUIDED_USAGE = """
+usage: tutor guided list
+       tutor guided show <project> [milestone]
+       tutor guided start <project> <dir>
+       tutor guided deps <dir>
+       tutor guided check <dir> [milestone] [--hints=N] [--sandbox=docker|none] [--no-record] [--state=path]
+       tutor guided quiz <project> <milestone>
+       tutor guided verify [project...] [--sandbox=docker|none]"""
+
+"""The project a student folder belongs to (written by `guided start` into .guided)."""
+function guided_of(dir)
+    f = joinpath(dir, ".guided")
+    isfile(f) || return nothing
+    return Guided.load_guided(strip(read(f, String)))
+end
+
+# Guided checks default to the container; a plain process only where asked and the env loads on the host.
+function guided_sandbox!(args, p)
+    s = flag(args, "sandbox", "docker")
+    if s == "none" && p !== nothing && !Guided.host_ok(p)
+        println("--sandbox=none: the $(p.env) environment loads only in the container on this kind of host (see CLAUDE.md, Known gaps)")
+        return false
+    end
+    return use_sandbox!(vcat(filter(a -> !startswith(a, "--sandbox="), args), "--sandbox=$s"))
+end
+
+function cmd_guided(args)
+    pos = positional(args)
+    sub = isempty(pos) ? "" : pos[1]
+    if sub == "list"
+        for p in Guided.load_all()
+            println(rpad(p.name, 12), rpad(p.status, 9), rpad(p.env, 10), rpad("$(length(p.milestones)) milestones", 15),
+                    Guided.host_ok(p) ? "host or container  " : "container only     ", p.title)
+        end
+        return 0
+    elseif sub == "show" && length(pos) in (2, 3)
+        p = Guided.load_guided(pos[2])
+        m = length(pos) == 3 ? parse(Int, pos[3]) : 0
+        print(Guided.show_milestone(p, m))
+        return 0
+    elseif sub == "start" && length(pos) == 3
+        p = Guided.load_guided(pos[2]); dir = pos[3]
+        isdir(dir) && !isempty(readdir(dir)) && (println("refusing: $dir exists and is not empty"); return 1)
+        files = Guided.start_files(p)
+        files[".guided"] = p.name * "\n"
+        for rel in sort!(collect(keys(files)))
+            mkpath(dirname(joinpath(dir, rel))); write(joinpath(dir, rel), files[rel])
+        end
+        println("Created $dir (", join(sort!(collect(keys(files))), ", "), "). Next: tutor guided show $(p.name) 0")
+        return 0
+    elseif sub == "deps" && length(pos) == 2
+        dir = pos[2]; p = guided_of(dir)
+        p === nothing && (println("$dir was not created by `tutor guided start`"); return 1)
+        f = joinpath(dir, "Project.toml")
+        isfile(f) || (println("no $f yet: milestone 0 creates it with Pkg.generate"); return 1)
+        write(f, Guided.with_deps(read(f, String), p.env))
+        println("wrote [deps] for the $(p.env) environment (", join(Practice.env_deps(p.env), ", "), ") and Test as a test dependency into $f")
+        return 0
+    elseif sub == "check" && length(pos) in (2, 3)
+        dir = pos[2]; p = guided_of(dir)
+        p === nothing && (println("$dir was not created by `tutor guided start`"); return 1)
+        guided_sandbox!(args, p) || return 2
+        state_path = flag(args, "state", Guided.DEFAULT_STATE)
+        state = Guided.load_state(state_path)
+        key = Guided.statekey(p, dir)
+        m = length(pos) == 3 ? parse(Int, pos[3]) : Guided.next_milestone(p, state, key)
+        hints = parse(Int, flag(args, "hints", "0"))
+        r, findings = Guided.check(p, dir, m; levels = Guided.levels_from(state, key), hints)
+        print(Guided.format_check(r, findings; hints))
+        if !hasflag(args, "no-record")
+            Guided.save_state(state_path, Guided.record!(state, key, r, p))
+        end
+        if r["status"] == "passed"
+            nxt = findfirst(x -> x.id > m, p.milestones)
+            println(nxt === nothing ? "\nAll milestones done." :
+                    "\nNext: tutor guided show $(p.name) $(p.milestones[nxt].id)" *
+                    (isempty(Guided.milestone(p, m).questions) ? "" : "  (and the questions: tutor guided quiz $(p.name) $m)"))
+        end
+        return r["status"] == "passed" ? 0 : 1
+    elseif sub == "quiz" && length(pos) == 3
+        p = Guided.load_guided(pos[2])
+        right, n = Guided.quiz(p, parse(Int, pos[3]))
+        println("\n$right of $n right on the first try.")
+        return 0
+    elseif sub == "verify"
+        names = length(pos) > 1 ? pos[2:end] : [p.name for p in Guided.load_all()]
+        guided_sandbox!(args, nothing) || return 2
+        bad = 0
+        for n in names
+            p = Guided.load_guided(n)
+            println(n, " (", p.status, ")")
+            problems = Guided.verify_project(p)
+            foreach(x -> println("  PROBLEM: ", replace(x, "\n" => "\n    ")), problems)
+            bad += length(problems)
+        end
+        println(bad == 0 ? "guided projects verified" : "$bad problem(s)")
+        return bad == 0 ? 0 : 1
+    end
+    println(GUIDED_USAGE); return 2
+end
+
+const COMMANDS = Dict("guided" => cmd_guided, "check" => cmd_check, "scaffold" => cmd_scaffold, "start" => cmd_start,
                       "test" => cmd_test, "explain" => cmd_explain, "holemap" => cmd_holemap,
                       "baseline" => cmd_baseline, "lessons" => cmd_lessons, "lesson" => cmd_lesson,
                       "rules" => cmd_rules, "progress" => cmd_progress, "fixtures" => cmd_fixtures,
-                      "site-data" => cmd_site_data)
+                      "site-data" => cmd_site_data, "course" => cmd_course, "run" => cmd_run,
+                      "practice" => cmd_practice, "serve" => cmd_serve, "sandbox" => cmd_sandbox)
 
 function main(args)
     JuliaTutor.check_julia_version()

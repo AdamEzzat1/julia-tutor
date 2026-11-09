@@ -1,0 +1,1320 @@
+id = "25-optimization"
+title = "Roots and optimization: Roots.jl, Optim.jl and JuMP"
+track = "ecosystem"
+env = "optim"
+status = "ready"
+summary = "Solve f(x) = 0 with Roots.jl (brackets and bisection versus Newton and secant), minimise smooth functions with Optim.jl (Nelder-Mead, BFGS, automatic gradients, box constraints), and state linear and integer programs in JuMP for the HiGHS solver; then check that an optimum really is one."
+kcs = ["root-finding", "optimization", "autodiff", "linear-programming", "integer-programming", "duality"]
+prerequisites = ["23-derivatives"]
+
+[[section]]
+title = "Roots with a bracket: bisection cannot miss"
+body = '''
+A root-finder solves `f(x) = 0`. The safest input is a **bracket**: two
+points `a < b` where `f(a)` and `f(b)` have opposite signs. If `f` is
+continuous, the intermediate value theorem says a root lies between them.
+`find_zero(f, (a, b))` from [Roots.jl](https://juliamath.github.io/Roots.jl/stable/)
+then uses bisection: evaluate the midpoint, keep the half whose ends still
+differ in sign, repeat. Each step halves the interval, so convergence is
+guaranteed, if slow (one bit per step).
+
+For `Float64` brackets Roots.jl bisects until the two ends are **adjacent
+floating-point numbers**, so the answer is as accurate as `Float64` allows.
+It need not be an exact zero (often no float makes `f` vanish exactly);
+what holds is that `f` is zero there or changes sign between the answer and
+a neighbouring float.
+
+This is `scipy.optimize.bisect`/`brentq` in Python and `fzero(f, [a b])` in
+MATLAB. The pitfalls are the same everywhere:
+
+* no sign change at the ends (no root, or an even number of roots) is an
+  error, not a guess;
+* a sign change is not always a root: `1/x` changes sign across its pole,
+  and bisection converges to the pole.
+'''
+
+  [[section.example]]
+  caption = "The root of cos(x) = x, and the sign change around it."
+  code = '''
+using Roots
+f(x) = cos(x) - x
+r = find_zero(f, (0.0, 1.0))
+println("root:                ", r)
+println("f(prevfloat(root)):  ", f(prevfloat(r)))
+println("f(root):             ", f(r))
+println("f(nextfloat(root)):  ", f(nextfloat(r)))
+'''
+
+  [[section.example]]
+  caption = "No sign change at the ends: Roots.jl refuses instead of guessing."
+  code = '''
+using Roots
+find_zero(x -> cos(x) - x, (2.0, 3.0))
+'''
+
+  [[section.example]]
+  caption = "A sign change without a root: bisection walks into the pole of 1/x."
+  code = '''
+using Roots
+find_zero(x -> 1 / x, (-1.0, 1.0))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "Bisection returns the float next to the sign change. What does this print?"
+  code = '''
+using Roots
+r = find_zero(x -> x^2 - 2, (0.0, 2.0))
+r^2 == 2
+'''
+  choices = ["true", "false"]
+  answer = 2
+  explain = "√2 is irrational, so no `Float64` squares to exactly 2; the closest float squared gives `2.0000000000000004`. Compare floats with `isapprox` or a stated tolerance, never `==`."
+  misconceptions = [
+    "That would need an exact `Float64` square root of 2. The root-finder returns the closest float, whose square is off by one ulp.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does a bracketing method always converge for a continuous function, while a method started from one point may not?"
+  choices = [
+    "Each step keeps the half with a sign change, and the interval width halves",
+    "They follow the sign of the derivative to choose which half to keep",
+    "They iterate until `f` is exactly zero, where start-point methods stop early",
+  ]
+  answer = 1
+  explain = "The invariant (opposite signs at the two ends) survives every step, and the width shrinks geometrically, so the method cannot leave the root behind. A start-point method has no such invariant."
+  misconceptions = [
+    "",
+    "Bisection uses only the sign of `f`, never its derivative; that is why it works for any continuous function.",
+    "Bisection stops when the two ends are adjacent floats, and `f` is often not exactly zero there (the first example shows it). The guarantee comes from the invariant, not from the stopping rule.",
+  ]
+
+[[section]]
+title = "Roots from a start point: secant, Newton, and how they fail"
+body = '''
+Given one start point, `find_zero(f, x0)` uses a secant-based method
+(`Order0()`) that switches to bisection once it has seen a sign change. You
+can pick the method: `Order1()` is the plain secant method, and
+`Roots.Newton()` is Newton's method, which needs the derivative too, passed as
+a tuple `(f, f′)`. ForwardDiff.jl (unit 23) computes that derivative exactly
+from the code of `f`.
+
+Near a simple root these methods converge fast: Newton roughly doubles the
+number of correct digits each step, secant multiplies it by about 1.6.
+Far from the root they promise nothing.
+
+Tolerances are keyword arguments: `xatol`, `xrtol` (how small the last step
+must be) and `atol`, `rtol` (how small `|f(x)|` must be). For `Float64` the
+defaults are `xatol = xrtol = eps()` (about `2.2e-16`) and
+`atol = rtol = 4eps()` (about `8.9e-16`). Read the residual test carefully:
+Roots.jl accepts `x` when `|f(x)| ≤ max(atol, |x| * rtol)`, a bound that
+**grows with `|x|`**. Newton on `atan` from `x0 = 2` overshoots further at
+every step. Since `|atan(x)| < π/2`, the test passes for any `x` with
+`|x| > (π/2) / rtol ≈ 1.8e15`; one Newton step jumps past that threshold, and
+Roots.jl returns the `x` it lands on without an error. Always look at
+`f(root)` yourself.
+
+A **double root** (`f` touches zero without crossing, like `(x - 1)^2`) is the
+other trap: no bracket exists, and from a start point the methods converge
+slowly and only to about half the digits, because `f` is below rounding
+noise over a whole neighbourhood of the root.
+
+`find_zeros(f, a, b)` looks for **all** zeros in `[a, b]` by sampling the
+interval and refining each sign change. It is a heuristic: two zeros closer
+together than its sampling, or a zero where `f` touches the axis without
+crossing it, can be missed. The
+[Roots.jl reference](https://juliamath.github.io/Roots.jl/stable/reference/)
+lists every method and option.
+'''
+
+  [[section.example]]
+  caption = "One start point, three methods, the same root; Newton gets its derivative from ForwardDiff."
+  code = '''
+using Roots, ForwardDiff
+f(x) = cos(x) - x
+df(x) = ForwardDiff.derivative(f, x)
+println(find_zero(f, 1.0))
+println(find_zero(f, 1.0, Order1()))
+println(find_zero((f, df), 1.0, Roots.Newton()))
+'''
+
+  [[section.example]]
+  caption = "Newton on atan from x0 = 2 diverges, yet the residual test passes far from the root; and a double root costs half the digits."
+  code = '''
+using Roots
+r = find_zero((atan, x -> 1 / (1 + x^2)), 2.0, Roots.Newton())
+println("Newton on atan: x = ", r, ", atan(x) = ", atan(r))
+d = find_zero(x -> (x - 1)^2, 0.0)
+println("double root at 1: x = ", d, ", error = ", round(abs(d - 1); sigdigits = 2))
+'''
+
+  [[section.example]]
+  caption = "All zeros of sin(3x) - x/2 on [-3, 3]."
+  code = '''
+using Roots
+zs = find_zeros(x -> sin(3x) - x / 2, -3, 3)
+round.(zs; digits = 6)
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "`find_zeros` returns every zero it finds in the closed interval. What does this print?"
+  code = '''
+using Roots
+length(find_zeros(sin, 0, 10))
+'''
+  choices = ["3", "4", "5"]
+  answer = 2
+  explain = "The zeros of `sin` in [0, 10] are 0, π, 2π and 3π (3π ≈ 9.42); the endpoint 0 counts."
+  misconceptions = [
+    "The zero at the endpoint 0 is part of the closed interval and is returned too.",
+    "",
+    "4π ≈ 12.57 is beyond 10, so there is no fifth zero.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Newton's method returned `x = 8.6e20` for `atan` and no error. Why did Roots.jl accept it?"
+  choices = [
+    "`atan(8.6e20)` rounds to 0 in floating point, so the residual is tiny",
+    "With an exact derivative Newton converges, so the iterate must be near a root",
+    "The residual bound `|x| * rtol` grows with `x` and has passed `π/2`",
+  ]
+  answer = 3
+  explain = "Roots.jl accepts `x` when `|f(x)| ≤ max(atol, |x| * rtol)`. The relative part is meant for roots of large magnitude; for a diverging iteration it makes a large `x` look acceptable (here `8.6e20 * 4eps()` is about `7.6e5`, far above `π/2`). Check `f(root)` against a tolerance that means something for your problem."
+  misconceptions = [
+    "`atan` of a large number is close to `π/2 ≈ 1.5708`, not 0: the example prints it.",
+    "An exact derivative makes Newton converge fast near a simple root; from a poor start it can still diverge, as here.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You must find where an expensive simulation's output crosses zero, and you know one input where it is negative and one where it is positive. What do you pass to `find_zero`?"
+  choices = [
+    "The bracket `(a, b)`: bisection keeps the sign change and cannot miss",
+    "A start point and `Roots.Newton()`, since Newton needs the fewest runs",
+    "A start point with the default method, retrying from others if it fails",
+  ]
+  answer = 1
+  explain = "A sign change is exactly what a bracketing method needs, and with it convergence is guaranteed. Newton is fastest only once it is close to the root, and it needs a derivative."
+  misconceptions = [
+    "",
+    "Fast convergence is local; from a poor start Newton can diverge, and each failed attempt costs simulation runs. It also needs the derivative of the simulation.",
+    "Retrying from start points throws away the information you have: a bracket guarantees an answer on the first try.",
+  ]
+
+[[section]]
+title = "Minimising with Optim.jl: Nelder-Mead and BFGS"
+body = '''
+[Optim.jl](https://julianlsolvers.github.io/Optim.jl/stable/) minimises a
+function `f(x)` of a vector `x` from a start point `x0`:
+`optimize(f, x0, method)`. It is a library of algorithms for (mostly) smooth
+functions without constraints, like `scipy.optimize.minimize` or MATLAB's
+`fminsearch`/`fminunc`.
+
+The test function here is Rosenbrock's: `(1 - x₁)² + 100(x₂ - x₁²)²`, with
+its minimum 0 at `(1, 1)` at the bottom of a long, curved, flat valley that
+slows simple methods down.
+
+* `NelderMead()` uses only function values: it moves a simplex of `n + 1`
+  points, reflecting the worst one away. No derivatives needed, but it slows
+  down badly as `n` grows, and its stopping test (the spread of `f` over the
+  simplex) says little about how close `x` is to the minimum.
+* `BFGS()` is a quasi-Newton method: it follows the gradient, building an
+  approximation of the inverse Hessian from successive gradients, and takes
+  steps chosen by a line search.
+
+The result is an object to query, not just a number:
+`Optim.minimizer(res)`, `Optim.minimum(res)`, `Optim.converged(res)`,
+`Optim.iterations(res)`, `Optim.f_calls(res)` and `Optim.g_calls(res)`.
+Always check `converged` before trusting the minimizer.
+
+**Gradients by automatic differentiation.** Optim.jl 2 (the version here)
+takes the differentiation backend as an object from
+[ADTypes.jl](https://github.com/SciML/ADTypes.jl):
+`autodiff = Optim.ADTypes.AutoForwardDiff()` asks ForwardDiff.jl for exact
+gradients, and ForwardDiff must be loaded (`using ForwardDiff`). Older
+tutorials write `autodiff = :forward`; Optim 2 rejects that with a
+`TypeError`. Without `autodiff` (and without a gradient function) BFGS uses
+finite differences.
+'''
+
+  [[section.example]]
+  caption = "The same problem, two methods; the counters are deterministic."
+  code = '''
+using Optim, ForwardDiff
+ad = Optim.ADTypes.AutoForwardDiff()
+rosen(x) = (1 - x[1])^2 + 100 * (x[2] - x[1]^2)^2
+x0 = [-1.2, 1.0]
+nm = optimize(rosen, x0, NelderMead())
+bf = optimize(rosen, x0, BFGS(); autodiff = ad)
+for (name, res) in [("Nelder-Mead", nm), ("BFGS", bf)]
+    println(rpad(name, 12), round.(Optim.minimizer(res); digits = 6),
+            "  converged = ", Optim.converged(res),
+            "  iterations = ", Optim.iterations(res),
+            "  f calls = ", Optim.f_calls(res))
+end
+'''
+
+  [[section.example]]
+  caption = "The printed result lists each stopping test and whether it held (≤) or not (≰). Recorded, not checked: it includes the run time."
+  check = false
+  code = '''
+using Optim, ForwardDiff
+rosen(x) = (1 - x[1])^2 + 100 * (x[2] - x[1]^2)^2
+optimize(rosen, [-1.2, 1.0], BFGS(); autodiff = Optim.ADTypes.AutoForwardDiff())
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Nelder-Mead reports `converged = true`. What does that tell you?"
+  choices = [
+    "That `x` lies within the default tolerance of the minimizer in every coordinate",
+    "That the gradient at `x` is below the default `g_tol`, as for BFGS",
+    "That `f` is nearly equal over the simplex; `x` itself may still be off",
+  ]
+  answer = 3
+  explain = "Nelder-Mead never computes a gradient. It stops when the function values at the simplex points have become nearly equal, and in a flat valley that can happen while `x` is still off in its later digits (the example's `1.000012` and `1.000017`)."
+  misconceptions = [
+    "No optimizer measures the distance to the true minimizer: it does not know where it is. Each stopping test is a proxy.",
+    "Nelder-Mead uses function values only; it never evaluates a gradient, so it cannot test one.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using Optim, ForwardDiff
+res = optimize(x -> (x[1] - 3)^2 + 1, [0.0], BFGS(); autodiff = Optim.ADTypes.AutoForwardDiff())
+round(Optim.minimum(res); digits = 6)
+'''
+  choices = ["1.0", "3.0", "0.0"]
+  answer = 1
+  explain = "`Optim.minimum` is the smallest function value, `f(3) = 1`; the point where it is reached is `Optim.minimizer`."
+  misconceptions = [
+    "",
+    "3 is where the minimum is reached: that is `Optim.minimizer(res)`, not `Optim.minimum(res)`.",
+    "The `+ 1` shifts the value: the minimum of the function is 1, not 0.",
+  ]
+
+[[section]]
+title = "Why gradients matter: automatic differentiation and call counts"
+body = '''
+BFGS needs the gradient. There are three ways to supply it:
+
+* **Nothing**: Optim.jl approximates it by finite differences. Each gradient
+  then costs extra evaluations of `f` (central differences, two per
+  coordinate), and its accuracy is limited by the step size: too large and
+  the difference quotient is off, too small and rounding dominates.
+* **Automatic differentiation** (`autodiff = Optim.ADTypes.AutoForwardDiff()`):
+  ForwardDiff.jl computes the exact gradient by running `f` on dual numbers
+  (unit 23). `f` must be written generically, accepting any number type,
+  which ordinary Julia code is.
+* **A hand-written gradient** `g!(G, x)` that fills `G` in place:
+  `optimize(f, g!, x0, BFGS())`.
+
+How many times `f` runs is what an optimizer costs when `f` is expensive (a
+simulation, a likelihood over a large data set). Optim's `f_calls` counter
+counts the calls its algorithm makes, not the extra evaluations hidden inside
+a finite-difference gradient, so the first example below counts the real
+calls itself with a counter in the function.
+
+The dimension matters too. On 10-dimensional Rosenbrock, Nelder-Mead runs out
+of its default budget of 1000 iterations, while `LBFGS()` converges. LBFGS is
+BFGS that keeps only the last few gradient pairs instead of an `n × n`
+matrix, the method for large `n`.
+
+**Box constraints** `l ≤ x ≤ u` use `Fminbox`, which wraps a gradient method
+and adds a barrier that keeps the iterates inside the box:
+`optimize(f, lower, upper, x0, Fminbox(LBFGS()))`. The barrier is infinite
+on the boundary, so the start point must be strictly inside (Optim.jl warns
+and moves it otherwise). For general constraints use JuMP (below).
+'''
+
+  [[section.example]]
+  caption = "Counting every evaluation of f: Nelder-Mead, BFGS with finite differences, with AD, with a hand-written gradient."
+  notice = "Notice that finite differences cost about 4 extra calls per gradient here (2n, n = 2) and leave a larger error; the error is printed as a bound because its last digits are rounding noise."
+  code = '''
+using Optim, ForwardDiff
+error_bound(err) = err < 1e-12 ? "< 1e-12" : err < 1e-7 ? "< 1e-7" : err < 1e-4 ? "< 1e-4" : "≥ 1e-4"
+const calls = Ref(0)
+rosen(x) = (calls[] += 1; (1 - x[1])^2 + 100 * (x[2] - x[1]^2)^2)
+function rosen_grad!(G, x)
+    G[1] = -2 * (1 - x[1]) - 400 * x[1] * (x[2] - x[1]^2)
+    G[2] = 200 * (x[2] - x[1]^2)
+    return G
+end
+x0 = [-1.2, 1.0]
+ad = Optim.ADTypes.AutoForwardDiff()
+for (name, run) in [("Nelder-Mead", () -> optimize(rosen, x0, NelderMead())),
+                    ("BFGS, finite differences", () -> optimize(rosen, x0, BFGS())),
+                    ("BFGS, ForwardDiff", () -> optimize(rosen, x0, BFGS(); autodiff = ad)),
+                    ("BFGS, hand-written", () -> optimize(rosen, rosen_grad!, x0, BFGS()))]
+    calls[] = 0
+    res = run()
+    println(rpad(name, 26), "f evaluated ", lpad(calls[], 3), " times (f_calls = ", lpad(Optim.f_calls(res), 3),
+            "), error ", error_bound(maximum(abs, Optim.minimizer(res) .- 1)))
+end
+'''
+
+  [[section.example]]
+  caption = "Ten dimensions: Nelder-Mead against LBFGS."
+  code = '''
+using Optim, ForwardDiff
+ad = Optim.ADTypes.AutoForwardDiff()
+xrosen(x) = sum(100 * (x[i+1] - x[i]^2)^2 + (1 - x[i])^2 for i in 1:length(x)-1)
+x0 = fill(-1.0, 10)
+nm = optimize(xrosen, x0, NelderMead())
+lb = optimize(xrosen, x0, LBFGS(); autodiff = ad)
+for (name, res) in [("Nelder-Mead", nm), ("LBFGS", lb)]
+    println(rpad(name, 12), "converged = ", Optim.converged(res), ", iterations = ", Optim.iterations(res),
+            ", f(x) = ", round(Optim.minimum(res); digits = 2))
+end
+'''
+
+  [[section.example]]
+  caption = "A box that excludes the unconstrained minimum: the answer sits on the bound x₁ = 0.5."
+  code = '''
+using Optim, ForwardDiff
+ad = Optim.ADTypes.AutoForwardDiff()
+rosen(x) = (1 - x[1])^2 + 100 * (x[2] - x[1]^2)^2
+lower, upper = [-2.0, -2.0], [0.5, 2.0]
+res = optimize(rosen, lower, upper, [0.0, 0.0], Fminbox(LBFGS()); autodiff = ad)
+println(round.(Optim.minimizer(res); digits = 6), "  converged = ", Optim.converged(res))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A function takes one second per call and has 50 parameters. Why are gradients from ForwardDiff better than letting BFGS use finite differences?"
+  choices = [
+    "ForwardDiff reads the derivative off the source code of `f`, so it never has to call `f` at all",
+    "ForwardDiff runs `f` once on 50-wide dual numbers, so a gradient costs one call whatever `n` is",
+    "Finite differences: about 2n extra calls and a step-size error; ForwardDiff: about n/12 passes, exact",
+  ]
+  answer = 3
+  explain = "Central differences evaluate `f` twice per coordinate (about 100 calls per gradient here) and are limited by the step-size trade-off between truncation and rounding error. ForwardDiff evaluates `f` on dual numbers that carry at most 12 partial derivatives each by default, so 50 parameters take about 5 passes (unit 23), each costlier than a plain call, and the gradient is exact up to rounding."
+  misconceptions = [
+    "That describes symbolic differentiation. ForwardDiff differentiates by running your code on dual numbers, so it does call `f`; what it avoids is the approximation error.",
+    "ForwardDiff splits the 50 partials into chunks (at most 12 by default), so it runs `f` about 5 times; its cost grows with `n` too, only more slowly than finite differences.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The box example's answer lies on the bound `x₁ = 0.5`. Why must its start point nevertheless be strictly inside the box?"
+  choices = [
+    "Its barrier term is infinite on the boundary, so iterates must start inside",
+    "The bounds are checked only at the start, so a start on a bound is rejected",
+    "LBFGS cannot evaluate `f` on the boundary, only at interior points",
+  ]
+  answer = 1
+  explain = "A barrier method minimises `f` plus a weighted term that blows up at the box faces, then lowers the weight in outer iterations, so the iterates approach a minimizer on a face from the interior. Given a start on the boundary, Optim.jl warns and moves it inside."
+  misconceptions = [
+    "",
+    "The barrier keeps every iterate inside the box, not just the first one; the bounds hold throughout.",
+    "`f` itself is fine on the boundary; the barrier term added to it is what is infinite there.",
+  ]
+
+[[section]]
+title = "JuMP: state the model, let a solver solve it"
+body = '''
+[JuMP](https://jump.dev/JuMP.jl/stable/) is a different kind of tool. Optim.jl
+is a library of algorithms that call your function. JuMP is an **algebraic
+modelling language**: you declare variables, constraints and an objective in
+mathematical notation, JuMP builds the model, and hands it to a **solver**
+through MathOptInterface. The solver is swappable: the same model runs with
+HiGHS (linear and mixed-integer programs, used here), Ipopt (nonlinear) or a
+commercial solver by changing one line. It is the Julia counterpart of Pyomo,
+CVXPY or AMPL.
+
+A linear program (LP): a workshop makes chairs (profit 30) and tables
+(profit 50). A chair uses 2 units of wood and 3 hours of labour; a table 4
+units of wood and 2 hours. There are 40 units of wood and 30 hours.
+
+`set_silent(model)` turns off the solver's log. After `optimize!`, ask
+`termination_status` (did the solver finish, and why) before reading
+`value(x)` and `objective_value(model)`; `is_solved_and_feasible(model)`
+checks both the status and that a feasible solution exists.
+
+**Duals.** For an LP, each constraint has a **shadow price**: how much the
+optimal objective would improve per extra unit of its right-hand side,
+valid for small changes. `shadow_price(c)` gives it with that sign
+convention (`dual(c)` gives the raw dual, whose sign depends on the
+objective sense). A constraint that is not tight at the optimum has shadow
+price 0: more of a resource you do not use up is worth nothing.
+'''
+
+  [[section.example]]
+  caption = "The workshop LP, solved by HiGHS."
+  code = '''
+using JuMP, HiGHS
+model = Model(HiGHS.Optimizer)
+set_silent(model)
+@variable(model, chairs >= 0)
+@variable(model, tables >= 0)
+@constraint(model, wood, 2chairs + 4tables <= 40)
+@constraint(model, labour, 3chairs + 2tables <= 30)
+@objective(model, Max, 30chairs + 50tables)
+optimize!(model)
+println(termination_status(model), ", solved and feasible: ", is_solved_and_feasible(model))
+println("chairs = ", value(chairs), ", tables = ", value(tables))
+println("profit = ", objective_value(model))
+println("shadow price of wood = ", shadow_price(wood), ", of labour = ", shadow_price(labour))
+'''
+
+  [[section.example]]
+  caption = "Checking the shadow price: one more unit of wood, solved again."
+  code = '''
+using JuMP, HiGHS
+function profit(wood_available)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    @variable(model, chairs >= 0)
+    @variable(model, tables >= 0)
+    @constraint(model, 2chairs + 4tables <= wood_available)
+    @constraint(model, 3chairs + 2tables <= 30)
+    @objective(model, Max, 30chairs + 50tables)
+    optimize!(model)
+    return objective_value(model)
+end
+profit(41) - profit(40)
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The workshop gets a third constraint, at most 20 chairs, which the optimum (5 chairs) does not reach. What does this print?"
+  code = '''
+using JuMP, HiGHS
+model = Model(HiGHS.Optimizer)
+set_silent(model)
+@variable(model, chairs >= 0)
+@variable(model, tables >= 0)
+@constraint(model, 2chairs + 4tables <= 40)
+@constraint(model, 3chairs + 2tables <= 30)
+@constraint(model, cap, chairs <= 20)
+@objective(model, Max, 30chairs + 50tables)
+optimize!(model)
+shadow_price(cap)
+'''
+  choices = ["20.0", "0.0", "30.0"]
+  answer = 2
+  explain = "The constraint is slack at the optimum (5 < 20), so allowing more chairs does not change the best profit: its shadow price is 0 (complementary slackness)."
+  misconceptions = [
+    "20 is the right-hand side of the constraint, not its price.",
+    "",
+    "30 is the profit per chair, but the extra chair capacity cannot be used: wood and labour are the binding limits.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "When is JuMP the right tool rather than Optim.jl?"
+  choices = [
+    "When it has many explicit constraints with linear or integer structure",
+    "When the objective is a black-box Julia function you can only evaluate",
+    "Whenever there are more than a few variables, since Optim.jl is for small `n`",
+  ]
+  answer = 1
+  explain = "JuMP passes the algebraic structure (which variables appear in which constraints, with which coefficients) to solvers like HiGHS that exploit it. Optim.jl only calls your function and its gradient."
+  misconceptions = [
+    "",
+    "A black-box function is what Optim.jl is for: JuMP needs the model written in its own algebraic form.",
+    "Optim.jl handles thousands of variables (LBFGS); the deciding factor is constraints and structure, not size.",
+  ]
+
+[[section]]
+title = "Integer variables: a knapsack"
+body = '''
+Declaring a variable `Bin` (0 or 1) or `Int` turns an LP into a
+**mixed-integer program** (MIP). HiGHS solves it by branch and bound: it
+solves LP relaxations (integrality dropped), branches on a fractional
+variable, and prunes branches whose LP bound cannot beat the best integer
+solution found so far.
+
+The knapsack problem: choose items of given values and weights to maximise
+the value without exceeding a capacity. Rounding the LP solution does not
+solve it: the LP may take two thirds of an item.
+
+Two numerical facts to keep in mind:
+
+* HiGHS stops when the gap between the best solution and its bound is below
+  `mip_rel_gap` (default `1e-4`, relative). For an exact optimum set
+  `set_attribute(model, "mip_rel_gap", 0.0)`.
+* Integer variables come back as floats within a feasibility tolerance
+  (`0.9999999` is possible), so convert with `round(Int, value(x))`, never
+  `Int(value(x))`.
+
+Duals are not defined for a MIP: `has_duals(model)` is `false`.
+'''
+
+  [[section.example]]
+  caption = "Six items, capacity 15. The data are chosen so that the optimum is unique (checked by enumerating all 64 subsets); with ties, which optimal set the solver prints depends on its search path."
+  code = '''
+using JuMP, HiGHS
+values  = [10, 13, 7, 8, 12, 3]
+weights = [5, 6, 3, 4, 6, 2]
+model = Model(HiGHS.Optimizer)
+set_silent(model)
+set_attribute(model, "mip_rel_gap", 0.0)
+@variable(model, take[1:6], Bin)
+@constraint(model, sum(weights .* take) <= 15)
+@objective(model, Max, sum(values .* take))
+optimize!(model)
+chosen = findall(round.(Int, value.(take)) .== 1)
+println(termination_status(model), ": items ", chosen, ", value ", round(Int, objective_value(model)),
+        ", weight ", sum(weights[chosen]))
+println("has duals: ", has_duals(model))
+'''
+
+  [[section.example]]
+  caption = "The LP relaxation of three items (values 60, 100, 120; weights 10, 20, 30; capacity 50) takes two thirds of an item."
+  code = '''
+using JuMP, HiGHS
+values  = [60, 100, 120]
+weights = [10, 20, 30]
+model = Model(HiGHS.Optimizer)
+set_silent(model)
+@variable(model, 0 <= take[1:3] <= 1)
+@constraint(model, sum(weights .* take) <= 50)
+@objective(model, Max, sum(values .* take))
+optimize!(model)
+println("take = ", round.(value.(take); digits = 3) .+ 0.0)   # + 0.0 turns -0.0 into 0.0
+println("LP bound = ", round(objective_value(model); digits = 6))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "Three items with values 60, 100, 120 and weights 10, 20, 30, capacity 50. What does this print?"
+  code = '''
+using JuMP, HiGHS
+model = Model(HiGHS.Optimizer)
+set_silent(model)
+@variable(model, take[1:3], Bin)
+@constraint(model, 10take[1] + 20take[2] + 30take[3] <= 50)
+@objective(model, Max, 60take[1] + 100take[2] + 120take[3])
+optimize!(model)
+round(Int, objective_value(model))
+'''
+  choices = ["160", "220", "240"]
+  answer = 2
+  explain = "Items 2 and 3 weigh exactly 50 and are worth 220. Greedy by value per weight takes items 1 and 2 (ratios 6 and 5) and then cannot fit item 3."
+  misconceptions = [
+    "That is the greedy answer (best value per weight first); it is not optimal for 0-1 knapsack.",
+    "",
+    "240 is the LP relaxation's bound (items 1 and 2 plus two thirds of item 3); with `Bin` variables fractions are not allowed.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why can't you get the knapsack optimum by solving the LP relaxation and rounding each `take[i]` to the nearest integer?"
+  choices = [
+    "Rounding up can break the capacity; rounding down can miss a better set",
+    "HiGHS cannot solve LPs whose variables are bounded by 1, so no relaxation",
+    "Rounding gives the right answer, but branch and bound proves it faster",
+  ]
+  answer = 1
+  explain = "Rounding a fractional item up can exceed the capacity; rounding down gives a feasible but often suboptimal set. Branch and bound explores the combinations and proves optimality with the LP bounds."
+  misconceptions = [
+    "",
+    "Bounded variables are routine in LPs; the relaxation above solves fine.",
+    "It is not a matter of speed: rounding is not guaranteed to be feasible or optimal.",
+  ]
+
+[[section]]
+title = "Checking an optimum"
+body = '''
+A solver's status says its stopping test passed. Whether the answer is the
+one you want is a separate question with three checks:
+
+* **Stationarity.** For a smooth unconstrained minimum the gradient is zero.
+  Compute it independently, e.g. with `ForwardDiff.gradient`, and compare
+  with the size of `f` and `x`.
+* **Feasibility.** For a constrained model, `primal_feasibility_report(model)`
+  lists the constraints violated by more than a tolerance (an empty report
+  means none). Your own arithmetic on the values works too.
+* **Local or global.** Optim.jl's methods are local: they find a minimum
+  near the start point. For a non-convex function, try several start points
+  and compare. Convex problems (all LPs, convex QPs) have no such issue, and
+  HiGHS's LP and MIP answers are global within its tolerances.
+'''
+
+  [[section.example]]
+  caption = "The gradient at the BFGS answer, and the constraints of the workshop LP."
+  code = '''
+using Optim, ForwardDiff, JuMP, HiGHS
+rosen(x) = (1 - x[1])^2 + 100 * (x[2] - x[1]^2)^2
+res = optimize(rosen, [-1.2, 1.0], BFGS(); autodiff = Optim.ADTypes.AutoForwardDiff())
+g = ForwardDiff.gradient(rosen, Optim.minimizer(res))
+println("every gradient component below 1e-8: ", maximum(abs, g) < 1e-8)
+
+model = Model(HiGHS.Optimizer)
+set_silent(model)
+@variable(model, chairs >= 0)
+@variable(model, tables >= 0)
+@constraint(model, 2chairs + 4tables <= 40)
+@constraint(model, 3chairs + 2tables <= 30)
+@objective(model, Max, 30chairs + 50tables)
+optimize!(model)
+println("violated constraints: ", length(primal_feasibility_report(model)))
+'''
+
+  [[section.example]]
+  caption = "A double well: the start point decides which minimum BFGS finds."
+  code = '''
+using Optim, ForwardDiff
+ad = Optim.ADTypes.AutoForwardDiff()
+f(x) = x[1]^4 - 3x[1]^2 + x[1] + x[2]^2
+for s in (-2.0, 0.0, 0.5, 2.0)
+    res = optimize(f, [s, 1.0], BFGS(); autodiff = ad)
+    println("start x1 = ", lpad(s, 4), " -> x1 = ", round(Optim.minimizer(res)[1]; digits = 4),
+            ", f = ", round(Optim.minimum(res); digits = 4), ", converged = ", Optim.converged(res))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "BFGS converged, and `ForwardDiff.gradient` at the answer is about `1e-12`. What have you shown?"
+  choices = [
+    "That the answer is the global minimum, since the gradient vanishes there",
+    "Nothing: a gradient is never exactly zero in floating point, so the test is void",
+    "That it is a stationary point, to good accuracy; it need not be the global minimum",
+  ]
+  answer = 3
+  explain = "A zero gradient is a local condition: it marks a stationary point (a minimum, maximum or saddle), to an accuracy set by the problem's scale. A line-search descent method rarely stops at a maximum or saddle, but other minima can exist; multiple starts or convexity settle the global question."
+  misconceptions = [
+    "The double-well example has two points with zero gradient and different `f`: stationarity cannot tell them apart.",
+    "A gradient of `1e-12` against `f` and `x` of size 1 is a meaningful near-zero; what matters is size relative to the problem's scale.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "Two start points on the double well of the last example. What does this print?"
+  code = '''
+using Optim, ForwardDiff
+ad = Optim.ADTypes.AutoForwardDiff()
+f(x) = x[1]^4 - 3x[1]^2 + x[1] + x[2]^2
+a = optimize(f, [-2.0, 1.0], BFGS(); autodiff = ad)
+b = optimize(f, [2.0, 1.0], BFGS(); autodiff = ad)
+Optim.minimum(a) < Optim.minimum(b)
+'''
+  choices = ["true", "false"]
+  answer = 1
+  explain = "The `+ x[1]` term tilts the well: the left minimum (near x₁ = -1.30) is lower than the right one (near x₁ = 1.13). Both runs converge; only one finds the global minimum."
+  misconceptions = [
+    "",
+    "Both runs report convergence, but to different local minima; the left one is deeper because the linear term `+ x[1]` is negative there.",
+  ]
+
+[[section]]
+title = "Where to go next"
+body = '''
+Optim.jl and JuMP do more than this unit showed:
+
+* **One variable on an interval.** `optimize(f, a, b)` uses Brent's method
+  (golden section with parabolic steps), no start point or gradient needed.
+  Reach for this when you tune a single parameter within known limits.
+* **Quadratic objectives.** HiGHS also solves convex quadratic programs
+  (continuous variables): write `x^2` terms in `@objective`. Reach for this
+  when you fit or allocate under linear constraints with a squared penalty
+  (least squares with bounds, portfolio variance).
+* **Swapping solvers.** `set_optimizer(model, Other.Optimizer)` or a
+  different `Model(...)` argument; the [list of supported solvers](https://jump.dev/JuMP.jl/stable/installation/#Supported-solvers)
+  covers LP, MIP, conic, nonlinear and global solvers. Reach for this when
+  HiGHS is too slow on a large MIP or the model leaves its problem classes.
+* **Nonlinear models in JuMP** (`sin`, `exp`, products of variables in
+  constraints) need a nonlinear solver such as [Ipopt](https://github.com/jump-dev/Ipopt.jl)
+  (not installed here); JuMP computes the derivatives itself. Reach for this
+  when the constraints themselves are nonlinear, as in engineering design.
+* **Nonlinear constraints in Optim.jl**: the interior-point method
+  `IPNewton()` (see the [Optim.jl docs](https://julianlsolvers.github.io/Optim.jl/stable/)).
+  Reach for this when you have a few smooth constraints on a function you
+  already minimise with Optim.jl.
+* **[Optimization.jl](https://docs.sciml.ai/Optimization/stable/)** gives one
+  interface over Optim.jl, Ipopt, NLopt, evolutionary methods and others, so
+  a problem can be tried with several back-ends. Reach for this when you do
+  not yet know which algorithm suits your problem.
+* **Multi-objective** problems in JuMP: [MultiObjectiveAlgorithms.jl](https://github.com/jump-dev/MultiObjectiveAlgorithms.jl).
+  Reach for this when two goals conflict (cost against emissions) and you
+  want the trade-off curve rather than one weighted answer.
+'''
+
+  [[section.example]]
+  caption = "Brent's method on an interval where sin(5x) adds several local minima, checked against a grid."
+  code = '''
+using Optim
+f(x) = (x - 2)^2 + sin(5x)
+res = optimize(f, 0.0, 4.0)
+println("Brent: x = ", round(Optim.minimizer(res); digits = 6), " after ", Optim.f_calls(res), " calls")
+grid = 0:0.001:4
+println("grid:  x = ", grid[argmin(f.(grid))])
+'''
+
+  [[section.example]]
+  caption = "A convex quadratic program solved by HiGHS."
+  code = '''
+using JuMP, HiGHS
+model = Model(HiGHS.Optimizer)
+set_silent(model)
+@variable(model, x[1:2] >= 0)
+@constraint(model, x[1] + x[2] == 1)
+@objective(model, Min, x[1]^2 + 2x[2]^2 - x[1])
+optimize!(model)
+println(termination_status(model), "  x = ", round.(value.(x); digits = 6),
+        "  objective = ", round(objective_value(model); digits = 6))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Your model has constraints like `x * y >= 2` and `exp(z) <= 10`. What do you need?"
+  choices = [
+    "HiGHS, since it solves the knapsack and LP examples",
+    "Roots.jl, applied to each constraint",
+    "A nonlinear solver behind JuMP, such as Ipopt",
+  ]
+  answer = 3
+  explain = "HiGHS handles linear constraints with linear or convex quadratic objectives and integer variables. General nonlinear constraints need a nonlinear solver; JuMP supplies the derivatives."
+  misconceptions = [
+    "HiGHS rejects nonlinear constraints: it is an LP/MIP/QP solver.",
+    "A root-finder solves one equation; it cannot optimise an objective subject to inequalities.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Brent's method found one minimizer of `(x - 2)^2 + sin(5x)` on [0, 4]. Is it guaranteed to be the global minimizer on that interval?"
+  choices = [
+    "Yes: the method never leaves the interval, so it sees every point in it",
+    "No: it finds one local minimum; several dips need a check such as a grid scan",
+    "Yes, since a derivative-free method is not trapped by dips, unlike Newton",
+  ]
+  answer = 2
+  explain = "Like golden-section search, Brent's method assumes a single minimum in the interval. With several, it returns one of them, not necessarily the lowest. In the example it happened to find the lowest, which only the grid check shows."
+  misconceptions = [
+    "Restricting to an interval does not make the problem unimodal: `sin(5x)` adds several local minima inside [0, 4].",
+    "",
+    "Being derivative-free says nothing about global optimality; Nelder-Mead is derivative-free and local too.",
+  ]
+
+[[problem]]
+id = "opt-kepler"
+title = "Kepler's equation with a bracket"
+difficulty = "warm-up"
+kcs = ["root-finding"]
+entry = "eccentric_anomaly"
+packages = ["Roots"]
+prompt = '''
+Kepler's equation `E - e sin(E) = M` gives a planet's eccentric anomaly `E`
+from its mean anomaly `M` and the orbit's eccentricity `e` (`0 < e < 1`).
+Write `eccentric_anomaly(M, e)` returning `E` for `M` in `(0, 2π)`.
+
+Since `|e sin(E)| ≤ e`, the root lies in `[M - e, M + e]`: use that bracket
+with `find_zero`.
+
+```julia
+eccentric_anomaly(1.0, 0.5)   # ≈ 1.4987011335
+```
+
+Results are compared with a relative tolerance of `1e-10`: bisection on a
+`Float64` bracket ends with adjacent floats (error about `1e-16`), so this
+leaves room for any method that converges.
+'''
+starter = '''
+using Roots
+
+function eccentric_anomaly(M, e)
+    # your code here
+end
+'''
+reference = '''
+using Roots
+
+function eccentric_anomaly(M, e)
+    return find_zero(E -> E - e * sin(E) - M, (M - e, M + e))
+end
+'''
+cases = ["1.0, 0.5", "3.0, 0.9", "0.2, 0.1", "5.5, 0.3"]
+gen = "rng -> [(0.1 + 6.1 * rand(rng), 0.05 + 0.9 * rand(rng)) for _ in 1:20]"
+# Bisection to adjacent floats has relative error ~1e-16. A start-point method (Newton, secant) stops
+# when |f(E)| <= max(atol, |E| * rtol) with Roots' defaults atol = rtol = 4eps; E <= M + e < 7.3, so
+# |f| <= 7.3 * 4eps ~ 6.5e-15. The error in E is about |f| / f'(E) with f'(E) = 1 - e cos E >= 1 - e >= 0.05
+# (e <= 0.95), so |E - E*| <= 20 * 6.5e-15 ~ 1.3e-13. E >= min(M, pi) >= 0.1
+# (on (0, pi) e sin E >= 0 gives E >= M), so the relative error is <= 1.3e-12: 1e-10 leaves a factor 80.
+# A method stopped at |f| ~ 1e-8 (relative error up to 2e-6) fails.
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Write the equation as a function of `E` that is zero at the answer, and give `find_zero` an interval where it changes sign.",
+  "Check the sign of your function at both ends of `[M - e, M + e]`: why does `|e sin E| ≤ e` make the two signs differ?",
+]
+
+  [problem.perf]
+  args = "0.1 + 6.1 * rand(rng), 0.05 + 0.9 * rand(rng)"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "bracket (0, π): no sign change once M is past π"
+  code = '''
+using Roots
+eccentric_anomaly(M, e) = find_zero(E -> E - e * sin(E) - M, (0.0, π))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sign error: solves E + e sin(E) = M"
+  code = '''
+using Roots
+eccentric_anomaly(M, e) = find_zero(E -> E + e * sin(E) - M, (M - e, M + e))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Newton from E = M with a hand-written derivative"
+  code = '''
+using Roots
+function eccentric_anomaly(M, e)
+    f(E) = E - e * sin(E) - M
+    df(E) = 1 - e * cos(E)
+    return find_zero((f, df), M, Roots.Newton())
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "find_zeros over [0, 2π]: samples the whole interval to find the one root"
+  code = '''
+using Roots
+eccentric_anomaly(M, e) = only(find_zeros(E -> E - e * sin(E) - M, 0.0, 2π))
+'''
+  expect = ["correct", "slow"]
+
+[[problem]]
+id = "opt-regularized-min"
+title = "A regularised least-squares minimum with Optim"
+difficulty = "core"
+kcs = ["optimization", "autodiff"]
+entry = "regularized_min"
+packages = ["Optim", "ForwardDiff"]
+prompt = '''
+Write `regularized_min(c, λ)` that returns the minimizer (a `Vector{Float64}`)
+of
+
+    f(x) = ‖x - c‖² + λ ‖x‖⁴      (λ > 0)
+
+for a vector `c`. The function is strongly convex, so the minimizer is unique
+and any start point works; start from `zero(c)`. Use Optim.jl with a gradient
+method, exact gradients from ForwardDiff (as in this unit), and set the
+gradient tolerance explicitly with `Optim.Options(g_tol = 1e-10)`.
+
+```julia
+regularized_min([1.0, 2.0], 0.5)   # ≈ [0.4725, 0.9450]
+```
+
+Results are compared with a relative tolerance of `1e-6`. Strong convexity
+(with constant 2) turns a small gradient into a small error:
+`‖x - x*‖ ≤ ‖∇f(x)‖ / 2`, so a gradient method stopped at a gradient of
+`1e-10` is far inside that tolerance. Nelder-Mead's default stopping test
+bounds no gradient, and it falls short.
+'''
+starter = '''
+using Optim, ForwardDiff
+
+function regularized_min(c, λ)
+    f(x) = sum(abs2, x .- c) + λ * sum(abs2, x)^2
+    # your code here
+end
+'''
+reference = '''
+using Optim, ForwardDiff
+
+function regularized_min(c, λ)
+    f(x) = sum(abs2, x .- c) + λ * sum(abs2, x)^2
+    res = optimize(f, zero(c), BFGS(), Optim.Options(g_tol = 1e-10); autodiff = Optim.ADTypes.AutoForwardDiff())
+    return Optim.minimizer(res)
+end
+'''
+cases = ["[1.0, 2.0], 0.5", "[-3.0, 0.5, 1.0], 0.1", "[0.5, -0.5, 2.0, 1.5], 2.0"]
+gen = "rng -> [(m = rand(rng, 2:6); (rand(rng, [-1.0, 1.0], m) .* (0.5 .+ 2.5 .* rand(rng, m)), 0.1 + 1.9 * rand(rng))) for _ in 1:15]"
+# f is 2-strongly convex, so ‖x - x*‖ ≤ ‖∇f(x)‖₂ / 2 ≤ √n · g_tol / 2 ≈ 1.2e-10 for n ≤ 6 and g_tol = 1e-10
+# (Optim's g_tol bounds the largest gradient component). With every |c_i| ≥ 0.5 and λ ≤ 2, ‖x*‖ ≥ 0.3,
+# so the reference's relative error is below 1e-9. 1e-6 also accepts gradient methods at Optim's
+# default g_tol (1e-8) but not Nelder-Mead's default stopping test (x accurate to ~1e-4).
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "`optimize` takes the function, the start point, a gradient method and an options object; the automatic-differentiation backend is a keyword argument (the section on gradients shows it).",
+  "`optimize` returns a result object, not the point: `Optim.minimizer` reads the point from it. If a case is off, look at `Optim.converged` and `Optim.iterations` for it.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n) .+ 1.0, 0.5"
+  sizes = [8]
+
+  [[problem.variant]]
+  label = "Nelder-Mead with its default stopping test"
+  code = '''
+using Optim, ForwardDiff
+function regularized_min(c, λ)
+    f(x) = sum(abs2, x .- c) + λ * sum(abs2, x)^2
+    return Optim.minimizer(optimize(f, zero(c), NelderMead()))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "drops the square on the norm: λ‖x‖² instead of λ‖x‖⁴"
+  code = '''
+using Optim, ForwardDiff
+function regularized_min(c, λ)
+    f(x) = sum(abs2, x .- c) + λ * sum(abs2, x)
+    res = optimize(f, zero(c), BFGS(), Optim.Options(g_tol = 1e-10); autodiff = Optim.ADTypes.AutoForwardDiff())
+    return Optim.minimizer(res)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "LBFGS with a hand-written in-place gradient"
+  code = '''
+using Optim, ForwardDiff
+function regularized_min(c, λ)
+    f(x) = sum(abs2, x .- c) + λ * sum(abs2, x)^2
+    function g!(G, x)
+        s = sum(abs2, x)
+        @. G = 2 * (x - c) + 4λ * s * x
+        return G
+    end
+    res = optimize(f, g!, zero(c), LBFGS(), Optim.Options(g_tol = 1e-10))
+    return Optim.minimizer(res)
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "Nelder-Mead pushed to a tiny simplex: accurate, but thousands of f calls"
+  code = '''
+using Optim
+function regularized_min(c, λ)
+    f(x) = sum(abs2, x .- c) + λ * sum(abs2, x)^2
+    res = optimize(f, zero(c), NelderMead(), Optim.Options(g_tol = 1e-30, iterations = 20_000))
+    return Optim.minimizer(res)
+end
+'''
+  expect = ["correct", "slow"]
+
+[[problem]]
+id = "opt-knapsack"
+title = "The best knapsack, exactly"
+difficulty = "stretch"
+kcs = ["integer-programming"]
+entry = "best_knapsack"
+packages = ["JuMP", "HiGHS"]
+prompt = '''
+Write `best_knapsack(values, weights, capacity)` returning a tuple
+`(value, items)`: the largest total value (an `Int`) of a set of items whose
+total weight is at most `capacity`, and the indices of the items in that set
+as a `Vector{Int}` in ascending order. Each item is taken once or not at
+all; `values` and `weights` are non-empty `Vector{Int}`s of the same length,
+all positive; `capacity ≥ 0`. Every case has exactly one optimal set.
+
+```julia
+best_knapsack([60, 100, 120], [10, 20, 30], 50)   # (220, [2, 3])
+best_knapsack([5], [10], 3)                       # (0, Int[])
+```
+
+Model it in JuMP with binary variables and solve it with HiGHS. The answer
+must be exact, so mind two tolerances. Binary variables come back as floats
+within a feasibility tolerance. And HiGHS may stop once the relative gap
+between its best solution and its bound is below `1e-4` (the default): for
+integer values that guarantees the optimum only while the total is below
+`10^4` (the allowed shortfall is then below 1), and several cases here have
+totals in the hundreds of thousands. On knapsacks this small HiGHS usually
+closes the gap anyway, so the grader cannot catch a missing setting; ask
+for a proven optimum regardless.
+'''
+starter = '''
+using JuMP, HiGHS
+
+function best_knapsack(values, weights, capacity)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    # your code here
+end
+'''
+reference = '''
+using JuMP, HiGHS
+
+function best_knapsack(values, weights, capacity)
+    n = length(values)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    @variable(model, take[1:n], Bin)
+    @constraint(model, sum(weights[i] * take[i] for i in 1:n) <= capacity)
+    @objective(model, Max, sum(values[i] * take[i] for i in 1:n))
+    optimize!(model)
+    termination_status(model) == OPTIMAL || error("solver stopped with ", termination_status(model))
+    items = findall(i -> value(take[i]) > 0.5, 1:n)
+    return sum(values[items]; init = 0), items
+end
+'''
+cases = [
+  "[60, 100, 120], [10, 20, 30], 50",
+  "[10, 13, 7, 8, 12, 3], [5, 6, 3, 4, 6, 2], 15",
+  "[5], [10], 3",
+  "[7, 7, 7], [1, 1, 1], 0",
+  "[37889, 12290, 46084, 28680, 9232, 42016, 33856, 20608, 16640, 49664], [12, 5, 17, 11, 4, 15, 13, 8, 7, 18], 50",
+]
+# Every case has a unique optimal set (checked by enumeration), so the item list is well defined.
+# gen makes that hold by construction: item i's value is a multiple of 2^m plus 2^(i-1), so the low
+# m bits of a total identify the subset and no two subsets have the same total. Totals reach ~5e5.
+# No "default mip_rel_gap" variant is listed: on 300 random near-tie instances (values ~1e6, 5 to 16
+# items) HiGHS with the default gap returned the proven optimum every time, so it would grade correct.
+gen = "rng -> [(m = rand(rng, 1:10); (rand(rng, 1:50, m) .* 2^m .+ 2 .^ (0:m-1), rand(rng, 1:20, m), rand(rng, 0:60))) for _ in 1:15]"
+hints = [
+  "One `Bin` variable per item, one capacity constraint and a `Max` objective; the chosen items are the variables that are 1 at the optimum.",
+  "Exactness depends on the solver's relative gap attribute (the knapsack section names it) and on how you decide that a float such as `0.9999999` means \"taken\". Compute the total from the chosen items' values.",
+]
+
+  [problem.perf]
+  args = "rand(rng, 1:100, n), rand(rng, 1:50, n), 12n"
+  sizes = [30]
+
+  [[problem.variant]]
+  label = "LP relaxation (no Bin), rounded down"
+  code = '''
+using JuMP, HiGHS
+function best_knapsack(values, weights, capacity)
+    n = length(values)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    @variable(model, 0 <= take[1:n] <= 1)
+    @constraint(model, sum(weights[i] * take[i] for i in 1:n) <= capacity)
+    @objective(model, Max, sum(values[i] * take[i] for i in 1:n))
+    optimize!(model)
+    return floor(Int, objective_value(model) + 1e-6), findall(i -> value(take[i]) > 0.5, 1:n)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "greedy by value per weight"
+  code = '''
+function best_knapsack(values, weights, capacity)
+    total, left, items = 0, capacity, Int[]
+    for i in sortperm(values ./ weights; rev = true)
+        if weights[i] <= left
+            total += values[i]
+            left -= weights[i]
+            push!(items, i)
+        end
+    end
+    return total, sort!(items)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "dynamic programming over capacities, with the set read back from the table (no solver)"
+  code = '''
+function best_knapsack(values, weights, capacity)
+    n = length(values)
+    best = zeros(Int, n + 1, capacity + 1)   # best[i+1, c+1]: items 1:i, capacity c
+    for i in 1:n, c in 0:capacity
+        best[i+1, c+1] = best[i, c+1]
+        if weights[i] <= c
+            best[i+1, c+1] = max(best[i+1, c+1], best[i, c-weights[i]+1] + values[i])
+        end
+    end
+    items, c = Int[], capacity
+    for i in n:-1:1
+        if best[i+1, c+1] != best[i, c+1]
+            push!(items, i)
+            c -= weights[i]
+        end
+    end
+    return best[n+1, capacity+1], reverse!(items)
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "opt-fix-gradient"
+title = "Fix the depot location"
+difficulty = "core"
+kcs = ["optimization"]
+entry = "best_location"
+packages = ["Optim", "ForwardDiff"]
+prompt = '''
+A depot should go where the total distance to a set of shops is smallest.
+With a smoothed distance, that point is the minimizer of
+
+    f(z) = Σᵢ √((z₁ - pxᵢ)² + (z₂ - pyᵢ)² + 1)
+
+The function in the starter is meant to return it (a 2-element
+`Vector{Float64}`), using LBFGS with a hand-written gradient. It runs
+without an error message but returns the wrong point. Find the bug and fix
+it.
+
+The inputs `px` and `py` are `Vector{Float64}`s of the same length (at
+least 3), with every shop in the square `[2, 6] × [2, 6]`. `f` is strictly
+convex, so the minimizer is unique and lies in that square.
+
+```julia
+best_location([3.0, 5.0, 5.0, 3.0], [3.0, 3.0, 5.0, 5.0])   # ≈ [4.0, 4.0]
+```
+
+Results are compared with a relative tolerance of `1e-6`.
+'''
+starter = '''
+using Optim
+
+function best_location(px, py)
+    f(z) = sum(sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1) for i in eachindex(px, py))
+    function g!(G, z)
+        gx, gy = 0.0, 0.0
+        for i in eachindex(px, py)
+            d = sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1)
+            gx += (z[1] - px[i]) / d
+            gy += (z[2] - py[i]) / d
+        end
+        G = [gx, gy]
+        return G
+    end
+    res = optimize(f, g!, [0.0, 0.0], LBFGS(), Optim.Options(g_tol = 1e-10))
+    return Optim.minimizer(res)
+end
+'''
+reference = '''
+using Optim
+
+function best_location(px, py)
+    f(z) = sum(sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1) for i in eachindex(px, py))
+    function g!(G, z)
+        gx, gy = 0.0, 0.0
+        for i in eachindex(px, py)
+            d = sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1)
+            gx += (z[1] - px[i]) / d
+            gy += (z[2] - py[i]) / d
+        end
+        G[1] = gx      # write into Optim's array; `G = [...]` would only rebind the local name
+        G[2] = gy
+        return G
+    end
+    res = optimize(f, g!, [0.0, 0.0], LBFGS(), Optim.Options(g_tol = 1e-10))
+    return Optim.minimizer(res)
+end
+'''
+cases = [
+  "[3.0, 5.0, 5.0, 3.0], [3.0, 3.0, 5.0, 5.0]",
+  "[2.0, 6.0, 4.0], [2.0, 2.0, 6.0]",
+  "[2.5, 2.5, 5.5, 4.0, 3.0], [2.0, 5.5, 4.0, 3.0, 4.5]",
+]
+gen = "rng -> [(m = rand(rng, 3:12); (2 .+ 4 .* rand(rng, m), 2 .+ 4 .* rand(rng, m))) for _ in 1:15]"
+# Each term sqrt(r^2 + 1) has Hessian eigenvalues 1/(r^2+1)^(3/2) and 1/(r^2+1)^(1/2). Shops and the
+# minimizer lie in [2, 6]^2 (the minimizer is in the shops' convex hull), so r <= 4 sqrt(2), r^2 + 1 <= 33,
+# and f is mu-strongly convex near the answer with mu >= m / 33^1.5 >= 3 / 190 ~ 0.016. Optim's g_tol
+# bounds the largest gradient component, so ||grad||_2 <= sqrt(2) * 1e-10 and ||z - z*|| <= 9e-9; with
+# ||z*|| >= 2 sqrt(2) the relative error is <= 3.2e-9. rtol = 1e-6 leaves a factor 300; Nelder-Mead at
+# its default stopping test (x accurate to ~1e-4) fails it.
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "The formulas in `g!` are right. Look at how `g!` hands its result back: Optim calls it with an array and reads the gradient from that same array afterwards.",
+  "Inside `g!`, compare the array Optim passed in with the one `G` names after the last assignment (print `G[1]` on entry and on exit, or check `===`). Does Optim's array ever change?",
+]
+
+  [problem.perf]
+  args = "2 .+ 4 .* rand(rng, n), 2 .+ 4 .* rand(rng, n)"
+  sizes = [200]
+
+  [[problem.variant]]
+  label = "the starter as given: `G = [gx, gy]` rebinds the name, Optim's array stays unset"
+  code = '''
+using Optim
+function best_location(px, py)
+    f(z) = sum(sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1) for i in eachindex(px, py))
+    function g!(G, z)
+        gx, gy = 0.0, 0.0
+        for i in eachindex(px, py)
+            d = sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1)
+            gx += (z[1] - px[i]) / d
+            gy += (z[2] - py[i]) / d
+        end
+        G = [gx, gy]
+        return G
+    end
+    res = optimize(f, g!, [0.0, 0.0], LBFGS(), Optim.Options(g_tol = 1e-10))
+    return Optim.minimizer(res)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns the new gradient instead of writing it into G (Optim ignores the return value)"
+  code = '''
+using Optim
+function best_location(px, py)
+    f(z) = sum(sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1) for i in eachindex(px, py))
+    function g!(G, z)
+        gx, gy = 0.0, 0.0
+        for i in eachindex(px, py)
+            d = sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1)
+            gx += (z[1] - px[i]) / d
+            gy += (z[2] - py[i]) / d
+        end
+        return [gx, gy]
+    end
+    res = optimize(f, g!, [0.0, 0.0], LBFGS(), Optim.Options(g_tol = 1e-10))
+    return Optim.minimizer(res)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "drops the gradient and switches to Nelder-Mead (default stopping test)"
+  code = '''
+using Optim
+function best_location(px, py)
+    f(z) = sum(sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1) for i in eachindex(px, py))
+    return Optim.minimizer(optimize(f, [0.0, 0.0], NelderMead()))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "fills G with a broadcast assignment"
+  code = '''
+using Optim
+function best_location(px, py)
+    f(z) = sum(sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1) for i in eachindex(px, py))
+    function g!(G, z)
+        G .= 0
+        for i in eachindex(px, py)
+            d = sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1)
+            G[1] += (z[1] - px[i]) / d
+            G[2] += (z[2] - py[i]) / d
+        end
+        return G
+    end
+    res = optimize(f, g!, [0.0, 0.0], LBFGS(), Optim.Options(g_tol = 1e-10))
+    return Optim.minimizer(res)
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "no hand-written gradient: ForwardDiff through autodiff"
+  code = '''
+using Optim, ForwardDiff
+function best_location(px, py)
+    f(z) = sum(sqrt((z[1] - px[i])^2 + (z[2] - py[i])^2 + 1) for i in eachindex(px, py))
+    res = optimize(f, [0.0, 0.0], LBFGS(), Optim.Options(g_tol = 1e-10);
+                   autodiff = Optim.ADTypes.AutoForwardDiff())
+    return Optim.minimizer(res)
+end
+'''
+  expect = ["correct"]

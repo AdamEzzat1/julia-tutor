@@ -1,0 +1,415 @@
+id = "07-broadcasting"
+title = "Broadcasting and higher-order functions"
+track = "foundations"
+env = "base"
+summary = "Apply any function elementwise with a dot, fuse whole expressions into one loop, write into existing arrays with .=, and reduce collections with map, filter and reduce."
+kcs = ["broadcasting", "dot-fusion", "in-place-assignment", "broadcast-shapes", "higher-order-functions", "reductions"]
+prerequisites = ["06-collections"]
+
+[[section]]
+title = "The dot: any function, elementwise"
+body = '''
+In Julia, `f.(x)` calls `f` on every element of `x` and collects the results.
+This works for **every** function, including your own; there is no separate
+list of "vectorized" functions as in NumPy or R. Operators get the dot in
+front: `.+`, `.*`, `.^`, `.<`.
+
+Without the dot, an operator means its mathematical meaning. `v * 2` is fine
+(scaling a vector), but `v + 1` is an error, because adding a number to a
+vector is not defined in linear algebra, and `v * w` for two vectors is an
+error too (there is no vector-times-vector product of that shape). Write
+`v .+ 1` and `v .* w`.
+'''
+
+  [[section.example]]
+  code = '''
+v = [1, 4, 9]
+square(x) = x^2
+println(sqrt.(v))
+println(square.(v), " ", v .+ 1, " ", v .* [1, 0, 2], " ", v .> 3)
+v + 1
+'''
+
+  [[section.example]]
+  caption = "`*` between two vectors is not elementwise."
+  code = '''
+[1, 2] * [3, 4]
+'''
+
+[[section]]
+title = "Fusion: one loop, no temporaries"
+body = '''
+When several dotted calls are nested, Julia **fuses** them into a single loop
+over the elements and allocates only the final result. `sin.(x) .+ 2 .* x .^ 2`
+does not build `sin.(x)`, then `x .^ 2`, then `2 .* (...)`: it computes the
+whole expression for one element at a time.
+
+Writing the same thing in steps creates a temporary array at every step. The
+example measures the bytes each version allocates, in units of the size of
+`x`: the fused version allocates one array's worth, the stepwise one four.
+'''
+
+  [[section.example]]
+  code = '''
+fused(x) = sin.(x) .+ 2 .* x .^ 2
+function stepwise(x)
+    a = sin.(x)
+    b = x .^ 2
+    c = 2 .* b
+    return a .+ c
+end
+x = rand(1000)
+fused(x); stepwise(x)        # compile first
+println(fused(x) == stepwise(x))
+println("allocated, in sizes of x: fused ", round(@allocated(fused(x)) / sizeof(x), digits = 1),
+        ", stepwise ", round(@allocated(stepwise(x)) / sizeof(x), digits = 1))
+'''
+
+[[section]]
+title = "Writing into an existing array: .= and @."
+body = '''
+`y = x .* 2` creates a new array and binds the name `y` to it. `y .= x .* 2`
+instead **writes into** the array `y` already refers to, so the fused loop
+allocates nothing at all. This is how you update arrays inside a loop without
+creating garbage.
+
+Dots everywhere get noisy; the `@.` macro adds a dot to every call and
+operator in an expression, including the assignment: `@. y = 2x^2 + 1` is
+`y .= 2 .* x .^ 2 .+ 1`.
+'''
+
+  [[section.example]]
+  code = '''
+x = [1.0, 2.0, 3.0]
+y = zeros(3)
+z = y            # a second name for the same array
+y .= x .* 2      # writes into it: z sees the change
+println(z)
+y = x .* 10      # a new array; z still holds the old one
+println(y, " ", z)
+'''
+
+  [[section.example]]
+  caption = "`@.` dots everything; an in-place update inside a function allocates 0 bytes."
+  code = '''
+function update!(y, x)
+    @. y = 2x^2 + 1
+    return y
+end
+x = collect(1.0:4.0)
+y = similar(x)
+update!(y, x)
+println(y)
+println(@allocated update!(y, x))
+'''
+
+[[section]]
+title = "Broadcasting shapes"
+body = '''
+Broadcasting is more than "same-length arrays". Dimensions of length 1 are
+**stretched** to match: a column vector (a `Vector`, n×1) combined with a row
+(a 1×m matrix such as `[10 20]` or `v'`) gives an n×m matrix, without writing
+a loop. A scalar is stretched along every dimension. Shapes that cannot be
+matched give a `DimensionMismatch`.
+
+To treat a whole container as a single value inside a broadcast, wrap it in
+`Ref(...)` (or a one-element tuple).
+'''
+
+  [[section.example]]
+  code = '''
+col = [1, 2, 3]
+row = [10 20]
+println(size(col), " ", size(row))
+col .+ row
+'''
+
+  [[section.example]]
+  caption = "`Ref` protects the vector `[2, 3]` from being broadcast over."
+  code = '''
+println(in.([1, 2, 5], Ref([2, 3])))
+[1, 2, 3] .+ [1, 2]
+'''
+
+[[section]]
+title = "map, filter, reduce and functions as arguments"
+body = '''
+Functions are values, so many functions take one as their first argument.
+`map(f, xs)` is like `f.(xs)`; `filter(pred, xs)` keeps the elements where
+`pred` is true; `reduce(op, xs)` combines them with a binary operator;
+`mapreduce(f, op, xs)` does both in one pass without an intermediate array.
+`foldl` and `foldr` fix the order of combination, which matters for
+operators like `-`.
+
+The everyday reductions also accept a function first: `sum(abs2, v)`,
+`maximum(length, words)`, `count(iseven, v)`, `any(>(3), v)`, `all(...)`.
+These do not build `f.(v)` first. `>(3)` is a function that tests `x > 3`.
+'''
+
+  [[section.example]]
+  code = '''
+v = [3, -1, 4, -1, 5]
+println(map(x -> 2x, v), " ", filter(>(0), v))
+println(reduce(+, v), " ", mapreduce(abs, +, v), " ", foldl(-, 1:4), " ", foldr(-, 1:4))
+println(sum(abs2, v), " ", count(iseven, v), " ", any(>(4), v), " ", all(>(0), v))
+println(maximum(length, ["a", "abc", "ab"]))
+'''
+
+[[section]]
+title = "When to write a loop"
+body = '''
+Unlike in Python or R, a plain `for` loop in Julia compiles to fast machine
+code, so you never need to contort an algorithm into array operations for
+speed. Broadcasting is for *expressing* elementwise work concisely. Write a
+loop when the work is sequential (each step depends on the last), when you can
+stop early, or when a chain of array operations would allocate several
+temporaries.
+
+The loop below stops at the first point where a running total passes a
+threshold, something that is awkward to say with whole-array operations.
+'''
+
+  [[section.example]]
+  code = '''
+function first_crossing(v, limit)
+    total = zero(eltype(v))
+    for (i, x) in enumerate(v)
+        total += x
+        total > limit && return i
+    end
+    return nothing
+end
+println(first_crossing([3, 1, 4, 1, 5, 9], 8))
+println(first_crossing([1, 1], 8))
+'''
+
+[[problem]]
+id = "fused-polynomial"
+title = "A polynomial, elementwise and fused"
+difficulty = "warm-up"
+kcs = ["broadcasting", "dot-fusion"]
+entry = "poly3"
+prompt = '''
+Write `poly3(x)` that returns a new vector with 3x² + 2x + 1 for every element
+of the vector `x`. The element type follows the input (an `Int` vector gives
+an `Int` vector).
+
+```julia
+poly3([0.0, 1.0, 2.0])   # [1.0, 6.0, 17.0]
+poly3([1, -1])           # [6, 2]
+```
+
+The grader checks memory: build the result in a single pass.
+'''
+starter = '''
+function poly3(x)
+    # your code here
+end
+'''
+reference = '''
+poly3(x) = @. 3x^2 + 2x + 1
+'''
+cases = ["[0.0, 1.0, 2.0]", "[1, -1]", "Float64[]"]
+gen = "rng -> [(randn(rng, rand(rng, 0:10)),) for _ in 1:20]"
+hints = [
+  "Every operation needs a dot, so that the whole expression fuses into one loop.",
+  "`3 * x.^2` without dots on `*` and `+` creates intermediate arrays; `@.` adds every dot for you.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n)"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "forgets the factor 3"
+  code = '''
+poly3(x) = @. x^2 + 2x + 1
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "undotted * and + make temporaries"
+  code = '''
+poly3(x) = 3 * x.^2 + 2 * x .+ 1
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "map with an anonymous function"
+  code = '''
+poly3(x) = map(t -> 3t^2 + 2t + 1, x)
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "comprehension"
+  code = '''
+poly3(x) = [3t^2 + 2t + 1 for t in x]
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "normalize-columns!"
+title = "Normalise the columns of a matrix in place"
+difficulty = "core"
+kcs = ["in-place-assignment", "broadcasting", "matrices"]
+entry = "normalize_columns!"
+prompt = '''
+Write `normalize_columns!(A)` that divides every column of the matrix `A` by
+that column's sum, so each column then sums to 1, **changing `A` itself**,
+and returns `A`. All entries are positive.
+
+```julia
+A = [1.0 2.0; 3.0 2.0]
+normalize_columns!(A)    # [0.25 0.5; 0.75 0.5], and A now holds that too
+```
+
+The grader checks that `A` was modified and measures memory: no copies of
+columns or of the matrix.
+'''
+starter = '''
+function normalize_columns!(A)
+    # your code here: change the entries of A itself
+    return A
+end
+# the ! in normalize_columns! is a convention: functions that mutate an argument end in !
+'''
+reference = '''
+function normalize_columns!(A)
+    for j in axes(A, 2)
+        s = zero(eltype(A))
+        for i in axes(A, 1)
+            s += A[i, j]
+        end
+        for i in axes(A, 1)
+            A[i, j] /= s
+        end
+    end
+    return A
+end
+'''
+cases = ["[1.0 2.0; 3.0 2.0]", "[2.0 4.0 8.0]", "reshape([1.0, 3.0], 2, 1)"]
+gen = "rng -> [(rand(rng, rand(rng, 1:6), rand(rng, 1:6)) .+ 0.5,) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+compare_args = true
+hints = [
+  "Work one column at a time: first its sum, then divide each of its entries.",
+  "`A[:, j] = A[:, j] / s` copies the column twice. Index the entries `A[i, j]` in a loop, or use `@views` with `./=`.",
+]
+
+  [problem.perf]
+  args = "rand(rng, n, n) .+ 0.5"
+  sizes = [500]
+  mutates = true
+
+  [[problem.variant]]
+  label = "normalises rows instead of columns"
+  code = '''
+function normalize_columns!(A)
+    A ./= sum(A, dims = 2)
+    return A
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns a new matrix, leaves A unchanged"
+  code = '''
+normalize_columns!(A) = A ./ sum(A, dims = 1)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "copies each column with slices"
+  code = '''
+function normalize_columns!(A)
+    for j in axes(A, 2)
+        A[:, j] = A[:, j] / sum(A[:, j])
+    end
+    return A
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "views and an in-place broadcast"
+  code = '''
+function normalize_columns!(A)
+    for j in axes(A, 2)
+        col = view(A, :, j)
+        col ./= sum(col)
+    end
+    return A
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "max-abs-difference"
+title = "Largest absolute difference"
+difficulty = "stretch"
+kcs = ["reductions", "higher-order-functions"]
+entry = "max_abs_diff"
+prompt = '''
+Write `max_abs_diff(x, y)` returning the largest `abs(x[i] - y[i])` over two
+non-empty vectors of the same length.
+
+```julia
+max_abs_diff([1.0, 5.0, 2.0], [2.0, 1.0, 2.5])   # 4.0
+```
+
+Do it without allocating: no array of differences.
+'''
+starter = '''
+function max_abs_diff(x, y)
+    # your code here
+end
+'''
+reference = '''
+max_abs_diff(x, y) = maximum(abs(a - b) for (a, b) in zip(x, y))
+'''
+cases = ["[1.0, 5.0, 2.0], [2.0, 1.0, 2.5]", "[3], [-4]", "[1, 2, 3], [1, 2, 3]"]
+gen = "rng -> [(n = rand(rng, 1:12); (randn(rng, n), randn(rng, n))) for _ in 1:20]"
+hints = [
+  "This is a reduction (`max`) of a function of pairs of elements.",
+  "`maximum(f, itr)` and generators like `(g(a, b) for (a, b) in zip(x, y))` never build an array; `abs.(x .- y)` does.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n), randn(rng, n)"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "forgets abs"
+  code = '''
+max_abs_diff(x, y) = maximum(a - b for (a, b) in zip(x, y))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "broadcast builds the differences"
+  code = '''
+max_abs_diff(x, y) = maximum(abs.(x .- y))
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "mapreduce over two arrays (allocates in 1.10: it maps first)"
+  code = '''
+max_abs_diff(x, y) = mapreduce((a, b) -> abs(a - b), max, x, y)
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "plain loop"
+  code = '''
+function max_abs_diff(x, y)
+    m = abs(x[1] - y[1])
+    for i in eachindex(x, y)
+        m = max(m, abs(x[i] - y[i]))
+    end
+    return m
+end
+'''
+  expect = ["correct", "fast"]

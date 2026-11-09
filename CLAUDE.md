@@ -17,8 +17,18 @@ source scripts/env.sh                       # pins depot, threads, offline Pkg; 
                                             # records attempts in .tutor/state.toml (--no-record), --jet adds JET
 ./tutor progress                            # learner model: BKT per KC, hole attempts, reviews due
 ./tutor fixtures symdiff [--check]          # explain on buggy fixtures vs golden outputs (~45 s)
-./tutor site-data [--check]                 # export site/data/tutor.json for the website
+./tutor site-data [--check]                 # export site/data/{tutor,course}.json for the website
+./tutor course list|record|verify [unit]    # the course: record example outputs; verify = re-run + grader self-tests
+./tutor course setup [env]                  # install the pinned ecosystem envs (the only networked course step)
+./tutor run file.jl [--env=base] [--file]   # run code exactly as the sandbox does (fresh process, --timeout=60, --sandbox=docker)
+./tutor practice [list | <id> [file.jl]]    # show a practice problem / grade a solution (correctness + performance)
+./tutor sandbox build | check               # build the container image (julia:1.10.13 + course packages) / self-test it
+./tutor serve [--port=8749]                 # loopback server so the website can run code, in the container (--sandbox=none: plain processes)
+                                            # (--token-file=f: use another token file, e.g. for tests)
 npm --prefix web test && npm --prefix web run build && quarto render site   # website (see "Website")
+./tutor guided list | show <p> [m]          # guided build projects (docs/GUIDED.md): student writes code + tests
+./tutor guided start <p> <dir>; ./tutor guided check <dir> [m]   # check: acceptance + own tests vs reference and mutants
+./tutor guided verify [p] [--sandbox=docker] # authoring self-test: reference, mutants, exemplars, fixtures
 ./tutor holemap symdiff [--check]           # measured test->hole map + mutation tests (slow, ~5 min)
 ./tutor baseline symdiff [--check]          # measurements of the reference
 ./tutor lessons verify                      # run every lesson snippet on the pinned Julia
@@ -40,12 +50,18 @@ Project.toml, Manifest.toml   tutor env: JuliaSyntax 1.0.2, JET 0.9.14 + stdlib
 src/syntax.jl                 JuliaSyntax helpers + hand-written scope resolver
 src/checker.jl, src/rules/    checker core + one file per rule (JT001-JT007)
 src/scaffold.jl               holes cut from reference by `# HOLE: id` markers
-src/runner.jl, src/child/     fresh-process test runs (NOT a sandbox, see M3)
+src/runner.jl, src/child/     fresh-process runs; `run_contained` runs the child in the sandbox container
+sandbox/Dockerfile            the container image (`tutor sandbox build`; digest-pinned julia:1.10.13)
 src/holemap.jl                measured test->hole map + mutation testing
 src/explain.jl                the explain step (deterministic text + timings + observations)
 src/progress.jl               learner model over time: hole-attempt evidence, BKT, `tutor progress`
 src/fixtures.jl               explain fixtures and golden outputs
-src/sitedata.jl               website data export (deterministic JSON, stdlib only)
+src/json.jl                   deterministic JSON writer + bounded reader (stdlib only)
+src/sitedata.jl               website data export (tutor.json, course.json)
+src/course.jl, course/        the course: units/*.toml, outputs/*.toml (generated), envs/<env> (pinned), AUTHORING.md
+src/practice.jl               run_code, grade (correctness + perf vs the reference), assess (pure verdicts)
+src/server.jl                 `tutor serve`: loopback HTTP, token + origin + host checks
+src/child/sandbox.jl          child process: REPL-like run, and grading with timing/allocs/inference
 web/                          React + TypeScript front end (Vite); src/models.ts ports BKT/SM-2/Ochiai
 site/                         Quarto website; data/tutor.json generated; _site/ and assets/app/ built
 src/models.jl                 BKT, SM-2, Ochiai (pure functions)
@@ -55,6 +71,9 @@ projects/symdiff/             reference/ (package), holes.toml, measure.jl,
                               fixtures.toml + fixtures/*.golden.txt (generated),
                               starter/stageN (generated, never hand-edited)
 docs/DESIGN.md                the four questions, project choice, instability list
+src/guided.jl, guided_driver.jl  guided build projects: job, pure `assess`, hint fading; the driver runs in the sandbox
+projects/guided/<p>/          project.toml (milestones, API, behaviours, hints, questions), reference/{src,test},
+                              acceptance/m<k>.jl (hidden), mutants.toml, fixtures/ + fixtures.toml; docs/GUIDED.md
 ```
 
 ## Website (site/ + web/)
@@ -106,7 +125,9 @@ milestone's PR description (template at the end).
    no clocks, randomness or network in the checker or tests; every stochastic
    test passes an explicit, version-stable RNG (Julia's default stream is not
    stable across minor releases); Julia threads = 1 and BLAS threads = 1 (set by
-   `scripts/env.sh` and the runner); never rely on Dict/Set iteration order in
+   `scripts/env.sh` and the runner; the one exception is a course problem that
+   sets `threads`, graded on that many threads with every case repeated, so a
+   data race fails); never rely on Dict/Set iteration order in
    output: sort first.
 4. **One pinned Julia release and one committed Manifest per environment.**
    Upgrading either is its own milestone and re-runs every lesson key and the
@@ -115,8 +136,18 @@ milestone's PR description (template at the end).
    plus its docstring (tested in `test/runtests.jl`, "scaffolder").
 6. **The starter is generated, never hand-edited.** `tutor scaffold <p> --check`
    diffs it in CI.
-7. **Untrusted code never runs outside the sandbox once M3 exists.** Until M3,
-   the runner is only for a student's own code on their own machine.
+7. **Untrusted code never runs outside the sandbox.** Code that arrives over
+   HTTP (`tutor serve`) runs in the container by default (`Runner.run_contained`:
+   no network, read-only root, no capabilities, no new privileges, an
+   unprivileged user, memory/CPU/pid limits, nothing of the host mounted; job
+   on stdin, files back on stdout); `serve` refuses to start without an
+   up-to-date image unless the learner passes `--sandbox=none`. The plain
+   runner is only for a student's own code typed on their own machine. The
+   request policy in `Server.handle` (127.0.0.1 only, bearer token, origin
+   allowlist, Host check, size limits) stays in front of it, tested in
+   `test/course_tests.jl`. Never weaken either layer, never add a mount or a
+   network to the container, never bind a non-loopback address, never accept
+   code without the token.
 8. **Measured over inferred.** If a fact can come from `@allocated`, `@inferred`
    / `return_types` / JET, a convergence-order fit, or a multi-thread run, it
    does. A static rule may only *point to* the likely location.
@@ -158,9 +189,8 @@ checker; dependencies are stdlib-only unless a PR justifies a package.
 Each milestone is done when its DoD holds, `scripts/verify_all.sh` passes, and
 every role above has had the chance to object (recorded in the PR).
 
-* **M0 Toolchain (done in slice, CI unverified):** Julia 1.10.13 via juliaup,
-  committed Manifests, repo-local depot, wrappers, CI file. *DoD:* CI green on a
-  clean runner (not yet run: the workflow was written without being executed).
+* **M0 Toolchain (done):** Julia 1.10.13 via juliaup, committed Manifests,
+  repo-local depot, wrappers, CI file. *DoD:* CI green on a clean runner (done).
 * **M1 Vertical slice: symdiff (done):** reference + 122 behavioural tests (incl. exhaustive properties over ~2,000 small terms);
   6 holes over 2 fading stages; 7 checker rules with positive, negative and
   style tests; 2 lessons with verified keys; explain step; BKT, SM-2, Ochiai.
@@ -173,10 +203,25 @@ every role above has had the chance to object (recorded in the PR).
   by `tutor fixtures --check` in `verify_all.sh`; latency report in explain;
   JET opt-in (`--jet`). *DoD:* golden-output tests (done); learning scientist
   signs off hint wording (**pending: needs a human reviewer**).
-* **M3 Sandbox:** bubblewrap on Linux, Docker elsewhere (DESIGN.md §4); read-only
-  depot; writable tmpfs first depot entry; no network; cgroup limits. *DoD:* the
-  escape suite (DESIGN.md §4) is contained, in CI; invariant 7 enforced (the
-  runner refuses unsandboxed execution of submissions it did not create).
+* **C1 Course and practice sandbox (done in this slice, browser flow verified
+  locally):** 21 ready units from first steps to concurrency, compiler internals,
+  the stdlib and DataFrames (`course/units`), 5 planned ecosystem units with
+  outlines; recorded outputs; practice problems graded for correctness and for
+  speed, allocations, growth and type stability relative to the reference;
+  `tutor serve` + the website's Course and Sandbox pages. *DoD:* `tutor course
+  verify` green (every example output re-run, every reference, starter and
+  variant gets its declared verdicts); request-policy tests; vitest on the
+  course data. Pending: a learning-scientist read of the units and hints; the
+  planned units (plotting, DiffEq, optimisation, ML, package development),
+  each with its own pinned env. The grader checks helpers' type stability and
+  grades threaded problems on 4 threads with repeated cases.
+* **M3 Sandbox (course side done):** Docker container for everything `tutor
+  serve` runs (read-only depot baked in, tmpfs first depot entry, no network,
+  cgroup limits, no mounts); `tutor sandbox check` and the container tests in
+  `test/course_tests.jl` check network, read-only root, host files and
+  timeouts. Pending: the project runner (`tutor test`) in the container, the
+  full escape suite (DESIGN.md §4: `ccall`, `run`, Libdl, fork bombs, disk
+  fill) in CI, and bubblewrap as a Docker-free option on Linux.
 * **M4 Second project: odeint (Dormand–Prince 5(4)).** *DoD:* convergence-order
   fit tests, tolerance-proportionality, energy drift on Kepler, exact linear
   solutions; every tolerance derived in a comment and signed off by the
@@ -214,8 +259,40 @@ every role above has had the chance to object (recorded in the PR).
 
 ## Known gaps (be honest about them in reports)
 
-* The runner is **not a sandbox** (M3).
-* CI has never run.
+* Ecosystem environments are large (the sandbox image holds all nine) and slow
+  to load: a Run in `plots`, `turing` or `diffeq` spends most of its time
+  loading packages and compiling the first call (the server allows 180 s).
+* On Windows with a long checkout path, `plots` and `ml` cannot be installed in
+  the repo-local depot: artifact paths (GR, SPIRV_Tools) exceed 260
+  characters. Their Manifests were resolved in the container; those units
+  are recorded and verified with `--sandbox=docker` only. CI (Linux) has no
+  such limit.
+* Figures are recorded as PNG/SVG in the container and committed; `verify`
+  checks which figures exist, never their bytes (renderers differ by
+  machine), so a figure that changes visually but keeps its name passes.
+* Concept-question keys of kind `output` are measured; keys of kind `choice`
+  are a reviewer's judgement, like lesson explanations.
+
+* The container is only as strong as Docker's isolation (shared kernel; Docker
+  Desktop adds a VM). `--sandbox=none` and the CLI commands (`tutor run`,
+  `practice`, `test`) run plain processes as the learner, on purpose: that is
+  code they typed themselves. Each contained run costs ~2-3 s of container
+  start-up on Docker Desktop.
+* Type stability covers the entry and every function the submission defines,
+  at the argument types grading compiled them for; instability is judged
+  relative to the reference by type name (a type string the reference has
+  anywhere is excused). Closures' bodies are checked only through their
+  captured variables (a `Core.Box` shows up in the enclosing function).
+  Timing verdicts are ratios to the reference in one process, with wide
+  thresholds (CI noise), so they say "much slower", never "optimal".
+* Races are caught by repetition on 4 threads, which is probabilistic: a race
+  with a tiny window can survive 10 runs, and on a 1-core machine threads
+  rarely interleave. The racy variant in unit 18 failed in every one of our runs.
+* Browsers: the https site calls `http://127.0.0.1:<port>`, which Chromium and
+  Firefox treat as a secure context. Chromium's Private Network Access
+  preflight is answered; other browsers (Safari in particular) are untested
+  and may block the request as mixed content; the local preview
+  (`node web/scripts/serve.mjs`, plain http) is the fallback.
 * JET loads in measurements on 1.10.13 with JET 0.9.14; if a future change breaks
   that, explain prints "unavailable" and must not guess.
 * Ochiai's spectrum is the measured test-to-hole map, not line coverage.
@@ -231,6 +308,28 @@ every role above has had the chance to object (recorded in the PR).
   compares with the reference when `bench_nodecount` matches the baseline.
 * Pattern matching in symdiff is positional (no AC matching); documented in
   `match_pattern`'s docstring.
+* Choice questions are checked for length bias (`question_balance_problems`:
+  in a unit with 4+ choice questions, at most 40% may have the key as the
+  unique longest choice, and at most 40% as the unique shortest). That catches
+  the cheapest give-away only; whether a distractor is plausible stays a
+  reviewer's judgement.
+* Some checked outputs in the ecosystem units still depend on exact solver or
+  sampler behaviour, though rounded far from a boundary: step counts in unit
+  24 ("steps taken: 7", tolerance-table counts rounded to 2 digits), iteration
+  and call counts in unit 25, MCMC digits in unit 27 (its prose says digits
+  vary across CPUs). They were verified on one machine only; a different CPU
+  or a package bump may move them.
+* A problem with `packages = []` loads the whole env, not nothing.
+* Container memory is 6 GB (`Runner.CONTAINER_MEMORY`), raised from 4 GB on
+  2026-11-09: compiling MLJ's `evaluate` inside a function peaks at 3.8 GB,
+  mostly compiler memory, and grading `ml-best-depth` against a wrong answer
+  that compiles a second path was killed in 5 of 6 tries. A kill for memory
+  (exit 137 in the container) is reported as such, not as "crashed". This
+  relies on the server running one container at a time and on Docker having
+  ~8 GB; recording runs two containers, which fits because examples peak far
+  lower. A host with less Docker memory may see such kills again.
+* Example `notice` text is shown under the output, `caption` above the code;
+  an example without recorded output shows no notice.
 
 ## Required end-of-session report
 

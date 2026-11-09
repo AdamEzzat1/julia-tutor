@@ -1,0 +1,7 @@
+---
+title: "Sandbox"
+subtitle: "A Julia scratchpad that runs in your own Julia through `tutor serve`, a fresh, sandboxed Julia per run."
+---
+
+::: {.jt-mount data-view="sandbox"}
+:::

@@ -1,0 +1,132 @@
+# Seeded faults in reference/src (one exact snippet replaced each); see tidy/mutants.toml.
+
+# ---- milestone 1 -----------------------------------------------------------------------
+
+[[mutant]]
+id = "mean-unscaled"
+milestone = 1
+behaviour = "posterior-mean"
+file = "BayesReg.jl"
+find = "    m = F \\ (X' * y / sigma^2)"
+replace = "    m = F \\ (X' * y)"
+
+[[mutant]]
+id = "prior-sd-as-variance"
+milestone = 1
+behaviour = "posterior-cov"
+file = "BayesReg.jl"
+find = "I(k) / tau^2)"
+replace = "I(k) / tau)"
+
+[[mutant]]
+id = "cov-is-precision"
+milestone = 1
+behaviour = "posterior-cov"
+file = "BayesReg.jl"
+find = "    C = inv(F)                 # LAPACK potri: the result is exactly symmetric"
+replace = "    C = Matrix(A)"
+
+[[mutant]]
+id = "no-scale-check"
+milestone = 1
+behaviour = "posterior-args"
+file = "BayesReg.jl"
+find = '''
+    sigma > 0 || throw(ArgumentError("sigma must be positive, got $sigma"))
+    tau > 0 || throw(ArgumentError("tau must be positive, got $tau"))
+'''
+replace = ""
+
+# ---- milestone 2 -----------------------------------------------------------------------
+
+[[mutant]]
+id = "model-prior-sd"
+milestone = 2
+behaviour = "model-prior"
+file = "BayesReg.jl"
+find = "    w ~ MvNormal(zeros(k), tau^2 * I)"
+replace = "    w ~ MvNormal(zeros(k), tau * I)"
+
+[[mutant]]
+id = "model-noise-sd"
+milestone = 2
+behaviour = "model-likelihood"
+file = "BayesReg.jl"
+find = "    y ~ MvNormal(X * w, sigma^2 * I)"
+replace = "    y ~ MvNormal(X * w, sigma * I)"
+
+# ---- milestone 3 -----------------------------------------------------------------------
+
+[[mutant]]
+id = "global-rng"
+milestone = 3
+behaviour = "sample-reproducible"
+file = "BayesReg.jl"
+find = "    return sample(rng, model, NUTS(), n; progress = false, verbose = false)"
+replace = "    return sample(model, NUTS(), n; progress = false, verbose = false)"
+
+[[mutant]]
+id = "n-ignored"
+milestone = 3
+behaviour = "sample-shape"
+file = "BayesReg.jl"
+find = "    return sample(rng, model, NUTS(), n; progress = false, verbose = false)"
+replace = "    return sample(rng, model, NUTS(), 1000; progress = false, verbose = false)"
+
+[[mutant]]
+id = "draws-transposed"
+milestone = 3
+behaviour = "sample-shape"
+file = "BayesReg.jl"
+find = "    return permutedims(reduce(hcat, ws))"
+replace = "    return reduce(hcat, ws)"
+
+[[mutant]]
+id = "prior-sampler"
+milestone = 3
+behaviour = "posterior-agrees"
+file = "BayesReg.jl"
+find = "    return sample(rng, model, NUTS(), n; progress = false, verbose = false)"
+replace = "    return sample(rng, model, Prior(), n; progress = false, verbose = false)"
+
+# ---- milestone 4 -----------------------------------------------------------------------
+
+[[mutant]]
+id = "no-noise"
+milestone = 4
+behaviour = "predictive-exact"
+file = "BayesReg.jl"
+find = "    v = dot(xnew, post.cov * xnew) + sigma^2\n"
+replace = "    v = dot(xnew, post.cov * xnew)\n"
+
+[[mutant]]
+id = "one-sided-quantile"
+milestone = 4
+behaviour = "predictive-exact"
+file = "BayesReg.jl"
+find = "    z = quantile(Normal(), (1 + level) / 2)"
+replace = "    z = quantile(Normal(), level)"
+
+[[mutant]]
+id = "level-ignored"
+milestone = 4
+behaviour = "predictive-level"
+file = "BayesReg.jl"
+find = "    v = dot(xnew, post.cov * xnew) + sigma^2\n    return central_interval(mu, sqrt(v), level)"
+replace = "    v = dot(xnew, post.cov * xnew) + sigma^2\n    return central_interval(mu, sqrt(v), 0.9)"
+
+[[mutant]]
+id = "no-level-check"
+milestone = 4
+behaviour = "predictive-level"
+file = "BayesReg.jl"
+find = '    0 < level < 1 || throw(ArgumentError("level must be in (0, 1), got $level"))'
+replace = ""
+
+[[mutant]]
+id = "samples-noise-only"
+milestone = 4
+behaviour = "predictive-samples"
+file = "BayesReg.jl"
+find = "    v = var(f) + sigma^2"
+replace = "    v = sigma^2"

@@ -1,0 +1,459 @@
+id = "12-modules"
+title = "Modules, packages and environments"
+track = "core"
+env = "base"
+summary = "Modules as namespaces, export, using versus import, extending another module's functions, constants, submodules, and how packages and pinned environments make code reproducible."
+kcs = ["modules", "using-import", "name-resolution", "const-globals", "packages-environments"]
+prerequisites = ["11-iteration"]
+
+[[section]]
+title = "A module is a namespace"
+body = '''
+`module Name ... end` creates a separate global namespace: names defined
+inside do not collide with names outside. From outside, refer to them with a
+**qualified name**, `Geometry.perimeter`. Module names are capitalized by
+convention.
+
+`export area` marks `area` as part of the module's public interface;
+`using .Geometry` then makes the exported names available unqualified (and
+the module name itself). Unexported names stay reachable with a qualified
+name. The leading dot in `.Geometry` means "the module defined right here",
+as opposed to an installed package (`using Statistics`).
+
+Unlike Python, a module is not tied to a file: one file can define several
+modules, and one module is usually spread over several files.
+'''
+
+  [[section.example]]
+  code = '''
+module Geometry
+export area
+const UNIT = "m²"
+area(w, h) = w * h
+perimeter(w, h) = 2(w + h)
+end
+
+using .Geometry
+println(area(2, 3), " ", Geometry.UNIT)
+println(Geometry.perimeter(2, 3))
+println(names(Geometry))
+perimeter(2, 3)
+'''
+
+[[section]]
+title = "using versus import, and extending a function"
+body = '''
+The forms you will see:
+
+* `using .M` brings in `M` and every name `M` exports.
+* `using .M: f, g` brings in only `f` and `g`.
+* `import .M` brings in only the name `M` (everything stays qualified).
+* `import .M: f` brings in `f` **and** allows adding methods to it.
+
+The last point matters with multiple dispatch: a function belongs to the
+module that created it. Adding a method to another module's function needs
+either `import .M: f` or, the more common style, a qualified definition
+`M.f(x::MyType) = ...` (as with `Base.show` and `Base.iterate` in earlier
+units). Defining `f(x::Int) = ...` after `using .M` is an error, because it
+would silently create a *different* `f` that hides `M.f`.
+'''
+
+  [[section.example]]
+  caption = "`Shapes.area(c::Circle)` adds a method to the module's `area`, so the exported name works for both types."
+  code = '''
+module Shapes
+export Square, area
+struct Square
+    side::Float64
+end
+area(s::Square) = s.side^2
+end
+
+using .Shapes
+struct Circle
+    r::Float64
+end
+Shapes.area(c::Circle) = π * c.r^2
+println(area(Square(2.0)), " ", area(Circle(1.0)))
+println(length(methods(area)), " methods")
+'''
+
+  [[section.example]]
+  caption = "An unqualified definition of a name brought in by `using` is refused."
+  code = '''
+module Shapes
+export area
+area(side) = side^2
+end
+
+using .Shapes
+println(area(3))
+area(x::Int) = x
+'''
+
+  [[section.example]]
+  caption = "`import .M: f` is the other way to say \"I am extending M's function\"."
+  code = '''
+module Greetings
+greet(name::String) = "Hello, $name"
+end
+
+import .Greetings: greet
+greet(n::Int) = "Hello, visitor number $n"
+println(greet("Ada"))
+println(Greetings.greet(7))
+'''
+
+[[section]]
+title = "Name clashes"
+body = '''
+If two modules you `using` both export the same name, Julia does not pick
+one: it prints a warning the first time you use the name, and the
+unqualified name is then undefined. Qualify it (`A.greet()`), or bring in
+only what you need (`using .A: greet`).
+
+The same happens with packages: `using Statistics` exports `mean`, so a
+module of your own that also exports `mean` clashes with it.
+'''
+
+  [[section.example]]
+  code = '''
+module A
+export greet
+greet() = "hello from A"
+end
+module B
+export greet
+greet() = "hello from B"
+end
+
+using .A, .B
+try
+    greet()
+catch e
+    println(typeof(e))
+end
+println(A.greet())
+println(B.greet())
+'''
+
+[[section]]
+title = "Constants and globals"
+body = '''
+A global variable in a module can be rebound to a value of any type at any
+time, so the compiler cannot assume its type inside a function: every use
+is a dynamic lookup and the result is inferred as `Any`. `const` promises the
+binding never changes, so the type is known and functions using it are
+fast. Use `const` for module-level tables and parameters; pass changing
+values as function arguments.
+
+`Base.return_types` shows what the compiler infers: notice `Any` for the
+function that reads the non-constant global.
+'''
+
+  [[section.example]]
+  code = '''
+module Tax
+rate = 0.2
+const RATE = 0.2
+with_global(x) = x * rate
+with_const(x) = x * RATE
+end
+
+println(Tax.with_global(100.0), " ", Tax.with_const(100.0))
+println(Base.return_types(Tax.with_global, (Float64,)))
+println(Base.return_types(Tax.with_const, (Float64,)))
+'''
+
+[[section]]
+title = "Submodules and include"
+body = '''
+Modules nest. Inside a module, `using .Inner` refers to a submodule defined
+in the current module and `using ..Sibling` goes one level up first, the same
+dots as relative paths.
+
+In a real project each part usually lives in its own file and the top module
+stitches them together with `include("util.jl")`. `include` evaluates the
+file's code at that point, in the current module, as if pasted there; it
+does not create a namespace (that is the `module` keyword's job). A typical
+package's `src/MyPkg.jl` is little more than
+
+```julia
+module MyPkg
+include("util.jl")
+include("report.jl")
+export summary
+end
+```
+
+The sandbox runs one file, so the example defines everything inline.
+'''
+
+  [[section.example]]
+  code = '''
+module App
+module Util
+export clamp01
+clamp01(x) = clamp(x, 0, 1)
+end
+
+module Report
+using ..Util
+describe(x) = "value: $(clamp01(x))"
+end
+
+using .Util
+check(x) = clamp01(x) == x
+end
+
+println(App.Report.describe(1.7))
+println(App.check(0.5), " ", App.check(-2))
+println(parentmodule(App.Util))
+'''
+
+[[section]]
+title = "Packages and environments"
+body = '''
+A **package** is a module with a `Project.toml` (its name, UUID and
+dependencies), distributed so others can `using` it. Three kinds come up:
+
+* **Base**: always loaded (`sum`, `Dict`, `Iterators`).
+* **Standard libraries** (stdlib): ship with Julia but must be loaded:
+  `using Statistics`, `using Printf`, `using Random`, `using LinearAlgebra`.
+  Their version is tied to the Julia version.
+* **Registered packages** (DataFrames, CSV, Plots, ...): installed from the
+  General registry with the package manager: press `]` in the REPL, then
+  `add DataFrames`.
+
+An **environment** is a directory with a `Project.toml` (what you depend on,
+optionally with `[compat]` version bounds) and a `Manifest.toml` (the exact
+version of every package in the dependency tree, generated by Pkg).
+`]activate path` switches environment; `]instantiate` installs exactly what
+a Manifest lists. Committing both files is what makes a project
+reproducible: anyone gets the same versions.
+
+This course does exactly that. Every unit names an environment in
+`course/envs/`: `base` has no packages beyond the standard library, and the
+`data` environment's `Project.toml` lists CSV and DataFrames while its
+committed `Manifest.toml` pins them (CSV 1.3.0, for example) for Julia
+1.10.13.
+
+A package can define a function `__init__()`, which Julia runs each time the
+package is loaded (not when it is precompiled): the place for setup that
+must happen at runtime, such as reading environment variables or
+initializing a C library.
+'''
+
+  [[section.example]]
+  caption = "Standard libraries load without installing anything."
+  code = '''
+using Statistics
+using Printf
+v = [2.0, 4.0, 4.0, 5.0]
+@printf("mean %.2f, median %.2f, std %.3f\n", mean(v), median(v), std(v))
+println(VERSION)
+'''
+
+[[problem]]
+id = "namespaced-stats"
+title = "A small statistics module"
+difficulty = "warm-up"
+kcs = ["modules", "using-import"]
+entry = "summarize"
+prompt = '''
+Write a module `MiniStats` that defines and exports two functions:
+
+* `mean(v)`: the arithmetic mean, always a `Float64` for numbers;
+* `width(v)`: the largest element minus the smallest, of the element type.
+
+Then, outside the module, bring them in with `using .MiniStats` and write
+`summarize(v)` returning the tuple `(mean(v), width(v))` for a non-empty
+vector.
+
+```julia
+summarize([3, 1, 4, 1, 5])   # (2.8, 4)
+```
+
+Do not also `using Statistics`: it exports a `mean` too, and the two would clash.
+'''
+starter = '''
+module MiniStats
+# your code here
+end
+
+function summarize(v)
+    # your code here
+end
+'''
+reference = '''
+module MiniStats
+export mean, width
+mean(v) = sum(v) / length(v)
+width(v) = maximum(v) - minimum(v)
+end
+
+using .MiniStats
+summarize(v) = (mean(v), width(v))
+'''
+cases = ["[3, 1, 4, 1, 5]", "[7]", "[-2, 2]", "[1.5, 0.5]"]
+gen = "rng -> [(rand(rng, -1000:1000, rand(rng, 1:15)),) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "The module needs `export mean, width`; `using .MiniStats` (with the dot) then makes both names available.",
+  "`sum(v) / length(v)` is a Float64 because `/` always is; `maximum(v) - minimum(v)` keeps the element type.",
+]
+
+  [problem.perf]
+  args = "rand(rng, 1:1000, n)"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "integer division makes the mean an Int"
+  code = '''
+module MiniStats
+export mean, width
+mean(v) = sum(v) ÷ length(v)
+width(v) = maximum(v) - minimum(v)
+end
+using .MiniStats
+summarize(v) = (mean(v), width(v))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sorts a copy to find the extremes"
+  code = '''
+module MiniStats
+export mean, width
+mean(v) = sum(v) / length(v)
+width(v) = (s = sort(v); s[end] - s[1])
+end
+using .MiniStats
+summarize(v) = (mean(v), width(v))
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "qualified names, no export, one pass with extrema"
+  code = '''
+module MiniStats
+mean(v) = sum(v) / length(v)
+width(v) = ((lo, hi) = extrema(v); hi - lo)
+end
+summarize(v) = (MiniStats.mean(v), MiniStats.width(v))
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "unit-conversion-const"
+title = "Unit conversion with a constant table"
+difficulty = "core"
+kcs = ["const-globals", "modules"]
+entry = "total_meters"
+prompt = '''
+Write a module `Units` holding a table of conversion factors to metres for
+`"mm"`, `"cm"`, `"m"` and `"km"`, and a function `to_meters(x, unit)`.
+Then write `total_meters(amounts, units)` that converts each amount with the
+matching unit and returns the total as a `Float64`.
+
+An unknown unit must throw a `KeyError` (what indexing a `Dict` with a
+missing key does).
+
+```julia
+total_meters([1.5, 20.0], ["km", "cm"])   # 1500.2
+total_meters([1.0], ["mile"])             # throws KeyError
+```
+
+The grader checks type stability: think about how the function sees the table.
+'''
+starter = '''
+module Units
+# your code here
+end
+
+function total_meters(amounts, units)
+    # your code here
+end
+'''
+reference = '''
+module Units
+const TO_METERS = Dict("mm" => 0.001, "cm" => 0.01, "m" => 1.0, "km" => 1000.0)
+to_meters(x, unit) = x * TO_METERS[unit]
+end
+
+function total_meters(amounts, units)
+    s = 0.0
+    for (x, u) in zip(amounts, units)
+        s += Units.to_meters(x, u)
+    end
+    return s
+end
+'''
+cases = ['[1.5, 20.0], ["km", "cm"]', 'Float64[], String[]', '[3.0, 4.0], ["m", "mm"]', '[1.0], ["mile"]', '[2.0, 1.0], ["m", "M"]']
+gen = 'rng -> [(rand(rng, 0.0:0.5:100.0, k), rand(rng, ["mm", "cm", "m", "km"], k)) for k in rand(rng, 0:10, 25)]'
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "A `Dict` from unit name to factor does the lookup and throws `KeyError` for you; the question is how it is declared.",
+  "A plain global (`TO_METERS = Dict(...)`) can be rebound to anything, so its type is unknown inside functions. Declare it `const`.",
+]
+
+  [problem.perf]
+  args = 'rand(rng, n), rand(rng, ["mm", "cm", "m", "km"], n)'
+  sizes = [4000]
+
+  [[problem.variant]]
+  label = "wrong factor for cm"
+  code = '''
+module Units
+const TO_METERS = Dict("mm" => 0.001, "cm" => 0.1, "m" => 1.0, "km" => 1000.0)
+to_meters(x, unit) = x * TO_METERS[unit]
+end
+total_meters(amounts, units) = sum(Units.to_meters(x, u) for (x, u) in zip(amounts, units); init = 0.0)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "get with a default silently ignores unknown units"
+  code = '''
+module Units
+const TO_METERS = Dict("mm" => 0.001, "cm" => 0.01, "m" => 1.0, "km" => 1000.0)
+to_meters(x, unit) = x * get(TO_METERS, unit, 0.0)
+end
+total_meters(amounts, units) = sum(Units.to_meters(x, u) for (x, u) in zip(amounts, units); init = 0.0)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "non-constant global table"
+  code = '''
+module Units
+TO_METERS = Dict("mm" => 0.001, "cm" => 0.01, "m" => 1.0, "km" => 1000.0)
+to_meters(x, unit) = x * TO_METERS[unit]
+end
+function total_meters(amounts, units)
+    s = 0.0
+    for (x, u) in zip(amounts, units)
+        s += Units.to_meters(x, u)
+    end
+    return s
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "an if-chain instead of a table"
+  code = '''
+module Units
+function factor(unit)
+    unit == "mm" ? 0.001 :
+    unit == "cm" ? 0.01 :
+    unit == "m"  ? 1.0 :
+    unit == "km" ? 1000.0 : throw(KeyError(unit))
+end
+to_meters(x, unit) = x * factor(unit)
+end
+total_meters(amounts, units) = sum(Units.to_meters(x, u) for (x, u) in zip(amounts, units); init = 0.0)
+'''
+  expect = ["correct"]

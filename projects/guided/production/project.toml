@@ -1,0 +1,354 @@
+name = "production"
+package = "Production"
+env = "optim"
+status = "ready"
+title = "Production: plan a factory's weekly output"
+summary = "Build a production planner: a linear program in JuMP solved with HiGHS, with the shadow prices of each resource checked against a case you solve by hand; a break-even margin found with Roots.jl; and a price chosen against a demand curve with Optim.jl and ForwardDiff gradients."
+kcs = ["packages", "testing", "linear-programming", "duality", "root-finding", "nonlinear-optimisation", "automatic-differentiation"]
+reading = '''
+Prerequisites: course unit 25 (optimisation).
+
+A product uses fixed amounts of each resource per unit and earns a fixed
+margin; resources are limited per week. The plan is how many units of each
+product to make. Throughout, `margin[p]` is the profit per unit of product
+`p`, `use[r, p]` the amount of resource `r` one unit of product `p` needs
+(all entries >= 0), and `capacity[r]` how much of resource `r` there is.
+
+Solvers work to tolerances, so their answers are not exact. HiGHS's
+defaults are 1e-7 for primal and dual feasibility; Optim's LBFGS stops when
+the gradient is below 1e-8. Every `≈` in your tests needs an `atol` or
+`rtol` and a one-line comment saying which of these it comes from. The
+checker warns on `==` between floats inside `@test`.
+
+This project's environment (`optim`) runs only in the container on Windows
+hosts; `tutor guided check` uses it by default.
+'''
+
+[[milestone]]
+id = 0
+title = "A package with a test suite"
+min_score = 1.0
+goal = '''
+Create the package as in the tidy project's milestone 0 (`tutor guided show
+tidy 0` has the full steps): `Pkg.generate("Production")`, move
+`Project.toml` and `src/` into this folder, run `./tutor guided deps <this
+folder>` from the julia-tutor folder (JuMP, HiGHS, Roots, Optim,
+ForwardDiff), and write `test/runtests.jl` with `using Production, Test` and
+one check.
+'''
+
+  [[milestone.api]]
+  signature = "module Production"
+  doc = "Defined in src/Production.jl."
+
+  [[milestone.behaviour]]
+  id = "package-layout"
+  kc = "packages"
+  spec = "`src/Production.jl` defines a module named `Production` that loads without errors."
+  hints = [
+    "A package is a module whose name matches its file name under src/.",
+    "Open src/Production.jl: its first code line should be `module Production` and its last `end`.",
+    "If loading fails, the error above names the line; a `using` of a package missing from the environment is the usual cause.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Any check that runs counts here.",
+    "`@test Production isa Module` is enough for milestone 0.",
+    "Put it inside a `@testset` so the report names it.",
+  ]
+
+[[milestone]]
+id = 1
+title = "The linear program"
+min_score = 1.0
+must_cover = ["plan-optimal", "plan-feasible", "plan-status"]
+goal = '''
+Model the plan as a linear program and solve it: one nonnegative variable
+per product, one constraint per resource, and the total margin as the
+objective to maximise. Turn the solver's log off (`set_silent`).
+'''
+
+  [[milestone.api]]
+  signature = "solve_plan(margin::Vector, use::Matrix, capacity::Vector) -> NamedTuple{(:units, :profit)}"
+  doc = "use[r, p] is resource r per unit of product p. Silent solver; an `ErrorException` if the solver does not report an optimum."
+
+  [[milestone.behaviour]]
+  id = "plan-optimal"
+  kc = "linear-programming"
+  spec = "On a 2-product case solved by hand (a vertex of the feasible polygon), the units and the profit match within 1e-7 (HiGHS's default feasibility tolerance)."
+  hints = [
+    "The optimum of a linear program sits at a vertex: list the vertices of a small case by hand and compare.",
+    "Check two things: the direction of the objective, and that the profit you return is the objective at the solution, not another sum.",
+    "In the line that sets the objective, the sense must ask for the largest total margin; the profit to return is what the solver reports for that objective after `optimize!`.",
+  ]
+  answer_tokens = ["Max", "objective_value"]
+  test_hints = [
+    "Solve a two-product case by hand: list the vertices and their profits.",
+    "Check both the units and the profit, each with the solver's tolerance.",
+    "Pick a case whose best vertex is not at the origin, so a minimisation shows.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "plan-feasible"
+  kc = "linear-programming"
+  spec = "The plan uses no resource beyond its capacity (within 1e-7) and no product has negative units."
+  hints = [
+    "A solution of a linear program satisfies its own constraints: recompute the resource use of the plan and compare it with the capacity.",
+    "Units are made, not borrowed, so none may be negative; and row r of `use` belongs to resource r, column p to product p.",
+    "Where you declare the variables, give each a lower bound; in the constraint of resource r, the coefficient of product p is the entry in row r and column p.",
+  ]
+  answer_tokens = [">= 0", "use[r, p]"]
+  test_hints = [
+    "Recompute `use * units` and compare it with the capacity, with the solver's tolerance.",
+    "Use a `use` matrix that is not symmetric, so reading it the wrong way round shows.",
+    "Find a case where allowing a negative amount of one product would pay: x1 <= 5, x1 + x2 <= 3 with margins (3, 1).",
+  ]
+
+  [[milestone.behaviour]]
+  id = "plan-status"
+  kc = "linear-programming"
+  spec = "When the solver does not report an optimum (an unbounded plan, such as a product with a positive margin that uses no resource, or an infeasible one), `solve_plan` throws an `ErrorException`."
+  hints = [
+    "A solver always hands back some numbers; whether they are an optimum is a separate question you must ask.",
+    "A product that earns money and uses no resource makes the profit unbounded; HiGHS then still returns values (a direction along which the profit grows).",
+    "After optimising and before reading any value, ask the model for its termination status and call `error` with a message unless it is the optimal one.",
+  ]
+  answer_tokens = ["termination_status", "MOI.OPTIMAL"]
+  test_hints = [
+    "Test a plan that has no optimum.",
+    "A product with margin 1 whose column of `use` is all zeros makes the profit unbounded.",
+    "`@test_throws ErrorException` checks the call fails with the exception `error` throws.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "The profit of a plan is linear in the units. Why is an optimal plan always found at a vertex of the feasible region (when there is an optimum)?"
+  choices = [
+    "HiGHS rounds whatever point it finds to the nearest vertex before it reports the solution, to remove noise",
+    "Along any edge the profit changes at a constant rate, so moving the better way pays until a constraint stops you",
+    "Points inside the feasible region break at least one constraint",
+    "A linear program has only one feasible point once all its constraints are written down, and that point is a vertex",
+  ]
+  answer = 2
+  explain = "A linear function has no interior maximum: from any point, moving in the direction that raises it keeps raising it at the same rate until a constraint becomes binding. Repeating that ends at a vertex (several vertices and the edge between them can tie)."
+  misconceptions = [
+    "HiGHS's simplex method moves from vertex to vertex; nothing is rounded. The vertex is where the optimum is, not an artefact.",
+    "",
+    "Interior points satisfy every constraint with room to spare; they are feasible, just not optimal.",
+    "The feasible region is usually a polygon with infinitely many points; the vertices are its corners.",
+  ]
+
+[[milestone]]
+id = 2
+title = "Shadow prices"
+min_score = 1.0
+must_cover = ["shadow-prices"]
+goal = '''
+How much more profit would one more unit of each resource bring? Read the
+dual values of the resource constraints and check them against a case you
+solve by hand and by re-solving with a slightly larger capacity.
+'''
+
+  [[milestone.api]]
+  signature = "shadow_prices(margin, use, capacity) -> Vector{Float64}"
+  doc = "One per resource, in the order of the rows of `use`, nonnegative."
+
+  [[milestone.behaviour]]
+  id = "shadow-prices"
+  kc = "duality"
+  spec = "Each price equals the hand-computed dual within 1e-7 (HiGHS's dual feasibility tolerance), and (profit with capacity + delta) - profit, divided by delta, for a delta that keeps the same vertex; a resource with slack has price 0; there is one price per resource."
+  hints = [
+    "A resource that is not used up is worth nothing extra; a binding one is worth the profit one more unit of it brings.",
+    "JuMP has two functions for a constraint's dual: one follows the solver's sign convention, the other is normalised to profit gained per unit of extra capacity.",
+    "For each resource constraint, in order, return the normalised function's value (never negative when maximising with <= constraints); prices belong to constraints, not to variables.",
+  ]
+  answer_tokens = ["shadow_price", "dual("]
+  test_hints = [
+    "Solve the dual of a small case by hand: the binding constraints give one equation per product made.",
+    "Check that a resource with slack has price 0 and that the binding ones are positive.",
+    "Re-solve with half a unit more of one resource and compare the profit gain divided by 0.5 with its price.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "In the plan max 3x1 + 5x2 with x1 <= 4, 2x2 <= 12, 3x1 + 2x2 <= 18, resource 2 has shadow price 1.5. A supplier offers 12 more units of it at 1.2 each. Is the deal worth it?"
+  choices = [
+    "Yes: each unit earns 1.5 in profit and costs only 1.2, so every one of the 12 units gains 0.3, which is 3.6 in all",
+    "No: the price holds only for 6 more units, after which resource 2 has slack; the deal gains 9 and costs 14.4",
+    "No: a shadow price is a cost, so each extra unit lowers the profit by 1.5",
+  ]
+  answer = 2
+  explain = "A shadow price is a derivative: it holds while the same constraints stay binding. Raising capacity 2 moves the vertex along 3x1 + 2x2 = 18 until x1 reaches 0 at capacity 18; beyond that resource 2 is slack and worth 0. Re-solving with capacity 24 gives profit 45, up 9 from 36."
+  misconceptions = [
+    "That treats the price as constant for any amount. It is valid only while the current vertex stays optimal; past that the price can drop, here to 0.",
+    "",
+    "A shadow price is the profit gained per extra unit, so it is nonnegative for a resource you can only have more of.",
+  ]
+
+[[milestone]]
+id = 3
+title = "Break-even margin"
+min_score = 1.0
+must_cover = ["break-even", "break-even-bracket", "never-made"]
+goal = '''
+At what margin does a product start being made? As a function of its
+margin m, the product's units in the optimal plan are 0 up to some margin
+and positive beyond it. Find that margin with a bracketing method from
+Roots.jl on units(m) - 1e-6 (the threshold sits above the solver's 1e-7
+tolerance, so a product that is not made always gives a negative value).
+'''
+
+  [[milestone.api]]
+  signature = "break_even(margin, use, capacity; product = 1) -> Float64"
+  doc = "The smallest margin of `product` at which it is made in the optimal plan, the other margins as given. `Inf` when it is not made at any margin up to 1e6."
+
+  [[milestone.behaviour]]
+  id = "break-even"
+  kc = "root-finding"
+  spec = "Within 1e-6 of the hand-computed value on a 2-product case (ten times HiGHS's dual feasibility tolerance), for `product = 1` and `product = 2`, whatever margin of that product is passed in."
+  hints = [
+    "The units of the product, as a function of its margin, jump from 0 to positive at the break-even margin.",
+    "Bisection needs a strict sign change: below the break-even margin the units are 0, so subtract a small threshold above the solver's feasibility tolerance.",
+    "In the function you bisect, set the margin of the product the caller named (not always the first) and return that same product's units less the threshold.",
+  ]
+  answer_tokens = ["units[product]", "MADE"]
+  test_hints = [
+    "Work out a break-even margin by hand: with one resource, a product is made once its margin per unit of resource beats the other's.",
+    "Test `product = 2` as well as the default.",
+    "With 2x1 + x2 <= 10 and margin 2 for product 2, product 1 breaks even at 4.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "break-even-bracket"
+  kc = "root-finding"
+  spec = "The bracket is found, not fixed: break-even margins of 30 and 250 come out right (within 1e-6 relative)."
+  hints = [
+    "A bracket must contain the break-even margin, and that margin can be large.",
+    "Start the high end of the bracket small and grow it until the product is made there.",
+    "Before calling the root finder, loop: while the product is not made at the high end, multiply the high end by a constant factor.",
+  ]
+  answer_tokens = ["hi *= 2", "*= 2", "2hi"]
+  test_hints = [
+    "Test a break-even margin far above 10.",
+    "Make the other product's margin large: with one resource, the break-even margin grows with it.",
+    "With 2x1 + x2 <= 10 and margin 40 for product 2, product 1 breaks even at 80.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "never-made"
+  kc = "root-finding"
+  spec = "A product that needs a resource with zero capacity is never made: the result is positive infinity (a `Float64`)."
+  hints = [
+    "Some products are never made at any margin: they need a resource there is none of.",
+    "Growing the high end forever never finds a sign change; stop once it passes 1e6.",
+    "When the high end passes 1e6 and the product is still not made, return the floating-point value for an unbounded margin (positive infinity), not the last high end.",
+  ]
+  answer_tokens = ["Inf", "isinf"]
+  test_hints = [
+    "Test a product that can never be made.",
+    "Give it a resource with capacity 0 that only it uses.",
+    "Check the result is infinite, not just large.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why find the break-even margin by bisection rather than by Newton's method on units(m) - 1e-6?"
+  choices = [
+    "The function is a step: its slope is 0 wherever it exists",
+    "Newton's method needs the second derivative, which a linear program does not provide",
+    "Bisection always converges faster than Newton's method",
+  ]
+  answer = 1
+  explain = "units(m) is piecewise constant in m: it is 0 below the break-even margin and jumps there. Newton's method divides by the slope, which is 0 (or undefined at the jump), so it cannot move. Bisection uses only the sign, which does change across the jump."
+  misconceptions = [
+    "",
+    "Newton's method for a root needs the first derivative only; the problem is that this derivative is 0.",
+    "Newton's method converges faster (quadratically) on smooth functions; bisection is chosen here because it is the method that works on a jump.",
+  ]
+
+[[milestone]]
+id = 4
+title = "Pricing against demand"
+min_score = 1.0
+must_cover = ["price-optimum", "price-general", "gradient-ad"]
+goal = '''
+Demand falls with price. For a demand curve q(p), choose the price that
+maximises the margin times the demand, (p - cost) q(p), with Optim.jl's
+LBFGS and exact gradients from ForwardDiff. In Optim 2 the keyword value
+for that comes from `Optim.ADTypes` (unit 25 shows it); the older
+`autodiff = :forward` of many tutorials is rejected with a `TypeError`.
+Then the exponential curve q(p) = a exp(-b p), whose best price you can
+derive by hand.
+'''
+
+  [[milestone.api]]
+  signature = "best_price(q, cost; p0 = cost + 1) -> Float64"
+  doc = "argmax of (p - cost) q(p) for a demand function `q`, by LBFGS from `p0` with ForwardDiff gradients."
+
+  [[milestone.api]]
+  signature = "best_price(a, b, cost) -> Float64"
+  doc = "The same for q(p) = a exp(-b p)."
+
+  [[milestone.behaviour]]
+  id = "price-optimum"
+  kc = "nonlinear-optimisation"
+  spec = "`best_price(a, b, cost)` equals the closed form cost + 1/b within 1e-8 (Optim's gradient tolerance divided by the curvature at the optimum, on well-scaled cases)."
+  hints = [
+    "Set the derivative of (p - cost) a exp(-b p) to zero to get the price you expect.",
+    "Optim minimises: maximise by minimising the negated profit, and read back the argument, not the value.",
+    "After `optimize`, return the first entry of the point where the optimum was found; the result's optimal value is the negated profit, not a price.",
+  ]
+  answer_tokens = ["minimizer", "-(", "1 / b"]
+  test_hints = [
+    "Derive the best price by hand and compare.",
+    "The derivative of (p - c) a exp(-b p) is zero at a simple closed form.",
+    "Use a = 100, b = 0.5, cost = 2, and state the tolerance from Optim's gradient tolerance.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "price-general"
+  kc = "nonlinear-optimisation"
+  spec = "For other demand curves, such as q(p) = 10 - p, the result is the hand-computed argmax within 1e-8, and the start point `p0` is a keyword."
+  hints = [
+    "The profit per unit sold is the price less the cost.",
+    "For q(p) = 10 - p and cost 2 the best price is 6: (p - 2)(10 - p) is largest there.",
+    "In the objective you minimise, multiply the demand at the price by the price less the `cost` argument, with the sign flipped.",
+  ]
+  answer_tokens = ["- cost"]
+  test_hints = [
+    "Test a demand curve other than the exponential one.",
+    "With linear demand the profit is a quadratic: its maximum is the midpoint of its roots.",
+    "Use q(p) = 12 - p with cost 2: the best price is 7.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "gradient-ad"
+  kc = "automatic-differentiation"
+  spec = "The gradient comes from ForwardDiff, not from finite differences: during the search `q` is called with `ForwardDiff.Dual` numbers."
+  hints = [
+    "Optim can take a gradient you write, approximate one by finite differences, or ask an AD package.",
+    "Without an AD choice, LBFGS uses finite differences, and `q` only ever sees `Float64`.",
+    "Pass the forward-mode backend from `Optim.ADTypes` to `optimize` as a keyword; then `q` is called with dual numbers.",
+  ]
+  answer_tokens = ["AutoForwardDiff", "autodiff"]
+  test_hints = [
+    "Test what `q` is called with, not only the price.",
+    "A demand function can record `typeof(p)` in a vector each time it is called.",
+    "`using ForwardDiff` in the test, then check that some recorded type is a subtype of `ForwardDiff.Dual`.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "`best_price(p -> 100 * exp(-0.5p), 2.0)` works, but with `q(p::Float64) = 100 * exp(-0.5p)` it throws a `MethodError`. Why?"
+  choices = [
+    "LBFGS accepts only anonymous functions as its objective, so a named function with typed methods is rejected",
+    "ForwardDiff calls `q` with dual numbers, and the annotation allows only Float64",
+    "`exp` has no method for Float64 inside Optim",
+  ]
+  answer = 2
+  explain = "Forward-mode AD evaluates the objective on `ForwardDiff.Dual` numbers, which carry a value and a derivative. A method restricted to `Float64` has no method for them. Leave arguments untyped (or `::Real`) so the same function works on both."
+  misconceptions = [
+    "Optim takes any callable; a named function works the same as an anonymous one when its methods accept the argument types.",
+    "",
+    "`exp(::Float64)` exists everywhere; the call that fails is `q` itself, given a `Dual` its annotation does not allow.",
+  ]

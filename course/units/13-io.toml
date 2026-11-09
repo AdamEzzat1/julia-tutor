@@ -1,0 +1,491 @@
+id = "13-io"
+title = "Input and output: printing, buffers, formatting and files"
+track = "core"
+env = "base"
+summary = "print versus show, building strings in an IOBuffer, Printf format specs, reading and writing files, and parsing simple text formats by hand."
+kcs = ["printing-vs-show", "iobuffer", "printf", "file-io", "text-parsing"]
+prerequisites = ["12-modules"]
+
+[[section]]
+title = "print, show, string and repr"
+body = '''
+Julia has two ways to turn a value into text:
+
+* `print` (and `println`, `string`, `"$x"`) writes the value **for humans**:
+  a string without its quotes, a character without its single quotes.
+* `show` (and `repr`) writes it **as Julia would read it back**: quotes,
+  escapes, type information where needed. This is what you see in the REPL
+  and in error messages.
+
+The REPL actually calls `show(io, MIME"text/plain"(), x)`, a richer,
+possibly multi-line form; `repr(x)` and `show(x)` use the compact one-line
+form. Notice the differences in the output below: `print` loses the
+information that `"hi"` was a string and `:sym` a symbol, `repr` keeps it.
+'''
+
+  [[section.example]]
+  code = '''
+x = "hi"
+print(x); println()
+show(x); println()
+println(string(x), "  ", repr(x))
+println(string('c'), "  ", repr('c'))
+println(string(:sym), "  ", repr(:sym))
+println("tab\there", "  ", repr("tab\there"))
+'''
+
+  [[section.example]]
+  caption = "One value, two `show` forms: compact (inside `println` of a vector, and `repr`) and `text/plain` (what the REPL prints)."
+  code = '''
+v = [1.5, 2.0, 3.25]
+println(v)
+println(repr(v))
+show(stdout, MIME"text/plain"(), v)
+println()
+'''
+
+  [[section.example]]
+  caption = "Defining `Base.show(io, x)` for your type changes how `print`, `repr`, interpolation and containers display it."
+  code = '''
+struct Point
+    x::Int
+    y::Int
+end
+p = Point(1, 2)
+println(p)
+Base.show(io::IO, p::Point) = print(io, "(", p.x, ", ", p.y, ")")
+println(p, "  ", repr(p), "  ", "at $p")
+[p, Point(3, 4)]
+'''
+
+[[section]]
+title = "Building text in an IOBuffer"
+body = '''
+`print` and `write` take an optional first argument: the **stream** to
+write to. Besides `stdout` and files, an `IOBuffer` is a stream in memory.
+Write pieces into it, then `String(take!(io))` turns the bytes into a
+string and empties the buffer.
+
+This is the efficient way to build a long string in a loop. `s *= piece`
+copies the whole string every time, so building `n` pieces that way costs
+time proportional to `n²` (the `format-number-column` problem measures it).
+
+`sprint(f, args...)` is the shortcut: it creates the buffer, calls
+`f(io, args...)` and returns the string.
+'''
+
+  [[section.example]]
+  code = '''
+io = IOBuffer()
+write(io, "abc")
+print(io, 42, ' ', 3.5)
+println(io, "!")
+s = String(take!(io))
+println(repr(s))
+println(isempty(take!(io)))
+println(sprint(show, "quoted"))
+println(sprint(io -> join(io, 1:5, " + ")))
+'''
+
+[[section]]
+title = "Formatting numbers with Printf"
+body = '''
+The `Printf` standard library gives C-style formatting: `@printf` prints and
+`@sprintf` returns a string. A format spec is `%[flags][width][.precision]type`:
+
+* types: `d` integer, `f` fixed-point, `e` scientific, `g` shortest, `s`
+  anything printed with `print`, `x` hexadecimal;
+* width pads to at least that many characters, right-aligned; the flag `-`
+  aligns left and `0` pads with zeros; `+` always shows the sign;
+* `.2f` means two digits after the decimal point (rounded, not truncated).
+
+`@printf(io, ...)` writes to any stream, an `IOBuffer` included. The format
+must be a literal string: it is compiled by the macro.
+'''
+
+  [[section.example]]
+  code = '''
+using Printf
+@printf("[%5d] [%-5d] [%05d] [%+d]\n", 42, 42, 42, 42)
+@printf("[%.2f] [%8.3f] [%e] [%g]\n", π, π, 12345.678, 0.0001)
+@printf("[%s] [%-8s] [%8s]\n", "ab", "ab", :sym)
+@sprintf("%x %.1f%%", 255, 99.44)
+'''
+
+  [[section.example]]
+  caption = "Fixed widths line up columns."
+  code = '''
+using Printf
+for (name, qty, price) in [("apple", 3, 0.5), ("watermelon", 1, 4.25), ("fig", 12, 0.333)]
+    @printf("%-10s %4d %8.2f\n", name, qty, price)
+end
+'''
+
+[[section]]
+title = "Reading and writing files"
+body = '''
+`open(path, "w") do io ... end` opens a file for writing, runs the block
+with the stream `io`, and closes the file afterwards, even if the block
+throws (the `do` + `finally` pattern from the errors unit). The modes:
+`"r"` read (the default), `"w"` write (creates the file or **truncates** it),
+`"a"` append to the end.
+
+To read: `read(path, String)` returns the whole file, `readlines(path)` a
+vector of lines without their newlines, and `eachline(path)` iterates over
+the lines lazily, which is what you want for large files. `write(path, s)`
+writes a whole string in one call.
+
+`mktempdir()` creates a fresh temporary directory (removed when Julia exits),
+which keeps examples from touching your own files. Its path differs on every
+run and every system, so the examples print file *contents*, never paths.
+'''
+
+  [[section.example]]
+  code = '''
+dir = mktempdir()
+path = joinpath(dir, "notes.txt")
+open(path, "w") do io
+    println(io, "first line")
+    println(io, "second line")
+end
+open(path, "a") do io
+    println(io, "appended")
+end
+print(read(path, String))
+println(readlines(path))
+for (i, line) in enumerate(eachline(path))
+    println(i, ": ", line)
+end
+println(countlines(path), " lines, ", filesize(path), " bytes")
+'''
+
+  [[section.example]]
+  caption = "Mode `\"w\"` replaces what was there; `write(path, s)` returns the number of bytes written."
+  code = '''
+path = joinpath(mktempdir(), "data.txt")
+println(write(path, "old content\n"))
+open(path, "w") do io
+    print(io, "new")
+end
+read(path, String)
+'''
+
+[[section]]
+title = "stdout and stderr"
+body = '''
+`print(x)` is `print(stdout, x)`. A program has a second output stream,
+`stderr`, for diagnostics: `println(stderr, "warning: ...")`. Keeping
+messages on `stderr` means the real output on `stdout` can be piped into a
+file or another program without them. `@warn` and `@info` log to `stderr`.
+
+`write(io, x)` writes raw bytes (for a string, its UTF-8 encoding) and
+returns how many it wrote; `print` writes the text form. For strings the
+result looks the same, but the count shows that `é` takes two bytes.
+`redirect_stdout(f, io)` runs `f` with `stdout` pointed elsewhere (here
+`devnull`, which discards everything), which is useful in tests.
+'''
+
+  [[section.example]]
+  code = '''
+n = write(stdout, "héllo\n")
+println(n, " bytes for ", length("héllo\n"), " characters")
+redirect_stdout(devnull) do
+    println("this line goes nowhere")
+end
+println("back on stdout")
+'''
+
+[[section]]
+title = "Parsing simple text by hand"
+body = '''
+For small, regular formats `split` and `parse` go a long way. `split(s, ',')`
+returns `SubString`s (views into `s`, no copying); `strip` removes surrounding
+whitespace; `parse(Int, s)` and `parse(Float64, s)` convert, throwing on bad
+input (or use `tryparse`). `eachline(IOBuffer(text))` iterates over the lines
+of a string just as `eachline(path)` does for a file.
+
+Hand parsing is fine for configuration files and quick scripts; for real CSV
+(quoted fields, embedded commas, missing values) use the CSV.jl package
+(the data unit).
+'''
+
+  [[section.example]]
+  code = '''
+text = """
+name,qty,price
+apple,3,0.5
+pear,10,0.25
+fig,2,1.75
+"""
+lines = readlines(IOBuffer(text))
+header = split(lines[1], ',')
+total = 0.0
+for line in lines[2:end]
+    name, qty, price = split(line, ',')
+    total += parse(Int, qty) * parse(Float64, price)
+end
+println(header, "  ", typeof(header))
+println("total = ", total)
+'''
+
+[[problem]]
+id = "format-table-row"
+title = "One row of a table"
+difficulty = "warm-up"
+kcs = ["printf"]
+entry = "format_row"
+prompt = '''
+Write `format_row(name, qty, price)` that returns a fixed-width line: the
+name left-aligned in 10 characters, `|`, the quantity right-aligned in 5,
+`|`, and the price with exactly two decimals right-aligned in 8.
+
+```julia
+format_row("apple", 3, 0.5)      # "apple     |    3|    0.50"
+format_row("fig", 120, 12.345)   # "fig       |  120|   12.35"
+```
+
+Names have at most 10 characters.
+'''
+starter = '''
+function format_row(name, qty, price)
+    # your code here
+end
+'''
+reference = '''
+using Printf
+format_row(name, qty, price) = @sprintf("%-10s|%5d|%8.2f", name, qty, price)
+'''
+cases = ['"apple", 3, 0.5', '"fig", 120, 12.345', '"watermelon", 1, 1234.5', '"", 0, 0.0']
+gen = "rng -> [(randstring(rng, 'a':'z', rand(rng, 0:10)), rand(rng, 0:99999), round(rand(rng) * 10000, digits = 3)) for _ in 1:30]"
+hints = [
+  "`Printf`'s `@sprintf` takes a width for each field; a `-` flag aligns left.",
+  "`%-10s` pads a string on the right to 10 characters; `%5d` and `%8.2f` pad numbers on the left.",
+]
+
+  [problem.perf]
+  args = '"apple", rand(rng, 1:999), rand(rng) * 100'
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "name right-aligned"
+  code = '''
+using Printf
+format_row(name, qty, price) = @sprintf("%10s|%5d|%8.2f", name, qty, price)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "round + string drops the trailing zero"
+  code = '''
+format_row(name, qty, price) = rpad(name, 10) * "|" * lpad(qty, 5) * "|" * lpad(string(round(price, digits = 2)), 8)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "rpad and lpad around a formatted price"
+  code = '''
+using Printf
+format_row(name, qty, price) = rpad(name, 10) * "|" * lpad(qty, 5) * "|" * @sprintf("%8.2f", price)
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "format-number-column"
+title = "A column of numbers as one string"
+difficulty = "core"
+kcs = ["iobuffer", "printf"]
+entry = "format_column"
+prompt = '''
+Write `format_column(xs)` that returns one `String` with each number of
+`xs` on its own line, formatted with three decimals and right-aligned in 10
+characters, every line ending in `"\n"` (an empty vector gives `""`).
+
+```julia
+format_column([1.0, -2.5])   # "     1.000\n    -2.500\n"
+```
+
+The timing run formats thousands of numbers. Building the string with
+`s *= ...` copies everything written so far at every step; an `IOBuffer`
+does not.
+'''
+starter = '''
+function format_column(xs)
+    # your code here
+end
+'''
+reference = '''
+using Printf
+function format_column(xs)
+    io = IOBuffer()
+    for x in xs
+        @printf(io, "%10.3f\n", x)
+    end
+    return String(take!(io))
+end
+'''
+cases = ["[1.0, -2.5]", "Float64[]", "[1234567.891, 0.0005]"]
+gen = "rng -> [(round.(randn(rng, rand(rng, 0:8)) .* 1000, digits = 4),) for _ in 1:25]"
+hints = [
+  "Write each formatted line into an `IOBuffer` and convert it to a `String` once at the end.",
+  "`@printf(io, \"%10.3f\\n\", x)` writes one line into `io`; `String(take!(io))` gives the result.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n) .* 100"
+  sizes = [500, 8000]
+
+  [[problem.variant]]
+  label = "no width: numbers are not aligned"
+  code = '''
+using Printf
+format_column(xs) = join(@sprintf("%.3f\n", x) for x in xs)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "string concatenation in a loop"
+  code = '''
+using Printf
+function format_column(xs)
+    s = ""
+    for x in xs
+        s *= @sprintf("%10.3f\n", x)
+    end
+    return s
+end
+'''
+  expect = ["correct", "scaling", "slow"]
+
+  [[problem.variant]]
+  label = "join over a generator of formatted lines"
+  code = '''
+using Printf
+format_column(xs) = join(@sprintf("%10.3f\n", x) for x in xs)
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "parse-config-lines"
+title = "Parse a key = value config"
+difficulty = "stretch"
+kcs = ["text-parsing", "iobuffer"]
+entry = "parse_config"
+prompt = '''
+Write `parse_config(text)` that reads a configuration given as one string
+and returns a `Dict{String,String}`:
+
+* each line is `key = value`; whitespace around the key and the value is removed;
+* the value is everything after the **first** `=` (it may contain `=` itself);
+* blank lines and lines starting with `#` (after leading spaces) are ignored;
+* a key that appears twice keeps its last value;
+* any other line without `=`, or with an empty key, throws an `ArgumentError`.
+
+```julia
+parse_config("name = demo\n# comment\nurl = a=b\n")
+# Dict("name" => "demo", "url" => "a=b")
+parse_config("oops")   # throws ArgumentError
+```
+'''
+starter = '''
+function parse_config(text)
+    # your code here
+end
+'''
+reference = '''
+function parse_config(text::AbstractString)
+    d = Dict{String,String}()
+    for line in eachline(IOBuffer(text))
+        s = strip(line)
+        (isempty(s) || startswith(s, '#')) && continue
+        occursin('=', s) || throw(ArgumentError("expected key = value, got $(repr(s))"))
+        key, value = split(s, '='; limit = 2)
+        key = strip(key)
+        isempty(key) && throw(ArgumentError("empty key in $(repr(s))"))
+        d[String(key)] = String(strip(value))
+    end
+    return d
+end
+'''
+cases = ['"name = demo\n# comment\nurl = a=b\n"', '""', '"a=1\na = 2"', '"  # a = b\n\n  k  =  v  \r\nempty =\n"', '"oops"', '" = value"']
+gen = 'rng -> [(join(rand(rng, ["a = 1", "b=2", " c = x=y ", "", "# note", "#k=v", "a = 3", "  d  =  ", "e = hello world", "oops"], rand(rng, 0:6)), "\n"),) for _ in 1:40]'
+hints = [
+  "Go line by line; skip blank and comment lines first, then split each remaining line at its first `=`.",
+  "`split(s, '='; limit = 2)` splits only at the first `=`; `strip` both parts and convert them with `String(...)` before storing.",
+]
+
+  [problem.perf]
+  args = 'join(["key$i = value$(rand(rng, 1:1000))" for i in 1:n], "\n")'
+  sizes = [2000]
+
+  [[problem.variant]]
+  label = "splits at every =, so values lose their tail"
+  code = '''
+function parse_config(text)
+    d = Dict{String,String}()
+    for line in eachline(IOBuffer(text))
+        s = strip(line)
+        (isempty(s) || startswith(s, '#')) && continue
+        occursin('=', s) || throw(ArgumentError("bad line"))
+        parts = split(s, '=')
+        isempty(strip(parts[1])) && throw(ArgumentError("empty key"))
+        d[String(strip(parts[1]))] = String(strip(parts[2]))
+    end
+    return d
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "does not skip comments"
+  code = '''
+function parse_config(text)
+    d = Dict{String,String}()
+    for line in eachline(IOBuffer(text))
+        s = strip(line)
+        isempty(s) && continue
+        occursin('=', s) || throw(ArgumentError("bad line"))
+        key, value = split(s, '='; limit = 2)
+        isempty(strip(key)) && throw(ArgumentError("empty key"))
+        d[String(strip(key))] = String(strip(value))
+    end
+    return d
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "error() instead of ArgumentError"
+  code = '''
+function parse_config(text)
+    d = Dict{String,String}()
+    for line in eachline(IOBuffer(text))
+        s = strip(line)
+        (isempty(s) || startswith(s, '#')) && continue
+        occursin('=', s) || error("bad line")
+        key, value = split(s, '='; limit = 2)
+        isempty(strip(key)) && error("empty key")
+        d[String(strip(key))] = String(strip(value))
+    end
+    return d
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "split the text into lines, findfirst the ="
+  code = '''
+function parse_config(text)
+    d = Dict{String,String}()
+    for line in split(text, '\n')
+        s = strip(line)
+        (isempty(s) || s[1] == '#') && continue
+        i = findfirst('=', s)
+        i === nothing && throw(ArgumentError("expected key = value"))
+        key = strip(SubString(s, 1, prevind(s, i)))
+        isempty(key) && throw(ArgumentError("empty key"))
+        d[String(key)] = String(strip(SubString(s, nextind(s, i))))
+    end
+    return d
+end
+'''
+  expect = ["correct"]

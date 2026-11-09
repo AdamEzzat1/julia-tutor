@@ -1,0 +1,213 @@
+# Seeded faults in reference/src (one exact snippet replaced each).
+# `tutor guided verify tidy` requires each to fail the acceptance test set of
+# its behaviour and to be caught by the exemplary tests (reference/test).
+# Students see only the behaviour a surviving mutant breaks, never the edit.
+
+[[mutant]]
+id = "temp-not-forced"
+milestone = 1
+behaviour = "column-types"
+file = "Tidy.jl"
+find = ":time => DateTime, :temp => Float64,"
+replace = ":time => DateTime,"
+
+[[mutant]]
+id = "humidity-not-forced"
+milestone = 1
+behaviour = "column-types"
+file = "Tidy.jl"
+find = ":unit => String, :humidity => Float64)"
+replace = ":unit => String)"
+
+[[mutant]]
+id = "dash-not-missing"
+milestone = 1
+behaviour = "missing-markers"
+file = "Tidy.jl"
+find = 'const MISSING_MARKERS = ["NA", "", "-"]'
+replace = 'const MISSING_MARKERS = ["NA", ""]'
+
+[[mutant]]
+id = "na-not-missing"
+milestone = 1
+behaviour = "missing-markers"
+file = "Tidy.jl"
+find = 'const MISSING_MARKERS = ["NA", "", "-"]'
+replace = 'const MISSING_MARKERS = ["", "-"]'
+
+[[mutant]]
+id = "no-dateformat"
+milestone = 1
+behaviour = "time-parsed"
+file = "Tidy.jl"
+find = "dateformat = TIME_FORMAT, "
+replace = ""
+
+[[mutant]]
+id = "path-plain-read"
+milestone = 1
+behaviour = "path-or-io"
+file = "Tidy.jl"
+find = "read_readings(path::AbstractString) = open(read_readings, path)"
+replace = "read_readings(path::AbstractString) = CSV.read(path, DataFrame)"
+
+[[mutant]]
+id = "site-no-lowercase"
+milestone = 2
+behaviour = "normalize-site"
+file = "Tidy.jl"
+find = "normalize_site(s::AbstractString) = lowercase(strip(s))"
+replace = "normalize_site(s::AbstractString) = String(strip(s))"
+
+[[mutant]]
+id = "site-no-strip"
+milestone = 2
+behaviour = "normalize-site"
+file = "Tidy.jl"
+find = "normalize_site(s::AbstractString) = lowercase(strip(s))"
+replace = "normalize_site(s::AbstractString) = lowercase(s)"
+
+[[mutant]]
+id = "inverted-ratio"
+milestone = 2
+behaviour = "fahrenheit"
+file = "Tidy.jl"
+find = "to_celsius(t) = (t - 32) * 5 / 9"
+replace = "to_celsius(t) = (t - 32) * 9 / 5"
+
+[[mutant]]
+id = "unit-not-updated"
+milestone = 2
+behaviour = "fahrenheit"
+file = "Tidy.jl"
+find = '    out.unit = ifelse.(isf, "C", out.unit)'
+replace = ""
+
+[[mutant]]
+id = "no-dedup"
+milestone = 2
+behaviour = "duplicates"
+file = "Tidy.jl"
+find = "    unique!(out)\n"
+replace = ""
+
+[[mutant]]
+id = "dedup-before-cleaning"
+milestone = 2
+behaviour = "duplicates"
+file = "Tidy.jl"
+find = '''
+    out = copy(df)
+    out.site = normalize_site.(out.site)
+    isf = out.unit .== "F"
+    out.temp = ifelse.(isf, to_celsius.(out.temp), out.temp)
+    out.unit = ifelse.(isf, "C", out.unit)
+    unique!(out)
+'''
+replace = '''
+    out = unique(df)
+    out.site = normalize_site.(out.site)
+    isf = out.unit .== "F"
+    out.temp = ifelse.(isf, to_celsius.(out.temp), out.temp)
+    out.unit = ifelse.(isf, "C", out.unit)
+'''
+
+[[mutant]]
+id = "open-range"
+milestone = 2
+behaviour = "range-flag"
+file = "Tidy.jl"
+find = "inrange(x, (lo, hi)) = lo <= x <= hi"
+replace = "inrange(x, (lo, hi)) = lo < x < hi"
+
+[[mutant]]
+id = "missing-humidity-invalid"
+milestone = 2
+behaviour = "range-flag"
+file = "Tidy.jl"
+find = "(ismissing(humidity) || inrange(humidity, HUMIDITY_RANGE))"
+replace = "(!ismissing(humidity) && inrange(humidity, HUMIDITY_RANGE))"
+
+[[mutant]]
+id = "drops-invalid"
+milestone = 2
+behaviour = "range-flag"
+file = "Tidy.jl"
+find = "    out.valid = is_valid.(out.temp, out.humidity)\n    return out"
+replace = "    out.valid = is_valid.(out.temp, out.humidity)\n    return out[out.valid, :]"
+
+[[mutant]]
+id = "aliases-input"
+milestone = 2
+behaviour = "no-mutation"
+file = "Tidy.jl"
+find = "    out = copy(df)\n"
+replace = "    out = df\n"
+
+[[mutant]]
+id = "keeps-invalid"
+milestone = 3
+behaviour = "valid-only"
+file = "Tidy.jl"
+find = "    v = df[df.valid, :]"
+replace = "    v = copy(df)"
+
+[[mutant]]
+id = "groups-by-month"
+milestone = 3
+behaviour = "group-by-day"
+file = "Tidy.jl"
+find = "    v.date = Date.(v.time)"
+replace = "    v.date = Date.(year.(v.time), month.(v.time))"
+
+[[mutant]]
+id = "plain-mean-humidity"
+milestone = 3
+behaviour = "humidity-skipmissing"
+file = "Tidy.jl"
+find = ":humidity => mean_present => :mean_humidity"
+replace = ":humidity => mean => :mean_humidity"
+
+[[mutant]]
+id = "empty-humidity-nan"
+milestone = 3
+behaviour = "humidity-skipmissing"
+file = "Tidy.jl"
+find = "mean_present(v) = (x = collect(skipmissing(v)); isempty(x) ? missing : mean(x))"
+replace = "mean_present(v) = mean(skipmissing(v))"
+
+[[mutant]]
+id = "unsorted"
+milestone = 3
+behaviour = "sorted"
+file = "Tidy.jl"
+find = "    return sort!(s, [:site, :date])"
+replace = "    return s"
+
+[[mutant]]
+id = "missing-as-empty"
+milestone = 4
+behaviour = "missing-as-NA"
+file = "Tidy.jl"
+find = 'CSV.write(io, out; missingstring = "NA")'
+replace = "CSV.write(io, out)"
+
+[[mutant]]
+id = "no-rounding"
+milestone = 4
+behaviour = "rounding"
+file = "Tidy.jl"
+find = "ByRow(x -> round(x; digits = DIGITS))"
+replace = "ByRow(identity)"
+
+[[mutant]]
+id = "read-without-types"
+milestone = 4
+behaviour = "round-trip"
+file = "Tidy.jl"
+find = '''
+    return CSV.read(io, DataFrame; missingstring = "NA", stringtype = String,
+                    types = Dict(:site => String, :date => Date, :n => Int, :mean_temp => Float64,
+                                 :max_temp => Float64, :mean_humidity => Float64))'''
+replace = '''
+    return CSV.read(io, DataFrame)'''

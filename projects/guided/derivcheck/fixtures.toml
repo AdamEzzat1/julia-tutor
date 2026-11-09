@@ -1,0 +1,22 @@
+# Student-like folders under fixtures/, checked by `tutor guided verify derivcheck`
+# through the same path as `tutor guided check`; each must get these verdicts.
+
+[[fixture]]
+name = "m3-good"
+milestone = 3
+expect = ["passed"]
+
+[[fixture]]
+name = "m3-absolute-step"
+milestone = 3
+expect = ["acceptance-fail"]
+
+[[fixture]]
+name = "m2-loose-tolerance"
+milestone = 2
+expect = ["weak-tests"]
+
+[[fixture]]
+name = "m4-abstract-field"
+milestone = 4
+expect = ["acceptance-fail", "checker-warn", "weak-tests"]

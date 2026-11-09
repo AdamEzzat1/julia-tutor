@@ -1,0 +1,595 @@
+id = "10-errors"
+title = "Errors and exceptions"
+track = "core"
+env = "base"
+summary = "Throwing and catching exceptions, the standard exception types, cleanup with finally, your own exception types, and when to return nothing instead of throwing."
+kcs = ["exceptions", "try-catch", "exception-types", "custom-exceptions", "assertions", "error-handling-design"]
+prerequisites = ["09-dispatch"]
+
+[[section]]
+title = "Throwing an error"
+body = '''
+When a function cannot do what it was asked, it **throws** an exception:
+`throw(x)` stops the function and unwinds the call stack until something
+catches `x`. If nothing does, the program stops and prints the error.
+
+An exception is an ordinary value whose type is a subtype of `Exception`.
+`throw(DomainError(x, "message"))` says "this argument is outside the
+function's domain"; `error("message")` is a shortcut that throws an
+`ErrorException` with that message. Prefer a specific type when one fits:
+code that catches errors can tell a `DomainError` from an `ArgumentError`,
+but every `error(...)` looks the same.
+
+Notice in the output that the message names the type, then the value, then
+your text, and the `@` line points at the line of your code where the failing
+call was made.
+'''
+
+  [[section.example]]
+  code = '''
+function checked_sqrt(x)
+    x < 0 && throw(DomainError(x, "checked_sqrt needs a non-negative number"))
+    return sqrt(x)
+end
+println(checked_sqrt(16))
+checked_sqrt(-4)
+'''
+
+  [[section.example]]
+  caption = "`error` throws an `ErrorException`; its message is in the `msg` field."
+  code = '''
+e = try
+    error("disk full")
+catch err
+    err
+end
+println(typeof(e))
+e.msg
+'''
+
+[[section]]
+title = "The exception types you will meet"
+body = '''
+Base Julia throws a handful of exception types over and over. Learning them
+makes error messages quick to read:
+
+* `DomainError`: the argument has the right type but a bad value (`sqrt(-1.0)`).
+* `ArgumentError`: an argument is invalid in some other way (`parse(Int, "12a")`).
+* `BoundsError`: an index is outside the array (Julia never wraps around or
+  silently extends, unlike negative indices in Python).
+* `KeyError`: a `Dict` has no such key.
+* `MethodError`: no method of the function accepts these argument types.
+
+The hierarchy is flat: each of these is a direct subtype of `Exception`, so
+`catch` can tell them apart by type but there is no "LookupError" family to
+catch at once, as Python has.
+'''
+
+  [[section.example]]
+  caption = "Each call fails with a different type; we print the type and the first line of the message."
+  code = '''
+attempts = [
+    () -> sqrt(-1.0),
+    () -> parse(Int, "12a"),
+    () -> [10, 20, 30][4],
+    () -> Dict("a" => 1)["b"],
+    () -> "abc" + 1,
+]
+for f in attempts
+    try
+        f()
+    catch e
+        msg = first(split(sprint(showerror, e), '\n'))
+        println(rpad(string(typeof(e)), 15), first(msg, 70))
+    end
+end
+'''
+
+  [[section.example]]
+  code = '''
+for T in (DomainError, ArgumentError, BoundsError, KeyError, MethodError, ErrorException)
+    println(T, " <: ", supertype(T))
+end
+'''
+
+[[section]]
+title = "try, catch, else, finally"
+body = '''
+`try ... catch e ... end` runs the `try` block, and if anything in it throws,
+runs the `catch` block with the exception bound to `e`. Two optional parts
+complete the picture:
+
+* `else` (Julia 1.8 and later) runs only when the `try` block did **not** throw.
+  Code there is not protected by the `catch`, which keeps the `try` block small.
+* `finally` runs **always**: after a normal finish, after a caught error, and
+  even when the error propagates out. It is where cleanup goes.
+
+Each block has its own scope, so a variable assigned only inside `try` is not
+visible in `else`; declare it first with `local n`, as below.
+
+`catch e` catches *everything*, including typos (`UndefVarError`) and bugs.
+To handle one kind of failure only, test the type and rethrow the rest:
+`e isa KeyError || rethrow()`. `rethrow()` re-throws the current exception
+with its original backtrace.
+'''
+
+  [[section.example]]
+  code = '''
+function describe(s)
+    local n
+    try
+        n = parse(Int, s)
+    catch e
+        println("  cannot parse ", repr(s), ": ", typeof(e))
+    else
+        println("  parsed ", repr(s), " as ", n)
+    finally
+        println("  finished ", repr(s))
+    end
+end
+describe("12")
+describe("twelve")
+'''
+
+  [[section.example]]
+  caption = "Handle the `KeyError` you expect; any other error passes through unchanged."
+  code = '''
+function lookup(container, key)
+    try
+        return container[key]
+    catch e
+        e isa KeyError || rethrow()
+        return "missing"
+    end
+end
+d = Dict("a" => 1)
+println(lookup(d, "a"))
+println(lookup(d, "z"))
+lookup([10, 20], "a")
+'''
+
+[[section]]
+title = "Your own exception types, and @assert"
+body = '''
+An exception type is a `struct` that subtypes `Exception`. Fields carry the
+details, and a method of `Base.showerror(io, e)` controls the message that
+`showerror` (and the REPL, for an uncaught error) prints. Callers can then
+catch exactly your error with `e isa ValidationError` and leave every other
+error alone.
+
+`@assert cond "message"` throws an `AssertionError` when `cond` is false. Use
+it for **invariants**: things that can only be false if *your* code has a bug.
+Do not use it to validate user input: the manual warns that assertions may be
+disabled at some optimization levels, and an `AssertionError` tells the
+caller nothing about what they passed. Throw `ArgumentError` or `DomainError`
+for bad input instead.
+'''
+
+  [[section.example]]
+  code = '''
+struct ValidationError <: Exception
+    field::String
+    reason::String
+end
+Base.showerror(io::IO, e::ValidationError) =
+    print(io, "ValidationError: ", e.field, " ", e.reason)
+
+function check_user(name, age)
+    isempty(name) && throw(ValidationError("name", "must not be empty"))
+    age >= 0 || throw(ValidationError("age", "must be non-negative, got $age"))
+    return (name, age)
+end
+println(check_user("Ada", 36))
+try
+    check_user("Bob", -1)
+catch e
+    e isa ValidationError || rethrow()
+    showerror(stdout, e)
+    println()
+    println("the bad field was ", e.field)
+end
+'''
+
+  [[section.example]]
+  caption = "Without a message, `@assert` shows the condition that failed."
+  code = '''
+function split_evenly(total, parts)
+    each = total ÷ parts
+    rest = total - each * parts
+    @assert 0 <= rest < parts
+    return fill(each, parts) .+ [i <= rest ? 1 : 0 for i in 1:parts]
+end
+println(split_evenly(10, 3))
+@assert 1 + 1 == 3
+'''
+
+[[section]]
+title = "Returning nothing instead of throwing"
+body = '''
+Not every failure is exceptional. When "not found" or "not a number" is a
+normal outcome, Base returns `nothing` instead of throwing:
+
+* `tryparse(Int, s)` returns the number or `nothing` (`parse` throws).
+* `findfirst(pred, v)` returns an index or `nothing`.
+* `get(d, key, default)` returns `default` for a missing key (`d[key]` throws).
+
+The caller checks with `=== nothing` (or `isnothing`), or supplies a default
+with `something(x, default)`. Prefer this style in hot loops: throwing and
+catching an exception costs far more than returning a value (the
+`parse-ints-count-failures` problem below lets the grader measure it).
+'''
+
+  [[section.example]]
+  code = '''
+println(tryparse(Int, "42"))
+println(tryparse(Int, "4x2"))
+println(findfirst(==(7), [3, 5, 7, 9]))
+println(findfirst(==(8), [3, 5, 7, 9]))
+println(get(Dict("a" => 1), "b", 0))
+println(something(tryparse(Int, "oops"), -1))
+x = tryparse(Float64, "2.5e3")
+x === nothing ? "not a number" : 2x
+'''
+
+[[section]]
+title = "Errors in a loop, and cleanup"
+body = '''
+To process many items and keep going past bad ones, put the `try` inside the
+loop and collect what failed. Catch only the error you expect, so a real bug
+still stops the program.
+
+Resources (files, locks, connections) must be released even when the work
+fails. The pattern is a function that takes the work as its first argument
+and wraps it in `try ... finally`. Julia's `do` block syntax passes the block
+as that first argument: `with_resource(name) do r ... end` is
+`with_resource(r -> ..., name)`. Notice that `close db` is printed *before*
+the error: `finally` ran on the way out. `open(path) do io ... end` (the I/O
+unit) works exactly this way and closes the file for you.
+'''
+
+  [[section.example]]
+  code = '''
+inputs = ["1", "2", "three", "4", ""]
+total = 0
+bad = String[]
+for s in inputs
+    try
+        total += parse(Int, s)
+    catch e
+        e isa ArgumentError || rethrow()
+        push!(bad, s)
+    end
+end
+println("total = ", total, ", rejected: ", bad)
+'''
+
+  [[section.example]]
+  code = '''
+function with_resource(f, name)
+    println("open ", name)
+    try
+        return f(name)
+    finally
+        println("close ", name)
+    end
+end
+r = with_resource("cache") do res
+    "used $res"
+end
+println(r)
+with_resource("db") do res
+    println("querying ", res)
+    error("query failed")
+end
+'''
+
+[[problem]]
+id = "parse-percent-errors"
+title = "Parse a percentage, or say why not"
+difficulty = "warm-up"
+kcs = ["exceptions", "exception-types"]
+entry = "parse_percent"
+prompt = '''
+Write `parse_percent(s)` that turns a string such as `"42"` or `"42%"` (an
+integer, optionally followed by one `%`) into an `Int`.
+
+Bad input must throw an `ArgumentError`, the type Julia uses for invalid
+arguments: both text that is not an integer and a number outside 0–100. The
+grader checks the exception **type**, so `error(...)` (an `ErrorException`)
+does not count.
+
+```julia
+parse_percent("42%")   # 42
+parse_percent("100")   # 100
+parse_percent("101")   # throws ArgumentError
+parse_percent("abc")   # throws ArgumentError
+```
+'''
+starter = '''
+function parse_percent(s)
+    # your code here
+end
+'''
+reference = '''
+function parse_percent(s::AbstractString)
+    t = endswith(s, '%') ? chop(s) : SubString(s)   # one type on both branches
+    n = tryparse(Int, t)
+    n === nothing && throw(ArgumentError("not a percentage: $(repr(s))"))
+    0 <= n <= 100 || throw(ArgumentError("percentage out of range: $n"))
+    return n
+end
+'''
+cases = ['"42"', '"100%"', '"0%"', '"101"', '"-5%"', '"abc"', '""', '"7%%"']
+gen = 'rng -> [(rand(rng, Bool) ? string(rand(rng, -20:120), rand(rng, ["", "%"])) : randstring(rng, "ab%1", rand(rng, 0:3)),) for _ in 1:40]'
+hints = [
+  "Strip an optional trailing `%`, convert, then check the range; each failure is a `throw(ArgumentError(...))`.",
+  "`endswith(s, '%')` and `chop(s)` remove the sign; `tryparse(Int, t)` returns `nothing` instead of throwing.",
+]
+
+  [problem.perf]
+  args = 'string(rand(rng, 0:100), "%")'
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "error() throws ErrorException, not ArgumentError"
+  code = '''
+function parse_percent(s)
+    t = endswith(s, '%') ? chop(s) : s
+    n = tryparse(Int, t)
+    n === nothing && error("not a percentage")
+    0 <= n <= 100 || error("out of range")
+    return n
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "forgets the range check"
+  code = '''
+function parse_percent(s)
+    t = endswith(s, '%') ? chop(s) : s
+    n = tryparse(Int, t)
+    n === nothing && throw(ArgumentError("not a percentage"))
+    return n
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns nothing for bad input"
+  code = '''
+function parse_percent(s)
+    t = endswith(s, '%') ? chop(s) : s
+    n = tryparse(Int, t)
+    (n === nothing || !(0 <= n <= 100)) && return nothing
+    return n
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "parse throws ArgumentError itself, so letting it propagate is fine"
+  code = '''
+function parse_percent(s)
+    n = parse(Int, endswith(s, '%') ? chop(s) : s)
+    0 <= n <= 100 || throw(ArgumentError("percentage out of range: $n"))
+    return n
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "parse-ints-count-failures"
+title = "Parse what you can, count the rest"
+difficulty = "core"
+kcs = ["error-handling-design", "try-catch"]
+entry = "parse_ints"
+prompt = '''
+Write `parse_ints(strs)` that takes a vector of strings and returns a tuple
+`(values, failures)`: `values` is a `Vector{Int}` of every string that parses
+as an integer (in order), and `failures` counts the strings that do not.
+
+```julia
+parse_ints(["1", "x", "-3", ""])   # ([1, -3], 2)
+```
+
+Half of the inputs in the timing run are not numbers. Compare a `try`/`catch`
+around `parse` with `tryparse`, which returns `nothing` instead of throwing.
+'''
+starter = '''
+function parse_ints(strs)
+    # your code here
+end
+'''
+reference = '''
+function parse_ints(strs)
+    values = Int[]
+    failures = 0
+    for s in strs
+        n = tryparse(Int, s)
+        if n === nothing
+            failures += 1
+        else
+            push!(values, n)
+        end
+    end
+    return values, failures
+end
+'''
+cases = ['["1", "x", "-3", ""]', 'String[]', '["10", "+7", "1.5", "2e3", "0042"]']
+gen = 'rng -> [([rand(rng, Bool) ? string(rand(rng, -999:999)) : randstring(rng, "ab1-", rand(rng, 0:3)) for _ in 1:rand(rng, 0:12)],) for _ in 1:30]'
+hints = [
+  "Keep a `Vector{Int}` and a counter; decide for each string whether it parses.",
+  "`tryparse(Int, s)` returns `nothing` on failure; test it with `=== nothing` instead of catching an exception.",
+]
+
+  [problem.perf]
+  args = '[isodd(i) ? string(rand(rng, -999:999)) : randstring(rng, "abc", 3) for i in 1:n]'
+  sizes = [2000]
+
+  [[problem.variant]]
+  label = "all(isdigit) rejects negative numbers"
+  code = '''
+function parse_ints(strs)
+    values = Int[]
+    failures = 0
+    for s in strs
+        if !isempty(s) && all(isdigit, s)
+            push!(values, parse(Int, s))
+        else
+            failures += 1
+        end
+    end
+    return values, failures
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "an untyped [] collects a Vector{Any}"
+  code = '''
+function parse_ints(strs)
+    values = []
+    failures = 0
+    for s in strs
+        n = tryparse(Int, s)
+        n === nothing ? (failures += 1) : push!(values, n)
+    end
+    return values, failures
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "try/catch around parse: throwing in a hot loop is slow"
+  code = '''
+function parse_ints(strs)
+    values = Int[]
+    failures = 0
+    for s in strs
+        try
+            push!(values, parse(Int, s))
+        catch e
+            e isa ArgumentError || rethrow()
+            failures += 1
+        end
+    end
+    return values, failures
+end
+'''
+  expect = ["correct", "slow"]
+
+  [[problem.variant]]
+  label = "broadcast tryparse, then filter"
+  code = '''
+function parse_ints(strs)
+    parsed = tryparse.(Int, strs)
+    return Int[x for x in parsed if x !== nothing], count(isnothing, parsed)
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "apply-withdrawals-errors"
+title = "Withdrawals with the right errors"
+difficulty = "stretch"
+kcs = ["exception-types", "assertions", "exceptions"]
+entry = "apply_withdrawals"
+prompt = '''
+Write `apply_withdrawals(balance, amounts)` that subtracts each amount from an
+integer `balance`, in order, and returns the final balance.
+
+Process the amounts one at a time and stop at the **first** problem:
+
+* a negative amount throws an `ArgumentError` (the request itself is invalid);
+* an amount larger than the current balance throws a `DomainError` (a valid
+  request the account cannot serve). Reaching exactly 0 is allowed.
+
+```julia
+apply_withdrawals(100, [30, 20])   # 50
+apply_withdrawals(10, [20, -1])    # DomainError: 20 is checked before -1
+apply_withdrawals(10, [-1, 20])    # ArgumentError
+```
+
+`@assert` is the wrong tool here: see what the grader says about it.
+'''
+starter = '''
+function apply_withdrawals(balance, amounts)
+    # your code here
+end
+'''
+reference = '''
+function apply_withdrawals(balance::Integer, amounts)
+    for a in amounts
+        a < 0 && throw(ArgumentError("withdrawal must be non-negative, got $a"))
+        a > balance && throw(DomainError(a, "insufficient funds: balance is $balance"))
+        balance -= a
+    end
+    return balance
+end
+'''
+cases = ["100, [30, 20]", "5, [5]", "10, [20, -1]", "10, [-1, 20]", "0, Int[]", "3, [1, 1, 1, 1]"]
+gen = "rng -> [(rand(rng, 0:60), rand(rng, -3:25, rand(rng, 0:6))) for _ in 1:40]"
+hints = [
+  "Loop over the amounts; check each one before subtracting it, and `throw` the matching exception type.",
+  "Check `a < 0` first (ArgumentError), then `a > balance` (DomainError). Validating every amount before the loop changes which error comes first.",
+]
+
+  [problem.perf]
+  args = "100 * n, rand(rng, 0:50, n)"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "validates all amounts first, so the wrong error comes first"
+  code = '''
+function apply_withdrawals(balance, amounts)
+    any(<(0), amounts) && throw(ArgumentError("negative withdrawal"))
+    for a in amounts
+        a > balance && throw(DomainError(a, "insufficient funds"))
+        balance -= a
+    end
+    return balance
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "@assert throws AssertionError"
+  code = '''
+function apply_withdrawals(balance, amounts)
+    for a in amounts
+        @assert a >= 0 "negative withdrawal"
+        @assert a <= balance "insufficient funds"
+        balance -= a
+    end
+    return balance
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "refuses to reach exactly zero"
+  code = '''
+function apply_withdrawals(balance, amounts)
+    for a in amounts
+        a < 0 && throw(ArgumentError("negative withdrawal"))
+        a >= balance && throw(DomainError(a, "insufficient funds"))
+        balance -= a
+    end
+    return balance
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "foldl with the same checks"
+  code = '''
+function apply_withdrawals(balance, amounts)
+    return foldl(amounts; init = balance) do b, a
+        a < 0 && throw(ArgumentError("negative withdrawal"))
+        a > b && throw(DomainError(a, "insufficient funds"))
+        b - a
+    end
+end
+'''
+  expect = ["correct"]

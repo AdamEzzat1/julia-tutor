@@ -1,0 +1,616 @@
+id = "17-interfaces"
+title = "Interfaces: iteration, AbstractArray, show, ordering and dictionaries"
+track = "advanced"
+env = "base"
+status = "ready"
+summary = "Julia's interfaces are informal: implement a few documented methods and the rest of Base works with your type. Iteration, the AbstractArray interface, show for compact and REPL display, ordering and AbstractDict, and testing an interface with Test."
+kcs = ["iteration-interface", "abstractarray-interface", "show-methods", "ordering", "abstractdict", "testing"]
+prerequisites = ["16-metaprogramming"]
+
+[[section]]
+title = "Informal interfaces: iteration"
+body = '''
+Julia has no `interface` keyword. An interface is a documented list of methods
+(see [Interfaces](https://docs.julialang.org/en/v1/manual/interfaces/) in the
+manual): implement them for your type and every generic function written
+against the interface works with it.
+
+The **iteration** interface is the smallest. `for x in itr` is rewritten to
+
+```julia
+next = iterate(itr)
+while next !== nothing
+    (x, state) = next
+    # loop body
+    next = iterate(itr, state)
+end
+```
+
+so you define `Base.iterate(itr)` and `Base.iterate(itr, state)`, each
+returning `(item, next_state)` or `nothing` at the end. Optional methods tell
+generic code more: `Base.length` (and `Base.IteratorSize` when the length is
+unknown), and `Base.eltype` so that `collect` can allocate the right array.
+Then `collect`, `sum`, `maximum`, comprehensions, `first(itr, n)`, `zip`, …
+all work.
+'''
+
+  [[section.example]]
+  code = '''
+struct Countdown
+    from::Int
+end
+Base.iterate(c::Countdown, n = c.from) = n < 1 ? nothing : (n, n - 1)
+Base.length(c::Countdown) = max(c.from, 0)
+Base.eltype(::Type{Countdown}) = Int
+
+for k in Countdown(3)
+    print(k, " ")
+end
+println()
+println(collect(Countdown(4)), " ", sum(Countdown(10)), " ", maximum(Countdown(5)))
+println([2k for k in Countdown(3)], " ", first(Countdown(9), 2), " ", collect(zip(Countdown(2), "ab")))
+'''
+
+[[section]]
+title = "The AbstractArray interface"
+body = '''
+Subtype `AbstractArray{T,N}` (or `AbstractVector{T}`, `AbstractMatrix{T}`)
+and define two methods:
+
+* `Base.size(A)`: a tuple of dimensions;
+* `Base.getindex(A, i::Int)` for a vector, or `getindex(A, i::Int, j::Int, …)`
+  with one index per dimension.
+
+That is enough for display, iteration, `sum`, broadcasting, `findfirst`,
+slicing, comparisons with `==`, and most of LinearAlgebra. Optional extras:
+`Base.setindex!` for a mutable array, and `Base.IndexStyle(::Type{<:MyArray})
+= IndexLinear()` when one linear index is the natural way to address the
+elements (then you define `getindex(A, i::Int)` even for a matrix). Lazy arrays
+compute elements on demand: below, a one-hot vector stores two integers
+instead of `n` values, and a multiplication table stores one.
+
+Check the index yourself in `getindex`: `@boundscheck checkbounds(A, i)` raises
+a `BoundsError` and lets a caller's `@inbounds` remove the check.
+'''
+
+  [[section.example]]
+  code = '''
+struct OneHot <: AbstractVector{Bool}
+    n::Int
+    k::Int
+end
+Base.size(v::OneHot) = (v.n,)
+function Base.getindex(v::OneHot, i::Int)
+    @boundscheck checkbounds(v, i)
+    return i == v.k
+end
+
+v = OneHot(5, 2)
+println(sum(v), " ", findfirst(v), " ", v == [false, true, false, false, false])
+println(v .* 10, " ", [1, 2, 3, 4, 5]' * v)
+v
+'''
+
+  [[section.example]]
+  caption = "Out-of-range indices are caught by the `checkbounds` we wrote."
+  code = '''
+struct OneHot <: AbstractVector{Bool}
+    n::Int
+    k::Int
+end
+Base.size(v::OneHot) = (v.n,)
+function Base.getindex(v::OneHot, i::Int)
+    @boundscheck checkbounds(v, i)
+    return i == v.k
+end
+try
+    OneHot(5, 2)[7]
+catch err
+    println(sprint(showerror, err))
+end
+'''
+
+  [[section.example]]
+  caption = "A lazy matrix with linear indexing: slicing, `sum` and broadcasting come for free."
+  code = '''
+struct Times <: AbstractMatrix{Int}
+    n::Int
+end
+Base.size(t::Times) = (t.n, t.n)
+Base.IndexStyle(::Type{Times}) = IndexLinear()
+function Base.getindex(t::Times, i::Int)
+    @boundscheck checkbounds(t, i)
+    col, row = fldmod1(i, t.n)    # column-major: column = fld1(i, n), row = mod1(i, n)
+    return row * col
+end
+
+t = Times(4)
+println(t[2, 3], " ", sum(t), " ", t[:, 2], " ", typeof(t .+ 1))
+t
+'''
+
+[[section]]
+title = "Custom display: show"
+body = '''
+Two methods control how a value is printed:
+
+* `Base.show(io::IO, x::T)`: the **compact**, one-line form used by `print`,
+  `string`, `repr`, string interpolation and inside containers. Ideally it
+  looks like code that would recreate the value.
+* `Base.show(io::IO, ::MIME"text/plain", x::T)`: the **rich** form the REPL
+  (and this site) uses to display a value on its own. It may span several
+  lines. If you define only the first, it is used for both.
+
+Do not overload `print` or `display` for this; `show` is the interface they
+both call. `get(io, :compact, false)` tells you when the caller asked for an
+especially short form (e.g. inside a matrix).
+'''
+
+  [[section.example]]
+  code = '''
+struct Money
+    cents::Int
+    currency::String
+end
+amount(m::Money) = string(m.cents ÷ 100, ".", lpad(m.cents % 100, 2, '0'))
+Base.show(io::IO, m::Money) = print(io, m.currency, " ", amount(m))
+Base.show(io::IO, ::MIME"text/plain", m::Money) =
+    print(io, "Money: ", amount(m), " ", m.currency, " (", m.cents, " cents)")
+
+m = Money(1999, "EUR")
+println(m)
+println([m, Money(5, "EUR")])
+println(repr(m), " | ", "price: $m")
+m
+'''
+
+[[section]]
+title = "Ordering and AbstractDict, briefly"
+body = '''
+**Ordering**: define `Base.isless(a::T, b::T)` and `sort`, `sort!`,
+`maximum`, `minimum`, `extrema`, `searchsorted` and `<` all work, because
+they are written in terms of `isless`. Comparing tuples lexicographically is
+a short way to get it right for several fields.
+
+**AbstractDict**: subtype `AbstractDict{K,V}` and define `Base.get(d, k,
+default)`, `Base.iterate` and `Base.length`; then `d[k]`, `haskey`, `keys`,
+`values`, `pairs` and display work. Below, a read-only dictionary of HTTP
+headers that ignores the case of its keys.
+'''
+
+  [[section.example]]
+  code = '''
+struct Version
+    major::Int
+    minor::Int
+    patch::Int
+end
+Base.isless(a::Version, b::Version) = isless((a.major, a.minor, a.patch), (b.major, b.minor, b.patch))
+Base.show(io::IO, v::Version) = print(io, "v", v.major, ".", v.minor, ".", v.patch)
+
+vs = [Version(1, 2, 0), Version(1, 10, 1), Version(0, 9, 9)]
+println(sort(vs), " ", maximum(vs), " ", Version(1, 2, 0) < Version(1, 10, 0))
+'''
+
+  [[section.example]]
+  code = '''
+struct Headers <: AbstractDict{String,String}
+    data::Dict{String,String}
+end
+Headers(ps::Pair{String,String}...) = Headers(Dict(lowercase(k) => v for (k, v) in ps))
+Base.get(h::Headers, k::AbstractString, default) = get(h.data, lowercase(k), default)
+Base.iterate(h::Headers, state...) = iterate(h.data, state...)
+Base.length(h::Headers) = length(h.data)
+
+h = Headers("Content-Type" => "text/html", "Accept" => "*/*")
+println(h["ACCEPT"], " ", haskey(h, "content-type"), " ", get(h, "X-Missing", "none"), " ", length(h))
+h["Cookie"]
+'''
+
+[[section]]
+title = "Testing an interface"
+body = '''
+An informal interface is often implemented half-way, so test it. The `Test`
+standard library provides `@test expr` (passes when `expr` is `true`) and
+`@test_throws ExceptionType expr`; `@testset "name" begin ... end` groups
+tests and prints a summary. Test the *generic* functions that your methods are
+supposed to enable, not only the methods themselves: that is what the
+interface promises.
+
+A `@test` outside a test set prints `Test Passed`, or the failing expression
+with its evaluated values and then throws an error (inside a test set,
+failures are counted instead and reported in the summary). A test set prints one summary line with the counts
+and the time taken (so that example's output is recorded, not checked).
+'''
+
+  [[section.example]]
+  code = '''
+using Test
+@test sum(1:4) == 10
+'''
+
+  [[section.example]]
+  caption = "A failing test shows the expression and the values it compared."
+  code = '''
+using Test
+xs = [3, 1, 2]
+@test sort(xs) == [1, 2, 4]
+'''
+
+  [[section.example]]
+  check = false
+  code = '''
+using Test
+struct Countdown
+    from::Int
+end
+Base.iterate(c::Countdown, n = c.from) = n < 1 ? nothing : (n, n - 1)
+Base.length(c::Countdown) = max(c.from, 0)
+Base.eltype(::Type{Countdown}) = Int
+
+@testset "Countdown iteration" begin
+    @test collect(Countdown(3)) == [3, 2, 1]
+    @test isempty(collect(Countdown(0)))
+    @test length(Countdown(4)) == length(collect(Countdown(4)))
+    @test eltype(collect(Countdown(2))) == Int
+    @test sum(Countdown(4)) == 10
+end;
+'''
+
+[[problem]]
+id = "circular-window-sums"
+title = "Window sums on a circular vector"
+difficulty = "core"
+kcs = ["abstractarray-interface", "concrete-types"]
+entry = "window_sums"
+prompt = '''
+Define a `CircularVector{T} <: AbstractVector{T}` that wraps a `Vector{T}` and
+whose `getindex` wraps around: `c[i]` is `data[mod1(i, length(data))]`, so
+`c[n + 1] == c[1]`. (Define `Base.size` and `Base.getindex(c, i::Int)`.)
+
+Then write `window_sums(v, w)` for a vector `v` and a window length
+`w ≥ 1`: the vector whose `i`-th element is `v[i] + v[i+1] + … + v[i+w-1]`,
+wrapping around the end. The result has the element type of `v`, and the
+same length (empty for an empty `v`).
+
+```julia
+window_sums([1, 2, 3, 4], 2)   # [3, 5, 7, 5]
+window_sums([1, 2, 3], 3)      # [6, 6, 6]
+```
+
+The grader times `v` of 2000 and 16000 elements with `w = n ÷ 10`: each
+window shares all but two elements with the previous one.
+'''
+starter = '''
+struct CircularVector{T} <: AbstractVector{T}
+    data::Vector{T}
+end
+
+function window_sums(v, w)
+    # your code here
+end
+'''
+reference = '''
+struct CircularVector{T} <: AbstractVector{T}
+    data::Vector{T}
+end
+Base.size(c::CircularVector) = size(c.data)
+Base.getindex(c::CircularVector, i::Int) = c.data[mod1(i, length(c.data))]
+
+function window_sums(v, w)
+    n = length(v)
+    out = zeros(eltype(v), n)
+    n == 0 && return out
+    c = CircularVector(v)
+    s = zero(eltype(v))
+    for k in 1:w
+        s += c[k]
+    end
+    for i in 1:n
+        out[i] = s
+        s += c[i + w] - c[i]
+    end
+    return out
+end
+'''
+cases = ["[1, 2, 3, 4], 2", "[1, 2, 3], 3", "[5], 1", "Int[], 2", "[1.5, 2.5, -1.0], 1", "[1, 2, 3], 5"]
+gen = "rng -> [(n = rand(rng, 1:12); (isodd(k) ? rand(rng, -9:9, n) : rand(rng, n), rand(rng, 1:n))) for k in 1:30]"
+compare = "isapprox"
+rtol = 1e-9
+hints = [
+  "Two methods make it an array: `Base.size(c::CircularVector) = size(c.data)` and a `getindex` using `mod1`. The window sum at `i + 1` is the one at `i`, minus one element, plus one.",
+  "Compute the first window with a loop over `c[1:w]` positions (`c[k]` for `k in 1:w`), then for each `i` store `s` and update `s += c[i + w] - c[i]`.",
+]
+
+  [problem.perf]
+  args = "rand(rng, n), n ÷ 10"
+  sizes = [2000, 16000]
+
+  [[problem.variant]]
+  label = "no wrap-around at the end"
+  code = '''
+function window_sums(v, w)
+    n = length(v)
+    return [sum(v[i:min(i + w - 1, n)]) for i in 1:n]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "slices the circular vector (slices are bounds-checked against its axes)"
+  code = '''
+struct CircularVector{T} <: AbstractVector{T}
+    data::Vector{T}
+end
+Base.size(c::CircularVector) = size(c.data)
+Base.getindex(c::CircularVector, i::Int) = c.data[mod1(i, length(c.data))]
+function window_sums(v, w)
+    c = CircularVector(v)
+    return eltype(v)[sum(c[i:i+w-1]) for i in eachindex(v)]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sums every window from scratch"
+  code = '''
+struct CircularVector{T} <: AbstractVector{T}
+    data::Vector{T}
+end
+Base.size(c::CircularVector) = size(c.data)
+Base.getindex(c::CircularVector, i::Int) = c.data[mod1(i, length(c.data))]
+function window_sums(v, w)
+    c = CircularVector(v)
+    out = zeros(eltype(v), length(v))
+    for i in eachindex(out)
+        for k in i:i+w-1
+            out[i] += c[k]
+        end
+    end
+    return out
+end
+'''
+  expect = ["correct", "scaling", "slow"]
+
+  [[problem.variant]]
+  label = "adds w shifted copies with circshift"
+  code = '''
+function window_sums(v, w)
+    out = zeros(eltype(v), length(v))
+    isempty(v) && return out
+    for k in 0:w-1
+        out .+= circshift(v, -k)
+    end
+    return out
+end
+'''
+  expect = ["correct", "allocates", "scaling"]
+
+  [[problem.variant]]
+  label = "field declared data::AbstractVector"
+  code = '''
+struct CircularVector <: AbstractVector{Any}
+    data::AbstractVector
+end
+Base.size(c::CircularVector) = size(c.data)
+Base.getindex(c::CircularVector, i::Int) = c.data[mod1(i, length(c.data))]
+
+function window_sums(v, w)
+    n = length(v)
+    out = zeros(eltype(v), n)
+    n == 0 && return out
+    c = CircularVector(v)
+    s = zero(eltype(v))
+    for k in 1:w
+        s += c[k]
+    end
+    for i in 1:n
+        out[i] = s
+        s += c[i + w] - c[i]
+    end
+    return out
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "running sum with mod1 on the plain vector"
+  code = '''
+function window_sums(v, w)
+    n = length(v)
+    out = similar(v)
+    n == 0 && return out
+    s = zero(eltype(v))
+    for k in 1:w
+        s += v[mod1(k, n)]
+    end
+    for i in 1:n
+        out[i] = s
+        s += v[mod1(i + w, n)] - v[i]
+    end
+    return out
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "collatz-iterator"
+title = "A Collatz iterator"
+difficulty = "core"
+kcs = ["iteration-interface", "allocations"]
+entry = "collatz_stats"
+prompt = '''
+The Collatz sequence from `n ≥ 1` repeats "halve it if even, else `3n + 1`"
+until it reaches 1: from 6 it is 6, 3, 10, 5, 16, 8, 4, 2, 1.
+
+1. Define `struct Collatz` (field `start::Int`) and the iteration interface
+   for it: `Base.iterate` yields the terms from `start` down to and including
+   the final 1. The length is not known in advance, so also define
+   `Base.IteratorSize(::Type{Collatz}) = Base.SizeUnknown()`, and
+   `Base.eltype(::Type{Collatz}) = Int`.
+2. Write `collatz_stats(n)` returning the tuple `(steps, peak)`: the number of
+   steps to reach 1 (one less than the number of terms) and the largest term,
+   by iterating over `Collatz(n)`.
+
+```julia
+collatz_stats(6)    # (8, 16)
+collatz_stats(1)    # (0, 1)
+collect(Collatz(6)) # [6, 3, 10, 5, 16, 8, 4, 2, 1]
+```
+
+You do not need to store the sequence.
+'''
+starter = '''
+struct Collatz
+    start::Int
+end
+
+function collatz_stats(n)
+    # your code here
+end
+'''
+reference = '''
+struct Collatz
+    start::Int
+end
+Base.iterate(c::Collatz) = (c.start, c.start)
+function Base.iterate(c::Collatz, n)
+    n == 1 && return nothing
+    m = iseven(n) ? n ÷ 2 : 3n + 1
+    return (m, m)
+end
+Base.IteratorSize(::Type{Collatz}) = Base.SizeUnknown()
+Base.eltype(::Type{Collatz}) = Int
+
+function collatz_stats(n)
+    steps = -1
+    peak = 0
+    for x in Collatz(n)
+        steps += 1
+        peak = max(peak, x)
+    end
+    return (steps, peak)
+end
+'''
+cases = ["6", "1", "27", "16"]
+gen = "rng -> [(rand(rng, 1:100_000),) for _ in 1:30]"
+hints = [
+  "`iterate(c)` returns the first term and a state; `iterate(c, state)` returns the next `(term, state)` or `nothing`. Here the state can be the current term.",
+  "Stop (return `nothing`) when the current term is 1. In `collatz_stats`, start `steps` at -1 so that the first term does not count as a step.",
+]
+
+  [problem.perf]
+  args = "n"
+  sizes = [837799]
+
+  [[problem.variant]]
+  label = "counts terms instead of steps"
+  code = '''
+struct Collatz
+    start::Int
+end
+Base.iterate(c::Collatz) = (c.start, c.start)
+Base.iterate(c::Collatz, n) = n == 1 ? nothing : (m = iseven(n) ? n ÷ 2 : 3n + 1; (m, m))
+Base.IteratorSize(::Type{Collatz}) = Base.SizeUnknown()
+Base.eltype(::Type{Collatz}) = Int
+function collatz_stats(n)
+    steps = 0; peak = 0
+    for x in Collatz(n)
+        steps += 1
+        peak = max(peak, x)
+    end
+    return (steps, peak)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "iteration skips the starting term"
+  code = '''
+struct Collatz
+    start::Int
+end
+next_term(n) = iseven(n) ? n ÷ 2 : 3n + 1
+Base.iterate(c::Collatz, n = c.start) = n == 1 ? nothing : (next_term(n), next_term(n))
+Base.IteratorSize(::Type{Collatz}) = Base.SizeUnknown()
+Base.eltype(::Type{Collatz}) = Int
+function collatz_stats(n)
+    steps = 0; peak = 1
+    for x in Collatz(n)
+        steps += 1
+        peak = max(peak, x)
+    end
+    return (steps, peak)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "collects the sequence first"
+  code = '''
+struct Collatz
+    start::Int
+end
+Base.iterate(c::Collatz) = (c.start, c.start)
+Base.iterate(c::Collatz, n) = n == 1 ? nothing : (m = iseven(n) ? n ÷ 2 : 3n + 1; (m, m))
+Base.IteratorSize(::Type{Collatz}) = Base.SizeUnknown()
+Base.eltype(::Type{Collatz}) = Int
+function collatz_stats(n)
+    xs = collect(Collatz(n))
+    return (length(xs) - 1, maximum(xs))
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "collects without defining eltype (a Vector{Any})"
+  code = '''
+struct Collatz
+    start::Int
+end
+Base.iterate(c::Collatz) = (c.start, c.start)
+Base.iterate(c::Collatz, n) = n == 1 ? nothing : (m = iseven(n) ? n ÷ 2 : 3n + 1; (m, m))
+Base.IteratorSize(::Type{Collatz}) = Base.SizeUnknown()
+function collatz_stats(n)
+    xs = collect(Collatz(n))
+    return (length(xs) - 1, maximum(xs))
+end
+'''
+  expect = ["correct", "unstable", "allocates"]
+
+  [[problem.variant]]
+  label = "field declared start::Integer: no cost here, inference tracks the Int of a struct built in the same function"
+  code = '''
+struct Collatz
+    start::Integer
+end
+Base.iterate(c::Collatz) = (c.start, c.start)
+Base.iterate(c::Collatz, n) = n == 1 ? nothing : (m = iseven(n) ? n ÷ 2 : 3n + 1; (m, m))
+Base.IteratorSize(::Type{Collatz}) = Base.SizeUnknown()
+Base.eltype(::Type{Collatz}) = Int
+function collatz_stats(n)
+    steps = -1; peak = 0
+    for x in Collatz(n)
+        steps += 1
+        peak = max(peak, x)
+    end
+    return (steps, peak)
+end
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "a while loop without the iterator"
+  code = '''
+function collatz_stats(n)
+    steps = 0
+    peak = n
+    while n != 1
+        n = iseven(n) ? n ÷ 2 : 3n + 1
+        steps += 1
+        peak = max(peak, n)
+    end
+    return (steps, peak)
+end
+'''
+  expect = ["correct", "fast"]

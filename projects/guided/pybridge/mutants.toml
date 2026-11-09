@@ -1,0 +1,113 @@
+# Seeded faults in reference/src (one exact snippet replaced each); see tidy/mutants.toml.
+
+[[mutant]]
+id = "view-copies"
+milestone = 1
+behaviour = "view-shares"
+file = "PyBridge.jl"
+find = "as_numpy(v::Vector{Float64}) = np.asarray(v)"
+replace = "as_numpy(v::Vector{Float64}) = np.array(v)"
+
+[[mutant]]
+id = "copy-is-view"
+milestone = 1
+behaviour = "copy-independent"
+file = "PyBridge.jl"
+find = "nd == 1 && return pyconvert(Vector{Float64}, a)"
+replace = "nd == 1 && return PyArray(a)"
+
+[[mutant]]
+id = "keeps-int-eltype"
+milestone = 1
+behaviour = "copy-converts"
+file = "PyBridge.jl"
+find = "nd == 1 && return pyconvert(Vector{Float64}, a)"
+replace = "nd == 1 && return pyconvert(Vector, a)"
+
+[[mutant]]
+id = "transposed-view"
+milestone = 2
+behaviour = "matrix-layout"
+file = "PyBridge.jl"
+find = "as_numpy(A::Matrix{Float64}) = np.asarray(A)"
+replace = "as_numpy(A::Matrix{Float64}) = np.asarray(permutedims(A))"
+
+[[mutant]]
+id = "c-order-copy"
+milestone = 2
+behaviour = "matrix-shares"
+file = "PyBridge.jl"
+find = "as_numpy(A::Matrix{Float64}) = np.asarray(A)"
+replace = "as_numpy(A::Matrix{Float64}) = np.ascontiguousarray(np.asarray(A))"
+
+[[mutant]]
+id = "row-major-misread"
+milestone = 2
+behaviour = "matrix-copy"
+file = "PyBridge.jl"
+find = "nd == 2 && return pyconvert(Matrix{Float64}, a)"
+replace = "nd == 2 && return reshape(pyconvert(Vector{Float64}, a.ravel()), pyconvert(Int, a.shape[0]), pyconvert(Int, a.shape[1]))"
+
+[[mutant]]
+id = "window-drift"
+milestone = 3
+behaviour = "ma-values"
+file = "PyBridge.jl"
+find = "s += v[i+k-1] - v[i-1]"
+replace = "s += v[i+k-1] - v[i]"
+
+[[mutant]]
+id = "first-window-short"
+milestone = 3
+behaviour = "ma-values"
+file = "PyBridge.jl"
+find = "    for i in 1:k\n"
+replace = "    for i in 1:k-1\n"
+
+[[mutant]]
+id = "np-same-mode"
+milestone = 3
+behaviour = "ma-numpy"
+file = "PyBridge.jl"
+find = "mode = \"valid\""
+replace = "mode = \"same\""
+
+[[mutant]]
+id = "np-sums"
+milestone = 3
+behaviour = "ma-numpy"
+file = "PyBridge.jl"
+find = "w = np.ones(k) / k"
+replace = "w = np.ones(k)"
+
+[[mutant]]
+id = "float32-result"
+milestone = 3
+behaviour = "ma-agree"
+file = "PyBridge.jl"
+find = "out = Vector{Float64}(undef, n - k + 1)"
+replace = "out = Vector{Float32}(undef, n - k + 1)"
+
+[[mutant]]
+id = "no-window-check"
+milestone = 3
+behaviour = "ma-window"
+file = "PyBridge.jl"
+find = "check_window(n, k) = 1 <= k <= n || throw(ArgumentError(\"window k = $k must be in 1:$n\"))"
+replace = "check_window(n, k) = nothing"
+
+[[mutant]]
+id = "view-measures-copy"
+milestone = 4
+behaviour = "view-cost"
+file = "PyBridge.jl"
+find = "view = @allocated as_numpy(v)"
+replace = "view = @allocated from_numpy(a)"
+
+[[mutant]]
+id = "copy-measures-view"
+milestone = 4
+behaviour = "copy-cost"
+file = "PyBridge.jl"
+find = "copy = @allocated from_numpy(a)"
+replace = "copy = @allocated as_numpy(v)"

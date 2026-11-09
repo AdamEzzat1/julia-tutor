@@ -1,0 +1,618 @@
+id = "15-generic-programming"
+title = "Generic programming: parametric types, promotion and traits"
+track = "advanced"
+env = "base"
+status = "ready"
+summary = "Write one method that is fast for every suitable type: parametric methods and structs, zero/one/eltype/similar/promote_type, your own number type with promotion rules, duck typing, Holy traits and Val."
+kcs = ["parametric-methods", "type-invariance", "generic-code", "parametric-structs", "promotion", "duck-typing", "traits", "val-types"]
+prerequisites = ["14-performance"]
+
+[[section]]
+title = "Parametric methods"
+body = '''
+A method signature can name the types it receives: in
+`f(v::AbstractVector{T}) where {T}` the *type parameter* `T` is bound to the
+element type of the argument, and you can use it in the body like any value.
+`where {T<:Real}` restricts it. Writing the same parameter twice,
+`f(x::T, y::T) where {T}`, means "both arguments have the same type".
+
+One rule surprises everyone: parametric types are **invariant**. A
+`Vector{Int}` is *not* a `Vector{Real}`, even though `Int <: Real`, because a
+`Vector{Real}` is a specific container that can hold any mix of reals (see the
+performance unit for why it is slow). To accept "a vector of any real type",
+write `AbstractVector{<:Real}`, short for `AbstractVector{T} where {T<:Real}`.
+'''
+
+  [[section.example]]
+  code = '''
+elementtype(v::AbstractVector{T}) where {T} = T
+sametype(x::T, y::T) where {T} = true
+sametype(x, y) = false
+println(elementtype([1, 2]), " ", elementtype(["a"]), " ", elementtype(1.0:2.0))
+println(sametype(1, 2), " ", sametype(1, 2.0))
+'''
+
+  [[section.example]]
+  caption = "Invariance: `Vector{Real}` accepts only a `Vector{Real}`; `AbstractVector{<:Real}` accepts every real vector."
+  code = '''
+println(Vector{Int} <: Vector{Real}, " ", Vector{Int} <: Vector{<:Real}, " ", Vector{Int} <: AbstractVector{<:Real})
+total_any(v::AbstractVector{<:Real}) = sum(v)
+total_real(v::Vector{Real}) = sum(v)
+println(total_any([1, 2, 3]), " ", total_any(0.5:0.5:2))
+total_real([1, 2, 3])
+'''
+
+[[section]]
+title = "Annotations are for dispatch, not speed"
+body = '''
+Coming from C or Java, it is tempting to annotate every argument. In Julia it
+does not make the code faster: the compiler specialises a method for the
+concrete types it is *called* with, annotated or not. `double(x) = 2x`
+called with a `Float64` compiles to the same single multiplication as
+`double(x::Float64) = 2x`, and it keeps working for integers, rationals,
+`BigFloat`s and types that do not exist yet.
+
+Annotate to **choose between methods** (dispatch), or to document and
+reject what makes no sense. Over-narrow annotations such as `::Float64` or
+`::Vector{Float64}` are a common reason a package refuses an `Int`, a range,
+a view or a `Float32` that would have worked.
+'''
+
+  [[section.example]]
+  caption = "The untyped method, compiled for a `Float64`: one multiplication, inferred `Float64`."
+  code = '''
+double(x) = 2x
+code_typed(double, (Float64,))
+'''
+
+  [[section.example]]
+  code = '''
+double(x) = 2x
+double_float(x::Float64) = 2x
+println(double(3), " ", double(1//3), " ", double(0.25f0), " ", double(big"1.5"))
+double_float(3)
+'''
+
+[[section]]
+title = "Writing generic code: zero, one, eltype, similar, promote_type"
+body = '''
+Generic code never hard-codes a type it can ask for:
+
+* `zero(T)`, `one(T)` (or `zero(x)`): the additive and multiplicative
+  identities of a type, for initialising sums and products;
+* `eltype(v)`: the element type of a collection;
+* `similar(v)`, `similar(v, T)`, `similar(v, T, dims)`: a new uninitialised
+  array "like" `v` (a range or a view gives a `Vector`);
+* `promote_type(S, T)`: the type that a mixed operation produces, e.g. the
+  type of an accumulator over two vectors of different element types.
+
+In the first example notice the last line: the empty inputs return a zero of
+the right type, which a literal `0` could not do.
+'''
+
+  [[section.example]]
+  code = '''
+function mysum(v)
+    s = zero(eltype(v))
+    for x in v
+        s += x
+    end
+    return s
+end
+println(mysum([1, 2, 3]), " | ", mysum([0.5, 0.25]), " | ", mysum([1//2, 1//3]), " | ", mysum([1 + 2im, 3im]))
+println(repr(mysum(Int[])), " | ", repr(mysum(Float32[])), " | ", repr(mysum(Rational{Int}[])))
+'''
+
+  [[section.example]]
+  caption = "`similar` makes the output; `promote_type` names the type of a mixed result."
+  code = '''
+function prefix_sums(v)
+    out = similar(v, eltype(v), length(v))
+    s = zero(eltype(v))
+    for (i, x) in enumerate(v)
+        s += x
+        out[i] = s
+    end
+    return out
+end
+println(prefix_sums([1, 2, 3]), " ", prefix_sums(0.5:0.5:1.5), " ", prefix_sums([1//2, 1//4]))
+println(promote_type(Int, Float64), " ", promote_type(Int, Rational{Int}), " ", promote_type(Float32, Int), " ", promote_type(Int8, Int16))
+'''
+
+[[section]]
+title = "Parametric structs and their constructors"
+body = '''
+`struct Interval{T<:Real}` defines a family of concrete types,
+`Interval{Int64}`, `Interval{Float64}`, …, with concretely typed fields.
+Constructors come in two kinds:
+
+* an **inner constructor** (inside the `struct`, calling `new`) is the only
+  way to create the object, so it is the place to enforce an invariant such as
+  `lo ≤ hi`;
+* **outer constructors** are ordinary methods that add conveniences: here
+  `Interval(1, 3)` infers `T` from the arguments, and `Interval(1, 2.5)`
+  promotes mixed arguments to a common type first.
+
+Once you write an inner constructor, Julia no longer defines the default
+ones, which is why the outer `Interval(lo::T, hi::T)` is needed.
+'''
+
+  [[section.example]]
+  code = '''
+struct Interval{T<:Real}
+    lo::T
+    hi::T
+    function Interval{T}(lo, hi) where {T<:Real}
+        lo <= hi || throw(ArgumentError("need lo ≤ hi, got $lo > $hi"))
+        return new{T}(lo, hi)
+    end
+end
+Interval(lo::T, hi::T) where {T<:Real} = Interval{T}(lo, hi)
+Interval(lo::Real, hi::Real) = Interval(promote(lo, hi)...)
+width(i::Interval) = i.hi - i.lo
+
+println(Interval(1, 3), " ", Interval(1, 2.5))
+println(width(Interval(1//2, 3//4)))
+Interval(3, 1)
+'''
+
+[[section]]
+title = "A number-like type and promotion"
+body = '''
+Arithmetic between different types in Julia goes through **promotion**:
+`1 + 2.5` has no special method; the fallback `+(x::Number, y::Number)` calls
+`promote(x, y)` to convert both to a common type, then adds those. To make
+your own type join in, write
+
+* the operations between two values of your type (`Base.:+`, `Base.:*`, …);
+* `Base.promote_rule(::Type{Mine}, ::Type{Other})`: the common type;
+* `Base.convert(::Type{Mine}, x::Other)`: how to convert.
+
+You extend Base's functions (`Base.:+`), you do not shadow them; that is how
+`sum`, `prod`, `^` and every generic algorithm start working on the new type.
+Below, integers modulo `N` with `N` a type parameter: `Mod{7}` and `Mod{5}`
+are different types, and mixing them is an error (no promotion rule
+between them) rather than a silent bug.
+'''
+
+  [[section.example]]
+  caption = "Operations between two `Mod{N}` values work; `a + 1` fails because there is no promotion rule yet: `promote` cannot find a common type."
+  code = '''
+struct Mod{N} <: Number
+    val::Int
+    Mod{N}(x::Integer) where {N} = new(mod(x, N))
+end
+Base.:+(a::Mod{N}, b::Mod{N}) where {N} = Mod{N}(a.val + b.val)
+Base.:*(a::Mod{N}, b::Mod{N}) where {N} = Mod{N}(a.val * b.val)
+Base.show(io::IO, a::Mod{N}) where {N} = print(io, a.val, " (mod ", N, ")")
+
+a = Mod{7}(5)
+println(a + Mod{7}(4), ", ", a * a)
+a + 1
+'''
+
+  [[section.example]]
+  caption = "With `promote_rule` and `convert`, integers mix in, and generic functions (`sum`, `^`) work unchanged."
+  code = '''
+struct Mod{N} <: Number
+    val::Int
+    Mod{N}(x::Integer) where {N} = new(mod(x, N))
+end
+Base.:+(a::Mod{N}, b::Mod{N}) where {N} = Mod{N}(a.val + b.val)
+Base.:*(a::Mod{N}, b::Mod{N}) where {N} = Mod{N}(a.val * b.val)
+Base.show(io::IO, a::Mod{N}) where {N} = print(io, a.val, " (mod ", N, ")")
+Base.promote_rule(::Type{Mod{N}}, ::Type{<:Integer}) where {N} = Mod{N}
+Base.convert(::Type{Mod{N}}, x::Integer) where {N} = Mod{N}(x)
+
+a = Mod{7}(5)
+println(a + 1, ", ", 3 * a, ", ", a^3)
+println(sum([Mod{7}(3), Mod{7}(6), Mod{7}(1)]))
+a + Mod{5}(1)
+'''
+
+[[section]]
+title = "Duck typing, abstract types and Holy traits"
+body = '''
+Julia supports two styles of generic code, and good code uses both.
+
+**Duck typing**: leave arguments unannotated and use only the operations you
+need. `describe(x)` below calls `length` and `first`, so it works for arrays,
+strings, tuples, dicts, even a number (numbers are iterable collections of one
+element), with no declaration anywhere.
+
+**Dispatch on abstract types** picks a method by what a type *is*:
+`AbstractVector`, `AbstractString`, `Number`. But a type has only one
+supertype, and many properties cut across the hierarchy ("is it sorted?",
+"is its length known?"). For those Julia uses **Holy traits** (after Tim
+Holy): a function from a *type* to a small singleton object, and methods that
+dispatch on that object. Base does this with `Base.IteratorSize`, which
+`collect` uses to decide whether it can preallocate. The trait is computed from
+the type, so the compiler resolves the choice at compile time: there is no
+run-time check left.
+'''
+
+  [[section.example]]
+  code = '''
+describe(x) = "$(length(x)) item(s), first: $(repr(first(x)))"
+println(describe([3, 1, 2]))
+println(describe("hello"))
+println(describe((a = 1, b = 2)))
+println(describe(42))
+'''
+
+  [[section.example]]
+  caption = "Base's trait: what `collect` knows about an iterator's length."
+  code = '''
+println(Base.IteratorSize([1, 2, 3]))
+println(Base.IteratorSize(x^2 for x in 1:3))
+println(Base.IteratorSize(Iterators.filter(iseven, 1:10)))
+println(Base.IteratorSize(Iterators.countfrom(1)))
+'''
+
+  [[section.example]]
+  caption = "A custom trait: ranges declare themselves sorted, so `mymedian` skips the sort for them."
+  code = '''
+abstract type Sortedness end
+struct KnownSorted <: Sortedness end
+struct MaybeUnsorted <: Sortedness end
+sortedness(::Type) = MaybeUnsorted()
+sortedness(::Type{<:AbstractRange}) = KnownSorted()
+
+mymedian(x) = mymedian(sortedness(typeof(x)), x)
+function mymedian(::KnownSorted, x)
+    n = length(x)
+    return (x[(n + 1) ÷ 2] + x[n ÷ 2 + 1]) / 2
+end
+mymedian(::MaybeUnsorted, x) = mymedian(KnownSorted(), sort(x))
+
+println(sortedness(typeof(1:10)), " ", sortedness(typeof([3, 1, 2])))
+println(mymedian(1:10), " ", mymedian([5, 1, 4]), " ", mymedian([7, 1, 3, 2]))
+'''
+
+[[section]]
+title = "Val: values as type parameters (sparingly)"
+body = '''
+`Val(3)` is an instance of the type `Val{3}`: it moves a value into the type
+domain, so methods can dispatch on it and the compiler can treat it as a
+constant. `ntuple(f, Val(4))` builds a tuple whose length is known at compile
+time; `Val(:fast)` can select an algorithm by name.
+
+Use it only when the value is a **literal at the call site**. `Val(n)` with an
+`n` computed at run time creates a type the compiler could not predict, so the
+call becomes a dynamic dispatch and is slower than an ordinary argument. For
+most choices a plain argument or a keyword is the right tool.
+'''
+
+  [[section.example]]
+  code = '''
+println(ntuple(i -> i^2, Val(4)), " ", typeof(Val(4)))
+power(x, ::Val{N}) where {N} = x^N
+println(power(2.0, Val(3)))
+algorithm(::Val{:fast}, x) = "fast path for $x"
+algorithm(::Val{:safe}, x) = "safe path for $x"
+println(algorithm(Val(:fast), 1))
+algorithm(Val(:other), 1)
+'''
+
+[[problem]]
+id = "generic-dot"
+title = "A generic dot product"
+difficulty = "core"
+kcs = ["generic-code", "promotion", "type-invariance"]
+entry = "generic_dot"
+prompt = '''
+Write `generic_dot(x, y)` returning `x[1]*y[1] + x[2]*y[2] + …` for two
+vectors of real numbers of **any** element types (integers, floats,
+rationals, ranges too), possibly different from each other.
+
+* The result has the promoted type: `Int` and `Float64` give a `Float64`,
+  `Rational{Int}` and `Int` give a `Rational{Int}`.
+* Two empty vectors give a zero of that type: `generic_dot(Int[], Float64[])`
+  is `0.0`.
+* Vectors of different lengths throw a `DimensionMismatch`.
+
+```julia
+generic_dot([1, 2, 3], [4, 5, 6])      # 32
+generic_dot([1//2, 1//3], [2, 3])      # 2//1
+```
+
+Do not use `LinearAlgebra.dot`: the point is to write the generic loop.
+'''
+starter = '''
+function generic_dot(x, y)
+    # your code here
+end
+'''
+reference = '''
+function generic_dot(x, y)
+    s = zero(promote_type(eltype(x), eltype(y)))
+    for i in eachindex(x, y)
+        s += x[i] * y[i]
+    end
+    return s
+end
+'''
+cases = ["[1, 2, 3], [4, 5, 6]", "[1//2, 1//3], [2, 3]", "Int[], Float64[]", "[1.5, 2.0], [2, 4]", "1:3, [1.0, 0.5, 2.0]", "[1, 2], [1, 2, 3]"]
+gen = "rng -> [(n = rand(rng, 0:10); (isodd(k) ? rand(rng, -9:9, n) : randn(rng, n), rand(rng, Bool) ? rand(rng, -9:9, n) : rand(rng, -9:9, n) .// rand(rng, 1:5))) for k in 1:30]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Start the sum at a zero of the right type. Which function gives the type of `x[i] * y[i]` from the two element types?",
+  "`zero(promote_type(eltype(x), eltype(y)))`; and `eachindex(x, y)` gives the common indices, throwing a `DimensionMismatch` when they differ.",
+]
+
+  [problem.perf]
+  args = "rand(rng, n), rand(rng, n)"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "accumulator starts as the Int 0"
+  code = '''
+function generic_dot(x, y)
+    s = 0
+    for i in eachindex(x, y)
+        s += x[i] * y[i]
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "starts from zero(eltype(x)) only"
+  code = '''
+function generic_dot(x, y)
+    s = zero(eltype(x))
+    for i in eachindex(x, y)
+        s += x[i] * y[i]
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "annotated ::Vector{Float64}"
+  code = '''
+function generic_dot(x::Vector{Float64}, y::Vector{Float64})
+    s = 0.0
+    for i in eachindex(x, y)
+        s += x[i] * y[i]
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "zip silently ignores a length mismatch"
+  code = '''
+generic_dot(x, y) = sum((a * b for (a, b) in zip(x, y)); init = zero(promote_type(eltype(x), eltype(y))))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "multiplies into a temporary array"
+  code = '''
+generic_dot(x, y) = sum(x .* y)
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "starts at the Int 0 and fixes the type on return"
+  code = '''
+function generic_dot(x, y)
+    s = 0
+    for i in eachindex(x, y)
+        s += x[i] * y[i]
+    end
+    return s + zero(promote_type(eltype(x), eltype(y)))
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "s::Number declaration (harmless: it only converts, inference still sees Float64)"
+  code = '''
+function generic_dot(x, y)
+    s::Number = zero(promote_type(eltype(x), eltype(y)))
+    for i in eachindex(x, y)
+        s += x[i] * y[i]
+    end
+    return s
+end
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "type parameters in the signature"
+  code = '''
+function generic_dot(x::AbstractVector{S}, y::AbstractVector{T}) where {S<:Real,T<:Real}
+    s = zero(promote_type(S, T))
+    for i in eachindex(x, y)
+        s += x[i] * y[i]
+    end
+    return s
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "dual-derivative"
+title = "Derivatives with dual numbers"
+difficulty = "stretch"
+kcs = ["parametric-structs", "promotion", "generic-code"]
+entry = "value_and_derivative"
+prompt = '''
+A **dual number** `a + b·ε` with `ε² = 0` carries a value and a derivative:
+`(a, a′) + (b, b′) = (a + b, a′ + b′)` and `(a, a′) · (b, b′) = (a·b, a′·b + a·b′)`
+(the product rule). Evaluate a polynomial at the dual number `(x, 1)` and you
+get `(p(x), p′(x))` exactly; this is forward-mode automatic differentiation.
+
+1. Define `struct Dual{T<:Real} <: Number` with fields `val::T` and `der::T`,
+   and `Base.:+` and `Base.:*` for two duals.
+2. Add `Base.convert` and `Base.promote_rule` so that a dual plus a plain
+   number works (a plain number `c` is the dual `(c, 0)`).
+3. Write `value_and_derivative(coeffs, x)` that evaluates
+   `coeffs[1] + coeffs[2]*x + coeffs[3]*x^2 + …` (at least one coefficient) at
+   a dual number with Horner's rule (`s = s*t + c`, from the last coefficient
+   to the first) and returns the tuple `(p(x), p′(x))` of plain numbers.
+
+Both results have the promoted type of the coefficients and `x`:
+
+```julia
+value_and_derivative([1, 2, 3], 2)        # (17, 14)
+value_and_derivative([0, 0, 1], 1//2)     # (1//4, 1//1)
+value_and_derivative([1.0, 2.0], 3)       # (7.0, 2.0)
+```
+
+Results are compared exactly (tuples have no `isapprox`); Horner's rule on
+duals gives exactly the reference's floating-point values.
+'''
+starter = '''
+struct Dual{T<:Real} <: Number
+    val::T
+    der::T
+end
+
+function value_and_derivative(coeffs, x)
+    # your code here
+end
+'''
+reference = '''
+struct Dual{T<:Real} <: Number
+    val::T
+    der::T
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.val + b.val, a.der + b.der)
+Base.:*(a::Dual, b::Dual) = Dual(a.val * b.val, a.der * b.val + a.val * b.der)
+Base.convert(::Type{Dual{T}}, x::Real) where {T<:Real} = Dual{T}(x, zero(T))
+Base.promote_rule(::Type{Dual{T}}, ::Type{S}) where {T<:Real,S<:Real} = Dual{promote_type(T, S)}
+
+function value_and_derivative(coeffs, x)
+    t = Dual{promote_type(eltype(coeffs), typeof(x))}(x, one(x))
+    s = Dual(zero(t.val), zero(t.val))
+    for c in Iterators.reverse(coeffs)
+        s = s * t + c
+    end
+    return (s.val, s.der)
+end
+'''
+cases = ["[1, 2, 3], 2", "[5], 10", "[0, 0, 1], 1//2", "[1, -1, 0, 2], 0.5", "[1.0, 2.0], 3"]
+gen = "rng -> [(rand(rng, -9:9, rand(rng, 1:7)), rand(rng, (rand(rng, -5:5), rand(rng, -5:5) // rand(rng, 1:4), rand(rng, -8:8) / 4))) for _ in 1:30]"
+hints = [
+  "Once `promote_rule` and `convert` exist, `s * t + c` with a dual `s * t` and a plain `c` promotes `c` to a dual for you.",
+  "`convert(::Type{Dual{T}}, x::Real) where {T<:Real} = Dual{T}(x, zero(T))`, and start Horner's rule from a dual zero of the promoted type `T`.",
+]
+
+  [problem.perf]
+  args = "rand(rng, -9:9, n), 0.999"
+  sizes = [20000]
+
+  [[problem.variant]]
+  label = "derivative without the product rule"
+  code = '''
+struct Dual{T<:Real} <: Number
+    val::T
+    der::T
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.val + b.val, a.der + b.der)
+Base.:*(a::Dual, b::Dual) = Dual(a.val * b.val, a.der * b.der)
+Base.convert(::Type{Dual{T}}, x::Real) where {T<:Real} = Dual{T}(x, zero(T))
+Base.promote_rule(::Type{Dual{T}}, ::Type{S}) where {T<:Real,S<:Real} = Dual{promote_type(T, S)}
+
+function value_and_derivative(coeffs, x)
+    t = Dual{promote_type(eltype(coeffs), typeof(x))}(x, one(x))
+    s = Dual(zero(t.val), zero(t.val))
+    for c in Iterators.reverse(coeffs)
+        s = s * t + c
+    end
+    return (s.val, s.der)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "plain numbers converted with derivative 1"
+  code = '''
+struct Dual{T<:Real} <: Number
+    val::T
+    der::T
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.val + b.val, a.der + b.der)
+Base.:*(a::Dual, b::Dual) = Dual(a.val * b.val, a.der * b.val + a.val * b.der)
+Base.convert(::Type{Dual{T}}, x::Real) where {T<:Real} = Dual{T}(x, one(T))
+Base.promote_rule(::Type{Dual{T}}, ::Type{S}) where {T<:Real,S<:Real} = Dual{promote_type(T, S)}
+
+function value_and_derivative(coeffs, x)
+    t = Dual{promote_type(eltype(coeffs), typeof(x))}(x, one(x))
+    s = Dual(zero(t.val), zero(t.val))
+    for c in Iterators.reverse(coeffs)
+        s = s * t + c
+    end
+    return (s.val, s.der)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Horner's rule starts from the Int 0"
+  code = '''
+struct Dual{T<:Real} <: Number
+    val::T
+    der::T
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.val + b.val, a.der + b.der)
+Base.:*(a::Dual, b::Dual) = Dual(a.val * b.val, a.der * b.val + a.val * b.der)
+Base.convert(::Type{Dual{T}}, x::Real) where {T<:Real} = Dual{T}(x, zero(T))
+Base.promote_rule(::Type{Dual{T}}, ::Type{S}) where {T<:Real,S<:Real} = Dual{promote_type(T, S)}
+
+function value_and_derivative(coeffs, x)
+    t = Dual{promote_type(eltype(coeffs), typeof(x))}(x, one(x))
+    s = 0
+    for c in Iterators.reverse(coeffs)
+        s = s * t + c
+    end
+    return (s.val, s.der)
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "abstract fields instead of a type parameter"
+  code = '''
+struct Dual <: Number
+    val::Real
+    der::Real
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.val + b.val, a.der + b.der)
+Base.:*(a::Dual, b::Dual) = Dual(a.val * b.val, a.der * b.val + a.val * b.der)
+Base.convert(::Type{Dual}, x::Real) = Dual(x, zero(x))
+Base.promote_rule(::Type{Dual}, ::Type{<:Real}) = Dual
+
+function value_and_derivative(coeffs, x)
+    T = promote_type(eltype(coeffs), typeof(x))
+    t = Dual(convert(T, x), one(T))
+    s = Dual(zero(T), zero(T))
+    for c in Iterators.reverse(coeffs)
+        s = s * t + convert(T, c)
+    end
+    return (s.val, s.der)
+end
+'''
+  expect = ["correct", "unstable", "allocates", "slow"]
+
+  [[problem.variant]]
+  label = "two Horner recurrences, no Dual type"
+  code = '''
+function value_and_derivative(coeffs, x)
+    p = zero(promote_type(eltype(coeffs), typeof(x)))
+    dp = p
+    for c in Iterators.reverse(coeffs)
+        dp = dp * x + p
+        p = p * x + c
+    end
+    return (p, dp)
+end
+'''
+  expect = ["correct", "fast"]

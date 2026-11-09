@@ -1,0 +1,536 @@
+id = "16-metaprogramming"
+title = "Metaprogramming: expressions, eval and macros"
+track = "advanced"
+env = "base"
+status = "ready"
+summary = "Julia code is data: Symbols and Exprs, quoting and interpolation, eval and why it belongs at global scope, macros with esc and hygiene, @macroexpand, and generating methods with @eval loops."
+kcs = ["symbols", "expressions", "quoting", "interpolation", "eval", "macros", "hygiene", "code-generation"]
+prerequisites = ["15-generic-programming"]
+
+[[section]]
+title = "Symbols and expressions"
+body = '''
+Before Julia runs your code it parses it into a data structure you can
+inspect and build yourself. A **`Symbol`** is an interned name: `:x` is the
+symbol `x` (and `Symbol("x")` makes the same one). An **`Expr`** has a
+`head` saying what kind of expression it is (`:call`, `:(=)`, `:block`,
+`:if`, …) and a vector `args` of sub-expressions, which can be symbols,
+literals or further `Expr`s.
+
+`Meta.parse` turns a string into an expression, and `dump` prints the tree.
+Notice that an operator call `a + 1` is just a `:call` whose first argument is
+the function's name `:+`.
+'''
+
+  [[section.example]]
+  code = '''
+ex = Meta.parse("a + b * 2")
+println(typeof(ex), " ", ex.head, " ", ex.args)
+println(typeof(:a), " ", :a === Symbol("a"))
+dump(:(a + 1))
+'''
+
+[[section]]
+title = "Quoting and interpolation"
+body = '''
+`:( ... )` *quotes* code: it returns the expression instead of evaluating it.
+For several lines, `quote ... end` does the same and produces a `:block`
+expression; it also records source positions as `LineNumberNode`s (the
+`#= main.jl:3 =#` comments in the display), which
+`Base.remove_linenums!` strips.
+
+Inside a quote, `$` **interpolates**: `:($x + 1)` puts the *value* of `x`
+into the expression, while `:(x + 1)` keeps the symbol. `$(args...)` splices
+a list of arguments. You can also build expressions directly with
+`Expr(head, args...)`, which is what quoting does for you.
+'''
+
+  [[section.example]]
+  code = '''
+ex1 = :(x + 1)
+ex2 = quote
+    y = x + 1
+    y * 2
+end
+println(typeof(ex1), " ", ex1.head, " ", ex2.head)
+ex2
+'''
+
+  [[section.example]]
+  code = '''
+x = 10
+println(:(x + 1), "   ", :($x + 1))
+args = [:a, :b, :c]
+println(:(f($(args...))))
+println(Expr(:call, :+, 1, 2) == :(1 + 2))
+'''
+
+[[section]]
+title = "eval, and why not inside functions"
+body = '''
+`eval(ex)` evaluates an expression **in the global scope of the current
+module**. At the top level that is useful: it can define variables or
+functions whose names are computed (`eval(:($name = 42)))`).
+
+Inside a function `eval` is almost always a mistake. It cannot see the
+function's local variables (they do not exist in global scope), it compiles
+the expression anew on every call, and its result has a type the compiler
+cannot know. If you find yourself writing `eval` inside a function, you
+usually want a closure, a `Dict` from names to functions, or dispatch.
+'''
+
+  [[section.example]]
+  code = '''
+ex = :(2 + 3 * 4)
+println(eval(ex))
+name = :answer
+eval(:($name = 42))
+answer
+'''
+
+  [[section.example]]
+  caption = "`eval` runs in global scope, so the local `y` is invisible to it."
+  code = '''
+function add_one_with_eval(y)
+    return eval(:(y + 1))
+end
+add_one_with_eval(2)
+'''
+
+[[section]]
+title = "Macros, esc and hygiene"
+body = '''
+A **macro** is a function that runs when the code is *parsed*: it receives
+its arguments as expressions (unevaluated) and returns a new expression that
+replaces the macro call. `@macroexpand` shows that replacement, which is the
+first thing to look at when a macro misbehaves.
+
+Macros are **hygienic**: variables that the macro's own code assigns are
+renamed (to fresh names from `gensym`) so they cannot clash with the
+caller's, and other names are looked up in the module where the macro was
+defined. Code that comes from the *caller* must be wrapped in `esc(...)` so
+that it keeps its meaning in the caller's scope. Forgetting `esc` is the
+classic macro bug. In the second example the unescaped `x` in `x *= 3` is
+resolved in the macro's module, as the global `Main.x`, and an expansion may
+not assign to a module-qualified name: the error points at the macro call.
+'''
+
+  [[section.example]]
+  code = '''
+macro twice(ex)
+    return quote
+        $(esc(ex))
+        $(esc(ex))
+    end
+end
+x = 1
+@twice x *= 3
+println(x)
+Base.remove_linenums!(@macroexpand @twice x *= 3)
+'''
+
+  [[section.example]]
+  caption = "Without `esc`, the caller's `x` is read as a name in the macro's module."
+  code = '''
+macro twice_unescaped(ex)
+    return quote
+        $ex
+        $ex
+    end
+end
+x = 1
+@twice_unescaped x *= 3
+'''
+
+  [[section.example]]
+  caption = "Hygiene protects the caller: the macro's own `n` is a different variable."
+  code = '''
+macro repeat3(ex)
+    return quote
+        n = 0
+        for _ in 1:3
+            $(esc(ex))
+            n += 1
+        end
+        n
+    end
+end
+n = 100
+r = @repeat3 print("hi ")
+println()
+println(r, " ", n)
+'''
+
+[[section]]
+title = "Small useful macros"
+body = '''
+Macros earn their place when they need the *code itself*, not only its
+value: to skip evaluating it, to evaluate it differently, or to print it.
+`@unless cond body` evaluates `body` only when `cond` is false, which no
+function can do (a function's arguments are evaluated before it is called).
+`@logcall f(args...)` prints the call as written in the source together with
+the argument values, then makes the call. Note how it checks its input and
+raises a clear error at expansion time for anything that is not a call.
+'''
+
+  [[section.example]]
+  code = '''
+macro unless(cond, body)
+    return :(if !$(esc(cond))
+        $(esc(body))
+    end)
+end
+balance = 5
+@unless balance > 10 println("low balance: ", balance)
+@unless balance > 1 println("never printed")
+Base.remove_linenums!(@macroexpand @unless balance > 10 println("low"))
+'''
+
+  [[section.example]]
+  code = '''
+macro logcall(ex)
+    (ex isa Expr && ex.head == :call) || error("@logcall expects a function call, got $(repr(ex))")
+    f = ex.args[1]
+    args = ex.args[2:end]
+    return quote
+        local vals = ($(map(esc, args)...),)
+        println("call ", $(string(ex)), " with ", vals)
+        $(esc(f))(vals...)
+    end
+end
+a = 3
+r = @logcall max(a, 2a + 1)
+println("result ", r)
+@logcall a + 1
+@logcall 42
+'''
+
+[[section]]
+title = "When a function is enough"
+body = '''
+A macro is harder to read, to debug and to compose than a function, so use a
+function whenever the *values* are all you need. A macro that pastes its
+argument twice also **evaluates it twice**, with every side effect: below,
+`@square(next!())` calls `next!` twice and multiplies two different numbers,
+while the function `square` evaluates its argument once. Julia's compiler
+already inlines small functions, so a macro is never needed "for speed".
+'''
+
+  [[section.example]]
+  code = '''
+macro square(ex)
+    return :($(esc(ex)) * $(esc(ex)))
+end
+square(x) = x * x
+counter = 0
+next!() = (global counter += 1; counter)
+println(@square(next!()), " after ", counter, " calls")
+counter = 0
+println(square(next!()), " after ", counter, " call")
+'''
+
+[[section]]
+title = "Generating methods with @eval"
+body = '''
+`@eval expr` is `eval(:(expr))` with interpolation: a loop over symbols can
+define many similar methods at once. This is how Base defines arithmetic for
+its many number types, and it is the right tool when the methods differ only
+in a name or an operator. The loop runs once, at load time; the generated
+methods are ordinary compiled methods, with no run-time cost.
+'''
+
+  [[section.example]]
+  code = '''
+struct Vec2
+    x::Float64
+    y::Float64
+end
+for op in (:+, :-, :*)
+    @eval Base.$op(a::Vec2, b::Vec2) = Vec2($op(a.x, b.x), $op(a.y, b.y))
+end
+println(Vec2(1, 2) + Vec2(3, 4))
+println(Vec2(1, 2) * Vec2(3, 4))
+for (name, factor) in ((:double, 2), (:triple, 3))
+    @eval $name(x) = $factor * x
+end
+println(double(5), " ", triple(5))
+'''
+
+[[problem]]
+id = "expr-call-counts"
+title = "Count the function calls in an expression"
+difficulty = "core"
+kcs = ["expressions", "symbols"]
+entry = "call_counts"
+prompt = '''
+Write `call_counts(ex)` that walks the expression `ex` and counts, for every
+function called by name, how many times it is called. A call is an `Expr`
+with head `:call`; its first argument is the function (count it only when it
+is a `Symbol`); calls nested inside arguments count too. Return the counts as
+a vector of `name => count` pairs sorted by name (`sort!(collect(dict))`), so
+the order does not depend on a `Dict`'s internal layout.
+
+```julia
+call_counts(:(sin(x) + sin(y) * 2))   # [:* => 1, :+ => 1, :sin => 2]
+call_counts(:x)                       # Pair{Symbol, Int64}[]
+```
+
+`ex.args` is a `Vector{Any}`: anything can be in it. Recursion with one method
+for `Expr` and one for everything else lets dispatch sort that out.
+'''
+starter = '''
+function call_counts(ex)
+    # your code here
+end
+'''
+reference = '''
+function call_counts(ex)
+    counts = Dict{Symbol,Int}()
+    count_calls!(counts, ex)
+    return sort!(collect(counts))
+end
+count_calls!(counts, x) = counts
+function count_calls!(counts, ex::Expr)
+    if ex.head == :call && ex.args[1] isa Symbol
+        f = ex.args[1]::Symbol
+        counts[f] = get(counts, f, 0) + 1
+    end
+    for a in ex.args
+        count_calls!(counts, a)
+    end
+    return counts
+end
+'''
+cases = [":(sin(x) + sin(y) * 2)", ":x", ":(f(g(h(1)), g(2)))", ":(a.b(c))", "Meta.parse(\"y = max(1, min(x, 3)) + max(4, 5)\")"]
+gen = "rng -> [(Meta.parse(join(rand(rng, [\"sin(x)\", \"cos(sin(y))\", \"x * 2\", \"f(x, g(y))\", \"z\", \"3\", \"h(a)(b)\"], rand(rng, 1:6)), \" + \")),) for _ in 1:25]"
+hints = [
+  "Keep a `Dict{Symbol,Int}` of counts and visit every sub-expression in `ex.args`, recursively.",
+  "Write a helper with two methods: one for `ex::Expr` (count `ex.args[1]` when `ex.head == :call` and it is a `Symbol`, then recurse into every argument), one for anything else that does nothing.",
+]
+
+  [problem.perf]
+  args = "Meta.parse(join(rand(rng, [\"sin(x)\", \"cos(sin(y))\", \"x * 2\", \"f(x, g(y))\"], n), \" + \"))"
+  sizes = [4000]
+
+  [[problem.variant]]
+  label = "only looks at the top-level call"
+  code = '''
+function call_counts(ex)
+    counts = Dict{Symbol,Int}()
+    if ex isa Expr && ex.head == :call && ex.args[1] isa Symbol
+        counts[ex.args[1]] = 1
+    end
+    return sort!(collect(counts))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "counts every symbol, variables included"
+  code = '''
+function call_counts(ex)
+    counts = Dict{Symbol,Int}()
+    walk!(counts, ex)
+    return sort!(collect(counts))
+end
+walk!(counts, x) = counts
+walk!(counts, s::Symbol) = (counts[s] = get(counts, s, 0) + 1; counts)
+function walk!(counts, ex::Expr)
+    for a in ex.args
+        walk!(counts, a)
+    end
+    return counts
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "untyped Dict() gives Pair{Any, Any}"
+  code = '''
+function call_counts(ex)
+    counts = Dict()
+    walk!(counts, ex)
+    return sort!(collect(counts))
+end
+walk!(counts, x) = counts
+function walk!(counts, ex::Expr)
+    if ex.head == :call && ex.args[1] isa Symbol
+        counts[ex.args[1]] = get(counts, ex.args[1], 0) + 1
+    end
+    foreach(a -> walk!(counts, a), ex.args)
+    return counts
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "collects every name into a vector first"
+  code = '''
+function call_counts(ex)
+    names = Symbol[]
+    collect_names!(names, ex)
+    counts = Dict{Symbol,Int}()
+    for f in names
+        counts[f] = get(counts, f, 0) + 1
+    end
+    return sort!(collect(counts))
+end
+collect_names!(names, x) = names
+function collect_names!(names, ex::Expr)
+    ex.head == :call && ex.args[1] isa Symbol && push!(names, ex.args[1])
+    for a in ex.args
+        collect_names!(names, a)
+    end
+    return names
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "explicit stack: a Vector{Any} in the entry function"
+  code = '''
+function call_counts(ex)
+    counts = Dict{Symbol,Int}()
+    stack = Any[ex]
+    while !isempty(stack)
+        e = pop!(stack)
+        e isa Expr || continue
+        if e.head == :call && e.args[1] isa Symbol
+            counts[e.args[1]] = get(counts, e.args[1], 0) + 1
+        end
+        append!(stack, e.args)
+    end
+    return sort!(collect(counts))
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "foreach with a closure: the dynamic calls allocate"
+  code = '''
+function call_counts(ex)
+    counts = Dict{Symbol,Int}()
+    visit!(counts, ex)
+    return sort!(collect(counts))
+end
+visit!(counts, x) = nothing
+function visit!(counts, ex::Expr)
+    f = ex.args[1]
+    ex.head == :call && f isa Symbol && (counts[f] = get(counts, f, 0) + 1)
+    foreach(a -> visit!(counts, a), ex.args)
+    return nothing
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "expr-substitute"
+title = "Substitute a value for a symbol"
+difficulty = "core"
+kcs = ["expressions", "quoting", "interpolation"]
+entry = "substitute"
+prompt = '''
+Write `substitute(ex, var, val)` that returns a **new** expression in which
+every occurrence of the symbol `var` in the `Expr` `ex` (at any depth) is
+replaced by `val`. The original `ex` must not change: the grader checks it
+after the call.
+
+```julia
+substitute(:(x^2 + 2x + 1), :x, 3)        # :(3 ^ 2 + 2 * 3 + 1)
+eval(substitute(:(x^2 + 2x + 1), :x, 3))  # 16
+substitute(:(exp(x) + y), :x, :(a + b))   # :(exp(a + b) + y)
+```
+
+Expressions are compared with `isequal`, which compares the trees. Turning
+the expression into a string and back is not a correct shortcut (try `exp`).
+As in the previous problem, a helper with one method per kind of node
+(`Symbol`, `Expr`, anything else) keeps `Any`-typed variables out of your
+entry function; the grader checks its types.
+'''
+starter = '''
+function substitute(ex, var, val)
+    # your code here
+end
+'''
+reference = '''
+substitute(ex::Expr, var, val) = subst(ex, var, val)
+subst(s::Symbol, var, val) = s === var ? val : s
+subst(e::Expr, var, val) = Expr(e.head, (subst(a, var, val) for a in e.args)...)
+subst(x, var, val) = x
+'''
+cases = [":(x^2 + 2x + 1), :x, 3", ":(exp(x) + y), :x, :(a + b)", ":(f(y)), :x, 1", ":(x = x + 1), :x, :z", ":(g(h(x, x), x)), :x, 0.5"]
+gen = "rng -> [(Meta.parse(join(rand(rng, [\"x\", \"y\", \"exp(x)\", \"f(x, y)\", \"x^2\", \"g(h(x))\", \"2\"], rand(rng, 1:6)), \" + \")), rand(rng, [:x, :y, :f]), rand(rng, (1, :q, :(p * 2)))) for _ in 1:25]"
+compare_args = true
+hints = [
+  "Rebuild the tree: a new `Expr` with the same `head` and every argument substituted, recursively.",
+  "Write methods for `Symbol` (replace it when it is `var`), for `Expr` (`Expr(e.head, (... for a in e.args)...)`), and for anything else (return it unchanged).",
+]
+
+  [problem.perf]
+  args = "Meta.parse(join(rand(rng, [\"x\", \"exp(x)\", \"f(x, y)\", \"g(h(x))\", \"p(q(r(s(x, y))))\"], n), \" + \")), :x, 2"
+  sizes = [4000]
+
+  [[problem.variant]]
+  label = "modifies the original expression"
+  code = '''
+substitute(ex, var, val) = subst!(ex, var, val)
+function subst!(e::Expr, var, val)
+    for (i, a) in enumerate(e.args)
+        e.args[i] = a === var ? val : a isa Expr ? subst!(a, var, val) : a
+    end
+    return e
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "only replaces top-level arguments"
+  code = '''
+substitute(ex, var, val) = Expr(ex.head, (a === var ? val : a for a in ex.args)...)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "string replacement and Meta.parse"
+  code = '''
+substitute(ex, var, val) = Meta.parse(replace(string(ex), string(var) => string(val)))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "one recursive entry function: the loop variable over ex.args is Any"
+  code = '''
+function substitute(ex, var, val)
+    new = copy(ex)
+    for (i, a) in enumerate(new.args)
+        if a === var
+            new.args[i] = val
+        elseif a isa Expr
+            new.args[i] = substitute(a, var, val)
+        end
+    end
+    return new
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "copy (Expr trees are copied deeply), then replace in place"
+  code = '''
+function substitute(ex, var, val)
+    new = copy(ex)
+    subst!(new, var, val)
+    return new
+end
+function subst!(e::Expr, var, val)
+    for (i, a) in enumerate(e.args)
+        if a === var
+            e.args[i] = val
+        elseif a isa Expr
+            subst!(a, var, val)
+        end
+    end
+    return e
+end
+'''
+  expect = ["correct", "fast"]

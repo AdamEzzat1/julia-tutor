@@ -1,0 +1,406 @@
+name = "figures"
+package = "Figures"
+env = "plots"
+status = "ready"
+title = "Figures: one report figure set, four plotting libraries"
+summary = "Build the figures for a short report on one data set: data preparation you test exactly, then the same panel of plots in CairoMakie, in AlgebraOfGraphics, in Plots.jl and in Gadfly, each saved to SVG. The tests check what a figure contains (axes, labels, number of series, legend entries), never its pixels."
+kcs = ["packages", "testing", "data-preparation", "plotting", "figure-structure"]
+reading = '''
+Prerequisites: course unit 22 (plotting) and unit 21.
+`data/weather.csv` holds daily temperatures for three cities from January
+to March 2025, one column per city; an empty field means the sensor sent
+nothing that day. The `plots` environment has DataFrames but no CSV
+package, so milestone 1 starts with a small reader of your own.
+
+Figures are tested through the objects the libraries return (a Makie
+`Figure` has axes, an axis has plots and labels, a `Plots.Plot` has a list
+of series), not by comparing images: renderers differ by machine, so pixel
+tests break for reasons unrelated to your code. Container only on Windows
+hosts.
+
+Every panel uses the same strings. Daily panel: title `Daily temperature`,
+x label `Day of year`, y label `Temperature (°C)`. Monthly panel: title
+`Monthly mean`, x label `Month`, y label `Mean temperature (°C)`. Legend
+title: `City`.
+'''
+
+[[milestone]]
+id = 0
+title = "A package with a test suite"
+min_score = 1.0
+goal = '''
+Create the package as in the tidy project's milestone 0 (`tutor guided show
+tidy 0` has the full steps): `Pkg.generate("Figures")`, move
+`Project.toml` and `src/` into this folder, run `./tutor guided deps <this
+folder>` from the julia-tutor folder (CairoMakie, AlgebraOfGraphics, Plots,
+Gadfly, DataFrames), and write `test/runtests.jl` with `using Figures, Test`
+and one check.
+'''
+
+  [[milestone.api]]
+  signature = "module Figures"
+  doc = "Defined in src/Figures.jl."
+
+  [[milestone.behaviour]]
+  id = "package-layout"
+  kc = "packages"
+  spec = "`src/Figures.jl` defines a module named `Figures` that loads without errors."
+  hints = [
+    "A package is a module whose name matches its file name under src/.",
+    "Open src/Figures.jl: its first code line should be `module Figures` and its last `end`.",
+    "If loading fails, the error above names the line; a `using` of a package missing from the environment is the usual cause.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Any check that runs counts here.",
+    "`@test Figures isa Module` is enough for milestone 0.",
+    "Put it inside a `@testset` so the report names it.",
+  ]
+
+[[milestone]]
+id = 1
+title = "Data preparation"
+min_score = 0.8
+must_cover = ["read-wide", "long-format", "monthly-means"]
+goal = '''
+Turn `data/weather.csv` (one column per city) into the tables the figures
+need: a long table with one row per observation, and monthly means per
+city. Everything here is exact (copies and means of a few numbers), so
+test it exactly or with a tolerance you derive.
+'''
+
+  [[milestone.api]]
+  signature = "read_wide(io::IO) -> DataFrame"
+  doc = "Column date (Date), then one column per city in file order, Union{Missing, Float64}. Use it on the file with open(read_wide, path)."
+
+  [[milestone.api]]
+  signature = "long_format(wide::DataFrame) -> DataFrame"
+  doc = "Columns date, city (String), temp (Float64): one row per non-missing value, sorted by city, then date."
+
+  [[milestone.api]]
+  signature = "monthly_means(long::DataFrame) -> DataFrame"
+  doc = "Columns city, month (Int, 1 to 12), mean_temp: one row per city and month, sorted by city, then month."
+
+  [[milestone.behaviour]]
+  id = "read-wide"
+  kc = "data-preparation"
+  spec = "`read_wide(io)` reads the wide CSV text: the header names the columns, `date` holds `Date`s, and each city column holds `Union{Missing, Float64}` values, with `missing` (never 0) for an empty field."
+  hints = [
+    "There is no CSV package in this environment: a line of the file is text you cut at the commas.",
+    "Two fields need care: the first one of each line is a date, and a city's field may be empty when its sensor sent nothing.",
+    "Write a small function for one field that returns the no-value marker for a blank field and the number otherwise, and turn the first field into a date with the constructor from `Dates`.",
+  ]
+  answer_tokens = ["isempty(", "Date(r[1])", "parse(Float64"]
+  test_hints = [
+    "Read a small text you write in the test (`read_wide(IOBuffer(txt))`) that has an empty field in it.",
+    "Check `ismissing` on the empty field, and that the `date` column's element type is `Date`.",
+    "Put an empty field in the middle of a line, so a reader that turns it into 0 or shifts the columns is caught.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "long-format"
+  kc = "data-preparation"
+  spec = "`long_format(wide)` has columns `date`, `city` (`String`) and `temp` (`Float64`): every non-missing value of the wide table appears exactly once, missing ones not at all, and rows are sorted by city, then date."
+  hints = [
+    "Plotting libraries want one row per point, with the series name in a column of its own.",
+    "After reshaping the city columns into a name column and a value column, two things remain: the rows whose value is missing, and the order of the rows.",
+    "DataFrames has a function that turns wide columns into long rows (unit 21, \"Reshaping: wide and long\"); after it, remove the rows without a temperature and order the rows on two columns.",
+  ]
+  answer_tokens = ["stack(", "dropmissing", "sort!(", "[:city, :date]"]
+  test_hints = [
+    "Build a wide `DataFrame` in the test with two cities and one missing value.",
+    "Check the number of rows (values minus missing ones) and the element type of `temp`: `Float64`, not a union with `Missing`.",
+    "Put the city columns out of alphabetical order and check the whole `city` and `date` columns, so the row order is tested too.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "monthly-means"
+  kc = "data-preparation"
+  spec = "`monthly_means(long)` has columns `city`, `month` (`Int`, 1 to 12) and `mean_temp`: one row per city and month, the mean of that month's non-missing temperatures (the input may hold `missing`), sorted by city, then month, whatever the order of the input rows."
+  hints = [
+    "This is split-apply-combine with two keys.",
+    "Make a month column from the date first; a single `missing` temperature must not turn the whole mean into `missing`.",
+    "Group by city and month, combine with a mean that ignores absent values, and order the result on the two keys yourself: grouping keeps the order in which the groups first appear.",
+  ]
+  answer_tokens = ["skipmissing", "sort!(", "groupby(t, [:city, :month])"]
+  test_hints = [
+    "Give it a small long table with two months for one city.",
+    "Include a `missing` temperature in a month that has other values, and compare the mean with `≈` and a stated `rtol`.",
+    "Feed the rows in an order that is not sorted (a later month first), so a result that keeps the input order is caught.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "`data/weather.csv` has 90 dates, 3 city columns and 6 empty fields. How many rows does `stack(wide, Not(:date))` return?"
+  choices = ["270", "264", "90"]
+  answer = 1
+  explain = "`stack` makes one row per date and city column, 90 × 3 = 270, and keeps the missing values as rows with `missing`; removing them (264 rows) is a separate step, which is why `long_format` has one."
+  misconceptions = [
+    "",
+    "264 is the count after the missing values are removed; `stack` itself keeps them.",
+    "90 is the number of dates; the long table has one row per date and city.",
+  ]
+
+[[milestone]]
+id = 2
+title = "Makie"
+min_score = 0.8
+must_cover = ["makie-structure", "makie-lines", "makie-legend"]
+goal = '''
+A two-panel figure from the two tables: daily temperatures per city as
+lines in `fig[1, 1]`, monthly means as bars in `fig[1, 2]`, and a legend in
+`fig[1, 3]`. Titles and labels are in the reading (`tutor guided show
+figures`). The x value of a daily point is its day of the year.
+'''
+
+  [[milestone.api]]
+  signature = "makie_panel(long::DataFrame, monthly::DataFrame) -> Makie.Figure"
+  doc = "Two axes with titles and axis labels, one line per city, bars dodged by city, a legend with one entry per city."
+
+  [[milestone.behaviour]]
+  id = "makie-structure"
+  kc = "figure-structure"
+  spec = "The figure holds two `Axis` blocks, the daily one in cell (1, 1) and the monthly one in cell (1, 2), each with the title, x label and y label given in the reading."
+  hints = [
+    "Each axis has its own title and labels; the second axis is not a copy of the first.",
+    "Compare each axis's title, x label and y label with the reading, one by one; the monthly axis is the usual place for a line copied from the daily one.",
+    "Pass the title and both labels as keywords when you create each axis, in the grid cell the goal names.",
+  ]
+  answer_tokens = ["Axis(fig[1, 2]; title = MONTHLY_TITLE"]
+  test_hints = [
+    "Find the axes with `filter(b -> b isa Axis, fig.content)` and check their attributes (`ax.title[]` is the current value).",
+    "Check all three strings on both axes: a label copied from the other axis, or x and y swapped, is a common slip.",
+    "A block's cell is in `b.layoutobservables.gridcontent[].span` (fields `rows` and `cols`): use it to tell the daily axis from the monthly one.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "makie-lines"
+  kc = "figure-structure"
+  spec = "The daily axis holds one `Lines` plot per city, in sorted city order, each with its city name as `label` and points (day of year, temperature) in date order."
+  hints = [
+    "One series per city means one plot call per city.",
+    "The x values are days of the year (1 to 365), not days of the month: 1 February is day 32.",
+    "Loop over the table grouped by city in sorted order, and give each call the converted dates, the temperatures and the city name as its label.",
+  ]
+  answer_tokens = ["dayofyear.(g.date)", "groupby(sort(long"]
+  test_hints = [
+    "Count the `Lines` plots in the daily axis: `filter(p -> p isa Lines, ax.scene.plots)`.",
+    "A plot's points are in `p[1][]` and its label in `p.label[]`; compare the x values of one city with that city's days of the year.",
+    "Use dates in two months (late January and early February), so x values that restart each month are caught.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "makie-bars"
+  kc = "figure-structure"
+  spec = "The monthly axis holds one `BarPlot` with one bar per row of `monthly`: x is the month, the height is the mean, and `dodge` is the city's position in the sorted list of cities, so the bars of one month stand side by side."
+  hints = [
+    "Several cities share each month: without grouping, their bars are drawn on top of each other.",
+    "The bar plot has a keyword that moves the bars of different groups apart; it takes one integer per bar.",
+    "Turn each row's city into its position among the sorted cities and pass that vector as the grouping keyword (and use it for the colours, so the bars match the lines).",
+  ]
+  answer_tokens = ["dodge = idx"]
+  test_hints = [
+    "Take the one `BarPlot` of the monthly axis and compare its points (`bp[1][]`) with the `month` and `mean_temp` columns.",
+    "Check the `dodge` attribute as well (`bp.dodge[]`): one integer per bar.",
+    "Use two cities with the same month, so bars that overlap are caught.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "makie-legend"
+  kc = "figure-structure"
+  spec = "A `Legend` block in cell (1, 3), titled `City`, with one entry per city labelled with the city names in sorted order."
+  hints = [
+    "A legend lists the labelled plots of an axis.",
+    "It goes in a cell of its own in the figure's grid, so it cannot cover the lines.",
+    "Create the legend block in the third column from the daily axis, with the title from the reading.",
+  ]
+  answer_tokens = ["Legend(fig[1, 3], ax1"]
+  test_hints = [
+    "Look for a `Legend` in `fig.content`.",
+    "Its entries are in `leg.entrygroups[]`: a vector of (title, entries) pairs, each entry with a `label[]`.",
+    "Check the labels against the sorted city names, not only how many there are.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why do this project's tests inspect `fig.content` and `ax.scene.plots` instead of comparing a saved PNG with a stored one?"
+  choices = [
+    "Fonts and renderers differ by machine, so the pixels change for reasons unrelated to your code",
+    "CairoMakie cannot write PNG files inside the container",
+    "Comparing two images pixel by pixel takes minutes",
+  ]
+  answer = 1
+  explain = "An image test fails when a font version, anti-aliasing or a renderer update moves a few pixels, and passes when a wrong label happens to look right at low resolution. The figure object says exactly what you built: which axes, which labels, how many lines."
+  misconceptions = [
+    "",
+    "CairoMakie writes PNG, SVG and PDF without a window or GPU; unit 22 records PNG figures in the container.",
+    "Comparing two small images takes milliseconds; the problem is that the pixels themselves are not stable across machines.",
+  ]
+
+[[milestone]]
+id = 3
+title = "AlgebraOfGraphics"
+min_score = 0.8
+must_cover = ["aog-mapping", "aog-labels", "aog-legend"]
+goal = '''
+The same two panels, each as one AlgebraOfGraphics specification
+(`data(...) * mapping(...) * visual(...)`) drawn into its cell of one
+figure, and the legend that AlgebraOfGraphics derives from the colour
+mapping in `fig[1, 3]`.
+'''
+
+  [[milestone.api]]
+  signature = "aog_panel(long::DataFrame, monthly::DataFrame) -> Makie.Figure"
+  doc = "data(...) * mapping(...) * visual(...) per panel, drawn with draw! into fig[1, 1] and fig[1, 2]; the legend in fig[1, 3]."
+
+  [[milestone.behaviour]]
+  id = "aog-mapping"
+  kc = "plotting"
+  spec = "Colour maps to city: the daily axis holds one `Lines` plot per city, each in its own colour, with points (day of year, temperature); the monthly axis holds bars for every row of `monthly`."
+  hints = [
+    "In AlgebraOfGraphics a grouping is part of the mapping, not a loop.",
+    "A grouping that only splits the data draws every city in one colour; the spec asks for a colour per city, and the legend follows from that.",
+    "In the mapping of the daily layer, give the city column to the colour keyword, and convert the date with a pair `column => function => label`.",
+  ]
+  answer_tokens = ["color = :city", "dayofyear => DAY_LABEL"]
+  test_hints = [
+    "Count the `Lines` plots in the daily axis and collect their colours (`p.color[]`).",
+    "Check that the colours differ (`allunique`), and compare one line's points with that city's days and temperatures.",
+    "Find the daily axis by what it holds (the one with `Lines` plots), since AlgebraOfGraphics puts each `draw!` in a grid of its own inside the cell.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "aog-labels"
+  kc = "plotting"
+  spec = "The figure has the two axes of milestone 2 with the same titles and axis labels (find each by its title: `draw!` puts each axis in a nested grid inside its cell)."
+  hints = [
+    "AlgebraOfGraphics names an axis after the column it maps unless you give a label.",
+    "Titles are not part of the mapping: they are axis attributes, set when the specification is drawn.",
+    "Give each mapped column its label with a pair `column => label`, and pass the title in the axis settings (a named tuple) of each `draw!` call.",
+  ]
+  answer_tokens = ["axis = (; title", "=> TEMP_LABEL"]
+  test_hints = [
+    "Collect the axes from `fig.content` and look each one up by its title.",
+    "Check the x and y labels of both: a label left to AlgebraOfGraphics is the column name, such as `date`.",
+    "Compare every string, on both axes; `ax.xlabel[]` is the current value.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "aog-legend"
+  kc = "plotting"
+  spec = "A `Legend` block in cell (1, 3) of the figure, built from the colour mapping, titled `City`, with the city names as entries in sorted order."
+  hints = [
+    "`draw!` draws the axes only; the legend is a separate step.",
+    "The value `draw!` returns knows the colour scale, and the legend is built from it.",
+    "Call the legend function of AlgebraOfGraphics with the third cell and the value returned by the daily `draw!`.",
+  ]
+  answer_tokens = ["legend!(fig[1, 3]"]
+  test_hints = [
+    "Look for a `Legend` block in `fig.content`.",
+    "Check its entry labels (`leg.entrygroups[]`) against the sorted cities.",
+    "Check the group title too: it comes from the label of the colour mapping.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "In `data(long) * mapping(:date => dayofyear => \"Day of year\", :temp, color = :city) * visual(Lines)`, what does `* visual(Lines)` add?"
+  choices = [
+    "The plot type that draws each group",
+    "A loop over the cities",
+    "A colour palette for the cities, chosen at random",
+  ]
+  answer = 1
+  explain = "`data` says where the columns come from, `mapping` which column goes to which role (x, y, colour, which also splits the data into groups), and `visual` how each group is drawn. Swap `Lines` for `Scatter` and the groups and legend stay the same."
+  misconceptions = [
+    "",
+    "The groups come from `color = :city` in the mapping; `visual` only picks how each group is drawn.",
+    "Colours come from the colour mapping and the default palette, in a fixed order; `visual` does not choose them.",
+  ]
+
+[[milestone]]
+id = 4
+title = "Plots.jl and Gadfly"
+min_score = 0.8
+must_cover = ["plots-series", "gadfly-svg", "svg-files"]
+goal = '''
+The daily panel in Plots.jl and in Gadfly, and one function that saves all
+four figures as SVG. In the SVG files of CairoMakie and Plots.jl (GR) the
+text is drawn as glyph outlines, so those files do not contain the labels
+as characters; Gadfly writes `<text>` elements, so its file does.
+'''
+
+  [[milestone.api]]
+  signature = "plots_panel(long::DataFrame) -> Plots.Plot"
+  doc = "The daily panel: one series per city, title and axis labels from the reading."
+
+  [[milestone.api]]
+  signature = "gadfly_panel(long::DataFrame) -> Gadfly.Plot"
+  doc = "The daily panel: lines, colour mapped to city, title, axis labels and a colour key titled City."
+
+  [[milestone.api]]
+  signature = "save_all(dir::AbstractString, long::DataFrame, monthly::DataFrame) -> Vector{String}"
+  doc = "Writes makie.svg, aog.svg, plots.svg, gadfly.svg into dir; returns the full paths, sorted."
+
+  [[milestone.behaviour]]
+  id = "plots-series"
+  kc = "plotting"
+  spec = "`plots_panel(long)` returns a `Plots.Plot` with one series per city in sorted order, each labelled with its city, with x the day of year and y the temperature, and the daily panel's title and axis labels."
+  hints = [
+    "Plots.jl can split one call into several series by a grouping vector.",
+    "Without a grouping every point lands in one series named `y1`; without the label keywords the axes stay blank.",
+    "Give the city column to the grouping keyword of the plot call, together with the title and both axis labels.",
+  ]
+  answer_tokens = ["group = t.city", "xlabel = DAY_LABEL"]
+  test_hints = [
+    "`p.series_list` holds the series, and `s[:label]` is a series' name.",
+    "Compare `s[:x]` and `s[:y]` of one series with that city's days of the year and temperatures.",
+    "The x label is `p[1][:xaxis][:guide]` and the title `p[1][:title]`: check both.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "gadfly-svg"
+  kc = "plotting"
+  spec = "`gadfly_panel(long)` returns a `Gadfly.Plot`; drawn to SVG, its text holds every city name (the colour key, titled `City`), the title and both axis labels."
+  hints = [
+    "Gadfly writes text into the SVG, so the file shows what the plot says.",
+    "A colour key appears only when colour is mapped to a column, and an axis without a guide is labelled with the column name.",
+    "Map colour to the city column in the plot call, and add guides for the title, both axis labels and the key's title.",
+  ]
+  answer_tokens = ["color = :city", "Guide.xlabel(DAY_LABEL)"]
+  test_hints = [
+    "Draw the plot into a `mktempdir()` with `Gadfly.draw(Gadfly.SVG(path, 16Gadfly.cm, 9Gadfly.cm), p)` and read the file as text.",
+    "Check each city name with `occursin`.",
+    "Check an axis label too, so a missing guide (the column name shown instead) is caught.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "svg-files"
+  kc = "plotting"
+  spec = "`save_all(dir, long, monthly)` writes `makie.svg`, `aog.svg`, `plots.svg` and `gadfly.svg` into `dir` and returns their full paths, sorted. Each file is an SVG document (its text contains `<svg`), and the Gadfly one holds the city names."
+  hints = [
+    "Each library has its own way of saving, and the file name's extension chooses the format.",
+    "Check the vector you return: full paths (the folder joined with each name) in sorted order, which is not the order the files were written in.",
+    "Save the two Makie figures with Makie's save function, the Plots.jl one with its own save function on a name ending in `.svg`, and the Gadfly one by drawing it to an SVG backend; order the paths before returning them.",
+  ]
+  answer_tokens = ["sort(paths)", "savefig(plots_panel(long), paths[3])"]
+  test_hints = [
+    "Call it on a `mktempdir()` and check `isfile` for each returned path.",
+    "Compare `basename.(paths)` with the four names in sorted order.",
+    "Read each file and check that it contains `<svg`; check a city name in the Gadfly one.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "A test reads `plots.svg` and looks for the text `oslo`; it fails although the legend in the picture shows `oslo`. Why?"
+  choices = [
+    "GR draws the letters as outline paths, not as text",
+    "Plots.jl writes the legend into a separate file next to the SVG",
+    "SVG files are compressed binary",
+  ]
+  answer = 1
+  explain = "SVG can hold text as `<text>` elements or as shapes. GR (Plots.jl's default backend) and Cairo (CairoMakie) turn each glyph into a path, so the file looks right but contains no letters; Gadfly writes `<text>` elements. That is why this project tests text in the Gadfly file only and tests the other figures through their objects."
+  misconceptions = [
+    "",
+    "The legend is part of the one SVG drawing; nothing else is written.",
+    "SVG is plain XML text (SVGZ is the compressed variant); you can open it in an editor.",
+  ]

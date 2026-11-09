@@ -1,0 +1,140 @@
+# Seeded faults in reference/src (one exact snippet replaced each); see tidy/mutants.toml.
+
+[[mutant]]
+id = "gradient-order"
+milestone = 1
+behaviour = "sym-values"
+file = "DerivCheck.jl"
+find = "g = Symbolics.gradient(f(x), x)"
+replace = "g = Symbolics.gradient(f(x), reverse(x))"
+
+[[mutant]]
+id = "returns-tuple"
+milestone = 1
+behaviour = "sym-returns-vector"
+file = "DerivCheck.jl"
+find = "    oop, _ = build_function(g, x; expression = Val(false))\n    return oop"
+replace = "    oop, _ = build_function(g, x; expression = Val(false))\n    return v -> Tuple(oop(v))"
+
+[[mutant]]
+id = "no-n-check"
+milestone = 1
+behaviour = "sym-n-check"
+file = "DerivCheck.jl"
+find = '    n >= 1 || throw(ArgumentError("n must be at least 1, got $n"))'
+replace = ""
+
+[[mutant]]
+id = "fd-instead-of-ad"
+milestone = 2
+behaviour = "ad-gradient"
+file = "DerivCheck.jl"
+find = "ad_gradient(f, x::AbstractVector) = ForwardDiff.gradient(f, x)"
+replace = "ad_gradient(f, x::AbstractVector) = central_difference(f, x)"
+
+[[mutant]]
+id = "jacobian-transposed"
+milestone = 2
+behaviour = "ad-jacobian"
+file = "DerivCheck.jl"
+find = "ad_jacobian(F, x::AbstractVector) = ForwardDiff.jacobian(F, x)"
+replace = "ad_jacobian(F, x::AbstractVector) = permutedims(ForwardDiff.jacobian(F, x))"
+
+[[mutant]]
+id = "absolute-step"
+milestone = 3
+behaviour = "fd-relative-step"
+file = "DerivCheck.jl"
+find = "        step = h * max(one(xi), abs(xi))"
+replace = "        step = h"
+
+[[mutant]]
+id = "one-sided"
+milestone = 3
+behaviour = "fd-accuracy"
+file = "DerivCheck.jl"
+find = "        xp[i] = xi - step\n        fm = f(xp)\n        xp[i] = xi\n        g[i] = (fp - fm) / (2step)"
+replace = "        xp[i] = xi\n        fm = f(xp)\n        g[i] = (fp - fm) / step"
+
+[[mutant]]
+id = "h-ignored"
+milestone = 3
+behaviour = "fd-step-keyword"
+file = "DerivCheck.jl"
+find = "        step = h * max(one(xi), abs(xi))"
+replace = "        step = DEFAULT_H * max(one(xi), abs(xi))"
+
+[[mutant]]
+id = "perturbs-input"
+milestone = 3
+behaviour = "fd-no-mutation"
+file = "DerivCheck.jl"
+find = '''
+    xp = Vector{Float64}(x)
+    for i in eachindex(xp)
+        xi = xp[i]
+        step = h * max(one(xi), abs(xi))
+        xp[i] = xi + step
+        fp = f(xp)
+        xp[i] = xi - step
+        fm = f(xp)
+        xp[i] = xi
+'''
+replace = '''
+    xp = x
+    for i in eachindex(xp)
+        xi = xp[i]
+        step = h * max(one(xi), abs(xi))
+        xp[i] = xi + step
+        fp = f(xp)
+        xp[i] = xi - step
+        fm = f(xp)
+'''
+
+[[mutant]]
+id = "abstract-field"
+milestone = 4
+behaviour = "report-fields"
+file = "DerivCheck.jl"
+find = "    worst_point::Vector{Float64}\n"
+replace = "    worst_point::AbstractVector\n"
+
+[[mutant]]
+id = "ok-ignores-rtol"
+milestone = 4
+behaviour = "agreement"
+file = "DerivCheck.jl"
+find = "    return GradientReport(worst <= rtol, worst_x, worst)"
+replace = "    return GradientReport(worst <= 1e-8, worst_x, worst)"
+
+[[mutant]]
+id = "first-not-worst"
+milestone = 4
+behaviour = "worst-point"
+file = "DerivCheck.jl"
+find = "        if e > worst\n"
+replace = "        if worst == -Inf\n"
+
+[[mutant]]
+id = "no-floor"
+milestone = 4
+behaviour = "relative-floor"
+file = "DerivCheck.jl"
+find = "relative_error(g, ref) = norm(g - ref) / max(norm(ref), one(norm(ref)))"
+replace = "relative_error(g, ref) = norm(g - ref) / norm(ref)"
+
+[[mutant]]
+id = "nan-ignored"
+milestone = 4
+behaviour = "nan-fails"
+file = "DerivCheck.jl"
+find = '        isnan(e) && (e = Inf)     # a NaN gradient is never "close"'
+replace = ""
+
+[[mutant]]
+id = "empty-ok"
+milestone = 4
+behaviour = "empty-points"
+file = "DerivCheck.jl"
+find = '    isempty(points) && throw(ArgumentError("check_gradient needs at least one point"))'
+replace = ""

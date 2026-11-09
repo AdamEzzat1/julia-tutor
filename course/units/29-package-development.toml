@@ -1,0 +1,17 @@
+id = "29-package-development"
+title = "Writing and sharing a package"
+track = "ecosystem"
+env = "base"
+status = "planned"
+summary = "Turn code into a package: layout, environments, tests, docs, benchmarks and continuous integration."
+kcs = ["packages", "testing"]
+prerequisites = ["12-modules"]
+outline = [
+  "Generating a package (PkgTemplates.jl or Pkg.generate) and its layout",
+  "Project.toml, compat bounds and semantic versioning",
+  "Tests with Test and test/runtests.jl; testing invariants and properties",
+  "Docstrings and Documenter.jl",
+  "Benchmarks with BenchmarkTools.jl and catching regressions",
+  "Continuous integration and registering a package in the General registry",
+  "Needs: the sandbox to run a multi-file project, not one file",
+]

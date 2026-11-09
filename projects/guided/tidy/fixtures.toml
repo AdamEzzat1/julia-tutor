@@ -1,0 +1,37 @@
+# Student-like folders under fixtures/, checked by `tutor guided verify tidy`
+# through the same path as `tutor guided check`; each must get these verdicts.
+
+[[fixture]]
+name = "m0-no-tests"
+milestone = 0
+expect = ["no-tests"]
+
+[[fixture]]
+name = "m1-good"
+milestone = 1
+expect = ["passed"]
+
+[[fixture]]
+name = "m1-weak-tests"
+milestone = 1
+expect = ["weak-tests"]
+
+[[fixture]]
+name = "m1-disagree"
+milestone = 1
+expect = ["tests-fail-reference"]
+
+[[fixture]]
+name = "m1-float-eq"
+milestone = 1
+expect = ["checker-warn"]
+
+[[fixture]]
+name = "m1-load-error"
+milestone = 1
+expect = ["load-error"]
+
+[[fixture]]
+name = "m2-wrong-code"
+milestone = 2
+expect = ["acceptance-fail"]

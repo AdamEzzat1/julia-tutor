@@ -1,0 +1,439 @@
+name = "pybridge"
+package = "PyBridge"
+env = "python"
+status = "ready"
+title = "PyBridge: a NumPy-backed routine from Julia"
+summary = "Build a small package that hands Julia arrays to NumPy and back through PythonCall.jl: conversions that copy and views that share memory (tested by writing through one side and reading the other), the row-major and column-major layouts, a moving average computed by NumPy and by Julia that agree to a derived tolerance, and measurements of what crossing the boundary costs. The Julia moving average is also graded for speed and allocations against the reference."
+kcs = ["packages", "testing", "python-interop", "memory-layout", "floating-point", "performance"]
+reading = '''
+Prerequisites: course unit 28 (Python interop) and unit 14 (performance).
+The course's Python has NumPy. Runs on the host and in the container.
+
+Load NumPy once per session, not at precompile time: a Python object cannot
+be stored in a precompiled module. PythonCall's pattern is an empty handle
+filled when the module loads:
+
+```julia
+const np = PythonCall.pynew()
+__init__() = PythonCall.pycopy!(np, pyimport("numpy"))
+```
+
+Python indexes from 0: `a[0]` on the NumPy side is `v[1]` on the Julia side.
+In tests, compare floats with `isequal` (exact, for values you wrote
+yourself) or `≈` with a stated tolerance; the checker warns on `==`.
+'''
+
+[[milestone]]
+id = 0
+title = "A package with a test suite"
+min_score = 1.0
+goal = '''
+Create the package as in the tidy project's milestone 0 (`tutor guided show
+tidy 0` has the full steps): `Pkg.generate("PyBridge")`, move `Project.toml`
+and `src/` into this folder, run `./tutor guided deps <this folder>` from the
+julia-tutor folder (PythonCall), and write `test/runtests.jl` with
+`using PyBridge, Test` and one check.
+'''
+
+  [[milestone.api]]
+  signature = "module PyBridge"
+  doc = "Defined in src/PyBridge.jl."
+
+  [[milestone.behaviour]]
+  id = "package-layout"
+  kc = "packages"
+  spec = "`src/PyBridge.jl` defines a module named `PyBridge` that loads without errors."
+  hints = [
+    "A package is a module whose name matches its file name under src/.",
+    "Open src/PyBridge.jl: its first code line should be `module PyBridge` and its last `end`.",
+    "If loading fails, the error above names the line; a Python call made while the module is defined (instead of in `__init__`) is a common cause here.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Any check that runs counts here.",
+    "`@test PyBridge isa Module` is enough for milestone 0.",
+    "Put it inside a `@testset` so the report names it.",
+  ]
+
+[[milestone]]
+id = 1
+title = "Copies and views"
+min_score = 1.0
+must_cover = ["view-shares", "copy-independent", "copy-converts"]
+goal = '''
+Two ways across the boundary, with the difference made testable: a view
+shares the Julia vector's memory, a copy owns its own. Write through one side
+and read the other to tell them apart.
+'''
+
+  [[milestone.api]]
+  signature = "as_numpy(v::Vector{Float64}) -> Py"
+  doc = "A NumPy array over the same memory as `v` (no copy)."
+
+  [[milestone.api]]
+  signature = "from_numpy(a::Py) -> Vector{Float64}"
+  doc = "A Julia copy of a 1-D NumPy array; integer arrays are converted to Float64."
+
+  [[milestone.behaviour]]
+  id = "view-shares"
+  kc = "python-interop"
+  spec = "A write through the NumPy array returned by `as_numpy(v)` is visible in `v`, and a write to `v` is visible in the array."
+  hints = [
+    "Some conversions copy the data and others describe memory that already exists.",
+    "NumPy has two functions that make an array from any buffer-like object: one always copies, the other reuses the memory when it can.",
+    "In `as_numpy`, call the NumPy constructor that returns its input unchanged when it already exposes a suitable buffer (the NumPy docs list it next to `array`).",
+  ]
+  answer_tokens = ["asarray"]
+  test_hints = [
+    "Change one side, read the other.",
+    "Set `a[0]` through the NumPy array and check `v[1]`; then change `v[2]` and check `a[1]`.",
+    "Use values you wrote yourself and compare with `isequal`; NumPy elements come back as `Py`, so convert with `pyconvert(Float64, a[1])`.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "copy-independent"
+  kc = "python-interop"
+  spec = "`from_numpy(a)` is a `Vector{Float64}`; changing it does not change `a`, and changing `a` does not change it."
+  hints = [
+    "A wrapper around Python memory changes when Python changes it.",
+    "PythonCall can wrap a NumPy array as a Julia `AbstractArray` (a view) or convert it into a new Julia array (a copy).",
+    "In `from_numpy`, ask PythonCall to convert to the concrete Julia array type of the spec, rather than wrapping.",
+  ]
+  answer_tokens = ["pyconvert(Vector{Float64}"]
+  test_hints = [
+    "Check the type, then change each side.",
+    "`@test from_numpy(a) isa Vector{Float64}`; change the copy and check the array still has its old value.",
+    "Also change the NumPy array after copying and check the copy kept its value.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "copy-converts"
+  kc = "python-interop"
+  spec = "An integer NumPy array (e.g. `np.arange(3)`) gives a `Vector{Float64}` with the same values."
+  hints = [
+    "NumPy arrays carry an element type; integers are a common one.",
+    "Converting to an unparameterised `Vector` keeps NumPy's element type.",
+    "Name the element type in the conversion so integers become floats, as the spec's return type says.",
+  ]
+  answer_tokens = ["Vector{Float64}"]
+  test_hints = [
+    "Test an integer array, not only floats.",
+    "`np.arange(3)` holds 0, 1, 2 as integers.",
+    "Check both the type and the values: `isequal(from_numpy(np.arange(3)), [0.0, 1.0, 2.0])`.",
+  ]
+
+  [[milestone.question]]
+  kind = "output"
+  prompt = "What does the last line show?"
+  code = '''
+using PythonCall
+np = pyimport("numpy")
+v = [1.0, 2.0, 3.0]
+a = np.asarray(v)
+b = np.array(v)
+a[0] = 7.0
+b[1] = 8.0
+v
+'''
+  choices = [
+    """
+3-element Vector{Float64}:
+ 7.0
+ 2.0
+ 3.0""",
+    """
+3-element Vector{Float64}:
+ 7.0
+ 8.0
+ 3.0""",
+    """
+3-element Vector{Float64}:
+ 1.0
+ 2.0
+ 3.0""",
+  ]
+  answer = 1
+  explain = "`np.asarray` reuses the Julia vector's memory, so writing `a[0]` changes `v[1]`. `np.array` copies by default, so `b` is separate and `v[2]` keeps its value."
+  misconceptions = [
+    "",
+    "`np.array` copies its input unless told otherwise (`copy=False`); only the `asarray` view shares `v`'s memory.",
+    "`np.asarray` makes no copy when its input already exposes a suitable buffer, and a Julia `Vector{Float64}` does.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why does `from_numpy` return a new `Vector{Float64}` rather than `PyArray(a)`?"
+  choices = [
+    "The result must stay as it is whatever Python later does to `a`",
+    "A `PyArray` cannot be indexed, iterated or broadcast over from Julia code",
+    "Copying is faster than wrapping for arrays of any size",
+  ]
+  answer = 1
+  explain = "A `PyArray` is a view: it reads Python's memory, so a later write on the Python side shows through, and it is only valid while the Python object lives. A copy owns its data."
+  misconceptions = [
+    "",
+    "A `PyArray` is an `AbstractArray`: indexing, iteration and broadcasting all work on it.",
+    "Wrapping costs a few hundred bytes whatever the size; a copy costs 8 bytes per element. Milestone 4 measures this.",
+  ]
+
+[[milestone]]
+id = 2
+title = "Layout"
+min_score = 1.0
+must_cover = ["matrix-layout", "matrix-shares", "matrix-copy"]
+goal = '''
+Matrices: Julia stores a matrix column by column, NumPy defaults to row by
+row. The bytes can be shared if NumPy is told how to read them (its strides).
+Make indices mean the same thing on both sides, in both directions.
+'''
+
+  [[milestone.api]]
+  signature = "as_numpy(A::Matrix{Float64}) -> Py"
+  doc = "A NumPy view of `A` (no copy) with `A[i, j] == a[i-1, j-1]` and shape `size(A)`."
+
+  [[milestone.api]]
+  signature = "from_numpy(a::Py) -> Matrix{Float64}"
+  doc = "For a 2-D array (in either memory order): a Julia copy with `M[i, j] == a[i-1, j-1]`."
+
+  [[milestone.behaviour]]
+  id = "matrix-layout"
+  kc = "memory-layout"
+  spec = "For a non-square `A`, `as_numpy(A)` has shape `size(A)` and element `(i-1, j-1)` equal to `A[i, j]`."
+  hints = [
+    "A square matrix can hide swapped indices; use a non-square one.",
+    "Check the shape first: a view with rows and columns exchanged has the two sizes swapped.",
+    "Hand the matrix to NumPy as it is: the conversion already records Julia's strides, so no reordering is needed in `as_numpy`.",
+  ]
+  answer_tokens = ["permutedims", "transpose"]
+  test_hints = [
+    "Use a 2 × 3 matrix with distinct entries.",
+    "Compare every element: `a[i-1, j-1]` against `A[i, j]`, converting with `pyconvert(Float64, ...)`.",
+    "Check `pyconvert(Tuple, a.shape)` against `size(A)` too.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "matrix-shares"
+  kc = "memory-layout"
+  spec = "`as_numpy(A)` shares memory with `A` (a write through it changes `A`) and NumPy reports it as Fortran-ordered (`a.flags.f_contiguous`)."
+  hints = [
+    "Making the array C-ordered means copying it into a new layout.",
+    "A view of a Julia matrix is column-major; NumPy calls that Fortran order.",
+    "Return the view itself from `as_numpy`, with no call that rearranges memory into row-major order.",
+  ]
+  answer_tokens = ["ascontiguousarray"]
+  test_hints = [
+    "Write through the view and read the matrix.",
+    "Set `a[1, 2]` and check `A[2, 3]`.",
+    "Also check `pyconvert(Bool, a.flags.f_contiguous)`.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "matrix-copy"
+  kc = "memory-layout"
+  spec = "`from_numpy` on a C-ordered (row-major) 2-D array returns a `Matrix{Float64}` with `M[i, j] == a[i-1, j-1]`."
+  hints = [
+    "Arrays made by NumPy are row-major; reading their flat buffer column by column scrambles a non-square matrix.",
+    "Flattening and reshaping only works if both sides use the same order.",
+    "Let PythonCall convert the 2-D array to a Julia matrix type directly: it reads NumPy's strides, so either memory order comes out right.",
+  ]
+  answer_tokens = ["pyconvert(Matrix{Float64}"]
+  test_hints = [
+    "Make the array on the NumPy side, so it is row-major.",
+    "`np.arange(6.0).reshape(2, 3)` is a 2 × 3 C-ordered array with distinct entries.",
+    "Check `size` and every element of the result.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "A 2 × 3 Julia matrix `A` goes to NumPy as `a = np.asarray(A)`. What does NumPy report?"
+  choices = [
+    "`a.flags.f_contiguous` is true: the same bytes, read column by column",
+    "`a.flags.c_contiguous` is true: NumPy copied it into row-major order",
+    "`a.shape` is (3, 2): NumPy reads Julia's column-major bytes as rows instead",
+  ]
+  answer = 1
+  explain = "Julia exposes the matrix's memory with its strides (8 bytes down a column, 16 across a row). NumPy keeps those strides, so the view is Fortran-ordered, shape (2, 3), and no data moved."
+  misconceptions = [
+    "",
+    "`np.asarray` copies only when it must; a Julia matrix already describes its layout, so NumPy uses it as it is.",
+    "The shape comes with the strides: NumPy reads the bytes in Julia's order, so `a[i-1, j-1]` is `A[i, j]` and the shape is (2, 3).",
+  ]
+
+[[milestone]]
+id = 3
+title = "Two implementations"
+min_score = 1.0
+must_cover = ["ma-values", "ma-numpy", "ma-agree", "ma-window"]
+goal = '''
+A moving average with window k: the mean of each of the n - k + 1 full
+windows. Write it twice, in NumPy (`np.convolve`) and in Julia with a running
+sum (add the value entering the window, subtract the one leaving), and test
+that they agree to a tolerance you derive.
+
+The Julia version is also graded for performance against the reference: same
+speed class, no allocation per window, linear growth in n, type-stable.
+'''
+
+  [[milestone.api]]
+  signature = "moving_average_np(v, k) -> Vector{Float64}"
+  doc = "Via `numpy.convolve` on the valid part only."
+
+  [[milestone.api]]
+  signature = "moving_average(v, k) -> Vector{Float64}"
+  doc = "In Julia: a running sum, one result vector, nothing allocated per window."
+
+  [[milestone.behaviour]]
+  id = "ma-values"
+  kc = "floating-point"
+  spec = "`moving_average(v, k)` has length n - k + 1 and entry i equal to the mean of `v[i:i+k-1]`."
+  hints = [
+    "Work out a window of 2 over four values by hand and compare.",
+    "After the first window, each step adds the value entering and subtracts the one leaving.",
+    "Check which index leaves when the window starts at `i`: it is the one just before the new window, not its first element.",
+  ]
+  answer_tokens = ["v[i-1]"]
+  test_hints = [
+    "Compare with means you work out by hand.",
+    "Use values whose means are exact in binary (halves, quarters) and compare with `isequal`.",
+    "Check a window of 1, a window equal to the length, and one in between.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "ma-numpy"
+  kc = "python-interop"
+  spec = "`moving_average_np(v, k)` gives the same n - k + 1 means, computed by `numpy.convolve`."
+  hints = [
+    "A convolution with a kernel of k equal weights is a moving average, if the weights are right and only full windows are kept.",
+    "`numpy.convolve` has a `mode` argument that decides how much of the overlap to return; only one mode keeps full windows only.",
+    "Check both parts of the call in `moving_average_np`: the kernel's weights must sum to one, and the mode must return n - k + 1 values.",
+  ]
+  answer_tokens = ["\"valid\"", "/ k"]
+  test_hints = [
+    "Check the length as well as the values.",
+    "With n = 4 and k = 2 there are 3 full windows.",
+    "Compare with hand-computed means, as for the Julia version.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "ma-agree"
+  kc = "floating-point"
+  spec = "On 10^5 random values both return `Vector{Float64}` and agree within (n + k) · eps · max|v|: the running sum makes n updates, each rounding by at most eps times a partial sum of size k · max|v|, and the result is divided by k."
+  hints = [
+    "The two add in different orders, so they round differently; the question is by how much.",
+    "Bound the running sum's error: n updates, each off by up to eps times a sum no larger than k · max|v|; dividing by k gives the error of a mean.",
+    "Look at the element type of the result vector in `moving_average`: storing in a narrower type rounds every mean far beyond that bound.",
+  ]
+  answer_tokens = ["Vector{Float64}(undef"]
+  test_hints = [
+    "Test on large random data, not only on small exact cases.",
+    "Use `rand(Xoshiro(seed), 10^5)` scaled to values of a known size, and k = 50.",
+    "Compare with `maximum(abs, a .- b) <= (n + k) * eps() * maximum(abs, v)`, the derivation in a comment, and check both result types.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "ma-window"
+  kc = "errors"
+  spec = "Both throw an `ArgumentError` when k is not in 1:n."
+  hints = [
+    "A window of 0 values has no mean.",
+    "Check `k` against the length before computing anything, in both functions.",
+    "One shared check at the top of each function: throw the exception type Base uses for an invalid argument when `k` is below 1 or above the length.",
+  ]
+  answer_tokens = ["ArgumentError"]
+  test_hints = [
+    "Test the calls that should fail.",
+    "`@test_throws` with a window of 0 and a window longer than the vector.",
+    "Do it for both functions.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "On 10^5 values near 100 with k = 50, the running sum and `np.convolve` differ by about 1e-12. What does that tell you?"
+  choices = [
+    "Nothing is wrong: summing in another order rounds differently, well within the bound",
+    "The running sum has a bug: exact arithmetic gives equal results, so floating point must too",
+    "NumPy computes in single precision unless the dtype is passed explicitly",
+  ]
+  answer = 1
+  explain = "The bound (n + k) · eps · max|v| is about 2e-9 here. Each method rounds at different points, so a difference of 1e-12 is expected and far inside it."
+  misconceptions = [
+    "",
+    "Floating-point addition is not associative: the same sum in another order gives another rounding, so equal results are not expected.",
+    "`np.ones(k)` and an array from a `Vector{Float64}` are float64, so the convolution is in double precision.",
+  ]
+
+  [milestone.perf]
+  entry = "moving_average"
+  # Correctness first, on cases whose means are exact or nearly so; then speed,
+  # allocations, growth and type stability against the reference at two sizes.
+  cases = ["[1.0, 2.0, 3.0, 4.0], 2", "collect(1.0:10.0), 3", "[5.0], 1", "[0.5, -1.5, 2.25, 4.0, -3.0], 5"]
+  args = "rand(rng, n) .* 100, 50"
+  sizes = [100000, 1000000]
+  # Another summation order rounds differently: a few eps relative on these cases.
+  compare = "isapprox"
+  rtol = 1e-12
+  required = true
+  fail_on = ["slow", "allocates", "scaling", "unstable"]
+
+[[milestone]]
+id = 4
+title = "What the boundary costs"
+min_score = 1.0
+must_cover = ["view-cost", "copy-cost"]
+goal = '''
+Measure, do not assume: how many bytes does each conversion allocate? A view
+should cost a small constant (the Python object), a copy 8 bytes per element
+plus a constant. Measure the second call of each: the first one compiles.
+'''
+
+  [[milestone.api]]
+  signature = "boundary_bytes(n) -> NamedTuple{(:view, :copy)}"
+  doc = "`@allocated` of `as_numpy` (view) and of `from_numpy` (copy) on a vector of length n, after a warm-up call of each."
+
+  [[milestone.behaviour]]
+  id = "view-cost"
+  kc = "performance"
+  spec = "`boundary_bytes(n).view` is under 10 KiB for n = 10 and for n = 10^6 (it does not grow with n)."
+  hints = [
+    "A view is a small Python object pointing at memory that already exists.",
+    "Make sure the expression you measure for the view is the same conversion `as_numpy` makes, and nothing else.",
+    "In `boundary_bytes`, measure exactly the call to your own view function on the vector, after one warm-up call.",
+  ]
+  answer_tokens = ["@allocated as_numpy"]
+  test_hints = [
+    "Measure at two very different sizes.",
+    "If the view's bytes grow with n, something copies.",
+    "Check `view < 10 * 1024` at n = 10 and n = 10^6.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "copy-cost"
+  kc = "performance"
+  spec = "`boundary_bytes(n).copy` is at least 8n bytes at n = 10^6, and doubling n adds about 8n bytes (within 1%)."
+  hints = [
+    "A copy of n Float64 values needs 8n bytes for the data alone.",
+    "Make sure the copy measurement times the conversion to Julia, not the view.",
+    "In `boundary_bytes`, the copy figure must come from calling your copying function on the NumPy array.",
+  ]
+  answer_tokens = ["@allocated from_numpy"]
+  test_hints = [
+    "Check the size, and how it grows.",
+    "`copy >= 8n` at n = 10^6.",
+    "Compare `boundary_bytes(2n).copy - boundary_bytes(n).copy` with `8n`, allowing 1% for the constant part.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "`@allocated as_numpy(v)` reports 1416 bytes on its first call and 744 on its second. Why does the spec measure the second?"
+  choices = [
+    "The first call also counts memory used to compile the method",
+    "The garbage collector frees the first call's memory late",
+    "PythonCall caches the NumPy array after the first call",
+  ]
+  answer = 1
+  explain = "`@allocated` counts every allocation during the call, including the compiler's work the first time a method runs for these argument types. The second call shows what the conversion itself costs."
+  misconceptions = [
+    "",
+    "`@allocated` counts bytes allocated, not bytes still alive, so when the collector runs does not change it.",
+    "Each call makes a new NumPy array object; nothing is cached between calls, which is why the second call still allocates.",
+  ]

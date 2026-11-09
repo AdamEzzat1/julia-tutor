@@ -1,0 +1,1199 @@
+id = "28-python-interop"
+title = "Calling Python from Julia with PythonCall.jl"
+track = "ecosystem"
+env = "python"
+status = "ready"
+summary = "PythonCall.jl runs a CPython interpreter inside the Julia process: importing modules, calling functions, the Py type and pyconvert, wrappers that share memory with NumPy arrays and Python containers, the cost of crossing the boundary, where the Python comes from (CondaPkg, the system Python, PyCall, juliacall), and the pitfalls (0-based indexing, the GIL, object lifetimes)."
+kcs = ["python-interop", "pyconvert", "shared-memory-wrappers", "language-boundary-cost", "python-environments"]
+# The unit leans on type stability, concrete types and allocation verdicts
+# (PyArray's type parameters, pyconvert targets), taught in 14-performance;
+# pandas appears in one bullet only, so DataFrames is not a prerequisite.
+prerequisites = ["14-performance"]
+
+[[section]]
+title = "A Python interpreter inside Julia"
+body = '''
+[PythonCall.jl](https://juliapy.github.io/PythonCall.jl/stable/) (version
+0.9.37 here) loads the CPython shared library into the Julia process and
+starts an interpreter in it. There is no second process and no
+serialization: a Python object lives in Python's heap, and Julia holds a
+pointer to it. Every such object has the Julia type `Py`.
+
+`pyimport("math")` imports a module and returns it as a `Py`. From there the
+syntax is Python's: `math.sqrt(2)` looks up the attribute `sqrt` and calls
+it, `s.upper()` calls a method. Julia arguments are converted to Python
+objects on the way in. The result comes back as a `Py`, **not** as a Julia
+number: Julia cannot know in advance what a Python function returns, so
+PythonCall leaves the decision to you. `pyconvert(Float64, r)` asks for a
+Julia `Float64`.
+
+A `Py` displays as `Python: ...` followed by Python's own `repr`.
+'''
+
+  [[section.example]]
+  code = '''
+using PythonCall
+math = pyimport("math")
+r = math.sqrt(2)                  # a Python float, held by Julia as a Py
+println(r isa Py)
+println(pyconvert(Float64, r)^2)  # now a Julia Float64
+Py("julia and python").title()
+'''
+
+  [[section.example]]
+  caption = "Any Python module from the standard library works the same way."
+  code = '''
+using PythonCall
+re = pyimport("re")
+words = re.findall("[a-z]+", "julia calls python, python calls julia")
+counts = pyimport("collections").Counter(words)
+println(pylen(words), " words")
+pyconvert(Int, counts["python"])
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does `math.sqrt(2)` return a `Py` instead of a Julia `Float64`?"
+  choices = [
+    "Julia cannot know what an arbitrary Python call returns, so results stay `Py` until you convert them",
+    "PythonCall runs Python in a separate process, and the value is a handle until it is sent back to Julia",
+    "`math.sqrt` returns an exact symbolic square root, which has no matching Julia number type",
+  ]
+  answer = 1
+  explain = "A Python call can return anything, so a fixed `Py` result keeps Julia code type-stable and lets you keep calling Python methods on it. `pyconvert(T, x)` is the explicit step into Julia."
+  misconceptions = [
+    "",
+    "The interpreter runs inside the Julia process; the result is already in memory, it is just a Python object.",
+    "Python's `math.sqrt` returns an ordinary 64-bit float; it is wrapped, not symbolic.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using PythonCall
+x = pyimport("math").floor(2.7)
+println(x isa Number, " ", pyconvert(Int, x) + 1)
+'''
+  choices = ["false 3", "true 3", "false 3.7"]
+  answer = 1
+  explain = "`math.floor` returns a Python `int`, held as a `Py`, which is not a Julia `Number`. After `pyconvert(Int, x)` it is the Julia integer 2."
+  misconceptions = [
+    "",
+    "A `Py` is not a subtype of `Number`, whatever Python object it holds.",
+    "`math.floor(2.7)` is 2: the `+ 1` happens after conversion, on the integer.",
+  ]
+
+[[section]]
+title = "Conversion rules: what crosses automatically, what stays a Py"
+body = '''
+The two directions follow different rules
+([to Python](https://juliapy.github.io/PythonCall.jl/stable/conversion-to-python/),
+[to Julia](https://juliapy.github.io/PythonCall.jl/stable/conversion-to-julia/)).
+
+**Julia to Python** happens automatically for every argument. Immutable
+values are converted to the matching Python type: `Int` to `int`, `Float64`
+to `float`, `String` and `Char` to `str`, `Tuple` to `tuple`, `nothing` to
+`None`, a `Rational` to `fractions.Fraction`. Mutable containers are
+**wrapped, not copied**: a Julia `Vector` arrives as a `juliacall.VectorValue`,
+a `Dict` as a `juliacall.DictValue`. Python code sees a sequence or a
+mapping, and writes to it go to the Julia object. Call `pylist(v)` or
+`pydict(d)` when you want a real Python copy.
+
+**Python to Julia** never happens on its own. `pyconvert(T, x)` converts to
+the type you name, using the rules for the Python type of `x`: a `list` can
+become a `Vector{Int}`, a `Tuple{Int, Float64, String}` or a `Vector{Any}`.
+`pyconvert(Any, x)` picks a default: a Julia value for immutable scalars
+(`int`, `float`, `str`), a no-copy wrapper such as `PyList` for containers.
+If no rule fits, `pyconvert` throws.
+
+PyCall.jl, the older package, converts results automatically (and copies
+lists into Julia vectors). PythonCall's explicit style costs a call to
+`pyconvert`, but gives type-stable code and no hidden copies.
+'''
+
+  [[section.example]]
+  code = '''
+using PythonCall
+for x in (1, 2.5, "hi", (1, 2), nothing, 1//3, [1, 2], Dict("a" => 1))
+    println(rpad(repr(x), 18), " -> ", pyconvert(String, pytype(Py(x)).__name__))
+end
+'''
+
+  [[section.example]]
+  code = '''
+using PythonCall
+x = pyimport("json").loads("[1, 2.5, \"three\"]")   # a Python list
+println(pyconvert(Vector{Any}, x))
+println(pyconvert(Tuple{Int, Float64, String}, x))
+println(typeof(pyconvert(Any, x)))                   # a wrapper, no copy
+pyconvert(Vector{Int}, x)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You pass a Julia `Vector{Float64}` to a Python function that appends to its argument. What happens to the Julia vector?"
+  choices = [
+    "Nothing: Python receives a fresh Python list",
+    "It grows: Python receives a wrapper around the same Julia vector",
+    "Python raises an error because Julia vectors are read-only from Python",
+  ]
+  answer = 2
+  explain = "Mutable Julia containers are wrapped (`juliacall.VectorValue`), so `append` calls `push!` on the original vector. Pass `pylist(v)` to give Python its own copy."
+  misconceptions = [
+    "Only immutable values (numbers, strings, tuples) are converted to new Python objects; arrays are wrapped.",
+    "",
+    "The wrapper supports mutation; it is the same vector seen through Python's sequence protocol.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using PythonCall
+x = pyimport("json").loads("[1, 2, 3]")
+println(typeof(pyconvert(Vector{Float64}, x)))
+'''
+  choices = ["Vector{Float64}", "Vector{Int64}", "PyList{Any}"]
+  answer = 1
+  explain = "`pyconvert` converts to the type you ask for; Python ints convert to `Float64` when that is the target element type."
+  misconceptions = [
+    "",
+    "That would be `pyconvert(Vector, x)`, which picks the element type from the data; here the target type is given.",
+    "A wrapper is what `pyconvert(Any, x)` returns; a concrete `Vector{Float64}` target gets a copied Julia vector.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`pyconvert(Vector{Int}, x)` throws for the list `[1, 2.5, \"three\"]`. Why?"
+  choices = [
+    "No conversion rule turns `2.5` or `\"three\"` into an `Int`, so the element conversion fails",
+    "A list that mixes types converts only with `pyconvert(Any, x)`, never to a concrete type",
+    "A raw `Py` list must be wrapped as a `PyList` before it can become a `Vector`",
+  ]
+  answer = 1
+  explain = "Conversion is element by element to the requested type; `pyconvert` does not round floats or parse strings. Ask for `Vector{Any}` or a `Tuple` type that matches the data."
+  misconceptions = [
+    "",
+    "The same list converts to `Vector{Any}` and to the concrete `Tuple{Int, Float64, String}`; it is the `Int` element type that fails.",
+    "`pyconvert` reads a `Py` list directly; the example converts the same `Py` to `Vector{Any}` with no wrapper.",
+  ]
+
+[[section]]
+title = "Sharing memory: PyArray, PyList and PyDict"
+body = '''
+Copying a large NumPy array into a Julia `Array` costs time and memory, and
+the copy no longer follows the original. PythonCall's **wrapper types** view a
+Python object through a Julia interface instead:
+
+* `PyArray(a)` is an `AbstractArray` over the data buffer of anything with
+  the NumPy array interface or the buffer protocol (`numpy.ndarray`,
+  `array.array`, `bytes`). Indexing reads memory directly, at Julia speed.
+* `PyList{T}(x)` views a Python sequence as an `AbstractVector{T}`,
+  converting each element on access.
+* `PyDict{K,V}(d)` views a Python mapping as an `AbstractDict{K,V}`.
+
+Writes through a wrapper change the Python object, and changes on the Python
+side show through the wrapper, because there is only one object. Indexing
+the wrapper is 1-based (it is a Julia array); indexing the `Py` itself is
+Python's 0-based indexing.
+
+The other direction shares memory too: `np.asarray(v)` on a Julia vector
+gives a NumPy array over the Julia vector's memory.
+
+A `PyArray` has five type parameters, `PyArray{T, N, M, L, R}`: element type,
+number of dimensions, whether it is writable, whether it can be indexed
+linearly (contiguous in Julia's column-major order), and the element type in
+memory. `PyArray(a)` reads all five from the array at run time, so the
+compiler cannot know them in advance; a function that must be type-stable
+names them all, e.g. `PyArray{Float64, 1, false, true, Float64}(a)` for a
+read-only view of a 1-D `float64` array.
+'''
+
+  [[section.example]]
+  caption = "One buffer, two views: a write from Julia and a write from Python."
+  code = '''
+using PythonCall
+np = pyimport("numpy")
+a = np.zeros(4)            # NumPy owns this buffer
+v = PyArray(a)             # a Julia AbstractVector over the same memory
+println(typeof(v))
+v[1] = 10.0               # Julia indexing: 1-based
+a[3] = 7                   # Python indexing on the Py: 0-based, the last element
+println(pyconvert(Vector{Float64}, a.tolist()))
+println(sum(v))
+c = pyconvert(Vector{Float64}, a)   # a copy into a Julia Vector
+c[2] = -1.0
+println(v[2])
+'''
+
+  [[section.example]]
+  code = '''
+using PythonCall
+np = pyimport("numpy")
+x = [1.0, 2.0, 3.0]
+y = np.asarray(x)          # NumPy array over the Julia vector's memory
+y[0] = 100                 # write from the Python side
+println(x)
+d = pyimport("json").loads("{\"b\": 2, \"a\": 1}")
+jd = PyDict{String, Int}(d)
+jd["c"] = 3                # insert through the Julia view
+println(pyconvert(String, pyimport("json").dumps(d, sort_keys = true)))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using PythonCall
+np = pyimport("numpy")
+a = np.array([1.0, 2.0, 3.0])
+v = PyArray(a)
+a[1] = 20
+println(v[1] + v[2])
+'''
+  choices = ["21.0", "3.0", "23.0"]
+  answer = 1
+  explain = "`a[1]` on the Py is Python indexing, so it sets the second element to 20. `v` sees the same memory, and `v[1] + v[2]` is 1 + 20."
+  misconceptions = [
+    "",
+    "The wrapper does not copy: the write through `a` is visible in `v`.",
+    "`a[1]` is 0-based Python indexing (the second element), while `v[1]` is 1-based Julia indexing (the first).",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You need the sum of a 10-million-element NumPy array in Julia, once. Which is the better first step?"
+  choices = [
+    "`pyconvert(Vector{Float64}, a.tolist())`",
+    "`PyArray(a)`, then `sum` on the view of NumPy's buffer",
+    "A loop over `a[i]` for `i` in `0:n-1`, converting each element",
+  ]
+  answer = 2
+  explain = "`PyArray` reads the buffer in place: no Python objects are created and nothing is copied. `tolist()` builds 10 million Python floats first, and the loop crosses the language boundary once per element."
+  misconceptions = [
+    "`tolist()` creates a Python float object per element, then `pyconvert` copies them all again.",
+    "",
+    "Each `a[i]` creates a Python object and each `pyconvert` is a dynamic call; that is the slowest option.",
+  ]
+
+[[section]]
+title = "Python's standard library and NumPy from Julia"
+body = '''
+Anything importable in the interpreter can be called. The standard library
+is always there (`math`, `statistics`, `json`, `re`, `datetime`,
+`fractions`); this course's Python also has NumPy. Two things matter when
+calling them:
+
+* **Keyword arguments** pass through: `json.dumps(d, sort_keys = true)` in
+  Julia is `json.dumps(d, sort_keys=True)` in Python.
+* **Array layout**: a Julia matrix is column-major. Passed to NumPy, it keeps
+  its layout and NumPy records Fortran-order strides, so `A[0, 1]` in Python
+  is `A[1, 2]` in Julia, the same element, with no transposing or copying.
+
+NumPy scalars (`numpy.float64`) and arrays convert with `pyconvert` like
+Python's own types; prefer converting the final answer, not every
+intermediate.
+'''
+
+  [[section.example]]
+  code = '''
+using PythonCall
+st = pyimport("statistics")
+data = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+println(pyconvert(Float64, st.mean(data)))
+println(pyconvert(Float64, st.pstdev(data)), " (population)")
+println(round(pyconvert(Float64, st.stdev(data)), digits = 6), " (sample)")
+pyconvert(Int, st.median_low([3, 1, 4, 2]))
+'''
+
+  [[section.example]]
+  caption = "`A[0, 1]` is 1.0 and `A[1, 0]` is 0.0, as in Julia's `A[1, 2]` and `A[2, 1]`: the matrix is not symmetric, so a transposed view would swap them. The solve gives [2/3, 5/3]; on the transpose it would give [1.5, 7/6]."
+  code = '''
+using PythonCall
+np = pyimport("numpy")
+A = np.asarray([2.0 1.0; 0.0 3.0])   # a Julia matrix, seen by NumPy
+println(pyconvert(Tuple{Int, Int}, A.shape))
+println(pyconvert(Float64, A[0, 1]), " ", pyconvert(Float64, A[1, 0]))
+x = np.linalg.solve(A, [3.0, 5.0])     # 2x + y = 3, 3y = 5
+println(round.(pyconvert(Vector{Float64}, x), digits = 10))
+m = np.arange(12, dtype = "float64").reshape(3, 4)
+println(pyconvert(Vector{Float64}, m.sum(axis = 0)))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using PythonCall
+np = pyimport("numpy")
+A = np.asarray([1 2 3; 4 5 6])
+println(pyconvert(Int, A[0, 2]))
+'''
+  choices = ["3", "5", "6"]
+  answer = 1
+  explain = "NumPy indexes the same matrix 0-based: row 0, column 2 is Julia's `A[1, 3]`, which is 3. The column-major layout is described by strides, so rows and columns keep their meaning."
+  misconceptions = [
+    "",
+    "That would be treating `[0, 2]` as 1-based column 2 of row 2.",
+    "That reads the indices as Julia's `A[2, 3]`; Python indices start at 0.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "A Julia 2x3 matrix is handed to NumPy. What does this print?"
+  code = '''
+using PythonCall
+np = pyimport("numpy")
+A = np.asarray(ones(2, 3))
+println(pyconvert(Tuple{Int, Int}, A.shape), " ", pyconvert(Bool, A.flags.f_contiguous))
+'''
+  choices = ["(2, 3) true", "(3, 2) false", "(2, 3) false"]
+  answer = 1
+  explain = "NumPy keeps Julia's shape and describes the column-major memory with Fortran-order strides, so the array is Fortran-contiguous (and not C-contiguous). No data is copied or transposed."
+  misconceptions = [
+    "",
+    "That is what a row-major reinterpretation of the same memory would give (the transpose); `np.asarray` records strides instead, so the shape stays (2, 3).",
+    "The shape is right, but the memory is column-major, which NumPy calls Fortran order; C order would need a copy.",
+  ]
+
+[[section]]
+title = "The cost of crossing the boundary"
+body = '''
+Every crossing has a price: `a[i]` on a `Py` calls into the interpreter,
+allocates a Python float object, and returns a new `Py` that Julia must
+track and later free; `pyconvert` then looks up a conversion rule for the
+object's Python type at run time. A loop doing this per element pays that
+cost a million times for a million elements.
+
+Two ways avoid it:
+
+* Let Python do the whole loop in compiled code: `a.sum()` is one crossing.
+* View the data without crossing: `sum(PyArray(a))` is a Julia loop over raw
+  memory, compiled for `Float64`.
+
+The timings below are measured on the machine that recorded this page and
+change from run to run (the example is not checked). The ratio between the
+first line and the other two is the point.
+'''
+
+  [[section.example]]
+  check = false
+  caption = "Timings vary between machines and runs; this example is recorded, not compared."
+  code = '''
+using PythonCall
+np = pyimport("numpy")
+a = np.arange(50_000, dtype = "float64")
+function sum_by_index(a)
+    s = 0.0
+    for i in 0:pylen(a)-1
+        s += pyconvert(Float64, a[i])   # one Python object per element
+    end
+    return s
+end
+sum_view(a) = sum(PyArray(a))
+sum_by_index(a); sum_view(a); a.sum()   # compile first
+t_index = @elapsed sum_by_index(a)
+t_view = @elapsed sum_view(a)
+t_numpy = @elapsed pyconvert(Float64, a.sum())
+println("Py indexing: ", round(t_index * 1e3, digits = 2), " ms")
+println("PyArray:     ", round(t_view * 1e3, digits = 3), " ms")
+println("a.sum():     ", round(t_numpy * 1e3, digits = 3), " ms")
+'''
+
+  [[section.example]]
+  caption = "All three give the same sum (the values are integers, so the order of addition does not matter)."
+  code = '''
+using PythonCall
+np = pyimport("numpy")
+a = np.arange(50_000, dtype = "float64")
+s1 = sum(pyconvert(Float64, a[i]) for i in 0:pylen(a)-1)
+s2 = sum(PyArray(a))
+s3 = pyconvert(Float64, a.sum())
+println(s1 == s2 == s3, " ", s2)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why is the loop over `a[i]` slow, even though the same loop over a Julia `Vector{Float64}` is fast?"
+  choices = [
+    "Python floats are boxed objects with less precision than `Float64`, so each addition is rounded twice",
+    "Julia cannot compile a loop that calls Python, so the loop body is interpreted line by line",
+    "Each step makes a Python object and looks up a conversion rule at run time, around a tiny addition",
+  ]
+  answer = 3
+  explain = "The loop itself is compiled, but every iteration calls the interpreter, allocates a Python float, wraps it in a `Py` and looks up a conversion rule; the addition is a tiny part of each step. With `PyArray` the same loop reads `Float64`s straight from memory."
+  misconceptions = [
+    "A Python float is boxed, but its value is an IEEE double, the same as `Float64`; nothing is rounded twice.",
+    "The loop compiles; what it calls is the expensive part.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A Python function `score(x)` takes one number. You need it for a million numbers. What is the main way to reduce the overhead?"
+  choices = [
+    "Use a version that takes the whole array (a NumPy-vectorised function), so the boundary is crossed once",
+    "Call it from a Julia `for` loop with `@inbounds`, so the loop around the calls is compiled",
+    "Convert each result with `pyconvert(Any, ...)`, which skips the rule lookup that `Float64` needs",
+  ]
+  answer = 1
+  explain = "The cost is per crossing, so batch the work: one call on an array instead of a million calls on scalars. Or write `score` in Julia."
+  misconceptions = [
+    "",
+    "`@inbounds` removes Julia bounds checks; the time goes into the Python calls, which it does not touch.",
+    "`pyconvert(Any, x)` still looks up a rule at run time, and its result type is not known to the compiler.",
+  ]
+
+[[section]]
+title = "Where the Python comes from: CondaPkg, the system Python, PyCall and juliacall"
+body = '''
+**CondaPkg, the default.** In a normal project, `using PythonCall` asks
+[CondaPkg.jl](https://github.com/JuliaPy/CondaPkg.jl) for a Python. CondaPkg
+reads a `CondaPkg.toml` next to `Project.toml`, which lists Python packages
+the way `Project.toml` lists Julia ones:
+
+```toml
+[deps]
+python = ">=3.10"
+numpy = ""
+```
+
+On first use it downloads a package manager (MicroMamba or Pixi), creates a
+Conda environment for this project, and installs what the file lists. Each
+project gets its own Python and packages, and committing `CondaPkg.toml`
+makes them reproducible. `CondaPkg.add("numpy")` (or `conda add numpy` in
+the Pkg REPL after `using CondaPkg`) edits the file for you.
+
+**Why this course turns it off.** The sandbox has no network, so CondaPkg
+could not download anything. The course's environment sets
+`JULIA_CONDAPKG_BACKEND=Null` (CondaPkg installs nothing) and
+`JULIA_PYTHONCALL_EXE` to an already installed Python with NumPy (Debian's
+`python3` in the container). The same two variables are how you point
+PythonCall at an existing Python or virtual environment in your own work; see
+[configuration](https://juliapy.github.io/PythonCall.jl/stable/pythoncall/#pythoncall-config).
+
+**PyCall.jl** is the older package for the same job. It is configured once,
+at build time, with one Python for all projects (`ENV["PYTHON"]` then
+`Pkg.build("PyCall")`), converts results to Julia values automatically, and
+copies lists and dicts when it does. PythonCall chooses a Python per project
+at load time, leaves results as `Py`, and wraps instead of copying. Both can
+be used in one session if they share an interpreter
+([FAQ](https://juliapy.github.io/PythonCall.jl/stable/faq/)).
+
+**The other direction: juliacall.** The same repository ships a Python
+package, `juliacall` (`pip install juliacall`), which starts Julia inside a
+Python process:
+
+```python
+from juliacall import Main as jl
+jl.seval("f(x) = sum(abs2, x)")
+jl.f([1.0, 2.0, 3.0])        # 14.0
+```
+
+Julia functions become Python callables, and Python arrays arrive as wrappers.
+It manages Julia packages with a `juliapkg.json` file, playing the role
+CondaPkg plays here. The sandbox runs Julia, so this page shows no runnable
+Python-side example.
+'''
+
+  [[section.example]]
+  code = '''
+using PythonCall
+println(ENV["JULIA_CONDAPKG_BACKEND"])        # Null: CondaPkg installs nothing
+sys = pyimport("sys")
+println("Python ", pyconvert(Int, sys.version_info[0]))   # the major version only
+pyimport("numpy") isa Py
+'''
+
+  [[section.example]]
+  caption = "A module that the configured Python does not have: in a CondaPkg project you would add it to CondaPkg.toml."
+  code = '''
+using PythonCall
+pyimport("surely_not_installed_here")
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A colleague clones your project and runs `using PythonCall`. With the default settings, how do they get the same Python packages you used?"
+  choices = [
+    "CondaPkg reads the committed `CondaPkg.toml` and installs those packages for the project",
+    "They `pip install` each package into their system Python; PythonCall then finds it on the `PATH`",
+    "The Julia `Manifest.toml` records the Python packages too, and `Pkg.instantiate()` installs them",
+  ]
+  answer = 1
+  explain = "`CondaPkg.toml` lists the Python dependencies; CondaPkg resolves and installs them on first use, into a Conda environment per project, as `Pkg` does for `Project.toml`."
+  misconceptions = [
+    "",
+    "That is close to the setup with `JULIA_CONDAPKG_BACKEND=Null`, as in this course (and even then the Python is named by `JULIA_PYTHONCALL_EXE`); by default CondaPkg does the installing.",
+    "The Manifest records Julia packages only; Python packages come from `CondaPkg.toml`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Which difference between PyCall.jl and PythonCall.jl changes how you write code?"
+  choices = [
+    "PyCall picks a Python per project at load time; PythonCall fixes one Python at build time",
+    "PyCall converts results to Julia values automatically; PythonCall returns a `Py` until you `pyconvert` it",
+    "PythonCall copies a Julia `Vector` into a new Python list; PyCall shares the vector's memory",
+  ]
+  answer = 2
+  explain = "With PyCall, `math.sqrt(2)` is a Julia `Float64` already; with PythonCall it is a `Py` until converted. PythonCall's choice avoids hidden copies and keeps code type-stable."
+  misconceptions = [
+    "It is the other way round: PyCall is configured once with `Pkg.build`, PythonCall chooses at load time (CondaPkg or `JULIA_PYTHONCALL_EXE`).",
+    "",
+    "PythonCall wraps mutable Julia containers (a `juliacall.VectorValue`) instead of copying them; `pylist(v)` is the explicit copy.",
+  ]
+
+[[section]]
+title = "Pitfalls: indexing, threads and object lifetimes"
+body = '''
+**Two indexing conventions in one program.** Indexing a `Py` (`xs[0]`,
+`a[i]`) is Python indexing: 0-based, negative indices count from the end,
+and an out-of-range index raises a Python `IndexError`. Indexing a wrapper
+(`PyList`, `PyArray`) or a converted Julia vector is 1-based. Convert or wrap
+early so that one function uses one convention.
+
+**Threads and the GIL.** Python's interpreter can run Python code on one
+thread at a time: the thread holding the *global interpreter lock* (GIL). In
+PythonCall the main Julia thread holds it. Calling Python from a
+`Threads.@threads` loop on other threads, without the GIL, can crash the
+process. Since version 0.9.22 the documented pattern is to release the lock
+on the main thread and take it inside each task:
+
+```julia
+PythonCall.GIL.@unlock Threads.@threads for i in 1:4
+    PythonCall.GIL.@lock pyimport("time").sleep(1)
+end
+```
+
+With several Julia threads, start Julia with exactly one interactive thread
+(`julia --threads=4,1`, or `JULIA_NUM_THREADS=4,1`; check with
+`Threads.nthreads(:interactive)`): otherwise the REPL can crash, on tab
+completion for example
+([FAQ](https://juliapy.github.io/PythonCall.jl/stable/faq/#faq-multi-threading)).
+
+Only one thread runs Python at a time even then; threads help when the
+Python call releases the GIL itself (NumPy's large operations, I/O, sleep).
+For CPU-bound pure-Python code, keep Python calls on the main thread and
+parallelise the Julia part. The
+[multi-threading guide](https://juliapy.github.io/PythonCall.jl/stable/pythoncall/#jl-multi-threading)
+marks this support as experimental.
+
+**Object lifetimes.** A `Py` owns a reference to its Python object; when
+Julia's garbage collector frees the `Py`, the Python reference count drops
+and Python may free the object. A wrapper such as `PyArray` keeps its Python
+object alive, so the view stays valid as long as you hold it. The risk is the
+other way round: a raw pointer or a `Ptr` obtained from Python memory is not
+tracked by anything. And never call Python while a module is precompiling:
+import Python modules in `__init__` or at call time
+([guide](https://juliapy.github.io/PythonCall.jl/stable/pythoncall/#Writing-packages-which-depend-on-PythonCall)).
+'''
+
+  [[section.example]]
+  code = '''
+using PythonCall
+xs = pylist([10, 20, 30])
+println(pyconvert(Int, xs[0]), " ", pyconvert(Int, xs[-1]))   # Python: 0-based, -1 is the last
+ys = PyList{Int}(xs)
+println(ys[1], " ", ys[end])                                  # Julia wrapper: 1-based
+xs[3]
+'''
+
+  [[section.example]]
+  caption = "The view keeps the NumPy array alive after the last Julia name for it is gone."
+  code = '''
+using PythonCall
+make_view() = PyArray(pyimport("numpy").arange(5, dtype = "float64"))
+v = make_view()
+GC.gc()                      # the Py made inside make_view is unreachable now
+println(sum(v), " ", v[end])
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using PythonCall
+xs = pylist([5, 6, 7])
+ys = PyList{Int}(xs)
+println(pyconvert(Int, xs[1]) + ys[1])
+'''
+  choices = ["11", "12", "10"]
+  answer = 1
+  explain = "`xs[1]` is Python indexing on the `Py`: the second element, 6. `ys[1]` is Julia indexing on the wrapper: the first element, 5."
+  misconceptions = [
+    "",
+    "That treats both as 0-based (6 + 6); the wrapper is a Julia vector and is 1-based.",
+    "That treats both as 1-based (5 + 5); the `Py` follows Python's 0-based indexing.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You start Julia with 8 threads and call a pure-Python function inside `Threads.@threads`, without touching the GIL. What happens?"
+  choices = [
+    "It runs about 8 times faster, since each Julia thread gets its own Python interpreter",
+    "It runs correctly but one call at a time, since PythonCall takes the GIL for each call",
+    "Threads that do not hold the GIL call into Python, which can crash the process",
+  ]
+  answer = 3
+  explain = "Only the thread holding the GIL may call into Python, and by default that is the main thread. The `GIL.@unlock` / `GIL.@lock` pattern (with exactly one interactive thread) makes it safe, and even then pure-Python work runs one thread at a time."
+  misconceptions = [
+    "There is one interpreter per process, and the GIL lets one thread run Python bytecode at a time, so pure-Python work does not scale with threads.",
+    "PythonCall does not take the GIL for you on other threads; without `GIL.@lock` the calls are unsafe, not just serialised.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why should a package not run `const np = pyimport(\"numpy\")` at the top level of its module?"
+  choices = [
+    "The import runs during precompilation, and the saved `Py` is invalid when the package loads",
+    "NumPy may be imported only once per Julia session, and every `using` of the package imports it again",
+    "`const` cannot hold a `Py`, because the compiler would fold the Python object into machine code",
+  ]
+  answer = 1
+  explain = "Top-level code runs during precompilation, when the Python interpreter must not be used. A `Py` is a pointer into the running interpreter; precompiled module state is saved to disk and reloaded in a new process, where that pointer means nothing. Import in `__init__` (into a `Ref`) or at call time."
+  misconceptions = [
+    "",
+    "Python caches imports, so importing again is cheap and allowed; that is not the reason.",
+    "`const x = Ref{Py}()` is the documented pattern; the problem is when the import runs.",
+  ]
+
+[[section]]
+title = "Where to go next"
+body = '''
+A few more tools, each a line or two:
+
+* `@pyexec` runs a block of Python source and binds the names you list as
+  Julia variables; `@pyeval` evaluates one expression. Reach for them for a
+  short Python helper kept in the Julia file.
+* A Python exception arrives in Julia as a `PyException`. `pyisinstance(e, T)`
+  checks its Python type, so `catch` blocks can tell a `JSONDecodeError`
+  from a `KeyError`. Reach for this when a Python call can fail in more than
+  one way and you handle each differently.
+* `pywith(f, ctx)` is Python's `with` statement; `PyIO` views a Python file
+  object as a Julia `IO`. Reach for them when a Python API hands you a
+  context manager or a file object.
+* `PyTable` and `PyPandasDataFrame` expose pandas data frames through the
+  Tables.jl interface, so `DataFrame(PyTable(df))` (with pandas installed)
+  turns one into a Julia `DataFrame`. Reach for this when a Python library
+  returns its results as pandas.
+
+The [API reference](https://juliapy.github.io/PythonCall.jl/stable/pythoncall-reference/)
+lists every `py*` function (most mirror a Python builtin: `pylen`, `pystr`,
+`pyint`, `pyrange`), and the
+[juliacall guide](https://juliapy.github.io/PythonCall.jl/stable/juliacall/)
+covers the Python side.
+'''
+
+  [[section.example]]
+  code = '''
+using PythonCall
+@pyexec """
+def fib(n):
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+""" => fib
+pyconvert(BigInt, fib(100))   # Python ints are arbitrary precision
+'''
+
+  [[section.example]]
+  code = '''
+using PythonCall
+json = pyimport("json")
+try
+    json.loads("{not json")
+catch e
+    println(e isa PyException)
+    println(pyisinstance(e, json.JSONDecodeError))
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using PythonCall
+try
+    pyimport("json").loads("{\"a\": 1}")["b"]
+catch e
+    println(pyisinstance(e, pybuiltins.KeyError))
+end
+'''
+  choices = ["true", "false", "nothing"]
+  answer = 1
+  explain = "Looking up a missing key in a Python dict raises `KeyError`, which reaches Julia as a `PyException`; `pyisinstance` checks the Python type of the exception."
+  misconceptions = [
+    "",
+    "The exception is a `KeyError` (the dict has no key \"b\"), not a JSON error: the JSON itself is valid.",
+    "Python raises rather than returning `None` for `d[\"b\"]`; `d.get(\"b\")` would return `None`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A pure-Python library function takes 2 ms per call, and you call it once per scalar on 10^6 scalars (about 33 minutes). What do you change first?"
+  choices = [
+    "Switch `pyconvert(Float64, r)` to `pyconvert(Any, r)` to cut the cost of each conversion",
+    "Run the calls under `Threads.@threads` with the GIL unlocked, for about 8x on 8 threads",
+    "Find a vectorised call or a Julia replacement: the 2 ms is the library's own work, not the crossing",
+  ]
+  answer = 3
+  explain = "A crossing costs microseconds (the timing example above measured the whole round trip per element), so at 2 ms per call more than 99% of the time is the library computing. Only a faster implementation of that work helps: a version that does the whole array in compiled code, or a Julia rewrite. Interop pays off when calls are coarse and the Python side does real work you cannot get otherwise."
+  misconceptions = [
+    "The conversion is part of the microseconds of crossing cost, a tiny share of 2 ms; and `pyconvert(Any, r)` still looks up a rule at run time.",
+    "Pure-Python code holds the GIL while it runs, so the threads take turns; only calls that release the GIL (NumPy's large operations, I/O) run in parallel.",
+    "",
+  ]
+
+[[problem]]
+id = "py-mode-first"
+title = "The most common word, with Python's statistics module"
+difficulty = "warm-up"
+kcs = ["python-interop", "pyconvert"]
+entry = "py_mode"
+packages = ["PythonCall"]
+prompt = '''
+Write `py_mode(words)` that returns the most frequent string in the
+`Vector{String}` `words` (at least one element), as a Julia `String`. When
+several strings are equally frequent, return the one whose first appearance
+in `words` comes earliest.
+
+```julia
+py_mode(["b", "a", "c", "a", "b"])   # "b": "a" and "b" both appear twice, "b" first
+```
+
+Julia's standard library has no function for this, but Python's
+`statistics` module has one with exactly this tie rule (since Python 3.8):
+the exercise is to find it and call it from Julia. The grader checks the
+value and its type (a Julia `String`, not a `Py`), then compares speed with
+a reference that makes one Python call.
+'''
+starter = '''
+using PythonCall
+
+function py_mode(words)
+    statistics = pyimport("statistics")
+    # your code here
+end
+'''
+reference = '''
+using PythonCall
+
+function py_mode(words)
+    statistics = pyimport("statistics")
+    return pyconvert(String, statistics.mode(words))
+end
+'''
+cases = [
+  "[\"b\", \"a\", \"c\", \"a\", \"b\"]",
+  "[\"solo\"]",
+  "[\"red\", \"blue\", \"blue\", \"green\", \"red\", \"blue\"]",
+]
+gen = "rng -> [(rand(rng, [\"red\", \"green\", \"blue\", \"cyan\"], rand(rng, 1:30)),) for _ in 1:30]"
+compare = "isequal"
+hints = [
+  "The `statistics` module computes several averages; one of them is about the most frequent value rather than about sizes, and it works on strings.",
+  "Read that function's documentation for the rule it uses when there is a tie, and remember what type a Python call returns.",
+]
+
+  [problem.perf]
+  args = "rand(rng, [\"red\", \"green\", \"blue\", \"cyan\"], n)"
+  sizes = [2000]
+
+  [[problem.variant]]
+  label = "returns the Py without converting it"
+  code = '''
+using PythonCall
+py_mode(words) = pyimport("statistics").mode(words)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sorts first, so ties go to the alphabetically first string"
+  code = '''
+using PythonCall
+py_mode(words) = pyconvert(String, pyimport("statistics").mode(sort(words)))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "counts in Julia, but `>=` hands a tie to the later string"
+  code = '''
+function py_mode(words)
+    counts = Dict{String, Int}()
+    for w in words
+        counts[w] = get(counts, w, 0) + 1
+    end
+    best, bestcount = words[1], 0
+    for w in words
+        if counts[w] >= bestcount
+            best, bestcount = w, counts[w]
+        end
+    end
+    return best
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "statistics.multimode, first entry (Python indexing: 0)"
+  code = '''
+using PythonCall
+py_mode(words) = pyconvert(String, pyimport("statistics").multimode(words)[0])
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "counts in Julia and keeps the first string with the top count"
+  code = '''
+function py_mode(words)
+    counts = Dict{String, Int}()
+    for w in words
+        counts[w] = get(counts, w, 0) + 1
+    end
+    top = maximum(values(counts))
+    return words[findfirst(w -> counts[w] == top, words)]
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "py-numpy-sum-view"
+title = "Sum a NumPy array without copying it"
+difficulty = "core"
+kcs = ["shared-memory-wrappers", "language-boundary-cost"]
+entry = "numpy_sum"
+packages = ["PythonCall"]
+prompt = '''
+`a` is a one-dimensional NumPy array of `float64` (a `Py`). Write
+`numpy_sum(a)` that returns the sum of its elements as a Julia `Float64`.
+
+```julia
+np = pyimport("numpy")
+numpy_sum(np.array([1.5, 2.5, 3.0]))   # 7.0
+```
+
+The exercise is to compute the sum **in Julia**, over a view of the
+array's memory, without copying it. The grader checks the value and its
+type, then measures speed, memory and type stability against a reference
+that reads the buffer in place in a Julia loop. (Calling NumPy's own `sum`
+passes too, since the grader checks results, not how they were computed; it
+is one crossing with the loop in NumPy's compiled code, a good answer in
+practice, but it skips the wrapper this problem is about.)
+'''
+starter = '''
+using PythonCall
+
+function numpy_sum(a)
+    # your code here
+end
+'''
+reference = '''
+using PythonCall
+
+function numpy_sum(a)
+    # A view of the NumPy buffer, no copy. All five parameters are given so the
+    # type is concrete: Float64 elements, 1 dimension, read-only (false),
+    # linearly indexable (true), Float64 in memory.
+    v = PyArray{Float64, 1, false, true, Float64}(a)
+    s = 0.0
+    for x in v
+        s += x
+    end
+    return s
+end
+'''
+cases = [
+  "pyimport(\"numpy\").array([1.5, 2.5, 3.0])",
+  "pyimport(\"numpy\").zeros(0)",
+  "pyimport(\"numpy\").arange(10, dtype = \"float64\")",
+]
+gen = "rng -> [(pyimport(\"numpy\").array(round.(10 .* rand(rng, rand(rng, 0:50)), digits = 3)),) for _ in 1:15]"
+# Summation order differs between solutions (a plain loop, pairwise `sum`,
+# NumPy's own pairwise sum). The forward error of any order is at most
+# (n - 1) * eps * sum(|x|). Every case is non-negative (no cancellation), so
+# sum(|x|) = |sum| and the relative error is at most 49 * 2.2e-16 ~ 1.1e-14
+# for n <= 50; rtol = 1e-12 leaves a factor of about 90.
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "PythonCall has a wrapper type that views anything with the NumPy array interface as a Julia `AbstractArray`, without copying.",
+  "Wrap the array with `PyArray`, then loop or call `sum` on the wrapper. For a type-stable function the wrapper's type must be concrete: look at the five parameters in the type that `PyArray(a)` displays.",
+]
+
+  [problem.perf]
+  args = "pyimport(\"numpy\").array(randn(rng, n))"
+  sizes = [20000]
+
+  [[problem.variant]]
+  label = "1-based indexing on the Py: skips the first element and runs past the end"
+  code = '''
+using PythonCall
+function numpy_sum(a)
+    s = 0.0
+    for i in 1:pylen(a)
+        s += pyconvert(Float64, a[i])
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "indexes the Py element by element (one Python object per element)"
+  code = '''
+using PythonCall
+function numpy_sum(a)
+    s = 0.0
+    for i in 0:pylen(a)-1
+        s += pyconvert(Float64, a[i])
+    end
+    return s
+end
+'''
+  expect = ["correct", "slow", "allocates"]
+
+  [[problem.variant]]
+  label = "copies the array into a Julia Vector first"
+  code = '''
+using PythonCall
+numpy_sum(a) = sum(pyconvert(Vector{Float64}, a))
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "sum(PyArray(a)): no copy, but the wrapper's type is only known at run time"
+  code = '''
+using PythonCall
+numpy_sum(a) = sum(PyArray(a))
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "sum on a concretely typed PyArray view"
+  code = '''
+using PythonCall
+numpy_sum(a) = sum(PyArray{Float64, 1, false, true, Float64}(a))
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "NumPy's own sum: one crossing, the loop runs in NumPy's compiled code"
+  code = '''
+using PythonCall
+numpy_sum(a) = pyconvert(Float64, a.sum())
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "py-dict-of-lists"
+title = "A Python dict of lists into a Julia Dict"
+difficulty = "stretch"
+kcs = ["pyconvert", "python-interop"]
+entry = "dict_of_lists"
+packages = ["PythonCall"]
+prompt = '''
+`d` is a Python `dict` (a `Py`) mapping strings to lists. The lists hold
+Python ints and `None` (a missing value). Write `dict_of_lists(d)` that
+returns a Julia `Dict{String, Vector{Int}}` with the same keys, each list
+converted to a `Vector{Int}` **with the `None` entries dropped** (the order
+of the remaining numbers is kept).
+
+```julia
+d = pyimport("json").loads("""{"a": [3, null, 1], "b": [], "c": [null]}""")
+dict_of_lists(d)   # Dict("a" => [3, 1], "b" => Int[], "c" => Int[])
+```
+
+The result must be a real Julia `Dict` (not a wrapper around the Python
+object), so changing it later does not change `d`.
+'''
+starter = '''
+using PythonCall
+
+function dict_of_lists(d)
+    # your code here
+end
+'''
+reference = '''
+using PythonCall
+
+function dict_of_lists(d)
+    raw = pyconvert(Dict{String, Vector{Union{Int, Nothing}}}, d)
+    out = Dict{String, Vector{Int}}()
+    for (k, v) in raw
+        out[k] = Int[x for x in v if x !== nothing]
+    end
+    return out
+end
+'''
+cases = [
+  "pyimport(\"json\").loads(\"\"\"{\"a\": [3, null, 1], \"b\": [], \"c\": [null]}\"\"\")",
+  "pyimport(\"json\").loads(\"{}\")",
+  "pyimport(\"json\").loads(\"\"\"{\"x\": [1, 2, 3], \"y\": [-7]}\"\"\")",
+]
+gen = "rng -> [(pydict(Dict(string(\"k\", j) => pylist([rand(rng) < 0.2 ? nothing : rand(rng, -50:50) for _ in 1:rand(rng, 0:8)]) for j in 1:rand(rng, 0:6))),) for _ in 1:20]"
+compare = "isequal"
+hints = [
+  "`pyconvert` can convert the whole dict in one call if you name a target type that can hold every value, including `None`.",
+  "`None` converts to `nothing`. Ask `pyconvert` for an element type that can hold both an `Int` and `nothing`, then filter each vector.",
+]
+
+  [problem.perf]
+  args = "pydict(Dict(string(\"k\", j) => pylist([isodd(i + j) ? nothing : i for i in 1:50]) for j in 1:n))"
+  sizes = [400]
+
+  [[problem.variant]]
+  label = "converts straight to Vector{Int}: fails on None"
+  code = '''
+using PythonCall
+dict_of_lists(d) = pyconvert(Dict{String, Vector{Int}}, d)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "keeps the nothing entries"
+  code = '''
+using PythonCall
+dict_of_lists(d) = pyconvert(Dict{String, Vector{Union{Int, Nothing}}}, d)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns a PyDict wrapper around the Python dict, None entries and all"
+  code = '''
+using PythonCall
+dict_of_lists(d) = PyDict{String, Vector{Union{Int, Nothing}}}(d)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "walks the Python dict item by item, testing for None in Python"
+  code = '''
+using PythonCall
+function dict_of_lists(d)
+    out = Dict{String, Vector{Int}}()
+    for (k, v) in d.items()
+        out[pyconvert(String, k)] = Int[pyconvert(Int, x) for x in v if !pyis(x, pybuiltins.None)]
+    end
+    return out
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "py-top-k-indices"
+title = "Fix the bug: the k largest values, located with NumPy"
+difficulty = "core"
+kcs = ["python-interop", "pyconvert"]
+entry = "top_k"
+packages = ["PythonCall"]
+prompt = '''
+`top_k(xs, k)` should return the positions of the `k` largest values of the
+`Vector{Float64}` `xs`, largest first, as a `Vector{Int}` of Julia indices
+(so that `xs[top_k(xs, k)]` are those values). The values are distinct and
+`0 <= k <= length(xs)`. A colleague wrote it with NumPy:
+
+```julia
+using PythonCall
+
+function top_k(xs, k)
+    np = pyimport("numpy")
+    order = np.flip(np.argsort(np.asarray(xs)))   # positions, largest value first
+    idx = pyconvert(Vector{Int}, order)
+    return idx[1:k]
+end
+```
+
+It runs without an error, and the order of its answers looks plausible, but
+`xs[top_k(xs, k)]` is not the `k` largest values. Find the bug and fix it.
+
+```julia
+top_k([10.0, 30.0, 20.0], 2)   # [2, 3]
+top_k([10.0, 30.0, 20.0], 0)   # Int[]
+```
+
+The grader checks the result and its type, then measures speed against
+the fixed NumPy version.
+'''
+starter = '''
+using PythonCall
+
+function top_k(xs, k)
+    np = pyimport("numpy")
+    order = np.flip(np.argsort(np.asarray(xs)))   # positions, largest value first
+    idx = pyconvert(Vector{Int}, order)
+    return idx[1:k]
+end
+'''
+reference = '''
+using PythonCall
+
+function top_k(xs, k)
+    np = pyimport("numpy")
+    order = np.flip(np.argsort(np.asarray(xs)))   # positions, largest value first
+    idx = pyconvert(Vector{Int}, order)
+    return idx[1:k] .+ 1                           # NumPy positions are 0-based
+end
+'''
+cases = [
+  "[10.0, 30.0, 20.0], 2",
+  "[10.0, 30.0, 20.0], 0",
+  "[-1.5, 4.0, 0.25, 9.0, 3.0], 5",
+]
+gen = "rng -> [(xs = randn(rng, rand(rng, 1:40)); (xs, rand(rng, 0:length(xs)))) for _ in 1:20]"
+compare = "isequal"
+hints = [
+  "Two indexing conventions meet in this function. Which one do the numbers in `order` follow, and which one does the prompt ask for?",
+  "Try `top_k([10.0, 30.0, 20.0], 1)` and compare it with `argmax([10.0, 30.0, 20.0])`. Then check that your fix still works for `k = 0` and `k = length(xs)`.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n), 10"
+  sizes = [20000]
+
+  [[problem.variant]]
+  label = "\"fixes\" the slice to idx[2:k+1] instead of shifting the positions"
+  code = '''
+using PythonCall
+function top_k(xs, k)
+    np = pyimport("numpy")
+    order = np.flip(np.argsort(np.asarray(xs)))
+    idx = pyconvert(Vector{Int}, order)
+    return idx[2:k+1]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "adds 1 but drops np.flip: the k smallest instead of the largest"
+  code = '''
+using PythonCall
+function top_k(xs, k)
+    np = pyimport("numpy")
+    idx = pyconvert(Vector{Int}, np.argsort(np.asarray(xs)))
+    return idx[1:k] .+ 1
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sorts on the negated values in NumPy, then shifts to 1-based"
+  code = '''
+using PythonCall
+function top_k(xs, k)
+    np = pyimport("numpy")
+    idx = pyconvert(Vector{Int}, np.argsort(np.negative(np.asarray(xs))))
+    return idx[1:k] .+ 1
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "no Python at all: partialsortperm in Julia"
+  code = '''
+top_k(xs, k) = collect(partialsortperm(xs, 1:k; rev = true))   # collect: a Vector, not a view
+'''
+  expect = ["correct"]

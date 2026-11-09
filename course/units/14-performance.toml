@@ -1,0 +1,1017 @@
+id = "14-performance"
+title = "Performance: measuring, type stability and allocations"
+track = "advanced"
+env = "base"
+status = "ready"
+summary = "How to measure Julia code without fooling yourself, and the handful of habits that make it fast: type-stable functions, no untyped globals, concrete containers and fields, few allocations, memory-order loops and function barriers."
+kcs = ["benchmarking", "type-stability", "globals", "concrete-types", "allocations", "views", "broadcast-fusion", "in-place", "memory-layout", "inbounds-simd", "function-barriers"]
+prerequisites = ["13-io"]
+
+[[section]]
+title = "Measuring without fooling yourself"
+body = '''
+Julia compiles a function the first time you call it with a given combination
+of argument types. So the **first** call of anything measures the compiler as
+much as your code: `@time` reports that share as "compilation time". Always
+call once to warm up, then measure, and repeat the measurement a few times and
+keep the minimum (the least disturbed run). The package
+[BenchmarkTools.jl](https://juliaci.github.io/BenchmarkTools.jl/stable/)
+automates this with `@btime` and `@benchmark`; here we stay with Base.
+
+Timings change from run to run and machine to machine, so the timing examples
+on this page are recorded but not checked (the numbers you see are from one
+run). Allocations are different: `@allocated` counts the bytes a call
+allocates, and once the function is compiled that number is deterministic.
+Measure it **inside a function**, after a warm-up call: at global scope the
+measurement also counts the work of handling untyped global variables.
+
+Later sections use a one-line helper for this:
+
+```julia
+measure(f::F, args...) where {F} = (f(args...); @allocated f(args...))
+```
+
+The `f::F ... where {F}` matters. Julia's heuristics sometimes decline to
+specialise a method on a `Function` argument (here: one called with splatted
+arguments), and the unspecialised call boxes its result. The type parameter
+forces a specialised version, so the helper adds nothing to the count; written
+as `measure(f, args...)` it reports 16 extra bytes for every call. The
+[performance tips](https://docs.julialang.org/en/v1/manual/performance-tips/#Be-aware-of-when-Julia-avoids-specializing)
+explain when this happens.
+'''
+
+  [[section.example]]
+  caption = "The first `@time` includes compiling `f`; the second is the work alone. Recorded, not checked: timings vary."
+  check = false
+  code = '''
+f(x) = sum(abs2, x)
+x = rand(10^6)
+@time f(x)
+@time f(x)
+best = minimum(@elapsed(f(x)) for _ in 1:20)
+println("best of 20 runs: ", round(best * 1e6; digits = 1), " μs");
+'''
+
+  [[section.example]]
+  caption = "`@allocated` inside a function, after warming up: deterministic, so this output is checked."
+  code = '''
+function allocations(x)
+    copy(x); sum(x)                       # warm up (compile) both calls first
+    return (copy = @allocated(copy(x)), sum = @allocated(sum(x)))
+end
+allocations(rand(1000))
+'''
+
+[[section]]
+title = "Type stability"
+body = '''
+A function is **type-stable** when the type of its result follows from the
+types of its arguments alone, never from their values. Then the compiler knows
+the type of every intermediate value and emits specialised machine code. When
+it cannot know, it has to box values and look methods up at run time.
+
+`Base.return_types(f, (ArgTypes...,))` asks the compiler what `f` returns. In
+the REPL, `@code_warntype f(args...)` shows the inferred type of every local
+variable and highlights the abstract ones (its output is long, so it is not
+shown here; try it on your own functions).
+
+The classic mistake is a literal of the wrong type: `0` is an `Int`, so a
+function that returns `0` on one branch and a `Float64` on another returns a
+`Union`. The fix is to build the constant from the argument: `zero(x)`,
+`one(x)`, `zero(eltype(v))`. The same mistake hides in accumulators: `s = 0`
+followed by `s += x` for floats makes `s` an `Int` before the loop and a
+`Float64` after it, and an empty input returns the `Int`.
+'''
+
+  [[section.example]]
+  caption = "The return type depends on the *value* of `x`; `zero(x)` fixes it."
+  code = '''
+clamp_negative(x) = x < 0 ? 0 : x
+clamp_negative_stable(x) = x < 0 ? zero(x) : x
+println(Base.return_types(clamp_negative, (Float64,)))
+println(Base.return_types(clamp_negative_stable, (Float64,)))
+println(typeof(clamp_negative(-1.5)), " ", typeof(clamp_negative(1.5)))
+'''
+
+  [[section.example]]
+  caption = "An accumulator that starts as `0` and becomes a `Float64`; notice what the empty vector returns."
+  code = '''
+function total(v)
+    s = 0                  # an Int ...
+    for x in v
+        s += x             # ... that becomes a Float64
+    end
+    return s
+end
+function total_stable(v)
+    s = zero(eltype(v))    # 0.0 for a Vector{Float64}
+    for x in v
+        s += x
+    end
+    return s
+end
+println(Base.return_types(total, (Vector{Float64},)))
+println(Base.return_types(total_stable, (Vector{Float64},)))
+println(repr(total(Float64[])), "  ", repr(total_stable(Float64[])))
+'''
+
+[[section]]
+title = "Global variables"
+body = '''
+A non-`const` global variable can be rebound to a value of any type at any
+moment, so a function that reads it cannot assume anything about its type:
+the result is inferred as `Any`, and every operation on it is a dynamic
+lookup. This is why "put your code in functions" is the first performance tip
+in the [manual](https://docs.julialang.org/en/v1/manual/performance-tips/).
+Three fixes, from most to least common:
+
+* pass the value as an **argument** (the function is then compiled for its type);
+* declare it `const` if it really never changes;
+* give the global a **type** (Julia 1.8 and later): `rate::Float64 = 1.5`. Its
+  value can still change, but only to another `Float64`.
+
+Python and MATLAB users write scripts full of top-level loops over globals;
+in Julia the same loop inside a function is often tens of times faster.
+'''
+
+  [[section.example]]
+  caption = "Reading an untyped global makes the result `Any`; `const` or an argument makes it concrete."
+  code = '''
+rate = 1.5
+scale(v) = sum(x * rate for x in v)
+const RATE = 1.5
+scale_const(v) = sum(x * RATE for x in v)
+scale_arg(v, r) = sum(x * r for x in v)
+println(Base.return_types(scale, (Vector{Float64},)))
+println(Base.return_types(scale_const, (Vector{Float64},)))
+println(Base.return_types(scale_arg, (Vector{Float64}, Float64)))
+'''
+
+  [[section.example]]
+  caption = "A typed global: the type is fixed, the value is not. Assigning `2` converts it; a string cannot be converted."
+  code = '''
+rate::Float64 = 1.5
+scale(v) = sum(x * rate for x in v)
+println(Base.return_types(scale, (Vector{Float64},)))
+rate = 2
+println(rate)
+rate = "fast"
+'''
+
+  [[section.example]]
+  caption = "The same loop over a global and over an argument: count the bytes allocated."
+  code = '''
+data = rand(1000)
+function sum_global()
+    s = 0.0
+    for x in data          # `data` could be anything: every step is dynamic
+        s += x
+    end
+    return s
+end
+function sum_arg(v)
+    s = 0.0
+    for x in v
+        s += x
+    end
+    return s
+end
+measure(f::F, args...) where {F} = (f(args...); @allocated f(args...))
+println("global:   ", measure(sum_global), " bytes")
+println("argument: ", measure(sum_arg, data), " bytes")
+'''
+
+[[section]]
+title = "Concrete element types and fields"
+body = '''
+A `Vector{Float64}` stores the numbers themselves, side by side in memory. A
+`Vector{Any}` or a `Vector{Real}` stores *pointers* to boxed values, because
+its elements may have different types and sizes; every access then follows a
+pointer and dispatches at run time. `isconcretetype` tells you whether a type
+can be the type of an actual value: `Float64` can, `Real` cannot.
+
+The same applies to struct fields. A field declared `x::Real` can hold any
+real number, so code that reads it cannot be specialised. Make the struct
+**parametric** instead: `struct Point{T<:Real}; x::T; end` creates a separate
+concrete type `Point{Float64}`, `Point{Int64}`, … for each field type, with
+the same flexibility and none of the cost.
+'''
+
+  [[section.example]]
+  caption = "Same numbers, three containers. `sum` over the abstract ones allocates a box for each intermediate result."
+  code = '''
+measure(f::F, args...) where {F} = (f(args...); @allocated f(args...))
+a = rand(1000)
+b = Vector{Any}(a)
+c = Vector{Real}(a)
+println(isconcretetype(eltype(a)), " ", isconcretetype(eltype(b)), " ", isconcretetype(eltype(c)))
+println("Vector{Float64}: ", measure(sum, a), " bytes")
+println("Vector{Any} allocates:  ", measure(sum, b) > 0)
+println("Vector{Real} allocates: ", measure(sum, c) > 0)
+'''
+
+  [[section.example]]
+  caption = "An abstract field makes `norm2` return `Any`; a type parameter keeps it concrete."
+  code = '''
+struct PointAbstract
+    x::Real
+    y::Real
+end
+struct Point{T<:Real}
+    x::T
+    y::T
+end
+norm2(p) = p.x^2 + p.y^2
+println(Base.return_types(norm2, (PointAbstract,)))
+println(Base.return_types(norm2, (Point{Float64},)))
+println(typeof(Point(3.0, 4.0)), " ", typeof(Point(3, 4)))
+norm2(Point(3.0, 4.0))
+'''
+
+[[section]]
+title = "Allocations: slices, views, fusion and in-place updates"
+body = '''
+Allocating memory is not free, and the garbage collector must later reclaim
+it. Three sources dominate in numerical code.
+
+**Slices copy.** Unlike NumPy, `x[2:end-1]` creates a new array (MATLAB and R
+copy too). `@view x[2:end-1]` creates a lightweight window into `x` instead,
+and `@views` in front of a function or block turns every slice in it into a
+view. Mutating a view mutates the parent.
+
+**Every vectorised operation makes an array**, unless you fuse it. `2x + x.^2`
+makes three arrays (one per operation); the dotted `2 .* x .+ x .^ 2` fuses
+into a single loop with a single result array; and `out .= 2 .* x .+ x .^ 2`
+(or `@. out = 2x + x^2`) writes into an existing array and allocates nothing.
+
+**Preallocate and update in place.** Functions whose names end in `!` modify
+an argument instead of returning a new value: `mul!(C, A, B)` from
+`LinearAlgebra` writes `A * B` into `C`, `sort!`, `push!`, `copyto!`, `fill!`.
+In a loop that runs many times, allocate the output once outside it.
+
+In the last example a 1000-element `Vector{Float64}` costs 8128 bytes (8000
+for the data plus the array header): the unfused version allocates three of
+them, the fused one a single array (plus 16 bytes of bookkeeping), the
+in-place one nothing; `A * B` allocates the 50×50 result, `mul!` nothing.
+'''
+
+  [[section.example]]
+  caption = "A slice is a copy; a view is a window into the original array."
+  code = '''
+x = [1, 2, 3, 4, 5]
+s = x[2:4]          # a new array
+v = @view x[2:4]    # a view of x
+s[1] = 100          # changes only the copy
+v[2] = 300          # changes x[3]
+x
+'''
+
+  [[section.example]]
+  caption = "The copy allocates the whole slice; the views allocate nothing."
+  code = '''
+measure(f::F, args...) where {F} = (f(args...); @allocated f(args...))
+inner_sum_copy(x) = sum(x[2:end-1])
+inner_sum_view(x) = sum(@view x[2:end-1])
+@views inner_sum_views(x) = sum(x[2:end-1])
+x = rand(1000)
+println(measure(inner_sum_copy, x), " ", measure(inner_sum_view, x), " ", measure(inner_sum_views, x))
+'''
+
+  [[section.example]]
+  caption = "Unfused, fused and in-place broadcasting, then `*` against `mul!`."
+  code = '''
+using LinearAlgebra
+measure(f::F, args...) where {F} = (f(args...); @allocated f(args...))
+unfused(x) = 2x + x .^ 2                  # three arrays
+fused(x) = 2 .* x .+ x .^ 2               # one loop, one array
+inplace!(out, x) = (out .= 2 .* x .+ x .^ 2; out)   # no new array
+x = rand(1000); out = similar(x)
+println(measure(unfused, x), " ", measure(fused, x), " ", measure(inplace!, out, x))
+A = rand(50, 50); B = rand(50, 50); C = similar(A)
+println(measure(*, A, B), " ", measure(mul!, C, A, B))
+C ≈ A * B
+'''
+
+[[section]]
+title = "Loops: memory order, hoisting, @inbounds and @simd"
+body = '''
+Loops are fast in Julia (unlike in Python or R there is no need to vectorise
+for speed), but the processor still rewards some habits.
+
+**Arrays are column-major**, like Fortran and MATLAB and unlike C and NumPy's
+default: `A[1,1]`, `A[2,1]`, `A[3,1]`, … are adjacent in memory. Make the
+*first* index vary fastest, i.e. put the row loop inside the column loop.
+Walking along rows jumps through memory and wastes most of every cache line
+fetched; the gap grows with the matrix.
+
+**Do not repeat work in the inner loop.** A value that does not change inside
+the loop (a norm, a length, a lookup) belongs before it. Recomputing an O(n)
+quantity n times turns an O(n) function into an O(n²) one.
+
+**`@inbounds` and `@simd`.** Every `x[i]` checks that `i` is a valid index.
+`@inbounds` removes the check, and `@simd` lets the compiler reorder a
+reduction so it can use vector instructions (so a floating-point sum may
+differ in the last bits). Write and test the bounds-checked version first:
+with checks on, a wrong index is a `BoundsError`; under `@inbounds` it is
+**undefined behaviour**, i.e. garbage results or a crash, not an error. Prefer
+`eachindex(x)` over `1:length(x)`: it is always valid, so the compiler can
+often drop the checks by itself.
+'''
+
+  [[section.example]]
+  caption = "`vec` shows the memory order: down the first column, then the second."
+  code = '''
+A = [1 2 3; 4 5 6]
+vec(A)
+'''
+
+  [[section.example]]
+  caption = "The same sum, two loop orders, on a 2000×2000 matrix. Recorded, not checked: timings vary."
+  check = false
+  code = '''
+function sum_by_columns(A)
+    s = zero(eltype(A))
+    for j in axes(A, 2), i in axes(A, 1)    # i (rows) varies fastest
+        s += A[i, j]
+    end
+    return s
+end
+function sum_by_rows(A)
+    s = zero(eltype(A))
+    for i in axes(A, 1), j in axes(A, 2)    # j varies fastest: strided access
+        s += A[i, j]
+    end
+    return s
+end
+A = rand(2000, 2000)
+sum_by_columns(A); sum_by_rows(A)
+t_col = minimum(@elapsed(sum_by_columns(A)) for _ in 1:5)
+t_row = minimum(@elapsed(sum_by_rows(A)) for _ in 1:5)
+println("columns: ", round(t_col * 1e3; digits = 1), " ms, rows: ", round(t_row * 1e3; digits = 1), " ms")
+'''
+
+  [[section.example]]
+  caption = "A norm recomputed inside the loop makes the function quadratic. Same result, very different time (not checked)."
+  check = false
+  code = '''
+function normalize_slow(v)
+    out = similar(v)
+    for i in eachindex(v)
+        out[i] = v[i] / sqrt(sum(abs2, v))   # O(n) work, n times
+    end
+    return out
+end
+function normalize_fast(v)
+    nrm = sqrt(sum(abs2, v))                # once, before the loop
+    out = similar(v)
+    for i in eachindex(v)
+        out[i] = v[i] / nrm
+    end
+    return out
+end
+v = rand(20_000)
+println(normalize_slow(v) == normalize_fast(v))
+t_slow = @elapsed normalize_slow(v)
+t_fast = @elapsed normalize_fast(v)
+println("slow: ", round(t_slow * 1e3; digits = 2), " ms, fast: ", round(t_fast * 1e3; digits = 3), " ms")
+'''
+
+  [[section.example]]
+  caption = "First the bounds-checked version: an off-by-one index is caught as a `BoundsError`."
+  code = '''
+function mysum(x)
+    s = zero(eltype(x))
+    for i in 1:length(x) + 1      # bug: one past the end
+        s += x[i]
+    end
+    return s
+end
+mysum([1.0, 2.0, 3.0])
+'''
+
+  [[section.example]]
+  caption = "Once the indices are right (`eachindex`), `@inbounds @simd` is safe. The reordered sum agrees with `sum` up to rounding; the speed-up is not checked."
+  check = false
+  code = '''
+function mysum_simd(x)
+    s = zero(eltype(x))
+    @inbounds @simd for i in eachindex(x)
+        s += x[i]
+    end
+    return s
+end
+function mysum_plain(x)
+    s = zero(eltype(x))
+    for i in eachindex(x)
+        s += x[i]
+    end
+    return s
+end
+x = rand(10^6)
+println(mysum_simd(x) ≈ sum(x), " ", mysum_plain(x) ≈ sum(x))
+mysum_simd(x); mysum_plain(x)
+t_simd = minimum(@elapsed(mysum_simd(x)) for _ in 1:10)
+t_plain = minimum(@elapsed(mysum_plain(x)) for _ in 1:10)
+println("@simd: ", round(t_simd * 1e6; digits = 1), " μs, plain: ", round(t_plain * 1e6; digits = 1), " μs")
+'''
+
+[[section]]
+title = "Function barriers"
+body = '''
+Sometimes a type really is unknown until run time: a value read from a file,
+a `Dict{String,Any}` of columns, a user's choice. You cannot make that one
+lookup type-stable, but you can stop the uncertainty from spreading. Do the
+lookup in a small outer function and hand the value to a **kernel function**
+that does the real work. Calling the kernel costs one dynamic dispatch; inside
+it, Julia compiles a specialised version for the actual type, so the loop is
+fast. This pattern is called a *function barrier*.
+
+In the example, `sum_of_column` loops over a value of type `Any`; `kernel` is
+inferred concretely for a `Vector{Float64}`, and `sum_with_barrier` only adds
+one dispatch in front of it. (Timings recorded, not checked.)
+'''
+
+  [[section.example]]
+  check = false
+  code = '''
+function sum_of_column(table::Dict{String,Any}, name)
+    col = table[name]                 # type known only at run time
+    s = zero(eltype(col))
+    for x in col                      # every step is a dynamic call
+        s += x
+    end
+    return s
+end
+function kernel(col)
+    s = zero(eltype(col))
+    for x in col
+        s += x
+    end
+    return s
+end
+sum_with_barrier(table, name) = kernel(table[name])
+
+table = Dict{String,Any}("price" => rand(10^6), "count" => rand(1:9, 10^6))
+println(Base.return_types(sum_of_column, (Dict{String,Any}, String)))
+println(Base.return_types(kernel, (Vector{Float64},)))
+println(sum_of_column(table, "price") == sum_with_barrier(table, "price"))
+sum_of_column(table, "price"); sum_with_barrier(table, "price")
+t1 = minimum(@elapsed(sum_of_column(table, "price")) for _ in 1:5)
+t2 = minimum(@elapsed(sum_with_barrier(table, "price")) for _ in 1:5)
+println("no barrier: ", round(t1 * 1e3; digits = 2), " ms, barrier: ", round(t2 * 1e3; digits = 2), " ms")
+'''
+
+[[problem]]
+id = "column-sums-fast"
+title = "Column sums, in memory order"
+difficulty = "core"
+kcs = ["memory-layout", "views", "allocations"]
+entry = "column_sums"
+prompt = '''
+Write `column_sums(A)` that returns a vector with the sum of each column of
+the matrix `A`. The element type of the result is the element type of `A`
+(an `Int` matrix gives a `Vector{Int}`), and a matrix with no rows gives zeros.
+
+```julia
+column_sums([1 2; 3 4])        # [4, 6]
+column_sums([1.0 2.0 3.0])     # [1.0, 2.0, 3.0]
+```
+
+The grader times your function on a 2000×2000 `Float64` matrix against a
+reference that sums each column with Base's `sum` on a view (which uses SIMD
+instructions). Mind the memory order and the allocations. A plain
+column-by-column loop is correct but measures a few times slower than the
+reference: it adds strictly in order, which the compiler may not reorder into
+vector instructions unless you allow it (`@simd`). Float results are compared
+with a relative tolerance, since summing in a different order changes the
+last bits.
+'''
+starter = '''
+function column_sums(A)
+    # your code here
+end
+'''
+reference = '''
+function column_sums(A)
+    out = zeros(eltype(A), size(A, 2))
+    for j in axes(A, 2)
+        out[j] = sum(@view A[:, j])
+    end
+    return out
+end
+'''
+cases = ["[1 2; 3 4]", "[1.0 2.0 3.0]", "zeros(0, 3)", "[1.5; 2.5; -1.0;;]"]
+gen = "rng -> [(isodd(k) ? rand(rng, rand(rng, 0:6), rand(rng, 0:6)) : rand(rng, -9:9, rand(rng, 0:6), rand(rng, 0:6)),) for k in 1:24]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Julia matrices are stored column by column, so one column is a contiguous block of memory.",
+  "`A[:, j]` copies the column; `@view A[:, j]` does not. `sum` works on a view, and `axes(A, 2)` gives the column indices.",
+]
+
+  [problem.perf]
+  args = "rand(rng, n, n)"
+  sizes = [2000]
+
+  [[problem.variant]]
+  label = "row sums instead of column sums"
+  code = '''
+column_sums(A) = vec(sum(A; dims = 2))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "always returns Float64"
+  code = '''
+function column_sums(A)
+    out = zeros(size(A, 2))
+    for j in axes(A, 2)
+        out[j] = sum(@view A[:, j])
+    end
+    return out
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "walks along rows (strided memory access)"
+  code = '''
+function column_sums(A)
+    out = zeros(eltype(A), size(A, 2))
+    for i in axes(A, 1), j in axes(A, 2)
+        out[j] += A[i, j]
+    end
+    return out
+end
+'''
+  expect = ["correct", "slow"]
+
+  [[problem.variant]]
+  label = "copies every column with A[:, j]"
+  code = '''
+column_sums(A) = [sum(A[:, j]) for j in axes(A, 2)]
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "accumulator starts as the Int 0"
+  code = '''
+function column_sums(A)
+    out = zeros(eltype(A), size(A, 2))
+    for j in axes(A, 2)
+        s = 0
+        for i in axes(A, 1)
+            s += A[i, j]
+        end
+        out[j] = s
+    end
+    return out
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "the same Int-0 accumulator, hidden in a helper"
+  code = '''
+function colsum(A, j)
+    s = 0
+    for i in axes(A, 1)
+        s += A[i, j]
+    end
+    return s
+end
+function column_sums(A)
+    out = zeros(eltype(A), size(A, 2))
+    for j in axes(A, 2)
+        out[j] = colsum(A, j)
+    end
+    return out
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "plain column-major loop (correct; no SIMD, so a few times slower)"
+  code = '''
+function column_sums(A)
+    out = zeros(eltype(A), size(A, 2))
+    for j in axes(A, 2)
+        s = zero(eltype(A))
+        for i in axes(A, 1)
+            s += A[i, j]
+        end
+        out[j] = s
+    end
+    return out
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "sum with dims = 1"
+  code = '''
+column_sums(A) = vec(sum(A; dims = 1))
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "column-major loop with @inbounds @simd"
+  code = '''
+function column_sums(A)
+    out = zeros(eltype(A), size(A, 2))
+    for j in axes(A, 2)
+        s = zero(eltype(A))
+        @inbounds @simd for i in axes(A, 1)
+            s += A[i, j]
+        end
+        out[j] = s
+    end
+    return out
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "stable-mean"
+title = "Mean of the positive entries, type-stable"
+difficulty = "warm-up"
+kcs = ["type-stability", "allocations"]
+entry = "mean_positive"
+prompt = '''
+Write `mean_positive(v)` for a `Vector{Float64}` `v`: the mean of its
+strictly positive entries, or `0.0` when there are none (an empty vector
+included). The result is always a `Float64`.
+
+```julia
+mean_positive([1.0, -2.0, 3.0])   # 2.0
+mean_positive([-1.0, 0.0])        # 0.0
+```
+
+One pass over the data, no temporary arrays, and every variable with a single
+concrete type: the grader checks all three.
+'''
+starter = '''
+function mean_positive(v)
+    # your code here
+end
+'''
+reference = '''
+function mean_positive(v)
+    s = zero(eltype(v))
+    k = 0
+    for x in v
+        if x > 0
+            s += x
+            k += 1
+        end
+    end
+    return k == 0 ? zero(eltype(v)) : s / k
+end
+'''
+cases = ["[1.0, -2.0, 3.0]", "[-1.0, 0.0]", "Float64[]", "[0.0, 2.0]"]
+gen = "rng -> [(randn(rng, rand(rng, 0:30)),) for _ in 1:30]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Keep a running sum and a count. What type should the sum start as, for a vector of Float64?",
+  "`zero(eltype(v))` is `0.0` for a `Vector{Float64}`; `0` is an `Int`. Check the count before dividing.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n)"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "divides by zero when nothing is positive"
+  code = '''
+function mean_positive(v)
+    s = 0.0; k = 0
+    for x in v
+        if x > 0
+            s += x; k += 1
+        end
+    end
+    return s / k
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "counts zeros as positive"
+  code = '''
+function mean_positive(v)
+    s = 0.0; k = 0
+    for x in v
+        if x >= 0
+            s += x; k += 1
+        end
+    end
+    return k == 0 ? 0.0 : s / k
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns the Int 0 when nothing is positive"
+  code = '''
+function mean_positive(v)
+    s = 0.0; k = 0
+    for x in v
+        if x > 0
+            s += x; k += 1
+        end
+    end
+    return k == 0 ? 0 : s / k
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "accumulator starts as the Int 0"
+  code = '''
+function mean_positive(v)
+    s = 0
+    k = 0
+    for x in v
+        if x > 0
+            s += x
+            k += 1
+        end
+    end
+    return k == 0 ? 0.0 : s / k
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "accumulator starts from a non-const global"
+  code = '''
+START = 0.0
+function mean_positive(v)
+    s = START
+    k = 0
+    for x in v
+        if x > 0
+            s += x
+            k += 1
+        end
+    end
+    return k == 0 ? 0.0 : s / k
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "filters into a temporary array"
+  code = '''
+function mean_positive(v)
+    p = filter(>(0), v)
+    return isempty(p) ? 0.0 : sum(p) / length(p)
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "branch-free loop"
+  code = '''
+function mean_positive(v)
+    s = 0.0
+    k = 0
+    for x in v
+        p = x > 0
+        s += ifelse(p, x, 0.0)
+        k += p
+    end
+    return k == 0 ? 0.0 : s / k
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "pairwise-distance-matrix"
+title = "Pairwise distance matrix"
+difficulty = "core"
+kcs = ["allocations", "type-stability", "memory-layout"]
+entry = "pairwise_distances"
+prompt = '''
+The columns of a `Matrix{Float64}` `X` (size d×n) are n points in d
+dimensions. Write `pairwise_distances(X)` returning the n×n `Matrix{Float64}`
+`D` with `D[i, j]` the Euclidean distance between points `i` and `j`.
+
+```julia
+pairwise_distances([0.0 3.0; 0.0 4.0])   # [0.0 5.0; 5.0 0.0]
+```
+
+Allocate the result once and fill it. The grader times 500 points in 3D;
+anything that creates a small array per pair of points (a slice, a
+difference vector) will show up.
+'''
+starter = '''
+function pairwise_distances(X)
+    # your code here
+end
+'''
+reference = '''
+function pairwise_distances(X)
+    d, n = size(X)
+    D = Matrix{Float64}(undef, n, n)
+    for j in 1:n, i in 1:n
+        s = 0.0
+        for k in 1:d
+            s += (X[k, i] - X[k, j])^2
+        end
+        D[i, j] = sqrt(s)
+    end
+    return D
+end
+'''
+cases = ["[0.0 3.0; 0.0 4.0]", "[1.0 2.0 4.0]", "zeros(2, 0)", "[1.0; 2.0;;]"]
+gen = "rng -> [(randn(rng, rand(rng, 1:4), rand(rng, 0:8)),) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Create the n×n result first, then two loops over the points and one over the coordinates.",
+  "Accumulate the squared differences `(X[k, i] - X[k, j])^2` in a `Float64` that starts at `0.0`, and take `sqrt` once per pair. No slices needed.",
+]
+
+  [problem.perf]
+  args = "rand(rng, 3, n)"
+  sizes = [500]
+
+  [[problem.variant]]
+  label = "squared distances (no sqrt)"
+  code = '''
+function pairwise_distances(X)
+    d, n = size(X)
+    D = zeros(n, n)
+    for j in 1:n, i in 1:n, k in 1:d
+        D[i, j] += (X[k, i] - X[k, j])^2
+    end
+    return D
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "slices and a difference vector per pair"
+  code = '''
+using LinearAlgebra
+pairwise_distances(X) = [norm(X[:, i] - X[:, j]) for i in axes(X, 2), j in axes(X, 2)]
+'''
+  expect = ["correct", "allocates", "slow"]
+
+  [[problem.variant]]
+  label = "accumulator starts as the Int 0"
+  code = '''
+function pairwise_distances(X)
+    d, n = size(X)
+    D = Matrix{Float64}(undef, n, n)
+    for j in 1:n, i in 1:n
+        s = 0
+        for k in 1:d
+            s += (X[k, i] - X[k, j])^2
+        end
+        D[i, j] = sqrt(s)
+    end
+    return D
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "computes each pair once (symmetry)"
+  code = '''
+function pairwise_distances(X)
+    d, n = size(X)
+    D = zeros(n, n)
+    for j in 1:n, i in j+1:n
+        s = 0.0
+        for k in 1:d
+            s += (X[k, i] - X[k, j])^2
+        end
+        D[i, j] = D[j, i] = sqrt(s)
+    end
+    return D
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "running-max!"
+title = "Running maximum, in place"
+difficulty = "core"
+kcs = ["in-place", "allocations", "type-stability"]
+entry = "running_max!"
+prompt = '''
+Write `running_max!(v)` that overwrites each element of the vector `v` with
+the largest value among `v[1], …, v[i]`, and returns `v`. It must modify its
+argument (the `!` says so) and should allocate nothing.
+
+```julia
+v = [1.0, 3.0, 2.0, 5.0, 4.0]
+running_max!(v)   # [1.0, 3.0, 3.0, 5.0, 5.0], and v now holds the same
+```
+
+The grader checks the vector you were given after the call, not only the
+return value, and times the function on 1000 and 16000 elements to see how
+its time grows.
+'''
+starter = '''
+# A name ending in ! (like sort! and push!) promises to change its argument:
+# callers of running_max! expect v itself to hold the answer afterwards.
+function running_max!(v)
+    # your code here
+end
+'''
+reference = '''
+function running_max!(v)
+    for i in firstindex(v)+1:lastindex(v)
+        v[i] = max(v[i], v[i-1])
+    end
+    return v
+end
+'''
+cases = ["[1.0, 3.0, 2.0, 5.0, 4.0]", "Float64[]", "[-2.0, -5.0, -1.0]", "[7]"]
+gen = "rng -> [(randn(rng, rand(rng, 0:20)),) for _ in 1:20]"
+compare_args = true
+hints = [
+  "The running maximum at position i only needs the running maximum at position i - 1.",
+  "One loop from the second index to the last: `v[i] = max(v[i], v[i-1])`. No new array.",
+]
+
+  [problem.perf]
+  args = "rand(rng, n)"
+  sizes = [1000, 16000]
+  mutates = true
+
+  [[problem.variant]]
+  label = "returns a new vector, leaves v unchanged"
+  code = '''
+running_max!(v) = accumulate(max, v)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "starts the maximum at 0.0"
+  code = '''
+function running_max!(v)
+    m = 0.0
+    for i in eachindex(v)
+        m = max(m, v[i])
+        v[i] = m
+    end
+    return v
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "copies the result of accumulate back"
+  code = '''
+function running_max!(v)
+    v .= accumulate(max, v)
+    return v
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "recomputes maximum of the prefix for every element"
+  code = '''
+function running_max!(v)
+    for i in lastindex(v):-1:firstindex(v)+1
+        v[i] = maximum(@view v[firstindex(v):i])
+    end
+    return v
+end
+'''
+  expect = ["correct", "scaling", "slow"]
+
+  [[problem.variant]]
+  label = "running maximum starts as 0 or the first element"
+  code = '''
+function running_max!(v)
+    m = isempty(v) ? 0 : v[1]
+    for i in eachindex(v)
+        m = max(m, v[i])
+        v[i] = m
+    end
+    return v
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "keeps the maximum in a local variable"
+  code = '''
+function running_max!(v)
+    isempty(v) && return v
+    m = first(v)
+    for i in eachindex(v)
+        m = max(m, v[i])
+        v[i] = m
+    end
+    return v
+end
+'''
+  expect = ["correct", "fast"]

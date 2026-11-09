@@ -1,0 +1,425 @@
+id = "06-collections"
+title = "Collections: arrays, tuples, dictionaries and sets"
+track = "foundations"
+env = "base"
+summary = "Vectors and matrices (1-based, column-major, slices copy), tuples and named tuples, Dict and Set, comprehensions, sorting, and when two names share one array."
+kcs = ["vectors", "element-types", "indexing", "matrices", "tuples", "dicts", "sets", "comprehensions", "sorting", "aliasing"]
+prerequisites = ["05-functions"]
+
+[[section]]
+title = "Vectors and their element type"
+body = '''
+A `Vector` is written with square brackets and commas. Every array has an
+**element type**, shown by `eltype` and in the type itself: `[1, 2, 3]` is a
+`Vector{Int64}`. Mixing integers and floats promotes them to a common type, so
+`[1, 2.5]` is a `Vector{Float64}`.
+
+An empty `[]` has nothing to infer from, so it is a `Vector{Any}`, which can
+hold anything and is slow to compute with. When you start empty and fill a
+vector later, give the element type: `Int[]` or `Float64[]`.
+
+Indexing is **1-based**, as in MATLAB, R and Fortran, and unlike Python or C:
+`v[1]` is the first element and `v[end]` the last. `v[0]` is an error.
+'''
+
+  [[section.example]]
+  code = '''
+v = [10, 20, 30]
+println(typeof(v), "  eltype: ", eltype(v))
+println(v[1], " ", v[end], " ", v[end-1], " length ", length(v))
+println(typeof([1, 2.5]), " ", typeof(Int[]), " ", typeof([]))
+'''
+
+  [[section.example]]
+  caption = "There is no element 0."
+  code = '''
+v = [10, 20, 30]
+v[0]
+'''
+
+  [[section.example]]
+  caption = "Functions ending in `!` change their argument. `insert!` and `deleteat!` take an index."
+  code = '''
+v = [1, 2, 3]
+push!(v, 4)           # add at the end
+x = pop!(v)           # remove and return the last
+append!(v, [7, 8])    # add several
+insert!(v, 1, 0)      # put 0 at index 1
+deleteat!(v, 2)       # remove the element at index 2
+println("popped ", x)
+v
+'''
+
+[[section]]
+title = "Slices copy, names share"
+body = '''
+`v[2:3]` makes a **new array** holding copies of those elements: changing
+the slice does not change `v`. This differs from NumPy, where a basic slice is
+a view. When you want a window into the original without copying, use
+`view(v, 2:3)` or the `@view` macro; the performance unit comes back to views.
+
+Assignment never copies. After `b = a`, the two names refer to the *same*
+array, so a change through `b` is visible through `a` (`===` tells you they
+are the same object). `copy(a)` makes a new outer array; for an array of
+arrays the inner arrays are still shared, and `deepcopy` copies all the way
+down.
+'''
+
+  [[section.example]]
+  code = '''
+a = [1, 2, 3, 4]
+s = a[2:3]        # a copy
+s[1] = 100
+v = view(a, 2:3)  # a window into a
+v[2] = -1
+println(s)
+println(a)
+'''
+
+  [[section.example]]
+  caption = "`b = a` gives the same array a second name; `copy` makes a new one."
+  code = '''
+a = [1, 2, 3]
+b = a
+c = copy(a)
+b[1] = 99
+println(a, " ", c)
+println(a === b, " ", a === c)
+'''
+
+  [[section.example]]
+  caption = "`copy` is shallow: the inner vectors are shared. `deepcopy` is not."
+  code = '''
+a = [[1, 2], [3, 4]]
+shallow = copy(a)
+deep = deepcopy(a)
+a[1][1] = 100
+println(shallow)
+println(deep)
+'''
+
+[[section]]
+title = "Matrices are column-major"
+body = '''
+Inside brackets, spaces separate columns and `;` (or a new line) separates
+rows, so `[1 2 3; 4 5 6]` is a 2×3 `Matrix{Int64}`. Index with `A[row, col]`;
+`size(A)` is `(rows, columns)`.
+
+Julia stores a matrix **column by column** (like Fortran and MATLAB, unlike
+C and NumPy's default). `vec(A)` shows that memory order: down the first
+column, then the second. `reshape` reuses the same order, so `reshape(1:6, 2, 3)`
+fills columns first (reshaping a range gives a lazy wrapper rather than a new
+`Matrix`; `collect` it if you need one). Loops over a matrix are fastest when the *first* index
+changes fastest.
+'''
+
+  [[section.example]]
+  code = '''
+A = [1 2 3; 4 5 6]
+println(size(A), " ", A[2, 1], " ", A[1, end])
+println(vec(A))
+reshape(1:6, 2, 3)
+'''
+
+  [[section.example]]
+  caption = "A column `A[:, j]` is contiguous in memory; a row is not. Both are copies here."
+  code = '''
+A = [1 2 3; 4 5 6]
+println(A[:, 2])
+println(A[1, :])
+'''
+
+[[section]]
+title = "Tuples and named tuples"
+body = '''
+A `Tuple` is a fixed-length, **immutable** sequence written with parentheses:
+`(1, "a", 2.5)`. Each position keeps its own type, which is why functions
+return several values as a tuple and why tuples are cheap: no heap array is
+created. You can index a tuple and destructure it, but not change it.
+
+A `NamedTuple` adds a name to each position, `(x = 1, y = 2)`, read with
+`p.x`. It is a lightweight record when a full struct (see the types unit)
+would be overkill.
+'''
+
+  [[section.example]]
+  code = '''
+t = (1, "a", 2.5)
+println(typeof(t), " ", t[2])
+n, s, f = t           # destructuring
+p = (x = 1, y = 2.5)
+println(p.x + p.y, " ", keys(p), " ", typeof(p))
+t[1] = 5
+'''
+
+[[section]]
+title = "Dictionaries and sets"
+body = '''
+A `Dict` maps keys to values. Build one from `key => value` pairs; read with
+`d[key]` (an error if the key is absent) or `get(d, key, default)`; test with
+`haskey`. Assigning `d[key] = value` adds or replaces. Iterating a `Dict`
+gives `key => value` pairs, which you can destructure in the `for`. The order
+is determined by hashing, not insertion, so sort the keys when the order
+matters.
+
+A `Set` holds each value at most once. `in` (also written `∈`, `\in` Tab)
+asks whether a value is present; `union` and `intersect` combine sets.
+'''
+
+  [[section.example]]
+  code = '''
+ages = Dict("ada" => 36, "alan" => 41)
+ages["grace"] = 85
+println(ages["ada"], " ", get(ages, "linus", 0), " ", haskey(ages, "alan"))
+for (name, age) in sort(collect(ages))
+    println(name, " is ", age)
+end
+println(sort(collect(keys(ages))), " ", sum(values(ages)))
+'''
+
+  [[section.example]]
+  code = '''
+a = Set([1, 2, 3, 3, 3])
+b = Set([2, 3, 4])
+println(length(a), " ", 2 in a, " ", 5 ∈ a)
+println(sort(collect(union(a, b))), " ", sort(collect(intersect(a, b))))
+'''
+
+  [[section.example]]
+  caption = "`x in v` scans a Vector element by element; a Set looks the value up by its hash. (Timing-based, so not compared between runs.)"
+  check = false
+  code = '''
+v = collect(1:100_000)
+s = Set(v)
+lookups(c) = count(x -> x in c, 100_001:100_200)   # 200 absent values
+lookups(v); lookups(s)                              # compile first
+t_vec = @elapsed lookups(v)
+t_set = @elapsed lookups(s)
+println("Set at least 50x faster: ", t_vec > 50 * t_set)
+'''
+
+[[section]]
+title = "Comprehensions and sorting"
+body = '''
+A comprehension builds an array from a loop in one expression:
+`[f(x) for x in xs]`, optionally filtered with `if`. Two `for` clauses
+separated by a comma build a **matrix**, the first variable running down the
+rows.
+
+`sort(v)` returns a new sorted array; `sort!(v)` sorts `v` in place. Both
+accept `rev = true` and `by = f` (sort by `f(x)`). `sortperm(v)` returns the
+*indices* that would sort `v`, which lets you reorder a second array the same
+way.
+'''
+
+  [[section.example]]
+  code = '''
+println([x^2 for x in 1:6 if isodd(x)])
+[i * j for i in 1:3, j in 1:4]
+'''
+
+  [[section.example]]
+  code = '''
+names = ["carol", "al", "bea"]
+scores = [72, 95, 88]
+println(sort(scores), " ", sort(names, by = length), " ", sort(scores, rev = true))
+p = sortperm(scores, rev = true)
+println(p, " ", names[p])
+sort!(names)
+names
+'''
+
+[[problem]]
+id = "dedupe-keep-order"
+title = "Remove duplicates, keep the order"
+difficulty = "core"
+kcs = ["sets", "vectors", "element-types"]
+entry = "dedupe"
+prompt = '''
+Write `dedupe(v)` that returns a new vector with the elements of `v` in the
+order they first appear, each only once. The result must have the same
+element type as `v` (an empty `Int[]` gives an empty `Int[]`).
+
+```julia
+dedupe([3, 1, 3, 2, 1])        # [3, 1, 2]
+dedupe(["b", "a", "b"])        # ["b", "a"]
+```
+
+The grader times your function on vectors of up to 16 000 elements. Think
+about how you check "have I seen this before?".
+'''
+starter = '''
+function dedupe(v)
+    # your code here
+end
+'''
+reference = '''
+function dedupe(v)
+    seen = Set{eltype(v)}()
+    out = eltype(v)[]
+    for x in v
+        if !(x in seen)
+            push!(seen, x)
+            push!(out, x)
+        end
+    end
+    return out
+end
+'''
+cases = ["[3, 1, 3, 2, 1]", "[\"b\", \"a\", \"b\"]", "Int[]", "[5, 5, 5]"]
+gen = "rng -> [(rand(rng, 1:rand(rng, 1:20), rand(rng, 0:30)),) for _ in 1:20]"
+hints = [
+  "Keep a record of the values already seen, and only keep an element the first time.",
+  "Checking `x in out` on a Vector scans it every time. A `Set{eltype(v)}()` answers the same question in constant time.",
+]
+
+  [problem.perf]
+  args = "rand(rng, 1:10n, n)"
+  sizes = [2000, 16000]
+
+  [[problem.variant]]
+  label = "collect(Set(v)) loses the order"
+  code = '''
+dedupe(v) = collect(Set(v))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sorts the result"
+  code = '''
+dedupe(v) = sort(unique(v))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "`in` on the output Vector (quadratic)"
+  code = '''
+function dedupe(v)
+    out = eltype(v)[]
+    for x in v
+        x in out || push!(out, x)
+    end
+    return out
+end
+'''
+  expect = ["correct", "scaling"]
+
+  [[problem.variant]]
+  label = "Base's unique does the same"
+  code = '''
+dedupe(v) = unique(v)
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "untyped [] for the output"
+  code = '''
+function dedupe(v)
+    seen = Set()
+    out = []
+    for x in v
+        if !(x in seen)
+            push!(seen, x)
+            push!(out, x)
+        end
+    end
+    return out
+end
+'''
+  expect = ["incorrect"]
+
+[[problem]]
+id = "word-frequencies"
+title = "Word frequencies"
+difficulty = "warm-up"
+kcs = ["dicts", "strings"]
+entry = "word_counts"
+prompt = '''
+Write `word_counts(s)` that returns a `Dict{String,Int}` mapping each word of
+`s` to the number of times it occurs. Words are separated by whitespace and
+compared ignoring case: store them in lowercase.
+
+```julia
+word_counts("the cat The dog")   # Dict("the" => 2, "cat" => 1, "dog" => 1)
+word_counts("")                  # an empty Dict{String,Int}
+```
+'''
+starter = '''
+function word_counts(s)
+    counts = Dict{String,Int}()
+    # your code here
+    return counts
+end
+'''
+reference = '''
+function word_counts(s)
+    counts = Dict{String,Int}()
+    for w in split(lowercase(s))
+        counts[w] = get(counts, w, 0) + 1
+    end
+    return counts
+end
+'''
+cases = ["\"the cat The dog\"", "\"\"", "\"  a  b a  \"", "\"Go GO go\""]
+gen = "rng -> [(join(rand(rng, [\"the\", \"The\", \"cat\", \"CAT\", \"sat\", \"on\", \"mat\", \"\"], rand(rng, 0:25)), \" \"),) for _ in 1:20]"
+hints = [
+  "`split(s)` with no second argument splits on any run of whitespace; `lowercase` handles the case.",
+  "`get(counts, w, 0)` is the count so far, or 0 for a new word.",
+]
+
+  [problem.perf]
+  args = "join(rand(rng, [\"the\", \"The\", \"cat\", \"sat\", \"on\", \"a\", \"mat\", \"Dog\"], n), \" \")"
+  sizes = [1000, 8000]
+
+  [[problem.variant]]
+  label = "case-sensitive"
+  code = '''
+function word_counts(s)
+    counts = Dict{String,Int}()
+    for w in split(s)
+        counts[w] = get(counts, w, 0) + 1
+    end
+    return counts
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "splits on single spaces only"
+  code = '''
+function word_counts(s)
+    counts = Dict{String,Int}()
+    for w in split(lowercase(s), ' ')
+        counts[w] = get(counts, w, 0) + 1
+    end
+    return counts
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Dict() without types"
+  code = '''
+function word_counts(s)
+    counts = Dict()
+    for w in split(lowercase(s))
+        counts[w] = get(counts, w, 0) + 1
+    end
+    return counts
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "counts every word by rescanning all words (quadratic)"
+  code = '''
+function word_counts(s)
+    words = split(lowercase(s))
+    counts = Dict{String,Int}()
+    for w in words
+        counts[w] = count(==(w), words)
+    end
+    return counts
+end
+'''
+  expect = ["correct", "scaling"]

@@ -1,0 +1,7 @@
+---
+title: "Course"
+subtitle: "Julia from your first expression to the compiler and the ecosystem. Every output shown here was recorded by running the example; practice problems are graded in your own Julia, on correctness and on performance."
+---
+
+::: {.jt-mount data-view="course"}
+:::

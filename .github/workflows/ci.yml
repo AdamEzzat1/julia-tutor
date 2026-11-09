@@ -15,11 +15,21 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .depot
-          key: depot-${{ hashFiles('JULIA_VERSION', 'Manifest.toml', 'projects/*/reference/Manifest.toml') }}
+          key: depot-${{ hashFiles('JULIA_VERSION', 'Manifest.toml', 'projects/*/reference/Manifest.toml', 'course/envs/*/Manifest.toml') }}
       - name: Instantiate (the only networked step)
         run: |
           source scripts/env.sh
           JULIA_PKG_OFFLINE=false julia_pinned --project=. -e 'using Pkg; Pkg.instantiate()'
           for p in projects/*/reference; do JULIA_PKG_OFFLINE=false julia_pinned --project="$p" -e 'using Pkg; Pkg.instantiate()'; done
-      - name: Verify everything
+          # pinned course environments (DataFrames unit, ...); precompiled with default flags, as the sandbox runs them
+          for e in course/envs/*/; do
+            if [ -f "$e/Manifest.toml" ]; then
+              JULIA_PKG_OFFLINE=false julia_pinned --project="$e" -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+            fi
+          done
+      - name: Build and self-test the sandbox container (networked build; runs are offline)
+        run: |
+          ./tutor sandbox build
+          ./tutor sandbox check
+      - name: Verify everything (the container tests run because the image now exists)
         run: scripts/verify_all.sh

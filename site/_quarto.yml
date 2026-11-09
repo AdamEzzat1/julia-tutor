@@ -7,6 +7,7 @@ project:
   resources:
     - assets/app/app.js
     - assets/app/app.css
+    - assets/figures/**
     - .nojekyll
 
 website:
@@ -21,8 +22,14 @@ website:
     left:
       - href: index.qmd
         text: Overview
+      - href: course.qmd
+        text: Course
+      - href: projects.qmd
+        text: Projects
+      - href: sandbox.qmd
+        text: Sandbox
       - href: lessons.qmd
-        text: Lessons
+        text: Quizzes
       - href: explain.qmd
         text: Explain
       - href: holemap.qmd

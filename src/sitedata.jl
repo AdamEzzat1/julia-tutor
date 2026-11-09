@@ -12,56 +12,12 @@
 module SiteData
 
 using TOML
-using ..Checker, ..Scaffold, ..HoleMap, ..Lessons, ..Fixtures
+using ..Checker, ..Scaffold, ..HoleMap, ..Lessons, ..Fixtures, ..Course
+using ..JSON: to_json
 
-export site_data, to_json
+export site_data, course_data, to_json
 
 const TUTOR_ROOT = normpath(joinpath(@__DIR__, ".."))
-
-# ---- JSON ----------------------------------------------------------------------
-
-function json_string(io::IO, s::AbstractString)
-    print(io, '"')
-    for c in s
-        if c == '"';      print(io, "\\\"")
-        elseif c == '\\'; print(io, "\\\\")
-        elseif c == '\n'; print(io, "\\n")
-        elseif c == '\r'; print(io, "\\r")
-        elseif c == '\t'; print(io, "\\t")
-        elseif c < ' ';   print(io, "\\u", lpad(string(UInt32(c), base = 16), 4, '0'))
-        else              print(io, c)
-        end
-    end
-    print(io, '"')
-end
-
-write_json(io::IO, x::AbstractString, _) = json_string(io, x)
-write_json(io::IO, x::Bool, _) = print(io, x ? "true" : "false")
-write_json(io::IO, x::Integer, _) = print(io, x)
-write_json(io::IO, x::AbstractFloat, _) = isfinite(x) ? print(io, repr(Float64(x))) : print(io, "null")
-write_json(io::IO, ::Nothing, _) = print(io, "null")
-write_json(io::IO, x::Symbol, d) = write_json(io, String(x), d)
-function write_json(io::IO, x::AbstractVector, d)
-    isempty(x) && return print(io, "[]")
-    print(io, "[\n")
-    for (i, v) in enumerate(x)
-        print(io, "  "^(d + 1)); write_json(io, v, d + 1)
-        print(io, i < length(x) ? ",\n" : "\n")
-    end
-    print(io, "  "^d, "]")
-end
-function write_json(io::IO, x::AbstractDict, d)
-    isempty(x) && return print(io, "{}")
-    ks = sort!([string(k) for k in keys(x)])
-    vals = Dict(string(k) => v for (k, v) in x)
-    print(io, "{\n")
-    for (i, k) in enumerate(ks)
-        print(io, "  "^(d + 1)); json_string(io, k); print(io, ": "); write_json(io, vals[k], d + 1)
-        print(io, i < length(ks) ? ",\n" : "\n")
-    end
-    print(io, "  "^d, "}")
-end
-to_json(x) = (io = IOBuffer(); write_json(io, x, 0); println(io); String(take!(io)))
 
 # ---- content -------------------------------------------------------------------
 
@@ -147,6 +103,79 @@ function site_data()
                 "generated_by" => "tutor site-data (do not edit; regenerate)",
                 "lessons" => lessons_data(), "rules" => rules_data(),
                 "projects" => Any[project_data(n) for n in projects])
+end
+
+
+# ---- course (site/data/course.json) ---------------------------------------------------
+#
+# Reference solutions and generated test cases stay out of the site data: the
+# browser gets prompts, starters, hints, the reference's output on the shown
+# cases, and the recorded example outputs. Grading happens in `tutor serve`.
+
+"""
+Figures recorded for the course (course/outputs/figures/<unit>/<file>) as
+site paths => bytes; `tutor site-data` copies them to site/assets/figures/.
+"""
+function course_figures()
+    root = joinpath(Course.COURSE_DIR, "outputs", "figures")
+    out = Pair{String,Vector{UInt8}}[]
+    isdir(root) || return out
+    for u in sort!(readdir(root)), f in sort!(readdir(joinpath(root, u)))
+        push!(out, "assets/figures/$u/$f" => read(joinpath(root, u, f)))
+    end
+    return out
+end
+
+"""Exact package versions of a pinned course environment, from its Manifest."""
+function env_packages(env::String)
+    dir = Course.env_dir(env)
+    proj = TOML.parsefile(joinpath(dir, "Project.toml"))
+    man = joinpath(dir, "Manifest.toml")
+    deps = sort!(collect(keys(get(proj, "deps", Dict()))))
+    m = isfile(man) ? get(TOML.parsefile(man), "deps", Dict()) : Dict()
+    return Any[Dict("name" => d, "version" => haskey(m, d) ? get(m[d][1], "version", "stdlib") : "?") for d in deps]
+end
+
+function course_data()
+    units = Course.load_course()
+    out = Any[]
+    for u in units
+        rec = Course.load_outputs(u)
+        exs = get(rec, "examples", Dict()); sm = get(rec, "samples", Dict())
+        sections = Any[]
+        for s in u.sections
+            examples = Any[]
+            for e in s.examples
+                r = get(exs, Course.example_key(e.code, e.mode), nothing)
+                push!(examples, Dict("code" => rstrip(e.code), "caption" => e.caption, "notice" => e.notice, "mode" => e.mode,
+                                     "check" => e.check, "output" => r === nothing ? nothing : r["output"],
+                                     "ok" => r === nothing ? nothing : r["ok"],
+                                     "images" => r === nothing ? Any[] :
+                                         Any["assets/figures/$(u.id)/$f" for f in get(r, "images", Any[])]))
+            end
+            questions = Any[Dict("kind" => q.kind, "prompt" => strip(q.prompt), "code" => rstrip(q.code),
+                                 "choices" => q.choices, "answer" => q.answer, "explain" => strip(q.explain),
+                                 "misconceptions" => q.misconceptions) for q in s.questions]
+            push!(sections, Dict("title" => s.title, "body" => strip(s.body), "examples" => examples,
+                                 "questions" => questions))
+        end
+        problems = Any[Dict("id" => p.id, "title" => p.title, "difficulty" => p.difficulty, "kcs" => p.kcs,
+                            "prompt" => strip(p.prompt), "entry" => p.entry, "starter" => p.starter,
+                            "hints" => p.hints, "samples" => get(sm, p.id, Any[]),
+                            "compare" => p.compare, "rtol" => p.rtol, "check_type" => p.check_type,
+                            "random_cases" => !isempty(p.gen),
+                            "perf" => p.perf === nothing ? nothing :
+                                Dict("sizes" => p.perf.sizes, "mutates" => p.perf.mutates))
+                       for p in u.problems]
+        push!(out, Dict("id" => u.id, "title" => u.title, "track" => u.track, "env" => u.env,
+                        "status" => u.status, "summary" => strip(u.summary), "kcs" => u.kcs,
+                        "prerequisites" => u.prerequisites, "outline" => u.outline, "lessons" => u.lessons,
+                        "sections" => sections, "problems" => problems))
+    end
+    envs = sort!(unique([u.env for u in units]))
+    return Dict("julia" => string(VERSION), "generated_by" => "tutor site-data (do not edit; regenerate)",
+                "tracks" => Course.TRACKS, "units" => out,
+                "envs" => Dict(e => env_packages(e) for e in envs))
 end
 
 end # module SiteData

@@ -1,0 +1,396 @@
+id = "19-under-the-hood"
+title = "Under the hood: how Julia compiles your code"
+track = "advanced"
+env = "base"
+summary = "One method, many compiled specializations. Reading inferred code with @code_typed, constant propagation and inlining, world age and invokelatest, and where time-to-first-x comes from."
+kcs = ["specialization", "type-inference", "code-introspection", "world-age", "precompilation"]
+prerequisites = ["18-concurrency"]
+
+[[section]]
+title = "One method, many specializations"
+body = '''
+When you call a function, Julia picks the **method** by the types of all the
+arguments (multiple dispatch), and then compiles that method for exactly those
+argument types. The compiled version is a **method instance** (a
+*specialization*). `double(x) = 2x` is one method, but calling it with an
+`Int` and with a `Float64` compiles two separate pieces of machine code, each
+as fast as if you had written it for that type by hand.
+
+`methods(f)` lists the methods; `Base.specializations(m)` lists the instances
+compiled for method `m` so far (we sort them by name, because the order they
+are stored in is not meaningful). `Base.return_types(f, (T,))` asks type
+inference what the result type would be for argument type `T`, without
+running anything.
+'''
+
+  [[section.example]]
+  code = '''
+double(x) = 2x
+double(3)
+double(2.5)
+println(methods(double))
+m = only(methods(double))
+sort([string(mi) for mi in Base.specializations(m)])
+'''
+
+  [[section.example]]
+  caption = "Inference works per argument type: one return type for each."
+  code = '''
+double(x) = 2x
+println(Base.return_types(double, (Int,)))
+println(Base.return_types(double, (Float64,)))
+println(Base.return_types(double, (Rational{Int},)))
+'''
+
+  [[section.example]]
+  caption = "A function whose return type depends on a *value* is type-unstable: inference can only say `Union{Float64, Int64}`."
+  code = '''
+pos(x) = x > 0 ? x : 0.0
+Base.return_types(pos, (Int,))
+'''
+
+[[section]]
+title = "Reading the compiled code: @code_typed"
+body = '''
+`@code_typed f(args...)` shows the code after type inference and
+optimization: each line is one operation with its inferred type after `::`,
+and `=> T` at the end is the return type. The `@code_...` macros live in the
+`InteractiveUtils` standard library, which the REPL loads for you; in a
+script (and on this site) write `using InteractiveUtils` first.
+
+Notice what is *not* there: `2x` for an `Int` became a single
+`Base.mul_int` (an integer multiplication), with no dispatch left at run time.
+In the unstable `pos`, the two `return` lines have different types; that is
+what `@code_warntype` highlights in red at the REPL.
+
+One level further down, `@code_llvm` shows LLVM's intermediate code and
+`@code_native` the machine instructions. Their output depends on your CPU
+and contains generated names that change between runs, so we only show one
+example, unchecked.
+'''
+
+  [[section.example]]
+  code = '''
+using InteractiveUtils
+double(x) = 2x
+@code_typed double(3)
+'''
+
+  [[section.example]]
+  code = '''
+using InteractiveUtils
+pos(x) = x > 0 ? x : 0.0
+@code_typed pos(3)
+'''
+
+  [[section.example]]
+  caption = "Unchecked: the function name in the first line (`julia_double_…`) carries a counter that varies between runs."
+  check = false
+  code = '''
+using InteractiveUtils
+double(x) = 2x
+@code_llvm debuginfo=:none double(3)
+'''
+
+[[section]]
+title = "Constant propagation and inlining"
+body = '''
+Two optimizations explain a lot of Julia's speed:
+
+* **Inlining**: a small function's body is pasted into its caller, so the
+  call disappears. `x^3` with a literal exponent is turned into two
+  multiplications this way.
+* **Constant propagation**: when arguments are known constants, inference
+  computes with the values, not just the types. Below, `answer()` calls
+  `inc(41)`; the optimized code is just `return 42`.
+
+`optimize = false` shows the code before these passes: the call to `inc` is
+still there, but inference already knows its result is the constant 42
+(`Core.Const(42)`).
+'''
+
+  [[section.example]]
+  code = '''
+using InteractiveUtils
+inc(x) = x + 1
+answer() = inc(41)
+@code_typed answer()
+'''
+
+  [[section.example]]
+  code = '''
+using InteractiveUtils
+inc(x) = x + 1
+answer() = inc(41)
+@code_typed optimize = false answer()
+'''
+
+  [[section.example]]
+  caption = "A literal power is inlined into plain multiplications."
+  code = '''
+using InteractiveUtils
+cube(x) = x^3
+@code_typed cube(2)
+'''
+
+[[section]]
+title = "World age: why eval'd methods need invokelatest"
+body = '''
+Every method definition increments a global counter, the **world age**. A
+running function sees the methods that existed in the world where it
+started, so the compiled code it is running stays valid. If a function
+defines a new method with `@eval` (or `include`) and calls it right away, the
+call fails with "method too new to be called from this world context".
+
+`Base.invokelatest(f, args...)` makes the call in the newest world. It is
+slower (a dynamic call), so use it at the boundary where code is loaded, not
+in an inner loop. At the top level of a script or the REPL each statement
+starts in the latest world, which is why this never bites there.
+
+The two world ages in the message are large numbers that depend on how many
+methods were defined before, so the course shows them as `W` and `W+1`.
+'''
+
+  [[section.example]]
+  mode = "file"
+  code = '''
+function load_and_call()
+    @eval plugin() = "plugin loaded"
+    try
+        plugin()
+    catch e
+        println(typeof(e))
+    end
+    println(Base.invokelatest(plugin))
+end
+load_and_call()
+println(plugin())   # top level: the latest world again
+'''
+
+  [[section.example]]
+  caption = "The MethodError says exactly this."
+  mode = "file"
+  code = '''
+function define_and_call()
+    @eval newfun() = 42
+    newfun()
+end
+define_and_call()
+'''
+
+[[section]]
+title = "Compile time, precompilation and invalidations"
+body = '''
+Compilation happens the first time each method instance is called, so the
+first call is slow and later ones are fast. This is the "time to first x"
+(TTFX) you notice when a package's first plot takes seconds. The example
+below is unchecked because it prints timings; `@time` reports the share of
+compilation time on the first call.
+
+To cut that cost, packages **precompile**: when you install or update one,
+Julia stores its compiled code in a cache file (`.ji` plus, since Julia
+1.9, native code in a `.so`/`.dll`) so later sessions can load it.
+Precompilation workloads (PrecompileTools.jl's `@compile_workload`) run
+typical calls at that time so their specializations are cached too.
+
+An **invalidation** happens when a newly loaded method could change what
+existing compiled code would call: Julia must throw that code away and
+compile it again. Defining `Base.+` for a new combination of Base types (type
+piracy) is a classic cause. SnoopCompile.jl finds invalidations and
+inference bottlenecks when load times matter.
+'''
+
+  [[section.example]]
+  check = false
+  code = '''
+f(x) = sum(abs2, x) / length(x)
+v = rand(1000)
+@time f(v)    # first call: includes compilation
+@time f(v)    # compiled: much faster, no compilation
+'''
+
+[[problem]]
+id = "stable-relu-sum"
+title = "A type-stable sum of the positive parts"
+difficulty = "core"
+kcs = ["type-inference", "specialization"]
+entry = "relu_sum"
+prompt = '''
+Write `relu_sum(v)` that adds up `max(x, 0)` for every element `x` of `v`.
+The result must have the element type of `v`: `relu_sum([1, -2, 3])` is `4`
+(an `Int`), `relu_sum([-1.5, 2.5])` is `2.5`, and `relu_sum(Float64[])` is
+`0.0`.
+
+```julia
+relu_sum([1, -2, 3])   # 4
+relu_sum(Float64[])    # 0.0
+```
+
+The grader checks the inferred types of your local variables and return
+value, as `@code_typed` would show them.
+'''
+starter = '''
+function relu_sum(v)
+    # your code here
+end
+'''
+reference = '''
+function relu_sum(v)
+    s = zero(eltype(v))
+    for x in v
+        s += max(x, zero(x))
+    end
+    return s
+end
+'''
+cases = ["[1, -2, 3]", "[-1.5, 2.5]", "Float64[]", "Int[]", "[-3, -4]"]
+gen = "rng -> [(isodd(i) ? rand(rng, -10:10, rand(rng, 0:20)) : randn(rng, rand(rng, 0:20)),) for i in 1:20]"
+hints = [
+  "What type does the running total start with, and is it the type it ends with?",
+  "`zero(eltype(v))` is a zero of the right type for any element type; `zero(x)` likewise for one element.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n)"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "starts the total at the integer 0"
+  code = '''
+function relu_sum(v)
+    s = 0
+    for x in v
+        s += max(x, 0)
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "keeps the total in a Ref{Real}: every update is boxed"
+  code = '''
+function relu_sum(v)
+    acc = Ref{Real}(zero(eltype(v)))
+    for x in v
+        acc[] += max(x, zero(x))
+    end
+    return acc[]
+end
+'''
+  expect = ["correct", "unstable", "slow"]
+
+  [[problem.variant]]
+  label = "declares s::Real, yet every value assigned is a Float64, so inference keeps it concrete"
+  code = '''
+function relu_sum(v)
+    s::Real = zero(eltype(v))
+    for x in v
+        s += max(x, zero(x))
+    end
+    return s
+end
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "compares with a non-const global"
+  code = '''
+floor_value = 0
+function relu_sum(v)
+    s = zero(eltype(v))
+    for x in v
+        s += max(x, floor_value)
+    end
+    return s
+end
+'''
+  expect = ["correct", "unstable", "slow"]
+
+  [[problem.variant]]
+  label = "broadcasts into a temporary array"
+  code = '''
+relu_sum(v) = sum(max.(v, zero(eltype(v))))
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "sum with a function and init"
+  code = '''
+relu_sum(v) = sum(x -> max(x, zero(x)), v; init = zero(eltype(v)))
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "infers-concretely"
+title = "Ask the compiler: is the return type concrete?"
+difficulty = "core"
+kcs = ["type-inference", "code-introspection"]
+entry = "infers_concretely"
+prompt = '''
+Write `infers_concretely(f, argtypes)`, where `argtypes` is a tuple of types
+such as `(Int,)` or `(Int, Float64)`. Return `true` when type inference finds
+exactly one, concrete, return type for calling `f` with arguments of those
+types, and `false` otherwise (an abstract type, a `Union`, or no matching
+method at all).
+
+```julia
+infers_concretely(x -> 2x, (Int,))                 # true
+infers_concretely(x -> x > 0 ? x : 0.0, (Int,))    # false: Union{Float64, Int64}
+infers_concretely(sin, (String,))                  # false: no method
+```
+'''
+starter = '''
+function infers_concretely(f, argtypes)
+    # your code here
+end
+'''
+reference = '''
+function infers_concretely(f, argtypes)
+    rts = Base.return_types(f, argtypes)
+    return length(rts) == 1 && isconcretetype(only(rts))
+end
+'''
+cases = [
+  "x -> 2x, (Int,)",
+  "x -> x > 0 ? x : 0.0, (Int,)",
+  "sin, (String,)",
+  "+, (Int, Float64)",
+  "first, (Vector{Any},)",
+  "x -> x[1], (Tuple{Int, String},)",
+  "getindex, (Dict{String, Any}, String)",
+  "x -> nothing, (Int,)",
+  "parse, (Type{Int}, String)",
+]
+hints = [
+  "`Base.return_types(f, argtypes)` returns a vector of inferred return types, one per matching method.",
+  "The vector can be empty; `isconcretetype(T)` is false for `Any` and for a `Union` of two types.",
+]
+
+  [problem.perf]
+  args = "x -> x > 0 ? x : 0.0, (Int,)"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "fails when no method matches"
+  code = '''
+infers_concretely(f, argtypes) = isconcretetype(first(Base.return_types(f, argtypes)))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "only rules out a Union, so Any counts as concrete"
+  code = '''
+function infers_concretely(f, argtypes)
+    rts = Base.return_types(f, argtypes)
+    return length(rts) == 1 && !(only(rts) isa Union)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Core.Compiler.return_type with a Tuple type"
+  code = '''
+infers_concretely(f, argtypes) = isconcretetype(Core.Compiler.return_type(f, Tuple{argtypes...}))
+'''
+  expect = ["correct"]

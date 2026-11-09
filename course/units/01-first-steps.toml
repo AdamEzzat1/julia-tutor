@@ -1,0 +1,267 @@
+id = "01-first-steps"
+title = "First steps: expressions, variables and printing"
+track = "foundations"
+env = "base"
+summary = "Type an expression, get a value. Variables, the types Julia picks for literals, printing and string interpolation."
+kcs = ["expressions", "variables", "literal-types", "printing"]
+prerequisites = []
+
+[[section]]
+title = "Everything is an expression"
+body = '''
+Julia evaluates what you type and shows the value of the last expression, just
+like the REPL (the `julia>` prompt you get by running `julia`). The sandbox
+on this site does the same: press **Run** and you see what the REPL would
+print.
+
+Arithmetic works the way you expect, with one thing to notice early: `/`
+always produces a floating-point number, even when both sides are integers.
+Use `÷` (type `\div` then Tab) or `div` for integer division, and `%` for the
+remainder.
+'''
+
+  [[section.example]]
+  code = '''
+1 + 2 * 3
+'''
+
+  [[section.example]]
+  caption = "`/` returns a Float64 even for integers; `÷` keeps integers."
+  code = '''
+println(7 / 2)
+println(7 ÷ 2)
+println(7 % 2)
+6 / 3
+'''
+
+  [[section.example]]
+  caption = "`if` is an expression too: it has a value you can assign."
+  code = '''
+x = 7
+label = if x > 5
+    "big"
+else
+    "small"
+end
+label
+'''
+
+[[section]]
+title = "Variables and the types of values"
+body = '''
+A variable is a name bound to a value; `x = 3` binds `x`. Variables do not
+have types, *values* do, and `typeof` tells you which. On a 64-bit machine an
+integer literal is an `Int64`, a literal with a decimal point is a `Float64`,
+text in double quotes is a `String` and a single character in single quotes is
+a `Char`.
+
+When you mix types in arithmetic, Julia *promotes* to a common type: `Int64`
+plus `Float64` is a `Float64`. Names can use Unicode, which is common in
+scientific code: type `\alpha` then Tab to get `α`.
+'''
+
+  [[section.example]]
+  code = '''
+x = 3
+y = 2.5
+println(typeof(x), " ", typeof(y), " ", typeof(x + y))
+println(typeof("hi"), " ", typeof('h'), " ", typeof(true))
+'''
+
+  [[section.example]]
+  caption = "Rebinding a name to a value of another type is allowed (but inside functions it can cost speed; see the performance unit)."
+  code = '''
+α = 0.5
+α = "now a string"
+typeof(α)
+'''
+
+[[section]]
+title = "Printing and string interpolation"
+body = '''
+`println` prints its arguments and a newline; `print` does not add the
+newline. Inside a string, `$name` inserts the value of a variable and
+`$(expression)` inserts the value of any expression. The macro `@show` prints
+an expression together with its value, which helps while debugging.
+
+A trailing `;` on the last line hides the value, as in the REPL.
+
+One trap: `!` is allowed in names (`push!` is a function), so `"$name!"`
+looks for a variable called `name!`. Write `"$(name)!"` instead.
+'''
+
+  [[section.example]]
+  code = '''
+name = "Ada"
+born = 1815
+println("Hello, $(name)! You were born in $born, $(2025 - born) years before 2025.")
+print("no newline, ")
+print("so this continues the line")
+println()
+@show born * 2;
+'''
+
+  [[section.example]]
+  caption = "`$name!` is read as the variable `name!`."
+  code = '''
+name = "Ada"
+println("Hello, $name!")
+'''
+
+[[section]]
+title = "When something goes wrong"
+body = '''
+Errors are part of learning a language, so read them. Julia's message names
+the problem first: here an `UndefVarError` says a name has no value yet, and a
+`MethodError` says no method of a function accepts the argument types you gave
+it (you cannot add a number to a string). The sandbox shows the error and the
+line of your code where it happened.
+'''
+
+  [[section.example]]
+  code = '''
+total = 10
+println(totl)
+'''
+
+  [[section.example]]
+  code = '''
+1 + "2"
+'''
+
+[[problem]]
+id = "fahrenheit"
+title = "Celsius to Fahrenheit"
+difficulty = "warm-up"
+kcs = ["expressions", "literal-types"]
+entry = "fahrenheit"
+prompt = '''
+Write a function `fahrenheit(c)` that converts a temperature in degrees
+Celsius to degrees Fahrenheit: F = C × 9/5 + 32.
+
+It must return a `Float64` for any real input (integers included), because a
+temperature of 98.6 °F is not a whole number.
+
+```julia
+fahrenheit(100)   # 212.0
+fahrenheit(-40)   # -40.0
+```
+'''
+starter = '''
+function fahrenheit(c)
+    # your code here
+end
+'''
+reference = '''
+fahrenheit(c) = c * 9 / 5 + 32
+'''
+cases = ["100", "0", "-40", "37", "36.6"]
+gen = "rng -> [(rand(rng, -100:200),) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "The formula is the whole function. What does `/` return for two integers?",
+  "`c * 9 / 5 + 32` returns a Float64 for an Int `c`, because `/` always does.",
+]
+
+  [problem.perf]
+  args = "rand(rng) * 100"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "integer division drops the fraction"
+  code = '''
+fahrenheit(c) = c * 9 ÷ 5 + 32
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns an Int for 0 °C"
+  code = '''
+fahrenheit(c) = c == 0 ? 32 : c * 9 / 5 + 32
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "1.8 instead of 9/5 is fine within the tolerance"
+  code = '''
+fahrenheit(c) = 1.8c + 32
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "sum-of-squares"
+title = "Sum of squares"
+difficulty = "core"
+kcs = ["loops", "expressions"]
+entry = "sum_of_squares"
+prompt = '''
+Write `sum_of_squares(n)` returning 1² + 2² + … + n² for an integer `n ≥ 0`
+(the sum is 0 when `n` is 0). The result must be an integer.
+
+```julia
+sum_of_squares(3)   # 14
+```
+
+You will be graded on speed and memory too. A plain loop is a good answer in
+Julia (loops are fast here, unlike in Python); see what the grader says about
+building an array first.
+'''
+starter = '''
+function sum_of_squares(n)
+    # your code here
+end
+'''
+reference = '''
+function sum_of_squares(n)
+    s = 0
+    for i in 1:n
+        s += i^2
+    end
+    return s
+end
+'''
+cases = ["0", "1", "3", "10"]
+gen = "rng -> [(rand(rng, 0:5000),) for _ in 1:15]"
+hints = [
+  "Keep a running total that starts at 0 and add `i^2` for each `i` from 1 to `n`.",
+  "`for i in 1:n` visits 1, 2, …, n; `1:0` is empty, so `n = 0` needs no special case.",
+]
+
+  [problem.perf]
+  args = "n"
+  sizes = [2000, 64000]
+
+  [[problem.variant]]
+  label = "off by one"
+  code = '''
+sum_of_squares(n) = sum(i^2 for i in 1:n-1)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "builds an array first"
+  code = '''
+sum_of_squares(n) = sum([i^2 for i in 1:n])
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "closed form"
+  code = '''
+sum_of_squares(n) = n * (n + 1) * (2n + 1) ÷ 6
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "float accumulator"
+  code = '''
+function sum_of_squares(n)
+    s = 0.0
+    for i in 1:n
+        s += i^2
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]

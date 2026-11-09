@@ -1,0 +1,469 @@
+id = "03-strings"
+title = "Strings and characters"
+track = "foundations"
+env = "base"
+status = "ready"
+summary = "String versus Char, building strings with * and interpolation, why indexing is by byte in UTF-8, iterating over characters, the everyday string functions, parsing numbers, and a first look at regular expressions."
+kcs = ["strings", "chars", "utf8-indexing", "string-functions", "parsing", "regex"]
+prerequisites = ["02-numbers"]
+
+[[section]]
+title = "String and Char, and building strings"
+body = '''
+Double quotes make a `String`, single quotes make a `Char` (one Unicode
+character). They are different types: `"a" == 'a'` is `false`. A `Char` is a
+code point, so `'a' + 1` is `'b'`.
+
+Julia joins strings with `*`, not `+` (in algebra `*` is the operation that
+need not commute, like joining text), and repeats them with `^`. `string(...)`
+converts and joins any values, and interpolation with `$` (unit 1) is usually
+the clearest way to build text.
+'''
+
+  [[section.example]]
+  code = '''
+println(typeof("a"), " ", typeof('a'))
+println("a" == 'a')
+println('a' + 1)
+println("Hello, " * "world" * "!")
+println("ab"^3)
+println(string("x = ", 42, ", y = ", 2.5, ' ', :done))
+'''
+
+  [[section.example]]
+  caption = "`+` is not defined for strings."
+  code = '''
+"a" + "b"
+'''
+
+[[section]]
+title = "Indexing is by byte, not by character"
+body = '''
+Julia strings are UTF-8. ASCII characters take one byte, but `é` takes two
+(other characters up to four). A string index is a **byte position**, so for text with
+non-ASCII characters not every integer is a valid index: `s[3]` below lands in
+the middle of `é` and throws a `StringIndexError`.
+
+`length(s)` counts characters, `ncodeunits(s)` counts bytes. To move between
+characters use `eachindex(s)` (all valid indices), `nextind(s, i)` and
+`prevind(s, i)`, and `firstindex`/`lastindex` instead of `1` and `length(s)`.
+`s[end]` is safe: `end` means `lastindex(s)`.
+'''
+
+  [[section.example]]
+  code = '''
+s = "héllo"
+println(length(s), " characters, ", ncodeunits(s), " bytes")
+println(s[1], " ", s[2], " ", s[4], " ", s[end])
+println(collect(eachindex(s)))
+println(nextind(s, 2))
+s[3]
+'''
+
+  [[section.example]]
+  caption = "A byte range slice works when both ends are valid indices: `naïve` is 6 bytes. Ending inside `ï` (byte 4) is an error."
+  code = '''
+s = "naïve café"
+println(s[1:6])
+println(s[lastindex(s)-3:end])
+println(lastindex(s), " ", length(s))
+s[1:4]
+'''
+
+[[section]]
+title = "Iterating over characters"
+body = '''
+A `for` loop over a string visits each **character**, decoding UTF-8 for you,
+so it never hits an invalid index. `collect(s)` gives a `Vector{Char}`, and
+functions such as `count`, `reverse` and `uppercase` work character by
+character. Most of the time this is all you need, and you never touch byte
+indices.
+'''
+
+  [[section.example]]
+  code = '''
+for c in "año"
+    println(c, " ", typeof(c), " ", isletter(c))
+end
+println(collect("año"))
+println(count(c -> c in "aeiou", "education"))
+println(reverse("año"))
+'''
+
+[[section]]
+title = "Everyday string functions"
+body = '''
+The functions you would reach for in Python exist under similar names, but as
+functions, not methods: `split(s, ",")`, not `s.split(",")`.
+
+* `split` and `join` break text apart and glue it back together;
+* `replace(s, "old" => "new")` takes a `Pair`;
+* `occursin(needle, haystack)` (note the order), `startswith`, `endswith`;
+* `uppercase`, `lowercase`, `strip`.
+
+Strings are immutable: these functions return new strings and leave the
+original alone.
+'''
+
+  [[section.example]]
+  code = '''
+s = "  apples, pears,plums  "
+parts = split(strip(s), ",")
+println(parts)
+println(join(strip.(parts), " | "))
+println(replace("one two two", "two" => "2"))
+println(occursin("pear", s), " ", startswith("julia", "ju"), " ", endswith("julia", "x"))
+println(uppercase("julia"), " ", lowercase("ABC"), " ", s)
+'''
+
+[[section]]
+title = "Parsing numbers from text"
+body = '''
+`parse(T, s)` reads a number of type `T` from a string and throws an
+`ArgumentError` if the text is not one. When bad input is expected (user
+input, messy files), use `tryparse`, which returns `nothing` instead of
+throwing, and check for it with `=== nothing` or `isnothing`.
+
+The reverse direction is `string(x)`.
+'''
+
+  [[section.example]]
+  code = '''
+println(parse(Int, "42") + 1)
+println(parse(Float64, "2.5e3"))
+println(tryparse(Int, "4x"))
+println(isnothing(tryparse(Int, "4x")))
+println(string(17) * "!")
+parse(Int, "4x")
+'''
+
+[[section]]
+title = "Regular expressions and SubString"
+body = '''
+`r"..."` is a regular expression (PCRE syntax). `match` returns the first
+match or `nothing`; a match's capture groups are in `m.captures` (or `m[1]`,
+`m[2]`, ...). `eachmatch` iterates over all matches.
+
+Captures, like the pieces from `split`, are `SubString`s: views into the
+original string, with no copy. They behave like strings; call `String(x)` when
+you want an independent copy.
+'''
+
+  [[section.example]]
+  code = '''
+m = match(r"(\d+)-(\d+)", "pages 12-31 and 40-45")
+println(m.match, " ", m[1], " ", m[2])
+println([parse(Int, x.match) for x in eachmatch(r"\d+", "a1b22c333")])
+println(match(r"z", "abc"))
+println(typeof(m[1]))
+'''
+
+  [[section.example]]
+  code = '''
+words = split("the quick brown fox")
+w = words[2]
+println(typeof(w), " ", w, " ", length(w))
+println(typeof(String(w)))
+'''
+
+[[problem]]
+id = "count-vowels"
+title = "Count the vowels"
+difficulty = "warm-up"
+kcs = ["strings", "chars"]
+entry = "count_vowels"
+prompt = '''
+Write `count_vowels(s)` returning how many characters of the string `s` are
+one of the vowels a, e, i, o, u, in upper or lower case. Other characters,
+including accented letters such as `é`, do not count.
+
+```julia
+count_vowels("Hello World")   # 3
+count_vowels("")              # 0
+```
+
+The grader times your function on long strings and also measures memory.
+'''
+starter = '''
+function count_vowels(s)
+    # your code here
+end
+'''
+reference = '''
+function count_vowels(s)
+    n = 0
+    for c in s
+        n += lowercase(c) in ('a', 'e', 'i', 'o', 'u')
+    end
+    return n
+end
+'''
+cases = ["\"Hello World\"", "\"\"", "\"AEIOU xyz\"", "\"café au lait\""]
+gen = "rng -> [(randstring(rng, collect(\"aeiouAEIOUbcdxyz é!\"), rand(rng, 0:40)),) for _ in 1:30]"
+hints = [
+  "Loop over the characters with `for c in s` and count those that are vowels.",
+  "`lowercase(c)` works on a single `Char`, so you do not need to lowercase the whole string.",
+]
+
+  [problem.perf]
+  args = "randstring(rng, 'a':'z', n)"
+  sizes = [1000, 32000]
+
+  [[problem.variant]]
+  label = "counts only lowercase vowels"
+  code = '''
+count_vowels(s) = count(c -> c in "aeiou", s)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "indexes with 1:length(s)"
+  code = '''
+function count_vowels(s)
+    n = 0
+    for i in 1:length(s)
+        n += lowercase(s[i]) in ('a', 'e', 'i', 'o', 'u')
+    end
+    return n
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "lowercases the whole string first"
+  code = '''
+count_vowels(s) = count(in(('a', 'e', 'i', 'o', 'u')), lowercase(s))
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "count with a predicate"
+  code = '''
+count_vowels(s) = count(c -> lowercase(c) in ('a', 'e', 'i', 'o', 'u'), s)
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "is-palindrome"
+title = "Palindrome, ignoring case and punctuation"
+difficulty = "core"
+kcs = ["utf8-indexing", "chars"]
+entry = "is_palindrome"
+prompt = '''
+Write `is_palindrome(s)` returning `true` when the letters of `s`, read
+backwards, are the same as read forwards. Ignore case and every character
+that is not a letter (`isletter`). Text can contain any Unicode letters.
+
+```julia
+is_palindrome("A man, a plan, a canal: Panama")   # true
+is_palindrome("été")                              # true
+is_palindrome("hello")                            # false
+```
+
+A solution that builds a cleaned-up copy is correct. The grader also measures
+memory: can you check it without building any new string?
+'''
+starter = '''
+function is_palindrome(s)
+    # your code here
+end
+'''
+reference = '''
+function is_palindrome(s)
+    i, j = firstindex(s), lastindex(s)
+    while i < j
+        a, b = s[i], s[j]
+        if !isletter(a)
+            i = nextind(s, i)
+        elseif !isletter(b)
+            j = prevind(s, j)
+        else
+            lowercase(a) == lowercase(b) || return false
+            i = nextind(s, i)
+            j = prevind(s, j)
+        end
+    end
+    return true
+end
+'''
+cases = ["\"A man, a plan, a canal: Panama\"", "\"été\"", "\"hello\"", "\"\"", "\"!!\"", "\"No 'x' in Nixon\""]
+gen = "rng -> vcat([(let h = randstring(rng, collect(\"abAB ,é!\"), rand(rng, 0:12)); h * reverse(h) end,) for _ in 1:15], [(randstring(rng, collect(\"abAB ,é!\"), rand(rng, 0:6)),) for _ in 1:25])"
+hints = [
+  "Compare from both ends: one position from the front, one from the back, skipping non-letters.",
+  "Move with `nextind(s, i)` and `prevind(s, j)` rather than `i + 1`, so multi-byte letters such as `é` work.",
+]
+
+  [problem.perf]
+  args = "let h = randstring(rng, \"abcAB ,\", n); h * reverse(h) end"
+  sizes = [1000, 32000]
+
+  [[problem.variant]]
+  label = "does not ignore case"
+  code = '''
+function is_palindrome(s)
+    t = filter(isletter, s)
+    return t == reverse(t)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "does not skip punctuation"
+  code = '''
+function is_palindrome(s)
+    t = lowercase(s)
+    return t == reverse(t)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "byte arithmetic i + 1 and j - 1"
+  code = '''
+function is_palindrome(s)
+    i, j = 1, ncodeunits(s)
+    while i < j
+        a, b = s[i], s[j]
+        if !isletter(a)
+            i += 1
+        elseif !isletter(b)
+            j -= 1
+        else
+            lowercase(a) == lowercase(b) || return false
+            i += 1
+            j -= 1
+        end
+    end
+    return true
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "builds a cleaned copy"
+  code = '''
+function is_palindrome(s)
+    t = lowercase(filter(isletter, s))
+    return t == reverse(t)
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "run-length-encoding"
+title = "Run-length encoding"
+difficulty = "stretch"
+kcs = ["strings", "string-functions"]
+entry = "run_length"
+prompt = '''
+Write `run_length(s)` that encodes each run of equal consecutive characters
+as the character followed by the length of the run, and returns the result as
+a `String`.
+
+```julia
+run_length("aaabccdddd")   # "a3b1c2d4"
+run_length("")             # ""
+run_length("héé")          # "h1é2"
+```
+
+The grader measures how the time grows with the length of the input. Think
+about what `out = out * piece` costs when `out` is already long.
+'''
+starter = '''
+function run_length(s)
+    # your code here
+end
+'''
+reference = '''
+function run_length(s)
+    io = IOBuffer()
+    prev = '\0'
+    k = 0
+    for c in s
+        if k > 0 && c == prev
+            k += 1
+        else
+            k > 0 && print(io, prev, k)
+            prev = c
+            k = 1
+        end
+    end
+    k > 0 && print(io, prev, k)
+    return String(take!(io))
+end
+'''
+cases = ["\"aaabccdddd\"", "\"\"", "\"héé\"", "\"abc\"", "\"zzzzzzzzzzzz\""]
+gen = "rng -> [(randstring(rng, collect(\"aab é\"), rand(rng, 0:40)),) for _ in 1:30]"
+hints = [
+  "Remember the current character and how many times you have seen it in a row; write out a piece when the character changes, and once more at the end.",
+  "Collect the pieces in an `IOBuffer` (`print(io, c, k)`) and finish with `String(take!(io))`, or push them to a vector and `join` once.",
+]
+
+  [problem.perf]
+  args = "randstring(rng, \"ab\", n)"
+  sizes = [1000, 16000]
+
+  [[problem.variant]]
+  label = "forgets the last run"
+  code = '''
+function run_length(s)
+    io = IOBuffer()
+    prev = '\0'
+    k = 0
+    for c in s
+        if k > 0 && c == prev
+            k += 1
+        else
+            k > 0 && print(io, prev, k)
+            prev = c
+            k = 1
+        end
+    end
+    return String(take!(io))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "grows the result with *="
+  code = '''
+function run_length(s)
+    out = ""
+    prev = '\0'
+    k = 0
+    for c in s
+        if k > 0 && c == prev
+            k += 1
+        else
+            k > 0 && (out *= string(prev, k))
+            prev = c
+            k = 1
+        end
+    end
+    k > 0 && (out *= string(prev, k))
+    return out
+end
+'''
+  expect = ["correct", "allocates", "scaling"]
+
+  [[problem.variant]]
+  label = "pieces in a vector, joined once"
+  code = '''
+function run_length(s)
+    pieces = String[]
+    prev = '\0'
+    k = 0
+    for c in s
+        if k > 0 && c == prev
+            k += 1
+        else
+            k > 0 && push!(pieces, string(prev, k))
+            prev = c
+            k = 1
+        end
+    end
+    k > 0 && push!(pieces, string(prev, k))
+    return join(pieces)
+end
+'''
+  expect = ["correct"]

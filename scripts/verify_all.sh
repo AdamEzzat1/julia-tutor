@@ -25,6 +25,8 @@ for p in projects/*/; do
   step "$name: explain on fixtures vs golden outputs"
   ./tutor fixtures "$name" --check
 done
+step "course: example outputs, problem samples, grader self-tests (variants)"
+./tutor course verify
 step "website data is generated from verified sources"
 ./tutor site-data --check
 step "lesson answer keys"

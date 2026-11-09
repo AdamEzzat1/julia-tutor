@@ -1,0 +1,522 @@
+id = "04-control-flow"
+title = "Control flow, loops and scope"
+track = "foundations"
+env = "base"
+status = "ready"
+summary = "Conditionals, short-circuit operators, ranges and loops, and the scope rules that decide whether a loop can change a variable defined outside it: why the same loop works in the REPL and fails in a script."
+kcs = ["conditionals", "short-circuit", "ranges", "loops", "scope"]
+prerequisites = ["03-strings"]
+
+[[section]]
+title = "if, elseif, else and the ternary operator"
+body = '''
+`if` ... `elseif` ... `else` ... `end` works as in most languages, and the
+whole block is an expression with a value (unit 1). For a short choice
+between two values, `cond ? a : b` (the *ternary* operator) is common; the
+spaces around `?` and `:` are required.
+
+A condition must be a `Bool`. Unlike Python, R or C, Julia does not treat `0`,
+`""` or an empty array as false: `if 1` is an error. Write the comparison you
+mean (`x != 0`, `!isempty(v)`).
+'''
+
+  [[section.example]]
+  code = '''
+x = -3
+if x > 0
+    println("positive")
+elseif x == 0
+    println("zero")
+else
+    println("negative")
+end
+println(iseven(x) ? "even" : "odd")
+'''
+
+  [[section.example]]
+  code = '''
+if 1
+    println("never printed")
+end
+'''
+
+[[section]]
+title = "Short-circuit && and ||, and comparison chains"
+body = '''
+`a && b` evaluates `b` only when `a` is true; `a || b` evaluates `b` only
+when `a` is false. Besides combining conditions, Julia code uses them as a
+compact `if`: `cond && action` runs the action when `cond` holds, and
+`cond || action` runs it when `cond` fails. Inside a function,
+`x < 0 && return 0` is an idiomatic early exit.
+
+Comparisons chain the way they do in mathematics: `1 < x < 3` means
+`1 < x && x < 3`.
+'''
+
+  [[section.example]]
+  code = '''
+x = 7
+x > 5 && println("x is bigger than 5")
+x > 10 || println("x is not bigger than 10")
+println(1 < x < 10, " ", 1 < x < 5, " ", 0 <= x == 7)
+'''
+
+  [[section.example]]
+  caption = "The right-hand side is never evaluated when the left side decides the answer, so the division by zero does not happen."
+  code = '''
+d = 0
+d != 0 && 10 ÷ d > 1
+'''
+
+  [[section.example]]
+  caption = "`&&` as an early return inside a function."
+  code = '''
+function safe_sqrt(x)
+    x < 0 && return NaN
+    return sqrt(x)
+end
+(safe_sqrt(9.0), safe_sqrt(-1.0))
+'''
+
+[[section]]
+title = "Ranges and for loops"
+body = '''
+`a:b` is the range from `a` to `b` **inclusive**, and `a:s:b` steps by `s`.
+A range stores only its start, step and stop, not its elements; `collect`
+turns it into a `Vector`. `length`, `step`, `reverse`, `first` and `last` all
+work, and `5:1` is empty (count down with `5:-1:1`). `range(0, 1; length = 5)`
+gives evenly spaced floats.
+
+`for x in collection` loops over a range, a vector, a string, a tuple, and
+more. `enumerate` gives index and value together, and `for i in 1:2, j in 1:3`
+is a nested loop written on one line.
+'''
+
+  [[section.example]]
+  code = '''
+r = 1:2:9
+println(collect(r), " length ", length(r), " step ", step(r))
+println(collect(reverse(r)), " ", collect(10:-3:1))
+println(isempty(5:1), " ", collect(range(0, 1; length = 5)))
+'''
+
+  [[section.example]]
+  code = '''
+for (i, fruit) in enumerate(["apple", "pear"])
+    println(i, ": ", fruit)
+end
+for i in 1:2, j in 1:3
+    print((i, j), " ")
+end
+println()
+'''
+
+[[section]]
+title = "while, break and continue"
+body = '''
+`while cond ... end` repeats while the condition holds. `break` leaves the
+innermost loop, `continue` skips to its next iteration.
+
+Julia has no labelled `break` for leaving several nested loops at once. The
+idiomatic way is to put the search in a function and `return` from it as soon
+as you have the answer, as `find_pair` does below.
+'''
+
+  [[section.example]]
+  code = '''
+p = 1
+while p <= 1000
+    p *= 2
+end
+println(p)
+for i in 1:10
+    iseven(i) && continue
+    i > 7 && break
+    print(i, " ")
+end
+println()
+'''
+
+  [[section.example]]
+  caption = "`return` leaves both loops at once."
+  code = '''
+function find_pair(v, target)
+    for i in eachindex(v), j in i+1:lastindex(v)
+        v[i] + v[j] == target && return (i, j)
+    end
+    return nothing
+end
+println(find_pair([3, 8, 1, 5], 6))
+println(find_pair([3, 8, 1, 5], 100))
+'''
+
+[[section]]
+title = "Scope: why a loop works in the REPL but not in a script"
+body = '''
+`for` and `while` loops (and functions) open a new *local scope*. A variable
+first assigned inside the loop is local to it and does not exist afterwards.
+
+The tricky case is a loop that updates a **global** variable, one defined at
+the top level. In the REPL, and in this site's sandbox, such a loop
+updates the global (the REPL's *soft scope*). In a file run with
+`julia script.jl` or `include`, the same assignment inside the loop creates a
+new *local* `total`, so `total += i` reads a local that has no value yet:
+Julia prints a warning and then throws an `UndefVarError`.
+
+Three fixes: write `global total += i` to say you mean the global, wrap the
+code in a function (the usual answer: loops in functions are also much faster),
+or use a `let` block. `local x` declares a fresh local explicitly.
+'''
+
+  [[section.example]]
+  caption = "REPL mode (the default here): the loop updates the global `total`."
+  code = '''
+total = 0
+for i in 1:3
+    total += i
+end
+total
+'''
+
+  [[section.example]]
+  caption = "The same code run as a file (`mode = \"file\"`): a warning, then an error."
+  mode = "file"
+  code = '''
+total = 0
+for i in 1:3
+    total += i
+end
+total
+'''
+
+  [[section.example]]
+  caption = "In a file: `global` fixes it, and so does putting the loop in a function."
+  mode = "file"
+  code = '''
+total = 0
+for i in 1:3
+    global total += i
+end
+println(total)
+
+function sum_to(n)
+    t = 0
+    for i in 1:n
+        t += i
+    end
+    return t
+end
+println(sum_to(3))
+'''
+
+  [[section.example]]
+  caption = "A variable created inside a loop is gone after it, in any mode."
+  code = '''
+for i in 1:3
+    sq = i^2
+end
+sq
+'''
+
+  [[section.example]]
+  caption = "`local` makes a new variable even when a global of the same name exists."
+  code = '''
+x = 10
+for i in 1:2
+    local x = i * 100
+    println("inside: ", x)
+end
+println("outside: ", x)
+'''
+
+[[problem]]
+id = "fizzbuzz-vector"
+title = "FizzBuzz as a vector"
+difficulty = "warm-up"
+kcs = ["conditionals", "loops"]
+entry = "fizzbuzz"
+prompt = '''
+Write `fizzbuzz(n)` returning a `Vector{String}` of length `n` whose `i`-th
+entry is `"FizzBuzz"` if `i` is divisible by both 3 and 5, `"Fizz"` if only by
+3, `"Buzz"` if only by 5, and otherwise the number itself as a string.
+
+```julia
+fizzbuzz(5)   # ["1", "2", "Fizz", "4", "Buzz"]
+fizzbuzz(0)   # String[]
+```
+
+The element type matters: the result must be a `Vector{String}`, not a
+`Vector{Any}`.
+'''
+starter = '''
+function fizzbuzz(n)
+    # your code here
+end
+'''
+reference = '''
+function fizzbuzz(n)
+    out = Vector{String}(undef, n)
+    for i in 1:n
+        out[i] = i % 15 == 0 ? "FizzBuzz" :
+                 i % 3 == 0  ? "Fizz" :
+                 i % 5 == 0  ? "Buzz" : string(i)
+    end
+    return out
+end
+'''
+cases = ["5", "15", "0"]
+gen = "rng -> [(rand(rng, 0:100),) for _ in 1:15]"
+hints = [
+  "Check the most specific condition first: a number divisible by 15 is also divisible by 3.",
+  "Start from `String[]` (or `Vector{String}(undef, n)`), not `[]`, which is a `Vector{Any}`.",
+]
+
+  [problem.perf]
+  args = "n"
+  sizes = [1000]
+
+  [[problem.variant]]
+  label = "tests 3 before 15"
+  code = '''
+function fizzbuzz(n)
+    out = String[]
+    for i in 1:n
+        if i % 3 == 0
+            push!(out, "Fizz")
+        elseif i % 5 == 0
+            push!(out, "Buzz")
+        elseif i % 15 == 0
+            push!(out, "FizzBuzz")
+        else
+            push!(out, string(i))
+        end
+    end
+    return out
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "starts from [] (a Vector{Any})"
+  code = '''
+function fizzbuzz(n)
+    out = []
+    for i in 1:n
+        push!(out, i % 15 == 0 ? "FizzBuzz" : i % 3 == 0 ? "Fizz" : i % 5 == 0 ? "Buzz" : string(i))
+    end
+    return out
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "comprehension"
+  code = '''
+fizzbuzz(n) = [i % 15 == 0 ? "FizzBuzz" : i % 3 == 0 ? "Fizz" : i % 5 == 0 ? "Buzz" : string(i) for i in 1:n]
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "first-above"
+title = "First index above a threshold"
+difficulty = "core"
+kcs = ["loops", "short-circuit"]
+entry = "first_above"
+prompt = '''
+Write `first_above(v, t)` returning the index of the first element of the
+vector `v` that is strictly greater than `t`, or `nothing` if there is none.
+
+```julia
+first_above([3, 8, 1, 9], 5)   # 2
+first_above([3, 8, 1, 9], 9)   # nothing
+```
+
+Stop as soon as you have found the answer. The grader times the worst case,
+where no element is above `t`, and measures memory.
+'''
+starter = '''
+function first_above(v, t)
+    # your code here
+end
+'''
+reference = '''
+function first_above(v, t)
+    for i in eachindex(v)
+        v[i] > t && return i
+    end
+    return nothing
+end
+'''
+cases = ["[3, 8, 1, 9], 5", "[3, 8, 1, 9], 9", "Int[], 0", "[0.5, 2.5], 2.5"]
+gen = "rng -> [(rand(rng, 1:10, rand(rng, 0:12)), rand(rng, 1:10)) for _ in 1:30]"
+hints = [
+  "Loop over the indices and `return` the first one whose element is above `t`; after the loop, return `nothing`.",
+  "`v[i] > t && return i` inside `for i in eachindex(v)` is the whole loop body. Strictly greater means `>`, not `>=`.",
+]
+
+  [problem.perf]
+  args = "rand(rng, n), 2.0"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = ">= instead of >"
+  code = '''
+function first_above(v, t)
+    for i in eachindex(v)
+        v[i] >= t && return i
+    end
+    return nothing
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns 0 when not found"
+  code = '''
+function first_above(v, t)
+    for i in eachindex(v)
+        v[i] > t && return i
+    end
+    return 0
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "findall, then take the first"
+  code = '''
+function first_above(v, t)
+    idx = findall(x -> x > t, v)
+    return isempty(idx) ? nothing : idx[1]
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "findfirst from Base"
+  code = '''
+first_above(v, t) = findfirst(>(t), v)
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "count-primes"
+title = "Count the primes up to n"
+difficulty = "stretch"
+kcs = ["loops", "ranges"]
+entry = "count_primes"
+prompt = '''
+Write `count_primes(n)` returning how many prime numbers are `≤ n` (zero for
+`n < 2`).
+
+```julia
+count_primes(10)    # 4  (2, 3, 5, 7)
+count_primes(100)   # 25
+```
+
+The grader times your function at two sizes to see how the time grows.
+Testing every candidate by trial division is correct but slow; look up the
+sieve of Eratosthenes.
+'''
+starter = '''
+function count_primes(n)
+    # your code here
+end
+'''
+reference = '''
+function count_primes(n)
+    n < 2 && return 0
+    isprime = fill(true, n)
+    isprime[1] = false
+    for p in 2:isqrt(n)
+        isprime[p] || continue
+        for k in p*p:p:n
+            isprime[k] = false
+        end
+    end
+    return count(isprime)
+end
+'''
+cases = ["10", "100", "1", "2", "0"]
+gen = "rng -> [(rand(rng, 0:3000),) for _ in 1:20]"
+hints = [
+  "Keep a vector of `n` Booleans saying \"still possibly prime\", and cross out multiples.",
+  "For each `p` from 2 to `isqrt(n)` that is still marked, mark `p*p:p:n` as not prime; then `count` what is left.",
+]
+
+  [problem.perf]
+  args = "n"
+  sizes = [1000, 16000]
+
+  [[problem.variant]]
+  label = "counts 1 as a prime"
+  code = '''
+function count_primes(n)
+    n < 1 && return 0
+    isprime = fill(true, n)
+    for p in 2:isqrt(n)
+        isprime[p] || continue
+        for k in p*p:p:n
+            isprime[k] = false
+        end
+    end
+    return count(isprime)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "trial division up to sqrt(k)"
+  code = '''
+function count_primes(n)
+    c = 0
+    for k in 2:n
+        prime = true
+        for d in 2:isqrt(k)
+            if k % d == 0
+                prime = false
+                break
+            end
+        end
+        c += prime
+    end
+    return c
+end
+'''
+  expect = ["correct", "slow"]
+
+  [[problem.variant]]
+  label = "trial division by every smaller number"
+  code = '''
+function count_primes(n)
+    c = 0
+    for k in 2:n
+        prime = true
+        for d in 2:k-1
+            if k % d == 0
+                prime = false
+                break
+            end
+        end
+        c += prime
+    end
+    return c
+end
+'''
+  expect = ["correct", "slow", "scaling"]
+
+  [[problem.variant]]
+  label = "BitVector sieve"
+  code = '''
+function count_primes(n)
+    n < 2 && return 0
+    isprime = trues(n)
+    isprime[1] = false
+    for p in 2:isqrt(n)
+        isprime[p] || continue
+        isprime[p*p:p:n] .= false
+    end
+    return count(isprime)
+end
+'''
+  expect = ["correct"]

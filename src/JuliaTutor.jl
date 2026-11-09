@@ -23,6 +23,7 @@ function check_julia_version(; strict::Bool = true)
     strict ? error(msg) : (@warn msg; false)
 end
 
+include("json.jl")
 include("syntax.jl")
 include("checker.jl")
 include("models.jl")
@@ -33,6 +34,10 @@ include("progress.jl")
 include("explain.jl")
 include("fixtures.jl")
 include("lessons.jl")
+include("course.jl")
+include("practice.jl")
+include("guided.jl")
+include("server.jl")
 include("sitedata.jl")
 
 end # module

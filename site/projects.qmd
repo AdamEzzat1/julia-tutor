@@ -1,0 +1,7 @@
+---
+title: "Projects"
+subtitle: "Guided build projects for the ecosystem packages. You write the package and its tests from a milestone spec; `tutor guided check` runs your code against hidden acceptance tests and your tests against seeded faults in a correct implementation, in the sandbox on your machine."
+---
+
+::: {.jt-mount data-view="guided"}
+:::

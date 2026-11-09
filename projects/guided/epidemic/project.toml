@@ -1,0 +1,401 @@
+name = "epidemic"
+package = "Epidemic"
+env = "diffeq"
+status = "ready"
+title = "Epidemic: an SIR model fitted to case counts"
+summary = "Build an SIR epidemic model on DifferentialEquations.jl, check it against conservation and a known peak condition, and fit its two rates to noisy daily case counts with a search you write yourself (golden-section search inside a coarse grid). Simulated data with a fixed seed, so the true rates are known."
+kcs = ["packages", "testing", "ode-models", "conservation", "least-squares", "line-search"]
+reading = '''
+Prerequisites: course unit 24 (differential equations) and unit 23.
+The `diffeq` environment has DifferentialEquations.jl but not Optim.jl, so
+the fit is a search you write: it is two parameters, and a golden-section
+search is a dozen lines you can test exactly on a parabola first.
+Container only on Windows hosts (see CLAUDE.md, Known gaps): checks run with
+`--sandbox=docker`, and the first one spends most of its time loading
+DifferentialEquations.
+
+`data/cases.csv` holds 50 days of new cases in a town of 10 000 people. It
+was simulated, so the answer is known: SIR with beta = 0.45 and
+gamma = 0.17 per day from (S, I, R) = (0.999, 0.001, 0) on day 0, the
+model's new cases per day as Poisson means, and Poisson draws from
+`Xoshiro(20261109)` (the script is
+`projects/guided/epidemic/tools/simulate_cases.jl` in the julia-tutor
+repository). Your fit should land near those rates, but not on
+them: the noise moves the minimum.
+
+Tolerances are part of the work. Every `≈` in your tests needs a reason in
+a comment: a bound you derive from the solver tolerances or from rounding,
+or "calibrated" with the seed and the error you observed. Every random
+draw in a test uses an explicit `Xoshiro(seed)`. The checker warns on `==`
+between floats inside `@test`.
+'''
+
+[[milestone]]
+id = 0
+title = "A package with a test suite"
+min_score = 1.0
+goal = '''
+Create the package as in the tidy project's milestone 0 (`tutor guided show
+tidy 0` has the full steps): `Pkg.generate("Epidemic")`, move
+`Project.toml` and `src/` into this folder, run `./tutor guided deps <this
+folder>` from the julia-tutor folder (DifferentialEquations), and write
+`test/runtests.jl` with `using Epidemic, Test` and one check. From
+milestone 1 on, export every name a milestone's API lists: the hidden tests
+call them after `using Epidemic`.
+'''
+
+  [[milestone.api]]
+  signature = "module Epidemic"
+  doc = "Defined in src/Epidemic.jl, with `using DifferentialEquations` inside."
+
+  [[milestone.behaviour]]
+  id = "package-layout"
+  kc = "packages"
+  spec = "`src/Epidemic.jl` defines a module named `Epidemic` that loads without errors."
+  hints = [
+    "A package is a module whose name matches its file name under src/.",
+    "Open src/Epidemic.jl: its first code line should be `module Epidemic` and its last `end`.",
+    "If loading fails, the error above names the line; a `using` of a package missing from the environment is the usual cause.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Any check that runs counts here.",
+    "`@test Epidemic isa Module` is enough for milestone 0.",
+    "Put it inside a `@testset` so the report names it.",
+  ]
+
+[[milestone]]
+id = 1
+title = "The model"
+min_score = 0.8
+must_cover = ["rhs-values", "simulate-saveat"]
+goal = '''
+Write the SIR right-hand side in place and a function that solves it and
+returns the states at given days. S, I and R are fractions of the
+population: susceptible, infectious, recovered. Each day an infectious
+person meets enough people to infect beta of them if all were susceptible,
+and recovers at rate gamma.
+'''
+
+  [[milestone.api]]
+  signature = "sir!(du, u, p, t) -> nothing"
+  doc = "u = (S, I, R) as fractions of the population, p = (beta, gamma): dS = -beta S I, dI = beta S I - gamma I, dR = gamma I."
+
+  [[milestone.api]]
+  signature = "simulate(p, u0, days) -> Matrix{Float64}"
+  doc = "3 × length(days) states at the given (sorted) days, starting from u0 at day 0, from Tsit5 with abstol = reltol = 1e-10."
+
+  [[milestone.behaviour]]
+  id = "rhs-values"
+  kc = "ode-models"
+  spec = "`sir!` writes the three derivatives into `du`, returns `nothing` and allocates nothing."
+  hints = [
+    "Each compartment's rate is people arriving minus people leaving.",
+    "S only loses people (to infection), R only gains them (from recovery), I does both; and the solver calls this function at every stage of every step.",
+    "Unpack the two rates and the three states at the top, then assign each slot of `du` on its own line (no new array on the right-hand side) and end with an empty return.",
+  ]
+  answer_tokens = ["-beta", "beta * S * I", "gamma * I", "du .= ["]
+  test_hints = [
+    "Call `sir!` on a state and rates you pick, and compare `du` with rates you work out by hand.",
+    "Use different numbers for beta and gamma, and for S, I and R, so a swap shows; check the return value too.",
+    "Measure allocations inside a small function that makes `du`, calls `sir!` once to compile it and returns `@allocated` of a second call; test that it is 0.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "simulate-saveat"
+  kc = "ode-models"
+  spec = "`simulate` returns exactly the requested days as columns, counted from day 0 (also when the first requested day is not 0), at the stated tolerances."
+  hints = [
+    "The solver picks its own steps; you ask for output at given times.",
+    "`solve` takes the times to save at as a keyword, and the time span must start where `u0` holds (day 0), whatever the first requested day is.",
+    "Build the problem from day 0 to the last requested day, pass the requested days and both tolerances to `solve`, and turn the solution into a plain matrix before returning it.",
+  ]
+  answer_tokens = ["saveat", "Array(sol)", "first(days)"]
+  test_hints = [
+    "Check the size of the result and a value you know without the solver.",
+    "Ask for days that do not start at 0; and use the SIR invariant log(S/S0) + (beta/gamma)(R - R0) = 0, which the exact solution keeps.",
+    "The invariant holds to about 1e-9 at tolerances 1e-10 but only to about 1e-4 at the solver's defaults: a bound between them catches a missing tolerance (say where your bound comes from).",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why does `sir!` write into `du` instead of returning a new vector of derivatives?"
+  choices = [
+    "DifferentialEquations.jl accepts only right-hand sides that modify an argument, and rejects any function that returns an array",
+    "The solver calls it at every stage of every step, and filling a vector it owns saves an allocation per call",
+    "A returned vector is rounded to Float32 by the solver, so writing in place keeps full Float64 accuracy",
+  ]
+  answer = 2
+  explain = "Tsit5 evaluates the right-hand side six or seven times per step, often thousands of times per solve. The in-place form `f!(du, u, p, t)` lets the solver hand over one preallocated vector every time; the out-of-place form `f(u, p, t)` also works, at an allocation per call (or with static arrays)."
+  misconceptions = [
+    "The out-of-place form `f(u, p, t)` returning the derivative is accepted too; DifferentialEquations detects which one you wrote from the number of arguments.",
+    "",
+    "No rounding happens: the precision follows the element type of `u0` in both forms.",
+  ]
+
+[[milestone]]
+id = 2
+title = "Checks a model must pass"
+min_score = 0.8
+must_cover = ["conservation", "peak-condition"]
+goal = '''
+Test the model against facts that do not depend on your code: the
+population is conserved, and I peaks where S = gamma / beta (there dI/dt =
+I (beta S - gamma) is zero). Then write `peak_day`.
+'''
+
+  [[milestone.api]]
+  signature = "peak_day(p, u0; horizon = 365) -> Float64"
+  doc = "The time at which I is largest, found by root-finding on beta S - gamma (an event callback on the solution). 0.0 when I never grows (beta S0 <= gamma); `horizon` when I still grows there."
+
+  [[milestone.behaviour]]
+  id = "conservation"
+  kc = "conservation"
+  spec = "S + I + R stays equal to its initial value within 1e-9 over a year. The three rates sum to zero, and a Runge-Kutta step keeps every linear invariant of the equations exactly, so only rounding remains (about 1e-13 here); the bound is far above that and far below any real fault."
+  hints = [
+    "Add the three equations together.",
+    "Their sum must be zero: every term that leaves one compartment enters another with the same factor.",
+    "Look at `sir!` term by term: the infection term must appear in the S and I rates with opposite signs, and the recovery term in the I and R rates with opposite signs, each with the same variables.",
+  ]
+  answer_tokens = ["beta * S * I", "gamma * I"]
+  test_hints = [
+    "Simulate a year and look at S + I + R on every day.",
+    "Take the largest deviation from the initial sum over all days: `maximum(abs, sum(U; dims = 1) .- sum(u0))`.",
+    "Test it against 1e-9 with a comment: a Runge-Kutta step preserves linear invariants, so the deviation is rounding (a few eps per step).",
+  ]
+
+  [[milestone.behaviour]]
+  id = "peak-condition"
+  kc = "ode-models"
+  spec = "At `peak_day`, S equals gamma / beta within 1e-6, and I is at its maximum."
+  hints = [
+    "At the peak dI/dt is zero.",
+    "dI/dt = I (beta S - gamma) is zero when S = gamma / beta: you are looking for the time a function of the state crosses zero, which is finer than any grid of days.",
+    "Let the solver locate the event: the callback page of the DifferentialEquations manual has a callback that finds where a condition of the state crosses zero, and a function that ends the integration there; return the last time of that solution.",
+  ]
+  answer_tokens = ["ContinuousCallback", "terminate!"]
+  test_hints = [
+    "Simulate up to the returned day and compare S there with gamma / beta.",
+    "An answer rounded to whole days misses gamma / beta by about |dS/dt| / 2, around 1e-2: a tolerance of 1e-6 tells the two apart.",
+    "Also check I at the peak against I_max = I0 + S0 - rho (1 + log(S0 / rho)) with rho = gamma / beta (from I + S - rho log S being constant), on two or more rate pairs.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "peak-none"
+  kc = "ode-models"
+  spec = "When beta S0 <= gamma, I never grows and `peak_day` returns 0.0."
+  hints = [
+    "What does the event look for if the condition is already negative at the start?",
+    "A crossing callback fires only on a change of sign; with no crossing the solver runs to `horizon`.",
+    "Before solving, compare the starting growth rate with zero and return day zero (as a Float64) when I cannot grow.",
+  ]
+  answer_tokens = ["return 0.0", "<= gamma"]
+  test_hints = [
+    "Use rates with beta below gamma.",
+    "Check the result is exactly zero with `iszero`, not with `==` on a float.",
+    "Also try beta S0 = gamma exactly, the boundary case.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "With abstol = reltol = 1e-10, S + I + R drifts by only about 1e-13 over a year. Why is that far below the tolerances?"
+  choices = [
+    "A Runge-Kutta step preserves every linear invariant of the equations exactly, so only rounding is left",
+    "The solver projects the state back onto S + I + R = 1 after every step",
+    "The errors in S, I and R are each near 1e-10 but cancel by chance",
+  ]
+  answer = 1
+  explain = "Each stage of a Runge-Kutta step adds a linear combination of right-hand side values. Their components sum to zero, so the sum of the state changes by zero in exact arithmetic, whatever the step size. The tolerances bound the error of each component, not of their sum."
+  misconceptions = [
+    "",
+    "Tsit5 does no projection; a manifold projection would need a callback. The invariant holds because of how the step is built.",
+    "The cancellation is exact, not by chance: it follows from the right-hand side summing to zero, and the drift that remains is rounding.",
+  ]
+
+[[milestone]]
+id = 3
+title = "Data and a loss"
+min_score = 0.8
+must_cover = ["read-cases", "expected-cases", "loss-zero-at-truth", "loss-poisson"]
+goal = '''
+`data/cases.csv` has the new cases on days 1 to 50 (the reading says how it
+was made). Read it without CSV.jl (it is not in this environment), compute
+the model's new cases per day, and write a loss that compares the two.
+Counts are not Gaussian: their variance grows with their mean, so the loss
+is the Poisson negative log-likelihood.
+'''
+
+  [[milestone.api]]
+  signature = "POPULATION = 10_000.0; U0 = [0.999, 0.001, 0.0]"
+  doc = "Constants: the town's size and its state on day 0."
+
+  [[milestone.api]]
+  signature = "read_cases(io::IO) -> Vector{Int}"
+  doc = "The counts of a CSV with header `day,cases` and days 1, 2, ..., D in order; an `ArgumentError` when a day is out of place."
+
+  [[milestone.api]]
+  signature = "expected_cases(p, ndays::Integer) -> Vector{Float64}"
+  doc = "Entry k is the model's new cases on day k from U0: POPULATION * (S(k - 1) - S(k))."
+
+  [[milestone.api]]
+  signature = "loss(p, cases::AbstractVector{<:Real}) -> Float64"
+  doc = "sum over days of mu - y log mu, with mu = expected_cases(p, length(cases)) and y = cases."
+
+  [[milestone.behaviour]]
+  id = "read-cases"
+  kc = "testing"
+  spec = "`read_cases` returns the counts in day order and throws an `ArgumentError` when the days are not 1, 2, ..., D."
+  hints = [
+    "The first line is a header, not data.",
+    "Every later line has a day and a count separated by a comma; the k-th data line must be day k.",
+    "Loop over the data lines with their position, split each at the comma, parse both fields as integers, and throw the exception type Base uses for an invalid argument value when the day is not the position.",
+  ]
+  answer_tokens = ["parse(Int", "lines[2:end]"]
+  test_hints = [
+    "Read a short CSV you write in the test with `IOBuffer`.",
+    "Check the first count is there (a reader that skips the header twice loses day 1).",
+    "`@test_throws ArgumentError` on a file whose days go 1, 2, 4.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "expected-cases"
+  kc = "ode-models"
+  spec = "`expected_cases(p, D)[k]` is POPULATION * (S(k - 1) - S(k)): the people infected during day k, not the number infectious on day k nor the total so far."
+  hints = [
+    "New cases are people leaving S, not people in I.",
+    "People infected during day k are the fall in S from day k - 1 to day k; that needs S on days 0 to D.",
+    "Simulate from U0 on days 0 to D, take the S row, and subtract each day's value from the previous day's, scaled by the population.",
+  ]
+  answer_tokens = ["S[1:end-1]", "diff("]
+  test_hints = [
+    "Compute the new cases yourself from `simulate` and compare.",
+    "Their sum over days 1 to D is POPULATION * (S(0) - S(D)), whatever the rates.",
+    "Check one day after the peak too: infectious people (I) fall later than new cases do, so a version that returns I differs there.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "loss-zero-at-truth"
+  kc = "least-squares"
+  spec = "On noise-free data generated from p, the loss is minimal at p (a grid around it has no lower value)."
+  hints = [
+    "The loss is something to minimise: smaller must mean a better fit.",
+    "With y = mu exactly, the derivative of mu - y log mu with respect to mu is zero; the loss has its minimum there, not its maximum.",
+    "Check the sign of each term in your sum: the term in mu enters positively, the term with the logarithm negatively.",
+  ]
+  answer_tokens = ["y .* log.(mu)", "cases .* log.(mu)"]
+  test_hints = [
+    "Test the loss on data you generate yourself, without noise.",
+    "Use the model's new cases as the data (the loss takes real numbers), then the true rates must give the smallest value.",
+    "Compare loss(p) with the loss on a small grid around p (say 1% and 5% steps in each rate), with `<`.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "loss-poisson"
+  kc = "least-squares"
+  spec = "The loss is sum(mu - y log mu) over days, with mu the model's new cases (positive) and y the counts: a sum, not a mean, and not squared differences."
+  hints = [
+    "Counts are not Gaussian: their variance grows with their mean.",
+    "The Poisson log-likelihood of y given mu is y log mu - mu - log(y!); the last term does not depend on the rates.",
+    "Drop the constant term and negate the rest, then add it up over all days (no division by the number of days).",
+  ]
+  answer_tokens = ["sum(mu", "log.(mu)"]
+  test_hints = [
+    "Compute the expected value of the loss by hand for some small counts.",
+    "Use `expected_cases` for mu and write the formula in the test; compare with a relative tolerance and say why it is safe.",
+    "Squared differences and the mean of the terms also have their minimum at the truth on noise-free data, so only a value check catches them.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why fit daily counts with the Poisson loss rather than the sum of squared differences?"
+  choices = [
+    "Squared differences cannot be computed on integer counts",
+    "The variance of a count grows with its mean, so squared errors let the busiest days dominate",
+    "The Poisson loss always has a smaller value, so a search on it converges in fewer steps",
+  ]
+  answer = 2
+  explain = "Least squares is maximum likelihood for equal-variance Gaussian noise. A Poisson count with mean 300 varies by about 17, one with mean 10 by about 3; the Poisson loss weighs each day by what its noise allows."
+  misconceptions = [
+    "Integers subtract and square like any number; the question is what the loss assumes about the noise.",
+    "",
+    "The size of a loss value says nothing about how fast a search converges; only its shape near the minimum matters.",
+  ]
+
+[[milestone]]
+id = 4
+title = "The fit"
+min_score = 0.8
+must_cover = ["golden-section", "fit-recovers"]
+goal = '''
+Fit beta and gamma: for each gamma on a coarse grid, a golden-section
+search over beta; then a golden-section search over gamma between the grid
+neighbours of the best grid point, with the best beta found for each gamma.
+Test the search on a parabola first, where the answer is exact.
+'''
+
+  [[milestone.api]]
+  signature = "golden_section(f, a, b; tol = 1e-8) -> Float64"
+  doc = "The minimiser of a unimodal f on [a, b] to within tol, with one new evaluation of f per step."
+
+  [[milestone.api]]
+  signature = "fit(cases; beta_range, gamma_grid) -> NamedTuple{(:beta, :gamma)}"
+  doc = "The best rates found; both keywords are required (`beta_range = (lo, hi)`, `gamma_grid` a sorted vector or range)."
+
+  [[milestone.behaviour]]
+  id = "golden-section"
+  kc = "line-search"
+  spec = "On a parabola with known minimum the result is within tol, and the number of evaluations is at most log(tol / (b - a)) / log(0.618) + 4."
+  hints = [
+    "Each step keeps the part of the bracket that must hold the minimum.",
+    "Two interior points placed by the golden ratio let one of them, with its value, be reused in the next step; compare their values to choose which part to keep.",
+    "Keep the bracket ends, the two interior points and their values in variables; in each branch move one end, shift the surviving point and its value, compute one new point and evaluate only that; loop while the bracket is wider than the tolerance.",
+  ]
+  answer_tokens = ["0.618", "sqrt(5)", "INVPHI"]
+  test_hints = [
+    "Minimise (x - c)^2 on an interval around a c you pick, and check the result is within tol of c.",
+    "Count the evaluations with a closure that increments a counter, and compare with log(tol / (b - a)) / log(0.618) plus a small allowance.",
+    "Use a parabola without a constant offset: with (x - c)^2 + 1 the values near the minimum differ by less than eps and no search can locate it closer than about 1e-8.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "fit-recovers"
+  kc = "least-squares"
+  spec = "On noise-free data the fit returns the rates within a relative 1e-4; on the shipped data within 5% of the true ones (calibrated: the seed and the observed error are stated in the acceptance test)."
+  hints = [
+    "Fit on noise-free data first: it should recover the rates almost exactly.",
+    "The true gamma lies between grid points: the grid only says where to look, and the refinement must search between the neighbours of the best grid point.",
+    "After the grid, run a second search over gamma on the interval from the grid point before the best one to the one after it, scoring each gamma by the loss at its own best beta; return the two rates with the names the API gives.",
+  ]
+  answer_tokens = ["golden_section(profile", "argmin("]
+  test_hints = [
+    "Fit the model's own new cases (no noise) and check both rates.",
+    "Put the true gamma between grid points (0.17 with a grid of step 0.05): a fit that stops at the grid misses by about 10%.",
+    "Then fit `data/cases.csv` (from a test, `joinpath(@__DIR__, \"..\", \"data\", \"cases.csv\")`) and check against the rates in the reading with the calibrated 5%.",
+  ]
+
+  [[milestone.question]]
+  kind = "output"
+  prompt = "Golden-section search places its interior points at a fraction r of the bracket. What does this print?"
+  code = '''
+r = (sqrt(5) - 1) / 2
+println(isapprox(r^2, 1 - r; rtol = 1e-15))
+println(round(r; digits = 3))
+'''
+  choices = [
+    """
+true
+0.618""",
+    """
+false
+0.618""",
+    """
+true
+1.618""",
+  ]
+  answer = 1
+  explain = "r is the positive root of r^2 + r - 1 = 0, so r^2 = 1 - r up to rounding. That identity is why one interior point of the old bracket lands exactly on an interior point of the new one, and each step needs one new evaluation."
+  misconceptions = [
+    "",
+    "r^2 + r = 1 is the equation that defines r; computed in Float64 the two sides differ by about one eps, inside rtol = 1e-15.",
+    "1.618 is the golden ratio itself, 1/r; the search uses its inverse, the fraction of the bracket kept per step.",
+  ]

@@ -1,0 +1,186 @@
+# Seeded faults in reference/src (one exact snippet replaced each); see tidy/mutants.toml.
+# Each must fail the acceptance test set of its behaviour and be caught by the
+# exemplary tests (reference/test). Students see only the behaviour it breaks.
+
+[[mutant]]
+id = "rates-swapped"
+milestone = 1
+behaviour = "rhs-values"
+file = "Epidemic.jl"
+find = "    beta, gamma = p\n    S, I, R = u"
+replace = "    gamma, beta = p\n    S, I, R = u"
+
+[[mutant]]
+id = "rhs-allocates"
+milestone = 1
+behaviour = "rhs-values"
+file = "Epidemic.jl"
+find = "    du[1] = -beta * S * I\n    du[2] = beta * S * I - gamma * I\n    du[3] = gamma * I\n"
+replace = "    du .= [-beta * S * I, beta * S * I - gamma * I, gamma * I]\n"
+
+[[mutant]]
+id = "no-saveat"
+milestone = 1
+behaviour = "simulate-saveat"
+file = "Epidemic.jl"
+find = "sol = solve(prob, Tsit5(); saveat = days, abstol = TOL, reltol = TOL)"
+replace = "sol = solve(prob, Tsit5(); abstol = TOL, reltol = TOL)"
+
+[[mutant]]
+id = "starts-at-first-day"
+milestone = 1
+behaviour = "simulate-saveat"
+file = "Epidemic.jl"
+find = "(0.0, Float64(last(days)))"
+replace = "(Float64(first(days)), Float64(last(days)))"
+
+[[mutant]]
+id = "default-tolerances"
+milestone = 1
+behaviour = "simulate-saveat"
+file = "Epidemic.jl"
+find = "sol = solve(prob, Tsit5(); saveat = days, abstol = TOL, reltol = TOL)"
+replace = "sol = solve(prob, Tsit5(); saveat = days)"
+
+[[mutant]]
+id = "recovery-from-R"
+milestone = 2
+behaviour = "conservation"
+file = "Epidemic.jl"
+find = "    du[3] = gamma * I\n"
+replace = "    du[3] = gamma * R\n"
+
+[[mutant]]
+id = "infection-without-S"
+milestone = 2
+behaviour = "conservation"
+file = "Epidemic.jl"
+find = "    du[2] = beta * S * I - gamma * I\n"
+replace = "    du[2] = beta * I - gamma * I\n"
+
+[[mutant]]
+id = "peak-on-day-grid"
+milestone = 2
+behaviour = "peak-condition"
+file = "Epidemic.jl"
+find = """
+    growth(u, t, integrator) = beta * u[1] - gamma
+    cb = ContinuousCallback(growth, terminate!)
+    prob = ODEProblem(sir!, collect(Float64, u0), (0.0, Float64(horizon)), p)
+    sol = solve(prob, Tsit5(); abstol = TOL, reltol = TOL, callback = cb, save_everystep = false)
+    return sol.t[end]"""
+replace = """
+    U = simulate(p, u0, 0:horizon)
+    return Float64(argmax(U[2, :]) - 1)"""
+
+[[mutant]]
+id = "condition-swapped"
+milestone = 2
+behaviour = "peak-condition"
+file = "Epidemic.jl"
+find = "growth(u, t, integrator) = beta * u[1] - gamma"
+replace = "growth(u, t, integrator) = gamma * u[1] - beta"
+
+[[mutant]]
+id = "no-early-return"
+milestone = 2
+behaviour = "peak-none"
+file = "Epidemic.jl"
+find = "    beta * u0[1] <= gamma && return 0.0\n"
+replace = ""
+
+[[mutant]]
+id = "no-day-check"
+milestone = 3
+behaviour = "read-cases"
+file = "Epidemic.jl"
+find = "        day == k || throw(ArgumentError(\"expected day $k, got day $day\"))\n"
+replace = ""
+
+[[mutant]]
+id = "skips-first-row"
+milestone = 3
+behaviour = "read-cases"
+file = "Epidemic.jl"
+find = "    for (k, line) in enumerate(lines[2:end])   # line 1 is the header"
+replace = "    for (k, line) in enumerate(lines[3:end])   # line 1 is the header"
+
+[[mutant]]
+id = "prevalence"
+milestone = 3
+behaviour = "expected-cases"
+file = "Epidemic.jl"
+find = "    return POPULATION .* (S[1:end-1] .- S[2:end])"
+replace = "    return POPULATION .* U[2, 2:end]"
+
+[[mutant]]
+id = "cumulative"
+milestone = 3
+behaviour = "expected-cases"
+file = "Epidemic.jl"
+find = "    return POPULATION .* (S[1:end-1] .- S[2:end])"
+replace = "    return POPULATION .* (S[1] .- S[2:end])"
+
+[[mutant]]
+id = "loss-sign"
+milestone = 3
+behaviour = "loss-zero-at-truth"
+file = "Epidemic.jl"
+find = "    return sum(mu .- cases .* log.(mu))"
+replace = "    return sum(cases .* log.(mu) .- mu)"
+
+[[mutant]]
+id = "squared-error"
+milestone = 3
+behaviour = "loss-poisson"
+file = "Epidemic.jl"
+find = "    return sum(mu .- cases .* log.(mu))"
+replace = "    return sum(abs2, mu .- cases)"
+
+[[mutant]]
+id = "mean-not-sum"
+milestone = 3
+behaviour = "loss-poisson"
+file = "Epidemic.jl"
+find = "    return sum(mu .- cases .* log.(mu))"
+replace = "    return sum(mu .- cases .* log.(mu)) / length(cases)"
+
+[[mutant]]
+id = "keeps-wrong-part"
+milestone = 4
+behaviour = "golden-section"
+file = "Epidemic.jl"
+find = "        if fc < fd\n"
+replace = "        if fc > fd\n"
+
+[[mutant]]
+id = "no-reuse"
+milestone = 4
+behaviour = "golden-section"
+file = "Epidemic.jl"
+find = "            b, d, fd = d, c, fc\n"
+replace = "            b, d, fd = d, c, f(c)\n"
+
+[[mutant]]
+id = "fixed-iterations"
+milestone = 4
+behaviour = "golden-section"
+file = "Epidemic.jl"
+find = "    while b - a > tol\n"
+replace = "    for _ in 1:20\n"
+
+[[mutant]]
+id = "no-refinement"
+milestone = 4
+behaviour = "fit-recovers"
+file = "Epidemic.jl"
+find = "    g = golden_section(profile, grid[max(k - 1, 1)], grid[min(k + 1, end)]; tol = 1e-6)"
+replace = "    g = grid[k]"
+
+[[mutant]]
+id = "names-swapped"
+milestone = 4
+behaviour = "fit-recovers"
+file = "Epidemic.jl"
+find = "    return (beta = best_beta(g), gamma = g)"
+replace = "    return (beta = g, gamma = best_beta(g))"

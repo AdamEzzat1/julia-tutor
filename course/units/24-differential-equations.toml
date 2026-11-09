@@ -1,0 +1,1282 @@
+id = "24-differential-equations"
+title = "Differential equations with DifferentialEquations.jl"
+track = "ecosystem"
+env = "diffeq"
+status = "ready"
+summary = "Solving ordinary differential equations with DifferentialEquations.jl: problems and solve, the solution object and its interpolation, what abstol and reltol control and how to check a solution against an exact answer, stiffness and solver choice, in-place right-hand sides and parameters, events with callbacks, and a tour of ensembles and the wider SciML family."
+kcs = ["ode-solving", "ode-tolerances", "stiffness", "in-place-rhs", "ode-callbacks", "sciml"]
+prerequisites = ["23-derivatives"]
+
+[[section]]
+title = "A problem, an algorithm and solve"
+body = '''
+An ordinary differential equation (ODE) says how a state `u` changes in time:
+`du/dt = f(u, p, t)`, where `p` holds the parameters. Given the starting state
+`u0` at time `t0`, a solver computes `u` at later times. Very few ODEs have a
+formula for their solution, so the solver works numerically: it takes small
+steps in time and estimates the error it makes at each one.
+
+[DifferentialEquations.jl](https://docs.sciml.ai/DiffEqDocs/stable/) splits
+this into three pieces:
+
+* a **problem** describes the mathematics: `ODEProblem(f, u0, tspan, p)`;
+* an **algorithm** names the method: `Tsit5()` (the Tsitouras 5(4)
+  Runge-Kutta pair), `Rodas5P()`, `FBDF()` and many more;
+* `solve(prob, alg; options...)` runs it and returns a solution object.
+
+The right-hand side is an ordinary Julia function `f(u, p, t)` that returns
+`du/dt`. The algorithm is a value of its own type, so `solve` picks the
+solver code by multiple dispatch and compiles it for your `f`: the step loop
+and your function are compiled together, with no interpreter call per step.
+
+The same problem/solve interface covers stochastic equations (`SDEProblem`),
+delay equations (`DDEProblem`), nonlinear systems and more, each solved by a
+sibling package of the [SciML](https://sciml.ai) organisation. Version 8.1,
+installed here, depends on OrdinaryDiffEq and SciMLBase only: it brings the
+ODE solvers, and the other equation types come from packages you add
+yourself (the last section points to them).
+
+If you know SciPy, `solve_ivp(fun, t_span, y0, method="RK45")` is the same
+idea with the method as a string; MATLAB's `ode45(odefun, tspan, y0)` uses a
+Dormand-Prince pair of the same order as `Tsit5`; R's `deSolve::ode` is
+similar again.
+'''
+
+  [[section.example]]
+  caption = "Exponential decay `du/dt = -k u` with `k = 0.5`, from `u = 2`; the exact solution is `2 exp(-k t)` (both rounded to 7 digits)."
+  notice = "Notice the seven steps, and that the answer differs from the exact value in the sixth digit: that is what the default tolerances give."
+  code = '''
+using DifferentialEquations
+decay(u, p, t) = -p * u
+prob = ODEProblem(decay, 2.0, (0.0, 4.0), 0.5)
+sol = solve(prob, Tsit5())
+println(sol.retcode)
+println("steps taken: ", length(sol.t) - 1)
+println("u(4) = ", round(sol.u[end]; digits = 7), "   exact: ", round(2exp(-0.5 * 4); digits = 7))
+'''
+
+  [[section.example]]
+  caption = "A system: the state is a vector. The harmonic oscillator x'' = -x, written as two first-order equations."
+  notice = "Notice the `-0.0001` where the exact answer is 0: again the default tolerances."
+  code = '''
+using DifferentialEquations
+oscillator(u, p, t) = [u[2], -u[1]]          # u = [position, velocity]
+prob = ODEProblem(oscillator, [1.0, 0.0], (0.0, 2pi))
+sol = solve(prob, Tsit5())
+round.(sol.u[end]; digits = 4)               # one full period: back to [1, 0]
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does the solver take the parameters `p` as a separate argument instead of reading them from global variables?"
+  choices = [
+    "To re-solve with new values via `remake`, keeping `f` type-stable",
+    "Julia functions cannot read global variables, only their arguments",
+    "Parameters must be a vector, and a global cannot hold a vector",
+  ]
+  answer = 1
+  explain = "`p` travels with the problem: `remake(prob; p = ...)` re-solves with new values, ensembles and sensitivity tools change it, and because its type is part of the call, `f(u, p, t)` compiles to fast code. A non-constant global has no fixed type, so every use of it is a dynamic lookup."
+  misconceptions = [
+    "",
+    "They can; the cost of an untyped global is speed (its type is unknown at compile time), and the problem cannot be reused with other values.",
+    "`p` can be anything: a number, a tuple, a named tuple, a struct. Globals can hold vectors too.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The state is a number here. What is the type of `sol.u`?"
+  code = '''
+using DifferentialEquations
+sol = solve(ODEProblem((u, p, t) -> -u, 1.0, (0.0, 1.0)), Tsit5())
+println(typeof(sol.u))
+'''
+  choices = ["Float64", "Vector{Float64}", "Matrix{Float64}"]
+  answer = 2
+  explain = "`sol.u` holds the state at every saved time, so for a scalar state it is a vector of numbers (and for a vector state, a vector of vectors). `sol.u[end]` is the final state."
+  misconceptions = [
+    "That is the type of one state; the solution keeps the state at every step the solver took.",
+    "",
+    "Solutions of vector systems are stored as a vector of state vectors, not as a matrix; a scalar state gives a plain vector.",
+  ]
+
+[[section]]
+title = "The solution object: steps, interpolation and saveat"
+body = '''
+`sol.t` holds the times the solver chose, and `sol.u[i]` the state at
+`sol.t[i]`. The solver picks the steps itself: short where the solution
+changes fast, long where it is smooth. So `sol.t` is an *output* of the
+solver, not something you specify, and its spacing is uneven.
+
+To get the state at any other time, call the solution: `sol(t)`. This
+evaluates a **dense interpolant**, a polynomial built from the stage values
+the method already computed in each step. `Tsit5` comes with a free
+4th-order interpolant, one order below the 5th-order method, so `sol(1.234)`
+is close to the true solution even between steps, with no extra right-hand
+side calls.
+`sol(t, Val{1})` gives the derivative of the interpolant.
+
+When you only want values on a grid, pass `saveat = 0.5` (or a vector of
+times): the solver still chooses its own steps, then saves at the requested
+times. `save_everystep = false` keeps only the start and the end. For a
+vector state, `sol[i, :]` is the time series of component `i`, and
+`Array(sol)` is a matrix with one column per saved time.
+'''
+
+  [[section.example]]
+  caption = "The first step sizes, and the interpolant at a time between steps against the exact solution `[cos t, -sin t]`."
+  notice = "Notice that the steps are uneven, and that `sol(t)` matches the exact solution between them."
+  code = '''
+using DifferentialEquations
+oscillator(u, p, t) = [u[2], -u[1]]
+sol = solve(ODEProblem(oscillator, [1.0, 0.0], (0.0, 10.0)), Tsit5(); abstol = 1e-8, reltol = 1e-8)
+println("first steps: ", round.(diff(sol.t[1:5]); digits = 4))
+t = 1.234
+println("sol(t)  = ", round.(sol(t); digits = 7))
+println("exact   = ", round.([cos(t), -sin(t)]; digits = 7))
+'''
+
+  [[section.example]]
+  caption = "The same problem solved with and without `saveat`."
+  notice = "Notice that both solves take the same steps: `saveat` changes what is stored, not how the solver steps."
+  code = '''
+using DifferentialEquations
+oscillator(u, p, t) = [u[2], -u[1]]
+prob = ODEProblem(oscillator, [1.0, 0.0], (0.0, 10.0))
+full = solve(prob, Tsit5())
+grid = solve(prob, Tsit5(); saveat = 2.0)
+println("same steps: ", full.stats.naccept == grid.stats.naccept)
+println("saved times: ", grid.t)
+round.(grid[1, :]; digits = 3)               # the positions at those times
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "How many times are saved?"
+  code = '''
+using DifferentialEquations
+sol = solve(ODEProblem((u, p, t) -> -u, 1.0, (0.0, 2.0)), Tsit5(); saveat = 0.5)
+length(sol.t)
+'''
+  choices = ["4", "5", "It depends on how many steps the solver took"]
+  answer = 2
+  explain = "`saveat = 0.5` over `(0, 2)` saves at 0, 0.5, 1, 1.5 and 2: both end points are included. The steps the solver took do not change what is saved; values between steps come from the interpolant."
+  misconceptions = [
+    "That counts the intervals, not the points: the start time is saved too.",
+    "",
+    "With `saveat`, the saved times are exactly the requested ones; the steps are taken independently and values in between come from the interpolant.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You need the state at 10,000 evenly spaced times in `(0, 100)`. What is the better approach?"
+  choices = [
+    "Solve once and evaluate `sol` on the grid, or pass `saveat`",
+    "Pass `dt = 0.01` so the solver steps exactly on the grid",
+    "Call `solve` 10,000 times, once per end time, keeping `sol.u[end]`",
+  ]
+  answer = 1
+  explain = "The solver keeps choosing steps from its error estimate; the dense interpolant (or `saveat`, which uses it) gives values on any grid, for example `sol.(range(0, 100; length = 10_000))`, at the interpolant's accuracy and almost no cost."
+  misconceptions = [
+    "",
+    "`dt` only sets the first step of an adaptive method; forcing tiny fixed steps (`adaptive = false`) wastes work and removes the error control.",
+    "Each call repeats the integration from the start: 10,000 times the work for the same numbers.",
+  ]
+
+[[section]]
+title = "Tolerances, and checking against an exact answer"
+body = '''
+An adaptive solver estimates the error of each step (the difference between
+two embedded methods of orders 5 and 4, for `Tsit5`) and accepts the step
+when, component by component,
+
+    |error| <= abstol + reltol * |u|
+
+(in a root-mean-square sense over the components). If the estimate is too
+large, the step is rejected and retried shorter; if it is small, the next
+step grows. `reltol` controls the relative accuracy of large components,
+`abstol` the accuracy near zero, where a relative tolerance means nothing.
+The defaults are `abstol = 1e-6` and `reltol = 1e-3`: about three correct
+digits, fine for a plot and not for a number you will report.
+
+The tolerance bounds the **local** error of each step, not the error at the
+end. Errors from early steps are carried forward and can grow, so the only
+real check is against something you know: an exact solution, a conserved
+quantity, or the same solve at a tighter tolerance. Tighten the tolerances
+until the digits you care about stop changing.
+
+A higher-order method needs fewer steps at tight tolerances. The
+[solver guide](https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/)
+recommends the Verner methods (`Vern7`, `Vern9`, of orders 7 and 9) for high
+accuracy and `Tsit5` at moderate tolerances.
+'''
+
+  [[section.example]]
+  caption = "The oscillator over about three periods: the error at t = 20 against `cos(20)`, for tighter and tighter tolerances. Step counts and errors are rounded to two digits; at 1e-12 the error is at the level of floating-point rounding, which differs between CPUs, so only its bound is printed."
+  notice = "Notice that at 1e-3 the error is above the tolerance, and that each factor of 1000 costs about four times the steps, as expected of a 5th-order method (steps grow like tol^(-1/5))."
+  code = '''
+using DifferentialEquations
+oscillator(u, p, t) = [u[2], -u[1]]
+prob = ODEProblem(oscillator, [1.0, 0.0], (0.0, 20.0))
+for tol in (1e-3, 1e-6, 1e-9, 1e-12)
+    sol = solve(prob, Tsit5(); abstol = tol, reltol = tol)
+    err = abs(sol.u[end][1] - cos(20.0))
+    shown = err < 1e-11 ? "below 1e-11" : string(round(err; sigdigits = 2))
+    println("tol = ", tol, "   steps ≈ ", Int(round(Float64(sol.stats.naccept); sigdigits = 2)), "   error = ", shown)
+end
+'''
+
+  [[section.example]]
+  caption = "A 5th-order and a 9th-order method at a tight tolerance (counts rounded to two digits)."
+  notice = "Notice that the 9th-order method needs far fewer steps and right-hand side calls, and that both errors are below `1e-11`."
+  code = '''
+using DifferentialEquations
+oscillator(u, p, t) = [u[2], -u[1]]
+prob = ODEProblem(oscillator, [1.0, 0.0], (0.0, 20.0))
+for alg in (Tsit5(), Vern9())
+    sol = solve(prob, alg; abstol = 1e-12, reltol = 1e-12)
+    err = abs(sol.u[end][1] - cos(20.0))
+    println(rpad(nameof(typeof(alg)), 6), " steps ≈ ", Int(round(Float64(sol.stats.naccept); sigdigits = 2)),
+            "  f calls ≈ ", Int(round(Float64(sol.stats.nf); sigdigits = 2)), "  error < 1e-11: ", err < 1e-11)
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You solve with `reltol = 1e-6`. What can you conclude about the relative error of `sol.u[end]`?"
+  choices = [
+    "It is at most `1e-6`, since that is what the tolerance bounds",
+    "Nothing for certain; compare with a known answer or with a tighter solve",
+    "It is exactly `1e-6`: the steps are adjusted until the error equals it",
+  ]
+  answer = 2
+  explain = "The tolerance controls the local error of each step, not the error at the end. Local errors accumulate and can grow along the solution; for chaotic systems the end-point error can exceed the tolerance by many orders of magnitude. The error usually shrinks as the tolerance shrinks, which is what you check."
+  misconceptions = [
+    "That would be a bound on the global error, which an adaptive solver does not provide; the oscillator example shows errors above the tolerance at loose settings.",
+    "",
+    "The tolerance is an upper limit for each step's error estimate, not a target the final error lands on.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A component of your system starts at `1e-9` and stays tiny, while others are of order 1. With `abstol = 1e-6`, what happens to that small component?"
+  choices = [
+    "It gets about the same relative accuracy as the other components",
+    "The solver stops with an error because the component is below `abstol`",
+    "Its error is controlled only to about `1e-6`, so it may be pure noise",
+  ]
+  answer = 3
+  explain = "Lower `abstol` for that component. Near zero the bound `abstol + reltol * |u|` is about `abstol`: an error of `1e-7` passes the test although it is a hundred times the value. `abstol` can be a vector, one entry per component."
+  misconceptions = [
+    "Relative accuracy needs `reltol * |u|` to dominate the bound, which fails when `|u|` is far below `abstol / reltol`.",
+    "Nothing checks the size of the state against `abstol`; the tolerance only enters the step acceptance test.",
+    "",
+  ]
+
+[[section]]
+title = "Stiffness and choosing a solver"
+body = '''
+A problem is **stiff** when it mixes very fast and very slow time scales and
+the fast parts have died out: the solution changes slowly, yet an explicit
+method like `Tsit5` must keep its steps tiny, because a longer step makes its
+numerical solution blow up. The step is limited by **stability**, not by
+accuracy. Chemical kinetics, circuits and discretised diffusion are typical.
+
+The Robertson problem is the classic test: three species with rate constants
+`0.04`, `3e7` and `1e4`, nine orders of magnitude apart.
+
+Implicit methods solve a (linear or nonlinear) equation in each step, using
+the Jacobian `∂f/∂u`, and stay stable at long steps. Two families are
+available here:
+
+* `Rodas5P()`, a Rosenbrock method: one Jacobian and a few linear solves per
+  step; the first choice for small and medium stiff systems at moderate
+  tolerances.
+* `FBDF()`, a multistep BDF method like MATLAB's `ode15s` or SciPy's
+  `method="BDF"`: it reuses one Jacobian over many steps, which pays off
+  for large systems where each Jacobian is expensive.
+
+The Jacobian is computed automatically with ForwardDiff (both algorithms
+default to `AutoForwardDiff()`), so you only write `f`. How to tell that a
+problem is stiff: an explicit solver takes a huge number of steps (or stops
+at its step limit, `maxiters`) while the solution looks smooth.
+`sol.stats` counts the steps, rejections, function calls and Jacobians.
+'''
+
+  [[section.example]]
+  caption = "Robertson's problem up to t = 100000 with a Rosenbrock and a BDF method (Jacobians per accepted step, rounded to two decimals; the exact counts depend on rounding inside the solver)."
+  notice = "Notice that Rodas5P computes one Jacobian every step, while FBDF reuses each one over many steps."
+  code = '''
+using DifferentialEquations
+function robertson!(du, u, p, t)
+    k1, k2, k3 = p
+    du[1] = -k1 * u[1] + k3 * u[2] * u[3]
+    du[2] = k1 * u[1] - k2 * u[2]^2 - k3 * u[2] * u[3]
+    du[3] = k2 * u[2]^2
+    return nothing
+end
+prob = ODEProblem(robertson!, [1.0, 0.0, 0.0], (0.0, 1e5), (0.04, 3e7, 1e4))
+for alg in (Rodas5P(), FBDF())
+    sol = solve(prob, alg; abstol = 1e-10, reltol = 1e-8)
+    s = sol.stats
+    println(rpad(nameof(typeof(alg)), 8), sol.retcode, "  Jacobians per step = ", round(s.njacs / s.naccept; digits = 2),
+            "  u(end) = ", round.(sol.u[end]; sigdigits = 4))
+end
+'''
+
+  [[section.example]]
+  caption = "The same problem with `Tsit5`, limited to 10,000 steps."
+  notice = "Notice that it stops at the step limit, far from the end time t = 100000."
+  code = '''
+using DifferentialEquations
+function robertson!(du, u, p, t)
+    k1, k2, k3 = p
+    du[1] = -k1 * u[1] + k3 * u[2] * u[3]
+    du[2] = k1 * u[1] - k2 * u[2]^2 - k3 * u[2] * u[3]
+    du[3] = k2 * u[2]^2
+    return nothing
+end
+prob = ODEProblem(robertson!, [1.0, 0.0, 0.0], (0.0, 1e5), (0.04, 3e7, 1e4))
+sol = solve(prob, Tsit5(); maxiters = 10_000, verbose = DEVerbosity(SciMLLogging.None()))
+println(sol.retcode, ", stopped before t = 100: ", sol.t[end] < 100)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`Tsit5` needs millions of steps for a problem whose solution, plotted, is a smooth slow curve. What does that suggest?"
+  choices = [
+    "The problem is stiff; try `Rodas5P()` or `FBDF()`",
+    "The tolerances are too tight; loosen them until the step count drops",
+    "The right-hand side has a bug, since smooth solutions need few steps",
+  ]
+  answer = 1
+  explain = "Many steps on a smooth solution is the signature of stiffness: an explicit method's stable step size is set by the fastest decaying mode, which no longer affects the solution. An implicit method takes steps sized by accuracy instead."
+  misconceptions = [
+    "",
+    "For a stiff problem the step count barely depends on the tolerance, because stability, not accuracy, limits the step.",
+    "A smooth solution with a correct `f` can still be stiff; the fast modes are invisible in the plot because they have decayed.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using DifferentialEquations
+f(u, p, t) = -1e6 * (u - cos(t))
+sol = solve(ODEProblem(f, 1.0, (0.0, 10.0)), Tsit5(); maxiters = 1000, verbose = DEVerbosity(SciMLLogging.None()))
+sol.retcode
+'''
+  choices = ["ReturnCode.Success = 1", "ReturnCode.MaxIters = 4", "ReturnCode.Unstable = 5"]
+  answer = 2
+  explain = "`u` follows `cos(t)` closely, but the rate `1e6` limits an explicit method to steps of a few times `1e-6`: reaching t = 10 needs millions of steps, so it stops at `maxiters`. An implicit method such as `Rodas5P()` is not limited this way."
+  misconceptions = [
+    "The solution is smooth, but stability limits the explicit method's step to a few times `1e-6`, which needs far more steps than `maxiters` allows.",
+    "",
+    "The step-size controller keeps the explicit method stable by keeping steps tiny; it runs out of iterations before anything blows up.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Where does `Rodas5P` get the Jacobian of your right-hand side when you only wrote `f`?"
+  choices = [
+    "You must always pass it with `ODEFunction(f; jac = ...)`",
+    "It estimates it from random perturbations of the state `u`",
+    "It differentiates `f` automatically, with ForwardDiff's dual numbers",
+  ]
+  answer = 3
+  explain = "Automatic differentiation pushes dual numbers through your `f`, so `f` must accept generic number types (do not hard-code `Float64` buffers). An analytic Jacobian via `ODEFunction(f; jac = j!)` is an optional speed-up."
+  misconceptions = [
+    "An analytic Jacobian is optional; without one the solver differentiates `f` itself.",
+    "Neither automatic nor finite differences are random: both are deterministic.",
+    "",
+  ]
+
+[[section]]
+title = "In-place right-hand sides, parameters and allocation"
+body = '''
+For a vector state there are two ways to write `f`:
+
+* **out-of-place** `f(u, p, t)` returns a new vector `du`;
+* **in-place** `f!(du, u, p, t)` writes the derivative into `du` and returns
+  `nothing`.
+
+`ODEProblem` detects which one you wrote from the number of arguments
+(`isinplace(prob)` reports it). The solver calls `f` several times per step
+(seven stages for `Tsit5`, with one reused), so an out-of-place `f` that
+builds a `Vector` allocates on every call; the in-place form reuses buffers
+the solver allocated once. For large systems that is the difference between
+a solve that allocates per step and one that does not. For small systems
+(up to about ten components), the fastest form is out-of-place with
+`SVector` from [StaticArrays.jl](https://juliaarrays.github.io/StaticArrays.jl/stable/),
+which lives on the stack (StaticArrays is not installed in this environment).
+
+`p` can be any value: a tuple or named tuple of numbers keeps the
+right-hand side type-stable. Destructure it inside `f` (`σ, ρ, β = p`).
+`remake(prob; p = new_p)` builds a copy of the problem with new parameters
+(or `u0`, `tspan`) without repeating the rest.
+
+A pitfall in the in-place form: `du = ...` inside `f!` rebinds the local
+name and leaves the solver's buffer untouched. Write `du[1] = ...`, or
+`du .= ...` for a whole vector.
+'''
+
+  [[section.example]]
+  caption = "The Lorenz system both ways, at tight tolerances (the two differ only by rounding, so a bound is printed, not the difference)."
+  notice = "Notice the same number of right-hand side calls, and final states that agree to better than `1e-8`."
+  code = '''
+using DifferentialEquations
+function lorenz!(du, u, p, t)
+    σ, ρ, β = p
+    du[1] = σ * (u[2] - u[1])
+    du[2] = u[1] * (ρ - u[3]) - u[2]
+    du[3] = u[1] * u[2] - β * u[3]
+    return nothing
+end
+lorenz(u, (σ, ρ, β), t) = [σ * (u[2] - u[1]), u[1] * (ρ - u[3]) - u[2], u[1] * u[2] - β * u[3]]
+p = (10.0, 28.0, 8 / 3)
+a = solve(ODEProblem(lorenz!, [1.0, 0.0, 0.0], (0.0, 1.0), p), Tsit5(); abstol = 1e-10, reltol = 1e-10)
+b = solve(ODEProblem(lorenz, [1.0, 0.0, 0.0], (0.0, 1.0), p), Tsit5(); abstol = 1e-10, reltol = 1e-10)
+println(isinplace(a.prob), " ", isinplace(b.prob))
+println("same number of f calls: ", a.stats.nf == b.stats.nf)
+println("final states differ by less than 1e-8: ", maximum(abs.(a.u[end] .- b.u[end])) < 1e-8)
+'''
+
+  [[section.example]]
+  caption = "Bytes allocated by one solve (after a warm-up call, saving only the end point). Recorded, not checked: the exact counts can change between package versions."
+  notice = "Notice that for the same number of calls, the out-of-place form allocates far more: a new vector on every call."
+  check = false
+  code = '''
+using DifferentialEquations
+function lorenz!(du, u, p, t)
+    σ, ρ, β = p
+    du[1] = σ * (u[2] - u[1])
+    du[2] = u[1] * (ρ - u[3]) - u[2]
+    du[3] = u[1] * u[2] - β * u[3]
+    return nothing
+end
+lorenz(u, (σ, ρ, β), t) = [σ * (u[2] - u[1]), u[1] * (ρ - u[3]) - u[2], u[1] * u[2] - β * u[3]]
+measure(prob) = (solve(prob, Tsit5(); save_everystep = false); @allocated solve(prob, Tsit5(); save_everystep = false))
+p = (10.0, 28.0, 8 / 3)
+for (name, f) in (("in-place", lorenz!), ("out-of-place", lorenz))
+    prob = ODEProblem(f, [1.0, 0.0, 0.0], (0.0, 10.0), p)
+    println(rpad(name, 13), measure(prob), " bytes for ", solve(prob, Tsit5()).stats.nf, " f calls")
+end
+'''
+
+  [[section.example]]
+  caption = "`remake` re-solves with new parameters: the decay rate doubled."
+  code = '''
+using DifferentialEquations
+decay!(du, u, p, t) = (du .= -p.k .* u; nothing)
+prob = ODEProblem(decay!, [1.0, 2.0], (0.0, 1.0), (k = 1.0,))
+for k in (1.0, 2.0)
+    sol = solve(remake(prob; p = (k = k,)), Tsit5(); abstol = 1e-10, reltol = 1e-10)
+    println("k = ", k, ":  ", round.(sol.u[end]; digits = 6), "   exact: ", round.([1.0, 2.0] .* exp(-k); digits = 6))
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The right-hand side assigns to `du` instead of writing into it. What is the final state?"
+  code = '''
+using DifferentialEquations
+wrong!(du, u, p, t) = (du = -u; nothing)
+sol = solve(ODEProblem(wrong!, [1.0], (0.0, 1.0)), Tsit5())
+sol.u[end]
+'''
+  choices = ["1-element Vector{Float64}:\n 0.36787944117144233", "1-element Vector{Float64}:\n 1.0", "ERROR: MethodError: no method matching wrong!"]
+  answer = 2
+  explain = "`du = -u` makes a new local vector and throws it away; the solver's derivative buffer keeps its initial zeros, so `u` never changes. Write `du .= -u` (or `du[1] = -u[1]`)."
+  misconceptions = [
+    "That is `exp(-1)`, the answer if `du` had been written into; the assignment only rebinds the local name.",
+    "",
+    "The four-argument method exists and runs; the bug is silent, which is why it is a classic.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "For a system of 10,000 equations (a discretised diffusion problem), which form of `f` should you write?"
+  choices = [
+    "Out-of-place with `SVector`, since static arrays are the fastest",
+    "Out-of-place with `Vector`: allocation is negligible next to the arithmetic",
+    "In-place `f!(du, u, p, t)`",
+  ]
+  answer = 3
+  explain = "In-place writes into buffers the solver allocated once, instead of allocating a new 10,000-element vector on every call, so a step allocates nothing for the derivative. Static arrays only pay off for small states: at 10,000 elements they are slow to compile and do not fit on the stack."
+  misconceptions = [
+    "Static arrays help for small fixed sizes (up to about ten); for thousands of elements compile times explode and the stack is not the right place.",
+    "Each call would allocate 80 kB, several times per step; the garbage collector turns that into real time.",
+    "",
+  ]
+
+[[section]]
+title = "Events and callbacks: a bouncing ball"
+body = '''
+Many models change discontinuously when something happens: a ball hits the
+floor, a tank overflows, a dose is given. A **callback** lets you stop the
+solver at such an event, change the state, and continue.
+
+`ContinuousCallback(condition, affect!)` watches a function
+`condition(u, t, integrator)` and fires when it crosses zero. The solver
+checks for a sign change after every step, then finds the crossing time by
+root finding on the dense interpolant, so the event time is located
+accurately even if a step jumped over it. `affect!(integrator)` may change
+`integrator.u` (the state) and reads `integrator.t`; `terminate!(integrator)`
+ends the solve at the event.
+
+`DiscreteCallback` is the other kind: its condition returns `true` or
+`false` and is checked only at the end of each step (useful for "every step"
+actions, or with `tstops` for events at known times). Pass any callback with
+`solve(prob, alg; callback = cb)`, and combine several with `CallbackSet`.
+
+Below, a ball falls from 10 m with `g = 9.81`: it first lands at
+`t1 = sqrt(2h/g)` with speed `g t1`, and with a restitution factor of 0.8 it
+lands again `2 * 0.8 g t1 / g` later. The height between bounces is a
+quadratic in `t`, which a 5th-order method integrates without truncation
+error, so the event times should agree with the formulas to rounding error.
+'''
+
+  [[section.example]]
+  caption = "The floor reverses and damps the velocity. The event times against the formulas."
+  notice = "Notice that the event times agree with the formulas to all six digits shown, and that the lowest saved height is exactly the floor."
+  code = '''
+using DifferentialEquations
+const g = 9.81
+ball(u, p, t) = [u[2], -g]                    # u = [height, velocity]
+hit_floor(u, t, integrator) = u[1]
+bounces = Float64[]
+function bounce!(integrator)
+    push!(bounces, integrator.t)
+    integrator.u[2] = -0.8 * integrator.u[2]
+end
+sol = solve(ODEProblem(ball, [10.0, 0.0], (0.0, 5.0)), Tsit5(); callback = ContinuousCallback(hit_floor, bounce!))
+t1 = sqrt(2 * 10 / g)
+t2 = t1 + 2 * 0.8 * (g * t1) / g
+println("bounces at ", round.(bounces; digits = 6))
+println("formulas   ", round.([t1, t2]; digits = 6))
+println("lowest height saved: ", round(minimum(first, sol.u); digits = 9))
+'''
+
+  [[section.example]]
+  caption = "`terminate!` stops the solve at the first impact."
+  code = '''
+using DifferentialEquations
+ball(u, p, t) = [u[2], -9.81]
+cb = ContinuousCallback((u, t, integrator) -> u[1], terminate!)
+sol = solve(ODEProblem(ball, [10.0, 0.0], (0.0, 5.0)), Tsit5(); callback = cb)
+println(sol.retcode, " at t = ", round(sol.t[end]; digits = 9))
+println("error against sqrt(2h/g): ", abs(sol.t[end] - sqrt(2 * 10 / 9.81)) < 1e-12)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The solver takes a step from t = 1.2 to t = 1.6, and the ball hits the floor at t = 1.43. What does `ContinuousCallback` do?"
+  choices = [
+    "Finds t = 1.43 by root finding on the interpolant over that step",
+    "Fires at t = 1.6, at the end of the first step after the crossing",
+    "Misses it, because the condition is only checked at the end of a step",
+  ]
+  answer = 1
+  explain = "It detects the sign change of the condition over the step. A continuous callback compares the condition at the two ends of the step (and at a few interior points of the interpolant), then root-finds the crossing time, steps back to it and applies `affect!` there."
+  misconceptions = [
+    "",
+    "That is what a `DiscreteCallback` does: it acts at the end of the step, so the event time is off by up to a step.",
+    "A sign change over the step is exactly what it looks for; it does not need a step to land on the event.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The ball starts on the floor, moving up at 4.905 m/s with `g = 9.81`. When does the terminating callback fire? (Rounded to 6 digits.)"
+  code = '''
+using DifferentialEquations
+ball(u, p, t) = [u[2], -9.81]
+cb = ContinuousCallback((u, t, integrator) -> u[1], terminate!)
+sol = solve(ODEProblem(ball, [0.0, 4.905], (0.0, 5.0)), Tsit5(); callback = cb)
+round(sol.t[end]; digits = 6)
+'''
+  choices = ["0.0", "0.5", "1.0", "5.0"]
+  answer = 3
+  explain = "The height is `4.905 t - 4.905 t^2`, zero again at t = 1. The starting zero does not count: an event is a sign change during a step, and the initial point is not inside one."
+  misconceptions = [
+    "The condition is zero at the start, but the callback looks for crossings inside steps, not at the initial point.",
+    "That is the top of the flight, where the velocity (not the height) crosses zero.",
+    "",
+    "The height does cross zero before the end time, so the callback stops the solve early.",
+  ]
+
+[[section]]
+title = "Where to go next"
+body = '''
+**Ensembles.** `EnsembleProblem(prob; prob_func)` solves many variations of
+one problem: `prob_func(prob, ctx)` returns the problem for trajectory
+`ctx.sim_id`, usually built with `remake` (SciMLBase versions before 3
+passed `(prob, i, repeat)` instead). `solve(ens, alg, EnsembleThreads(); trajectories = n)` runs
+them on threads; `EnsembleSerial()` runs them one by one. Draw random
+parameters from a seeded generator *before* solving, so each trajectory's
+parameters do not depend on how the trajectories are split across threads.
+Reach for an ensemble when you need the same model over many parameter sets
+or initial states (a parameter sweep, a Monte Carlo study).
+
+**The default solver.** `solve(prob)` without an algorithm uses
+`DefaultODEAlgorithm`, which starts with an explicit method and switches to
+a stiff one when it detects stiffness. Reach for it when you do not know yet
+whether a problem is stiff; name an algorithm once you do.
+
+**Other equation types.** SciMLBase defines `SDEProblem` and `DDEProblem`
+here too, but their solvers live in separate packages with the same
+interface (not installed in this environment). Reach for them when the
+model has noise (an SDE) or depends on its own past (a DDE):
+
+```julia
+using StochasticDiffEq             # du = f dt + g dW
+prob = SDEProblem(f, g, u0, tspan, p)
+sol = solve(prob, SOSRI())
+
+using DelayDiffEq                  # du/dt depends on u(t - τ) via a history function h
+prob = DDEProblem(f, u0, h, tspan, p; constant_lags = [τ])
+sol = solve(prob, MethodOfSteps(Tsit5()))
+```
+
+**More of the SciML family.**
+
+* [ModelingToolkit.jl](https://docs.sciml.ai/ModelingToolkit/stable/)
+  builds models symbolically (equations with names, automatic simplification
+  and Jacobians) and generates the `f` for you. Reach for it when a model
+  has many named variables or is assembled from components.
+* [SciMLSensitivity.jl](https://docs.sciml.ai/SciMLSensitivity/stable/)
+  differentiates a solution with respect to `p` and `u0` (forward and adjoint
+  methods). Reach for it when you fit parameters to data or train a neural ODE.
+* [DiffEqCallbacks.jl](https://docs.sciml.ai/DiffEqCallbacks/stable/) has
+  ready-made callbacks (doses at preset times, saving derived quantities,
+  projecting onto a manifold). Reach for it before writing such a callback
+  by hand.
+* The [solver list](https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/)
+  explains when each algorithm fits. Reach for it when the defaults are too
+  slow or a solve fails.
+'''
+
+  [[section.example]]
+  caption = "Fifty decay rates drawn from a seeded generator, solved as an ensemble and checked against `exp(-k)`."
+  code = '''
+using DifferentialEquations, Random
+decay(u, k, t) = -k * u
+ks = 0.5 .+ rand(Xoshiro(1), 50)                  # drawn before solving: reproducible
+prob = ODEProblem(decay, 1.0, (0.0, 1.0), 1.0)
+ens = EnsembleProblem(prob; prob_func = (prob, ctx) -> remake(prob; p = ks[ctx.sim_id]))
+sim = solve(ens, Tsit5(), EnsembleSerial(); trajectories = 50, abstol = 1e-10, reltol = 1e-10)
+finals = [sol.u[end] for sol in sim.u]
+println(length(finals), " trajectories, largest error: ", maximum(abs.(finals .- exp.(-ks))) < 1e-9)
+'''
+
+  [[section.example]]
+  caption = "No algorithm given, on the stiff Robertson problem."
+  notice = "Notice that the default solver succeeds in under a thousand steps, where `Tsit5` stopped at its limit of 10,000."
+  code = '''
+using DifferentialEquations
+function robertson!(du, u, p, t)
+    du[1] = -0.04 * u[1] + 1e4 * u[2] * u[3]
+    du[2] = 0.04 * u[1] - 3e7 * u[2]^2 - 1e4 * u[2] * u[3]
+    du[3] = 3e7 * u[2]^2
+    return nothing
+end
+sol = solve(ODEProblem(robertson!, [1.0, 0.0, 0.0], (0.0, 1e5)))
+println(sol.retcode, ", fewer than 1000 steps: ", sol.stats.naccept < 1000, ", u(end) = ", round.(sol.u[end]; sigdigits = 3))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "An ensemble draws each trajectory's random parameter inside `prob_func` with `rand()` (the default RNG, seeded at the start) and runs with `EnsembleThreads()`. You rerun it on 8 threads instead of 4. What happens to the results?"
+  choices = [
+    "They stay the same: the seeded RNG gives every trajectory the same draw",
+    "They can change, because each task's draws depend on how the work is split",
+    "They change on every run, even when the thread count stays at 4",
+  ]
+  answer = 2
+  explain = "Since Julia 1.7 each new task gets its own RNG, forked deterministically from its parent's, so at a fixed thread count and batch size the draws repeat. On 8 threads the trajectories are split into other tasks, and trajectory `i` draws from another stream. Drawing everything up front from a seeded `Xoshiro` (or seeding per trajectory from `ctx.sim_id`) ties each draw to its index."
+  misconceptions = [
+    "A seeded stream repeats, but each task forks its own stream from its parent; which task runs trajectory `i` depends on the number of threads.",
+    "",
+    "Task RNGs are forked deterministically (since Julia 1.7), so with the same thread count and batch size the draws repeat; what changes them is a different split of the work.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You want to fit the parameters of an ODE model to measured data by gradient descent. Which package provides the gradients of the solution with respect to `p`?"
+  choices = [
+    "DiffEqCallbacks.jl",
+    "ModelingToolkit.jl",
+    "SciMLSensitivity.jl",
+    "StochasticDiffEq.jl",
+  ]
+  answer = 3
+  explain = "SciMLSensitivity implements forward and adjoint sensitivity methods that make `solve` differentiable with respect to `p` and `u0`."
+  misconceptions = [
+    "Callbacks change the state during a solve; they do not differentiate it.",
+    "ModelingToolkit builds and simplifies models symbolically; the derivatives of a solution with respect to its parameters come from SciMLSensitivity.",
+    "",
+    "StochasticDiffEq solves equations with a noise term (`SDEProblem`); it does not differentiate solutions.",
+  ]
+
+[[problem]]
+id = "ode-stiff-robertson"
+title = "A stiff reaction: pick the solver"
+difficulty = "warm-up"
+kcs = ["stiffness", "in-place-rhs", "ode-solving"]
+entry = "robertson_b"
+packages = ["DifferentialEquations"]
+prompt = '''
+Robertson's reactions turn species A into C through a fast intermediate B:
+
+    dA/dt = -k1*A + k3*B*C
+    dB/dt =  k1*A - k2*B^2 - k3*B*C
+    dC/dt =  k2*B^2
+
+with `k1 = 0.04`, `k2 = 3e7`, `k3 = 1e4`, starting from `A = 1, B = 0, C = 0`.
+Write `robertson_b(T)` that solves this system up to time `T` and returns the
+concentration of **B** at `T` (a `Float64`).
+
+Solve with `abstol = 1e-12, reltol = 1e-10` (B is about `1e-5`, so the
+absolute tolerance must be far below that). The problem is stiff: pick a
+solver that handles it. Results are compared with `rtol = 1e-6`.
+
+```julia
+robertson_b(100.0)    # about 6.15e-6
+```
+'''
+starter = '''
+using DifferentialEquations
+
+function robertson_b(T)
+    # write the right-hand side, build an ODEProblem, solve it
+end
+'''
+reference = '''
+using DifferentialEquations
+
+function robertson!(du, u, p, t)
+    k1, k2, k3 = p
+    du[1] = -k1 * u[1] + k3 * u[2] * u[3]
+    du[2] = k1 * u[1] - k2 * u[2]^2 - k3 * u[2] * u[3]
+    du[3] = k2 * u[2]^2
+    return nothing
+end
+
+function robertson_b(T)
+    prob = ODEProblem(robertson!, [1.0, 0.0, 0.0], (0.0, T), (0.04, 3e7, 1e4))
+    sol = solve(prob, Rodas5P(); abstol = 1e-12, reltol = 1e-10, save_everystep = false)
+    return sol.u[end][2]
+end
+'''
+cases = ["1.0", "40.0", "100.0"]
+gen = "rng -> [(10.0^(3 * rand(rng) - 1),) for _ in 1:6]"
+compare = "isapprox"
+# rtol: at abstol = 1e-12, reltol = 1e-10, Rodas5P, FBDF, Rosenbrock23, Tsit5 and the default solver all
+# give B within 2e-8 (relative) of a Rodas5P solve at abstol = 1e-16, reltol = 1e-13 (measured at
+# T = 0.1, 1, 40, 100). 1e-6 leaves a factor of 50 for solver choice; default tolerances are off by
+# 5.6e-6 at T = 40 and 9.7e-6 at T = 100, and swapped rate constants by far more.
+rtol = 1e-6
+hints = [
+  "Rate constants nine orders of magnitude apart make the problem stiff: an implicit solver from the unit (a Rosenbrock or BDF method) takes long steps where `Tsit5` cannot.",
+  "The stiff-solver example in the section on stiffness has everything; what changes here are the end time, the tolerances and the component you return.",
+]
+
+  [problem.perf]
+  args = "100.0"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "default tolerances: B is off by about 1e-5 (relative) at T = 100"
+  code = '''
+using DifferentialEquations
+function robertson!(du, u, p, t)
+    du[1] = -0.04 * u[1] + 1e4 * u[2] * u[3]
+    du[2] = 0.04 * u[1] - 3e7 * u[2]^2 - 1e4 * u[2] * u[3]
+    du[3] = 3e7 * u[2]^2
+    return nothing
+end
+robertson_b(T) = solve(ODEProblem(robertson!, [1.0, 0.0, 0.0], (0.0, T)), Rodas5P()).u[end][2]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "k2 and k3 swapped"
+  code = '''
+using DifferentialEquations
+function robertson!(du, u, p, t)
+    du[1] = -0.04 * u[1] + 3e7 * u[2] * u[3]
+    du[2] = 0.04 * u[1] - 1e4 * u[2]^2 - 3e7 * u[2] * u[3]
+    du[3] = 1e4 * u[2]^2
+    return nothing
+end
+robertson_b(T) = solve(ODEProblem(robertson!, [1.0, 0.0, 0.0], (0.0, T)), Rodas5P(); abstol = 1e-12, reltol = 1e-10).u[end][2]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "FBDF, out-of-place right-hand side"
+  code = '''
+using DifferentialEquations
+rob(u, p, t) = [-0.04u[1] + 1e4u[2]u[3], 0.04u[1] - 3e7u[2]^2 - 1e4u[2]u[3], 3e7u[2]^2]
+robertson_b(T) = solve(ODEProblem(rob, [1.0, 0.0, 0.0], (0.0, T)), FBDF(); abstol = 1e-12, reltol = 1e-10).u[end][2]
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "explicit Tsit5 with a large maxiters: right answer, thousands of times more steps"
+  code = '''
+using DifferentialEquations
+function robertson!(du, u, p, t)
+    du[1] = -0.04 * u[1] + 1e4 * u[2] * u[3]
+    du[2] = 0.04 * u[1] - 3e7 * u[2]^2 - 1e4 * u[2] * u[3]
+    du[3] = 3e7 * u[2]^2
+    return nothing
+end
+function robertson_b(T)
+    prob = ODEProblem(robertson!, [1.0, 0.0, 0.0], (0.0, T))
+    return solve(prob, Tsit5(); abstol = 1e-12, reltol = 1e-10, maxiters = 10^8, save_everystep = false).u[end][2]
+end
+'''
+  expect = ["correct", "slow"]
+
+[[problem]]
+id = "ode-lotka-volterra"
+title = "Predators and prey, in place"
+difficulty = "core"
+kcs = ["in-place-rhs", "ode-solving", "ode-tolerances"]
+entry = "lotka_volterra_at"
+packages = ["DifferentialEquations"]
+prompt = '''
+The Lotka-Volterra equations model prey `x` and predators `y`:
+
+    dx/dt = α*x - β*x*y
+    dy/dt = δ*x*y - γ*y
+
+Write `lotka_volterra_at(u0, p, T)` where `u0 = [x0, y0]` (a `Vector{Float64}`)
+and `p = (α, β, γ, δ)` (a tuple), that returns the state `[x, y]` at time `T`
+as a `Vector{Float64}`.
+
+Write the right-hand side **in place**, `f!(du, u, p, t)`, solve with
+`Tsit5()` and `abstol = 1e-10, reltol = 1e-10`, and save only what you need.
+Results are compared with `rtol = 1e-6`; the grader also measures memory.
+
+```julia
+lotka_volterra_at([1.0, 1.0], (1.5, 1.0, 3.0, 1.0), 10.0)   # about [1.03, 0.91]
+```
+'''
+starter = '''
+using DifferentialEquations
+
+function lotka_volterra_at(u0, p, T)
+    # your code here
+end
+'''
+reference = '''
+using DifferentialEquations
+
+function lotka_volterra!(du, u, p, t)
+    α, β, γ, δ = p
+    x, y = u
+    du[1] = α * x - β * x * y
+    du[2] = δ * x * y - γ * y
+    return nothing
+end
+
+function lotka_volterra_at(u0, p, T)
+    prob = ODEProblem(lotka_volterra!, u0, (0.0, T), p)
+    sol = solve(prob, Tsit5(); abstol = 1e-10, reltol = 1e-10, save_everystep = false)
+    return sol.u[end]
+end
+'''
+cases = [
+  "[1.0, 1.0], (1.5, 1.0, 3.0, 1.0), 10.0",
+  "[10.0, 5.0], (1.1, 0.4, 0.4, 0.1), 20.0",
+  "[2.0, 0.5], (1.0, 1.0, 1.0, 1.0), 5.0",
+]
+gen = "rng -> [([0.5 + 2rand(rng), 0.5 + 2rand(rng)], (0.5 + rand(rng), 0.5 + rand(rng), 0.5 + rand(rng), 0.5 + rand(rng)), 0.5 + 10rand(rng)) for _ in 1:8]"
+compare = "isapprox"
+# rtol: at abstol = reltol = 1e-10 the Tsit5 and Vern9 end states differ from a 1e-14 Vern9 solve by
+# at most 2.4e-9 (relative, measured for T up to 50; the cases stop at T = 20). 1e-6 leaves a wide
+# margin for any solver at these tolerances, while default tolerances miss by 4e-3 to 7e-3 at T = 10 and 20.
+rtol = 1e-6
+hints = [
+  "An in-place right-hand side writes into `du` (`du[1] = ...`) and returns `nothing`; `ODEProblem` sees the four arguments and uses it in place.",
+  "The grader measures memory: what does the solver store by default, and how much of it do you need?",
+]
+
+  [problem.perf]
+  args = "[1.0, 1.0], (1.5, 1.0, 3.0, 1.0), Float64(n)"
+  sizes = [50]
+
+  [[problem.variant]]
+  label = "the γ and δ terms swapped in the predator equation"
+  code = '''
+using DifferentialEquations
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = γ * u[1] * u[2] - δ * u[2]
+    return nothing
+end
+lotka_volterra_at(u0, p, T) = solve(ODEProblem(lv!, u0, (0.0, T), p), Tsit5(); abstol = 1e-10, reltol = 1e-10).u[end]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "default tolerances"
+  code = '''
+using DifferentialEquations
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = δ * u[1] * u[2] - γ * u[2]
+    return nothing
+end
+lotka_volterra_at(u0, p, T) = solve(ODEProblem(lv!, u0, (0.0, T), p), Tsit5()).u[end]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "rebinds du instead of writing into it"
+  code = '''
+using DifferentialEquations
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+    return nothing
+end
+lotka_volterra_at(u0, p, T) = solve(ODEProblem(lv!, u0, (0.0, T), p), Tsit5(); abstol = 1e-10, reltol = 1e-10).u[end]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "out-of-place right-hand side: a new vector on every call"
+  code = '''
+using DifferentialEquations
+lv((x, y), (α, β, γ, δ), t) = [α * x - β * x * y, δ * x * y - γ * y]
+lotka_volterra_at(u0, p, T) =
+    solve(ODEProblem(lv, u0, (0.0, T), p), Tsit5(); abstol = 1e-10, reltol = 1e-10, save_everystep = false).u[end]
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "saves every step, then takes the last"
+  code = '''
+using DifferentialEquations
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = δ * u[1] * u[2] - γ * u[2]
+    return nothing
+end
+lotka_volterra_at(u0, p, T) = solve(ODEProblem(lv!, u0, (0.0, T), p), Tsit5(); abstol = 1e-10, reltol = 1e-10).u[end]
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "Vern9 at the same tolerances"
+  code = '''
+using DifferentialEquations
+function lv!(du, u, (α, β, γ, δ), t)
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = δ * u[1] * u[2] - γ * u[2]
+    return nothing
+end
+lotka_volterra_at(u0, p, T) =
+    solve(ODEProblem(lv!, u0, (0.0, T), p), Vern9(); abstol = 1e-10, reltol = 1e-10, save_everystep = false).u[end]
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "ode-fall-with-drag"
+title = "When does it hit the ground?"
+difficulty = "stretch"
+kcs = ["ode-callbacks", "ode-solving"]
+entry = "impact_time"
+packages = ["DifferentialEquations"]
+prompt = '''
+An object is dropped from height `h0` (metres, at rest) and falls with
+quadratic air drag:
+
+    dh/dt = v
+    dv/dt = -g + c*v^2        (v < 0 while falling)
+
+Write `impact_time(h0, g, c)` that returns the time (a `Float64`) when `h`
+reaches 0. Use a `ContinuousCallback` that stops the solve when the object
+hits the ground. Solve with `Tsit5()` and `abstol = 1e-10, reltol = 1e-10`.
+Results are compared with `rtol = 1e-7`.
+
+The inputs range over `1 <= h0 <= 1e5`, `0.1 <= g <= 30` and `0 <= c <= 10`,
+so a fall can last from a fraction of a second to many days: the end of your
+time span has to come from the inputs (drag makes the fall slower, and the
+grader includes the slowest falls).
+
+```julia
+impact_time(100.0, 9.81, 0.0)     # no drag: sqrt(2 * 100 / 9.81) ≈ 4.515
+impact_time(100.0, 9.81, 0.01)    # with drag: later
+impact_time(1.0e5, 0.1, 10.0)     # a very slow fall
+```
+'''
+starter = '''
+using DifferentialEquations
+
+function impact_time(h0, g, c)
+    # your code here
+end
+'''
+reference = '''
+using DifferentialEquations
+
+function fall!(du, u, p, t)
+    g, c = p
+    du[1] = u[2]
+    du[2] = -g + c * u[2]^2
+    return nothing
+end
+
+ground(u, t, integrator) = u[1]
+
+function impact_time(h0, g, c)
+    # An end time the fall cannot reach: without drag it lasts sqrt(2h0/g); with drag the speed
+    # passes half the terminal speed vt = sqrt(g/c) by t = vt/g, so the rest takes under 2h0/vt.
+    tmax = c > 0 ? sqrt(g / c) / g + 2h0 / sqrt(g / c) : 2sqrt(2h0 / g)
+    prob = ODEProblem(fall!, [h0, 0.0], (0.0, tmax), (g, c))
+    sol = solve(prob, Tsit5(); callback = ContinuousCallback(ground, terminate!),
+                abstol = 1e-10, reltol = 1e-10, save_everystep = false)
+    return sol.t[end]
+end
+'''
+cases = ["100.0, 9.81, 0.0", "100.0, 9.81, 0.01", "2.0, 1.62, 0.5", "1.0e5, 0.1, 10.0", "1.0e5, 0.1, 0.0"]
+gen = "rng -> [(10.0^(5rand(rng)), 0.1 + 29.9rand(rng), rand(rng) < 0.25 ? 0.0 : 10.0^(4rand(rng) - 3)) for _ in 1:10]"
+compare = "isapprox"
+# rtol: with Tsit5 at abstol = reltol = 1e-10 and a terminating ContinuousCallback, the event time agrees
+# with the closed form (vt/g) acosh(exp(h0 g / vt^2)), vt = sqrt(g/c) (evaluated as (vt/g)(x + log1p(sqrt(-expm1(-2x)))),
+# x = h0 c, to avoid overflow), to within 1.3e-11 relative over the cases, the corners of the stated ranges and
+# 200 random inputs from them (measured in the container). 1e-7 allows any accurate event location; a time read
+# off a saveat grid of 1000 points is off by 1e-3 to 2e-3 relative, and wrong physics is off by percent.
+rtol = 1e-7
+hints = [
+  "The ground is where the height crosses zero: a `ContinuousCallback` whose condition returns the height, with `terminate!` as the action.",
+  "For the end of the span: once the object nears its terminal speed `sqrt(g/c)`, it falls at almost constant speed. How long can the slowest fall in the stated ranges take, and what covers `c = 0`?",
+]
+
+  [problem.perf]
+  args = "100.0, 9.81, 0.01"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "saveat grid of 1000 points, then the first saved time below zero"
+  code = '''
+using DifferentialEquations
+function impact_time(h0, g, c)
+    f(u, p, t) = [u[2], -g + c * u[2]^2]
+    tmax = c > 0 ? sqrt(g / c) / g + 2h0 / sqrt(g / c) : 2sqrt(2h0 / g)
+    sol = solve(ODEProblem(f, [h0, 0.0], (0.0, tmax)), Tsit5(); saveat = tmax / 1000, abstol = 1e-10, reltol = 1e-10)
+    return sol.t[findfirst(u -> u[1] <= 0, sol.u)]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "drag with the wrong sign (it speeds the fall up)"
+  code = '''
+using DifferentialEquations
+function impact_time(h0, g, c)
+    f(u, p, t) = [u[2], -g - c * u[2]^2]
+    cb = ContinuousCallback((u, t, i) -> u[1], terminate!)
+    return solve(ODEProblem(f, [h0, 0.0], (0.0, 1000.0)), Tsit5(); callback = cb, abstol = 1e-10, reltol = 1e-10).t[end]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "time span too short: returns the end of the span when the object has not landed"
+  code = '''
+using DifferentialEquations
+function impact_time(h0, g, c)
+    f(u, p, t) = [u[2], -g + c * u[2]^2]
+    cb = ContinuousCallback((u, t, i) -> u[1], terminate!)
+    return solve(ODEProblem(f, [h0, 0.0], (0.0, 5.0)), Tsit5(); callback = cb, abstol = 1e-10, reltol = 1e-10).t[end]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a fixed time span of 1000 s: too short for the slowest falls in the stated ranges"
+  code = '''
+using DifferentialEquations
+function impact_time(h0, g, c)
+    f(u, p, t) = [u[2], -g + c * u[2]^2]
+    cb = ContinuousCallback((u, t, i) -> u[1], terminate!)
+    return solve(ODEProblem(f, [h0, 0.0], (0.0, 1000.0)), Tsit5(); callback = cb, abstol = 1e-10, reltol = 1e-10).t[end]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "out-of-place closure; grows the span tenfold until the callback fires"
+  code = '''
+using DifferentialEquations
+function impact_time(h0, g, c)
+    f(u, p, t) = [u[2], -g + c * u[2]^2]
+    cb = ContinuousCallback((u, t, i) -> u[1], terminate!)
+    tmax = 10.0
+    while true
+        sol = solve(ODEProblem(f, [h0, 0.0], (0.0, tmax)), Tsit5(); callback = cb, abstol = 1e-10, reltol = 1e-10)
+        sol.retcode == ReturnCode.Terminated && return sol.t[end]
+        tmax *= 10
+    end
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "ode-heat-rod-fix"
+title = "Fix the cooling rod"
+difficulty = "core"
+kcs = ["in-place-rhs", "ode-solving", "stiffness"]
+entry = "rod_peak"
+packages = ["DifferentialEquations"]
+prompt = '''
+This program models heat flow along a rod of length 1 whose two ends are held
+at temperature 0. The rod is cut into `n` interior points a distance
+`dx = 1/(n+1)` apart, and the temperature `u[i]` at each point follows
+
+    du[i]/dt = κ * (u[i-1] - 2u[i] + u[i+1]) / dx^2      (with u[0] = u[n+1] = 0)
+
+`rod_peak(n, κ, T)` starts from `u[i] = sin(π i dx)` and should return the
+highest temperature on the rod at time `T` (a `Float64`). It runs without an
+error, but its answer is wrong. Find the bug and fix it; keep the solver and
+the tolerances.
+
+```julia
+using DifferentialEquations
+
+function heat!(du, u, p, t)
+    κ, dx = p
+    padded = [0.0; u; 0.0]                  # the two ends, held at 0
+    du = κ .* (padded[1:end-2] .- 2 .* u .+ padded[3:end]) ./ dx^2
+    return nothing
+end
+
+function rod_peak(n, κ, T)
+    dx = 1 / (n + 1)
+    u0 = [sinpi(i * dx) for i in 1:n]
+    prob = ODEProblem(heat!, u0, (0.0, T), (κ, dx))
+    sol = solve(prob, Rodas5P(); abstol = 1e-10, reltol = 1e-8, save_everystep = false)
+    return maximum(sol.u[end])
+end
+```
+
+The rod cools, so the peak falls: `rod_peak(9, 1.0, 0.1)` should be about
+`0.376` (a little above `exp(-π^2 * 0.1) ≈ 0.373`, the value for a rod with
+infinitely many points). Results are compared with `rtol = 1e-6`, and the
+grader also measures memory.
+'''
+starter = '''
+using DifferentialEquations
+
+function heat!(du, u, p, t)
+    κ, dx = p
+    padded = [0.0; u; 0.0]                  # the two ends, held at 0
+    du = κ .* (padded[1:end-2] .- 2 .* u .+ padded[3:end]) ./ dx^2
+    return nothing
+end
+
+function rod_peak(n, κ, T)
+    dx = 1 / (n + 1)
+    u0 = [sinpi(i * dx) for i in 1:n]
+    prob = ODEProblem(heat!, u0, (0.0, T), (κ, dx))
+    sol = solve(prob, Rodas5P(); abstol = 1e-10, reltol = 1e-8, save_everystep = false)
+    return maximum(sol.u[end])
+end
+'''
+reference = '''
+using DifferentialEquations
+
+function heat!(du, u, p, t)
+    κ, dx = p
+    n = length(u)
+    for i in 1:n
+        left = i > 1 ? u[i-1] : zero(eltype(u))     # the two ends, held at 0
+        right = i < n ? u[i+1] : zero(eltype(u))
+        du[i] = κ * (left - 2u[i] + right) / dx^2
+    end
+    return nothing
+end
+
+function rod_peak(n, κ, T)
+    dx = 1 / (n + 1)
+    u0 = [sinpi(i * dx) for i in 1:n]
+    prob = ODEProblem(heat!, u0, (0.0, T), (κ, dx))
+    sol = solve(prob, Rodas5P(); abstol = 1e-10, reltol = 1e-8, save_everystep = false)
+    return maximum(sol.u[end])
+end
+'''
+cases = ["9, 1.0, 0.1", "49, 1.0, 0.05", "20, 0.5, 0.2", "5, 2.0, 0.01"]
+gen = "rng -> [(rand(rng, 5:60), 0.1 + 1.9rand(rng), 0.01 + 0.29rand(rng)) for _ in 1:8]"
+compare = "isapprox"
+# rtol: the semi-discrete system has the exact solution u[i](t) = sin(π i dx) exp(-κ λ t) with
+# λ = (4/dx^2) sin(π dx/2)^2, so the peak is known in closed form. At abstol = 1e-10, reltol = 1e-8, Rodas5P is within 1.3e-10
+# (relative) of it on the cases and 100 random inputs from the gen ranges (measured in the container).
+# 1e-6 leaves a wide margin for other correct right-hand sides; the unfixed starter returns the initial
+# peak (off by 10% to 99%).
+rtol = 1e-6
+hints = [
+  "Run the starter and compare its answer with the starting peak. If the temperatures never changed, which derivative did the solver see?",
+  "Look at the line that computes the derivative: does it change the vector the solver passed in, or make a new one?",
+]
+
+  [problem.perf]
+  args = "49, 1.0, 0.1"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "returns the derivative instead of writing it (still four arguments, so still in place)"
+  code = '''
+using DifferentialEquations
+function heat!(du, u, p, t)
+    κ, dx = p
+    padded = [0.0; u; 0.0]
+    return κ .* (padded[1:end-2] .- 2 .* u .+ padded[3:end]) ./ dx^2
+end
+function rod_peak(n, κ, T)
+    dx = 1 / (n + 1)
+    prob = ODEProblem(heat!, [sinpi(i * dx) for i in 1:n], (0.0, T), (κ, dx))
+    return maximum(solve(prob, Rodas5P(); abstol = 1e-10, reltol = 1e-8, save_everystep = false).u[end])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the one-character fix: du .= (allocates the padded copies on every call)"
+  code = '''
+using DifferentialEquations
+function heat!(du, u, p, t)
+    κ, dx = p
+    padded = [0.0; u; 0.0]
+    du .= κ .* (padded[1:end-2] .- 2 .* u .+ padded[3:end]) ./ dx^2
+    return nothing
+end
+function rod_peak(n, κ, T)
+    dx = 1 / (n + 1)
+    prob = ODEProblem(heat!, [sinpi(i * dx) for i in 1:n], (0.0, T), (κ, dx))
+    return maximum(solve(prob, Rodas5P(); abstol = 1e-10, reltol = 1e-8, save_everystep = false).u[end])
+end
+'''
+  # measured: 2.3 MB per solve against 0.13 MB for the loop reference (n = 49)
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "out-of-place right-hand side with three arguments"
+  code = '''
+using DifferentialEquations
+function heat(u, (κ, dx), t)
+    padded = [zero(eltype(u)); u; zero(eltype(u))]
+    return κ .* (padded[1:end-2] .- 2 .* u .+ padded[3:end]) ./ dx^2
+end
+function rod_peak(n, κ, T)
+    dx = 1 / (n + 1)
+    prob = ODEProblem(heat, [sinpi(i * dx) for i in 1:n], (0.0, T), (κ, dx))
+    return maximum(solve(prob, Rodas5P(); abstol = 1e-10, reltol = 1e-8, save_everystep = false).u[end])
+end
+'''
+  expect = ["correct", "allocates"]

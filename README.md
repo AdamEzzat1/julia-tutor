@@ -28,5 +28,7 @@ JULIA_PKG_OFFLINE=false julia_pinned --project=. -e 'using Pkg; Pkg.instantiate(
 * Website: lessons, explain gallery, hole map and rules, built from the same
   verified data (`site/`, `web/`; deployed to GitHub Pages by CI).
 
-Status: M1 slice + M2 (explain fixtures, learner model) + website. **The test runner is not a sandbox yet (M3):** only
-run your own code with it.
+Status: M1 slice + M2 (explain fixtures, learner model) + course (C1) + website. `tutor serve`, which runs
+code sent by the website, runs it in a Docker container with no network and no access to your files
+(`./tutor sandbox build` once; `--sandbox=none` opts out). The CLI test runner (`tutor test`) still runs plain
+processes: only run your own code with it.

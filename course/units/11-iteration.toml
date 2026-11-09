@@ -1,0 +1,466 @@
+id = "11-iteration"
+title = "Iteration: the protocol, custom iterators and lazy sequences"
+track = "core"
+env = "base"
+summary = "What a for loop really calls, how to make your own types iterable, lazy generators versus eager comprehensions, and the Iterators toolbox."
+kcs = ["iteration-protocol", "custom-iterators", "generators", "lazy-iterators", "iterator-utilities"]
+prerequisites = ["10-errors"]
+
+[[section]]
+title = "The iteration protocol"
+body = '''
+Anything you can loop over implements one function, `iterate`:
+
+* `iterate(x)` returns `(first_item, state)`, or `nothing` if `x` is empty;
+* `iterate(x, state)` returns `(next_item, next_state)`, or `nothing` when done.
+
+The state is whatever the type finds convenient: for a `Vector` it is the
+next index, for a `String` the byte index of the next character. A loop
+`for c in s ... end` is rewritten by the compiler into exactly the `while`
+loop below, so arrays, strings, ranges, dictionaries and your own types all
+work the same way.
+
+In the second example notice that the state jumps from 2 to 4: `é` takes two
+bytes in UTF-8, so string states are byte positions, not character counts.
+'''
+
+  [[section.example]]
+  code = '''
+v = [10, 20, 30]
+@show iterate(v)
+@show iterate(v, 2)
+@show iterate(v, 4);
+'''
+
+  [[section.example]]
+  caption = "What `for c in \"hé!\"` lowers to."
+  code = '''
+s = "hé!"
+next = iterate(s)
+while next !== nothing
+    (c, state) = next
+    println(c, "   next state = ", state)
+    next = iterate(s, state)
+end
+'''
+
+[[section]]
+title = "Writing your own iterator"
+body = '''
+To make a type iterable, add methods to `Base.iterate` (one-argument and
+two-argument; a default value for the state gives both at once). Two more
+methods let the rest of Julia use your iterator well:
+
+* `Base.length(x)` if you know the number of items; `collect` uses it to
+  allocate the result once. If you do not know it, declare
+  `Base.IteratorSize(::Type{T}) = Base.SizeUnknown()` (or `IsInfinite()`);
+  the default is `HasLength()`, which promises a `length` method.
+* `Base.eltype(::Type{T})`, so `collect` builds a `Vector{Int}` and not a
+  vector with an element type guessed from the items.
+
+Once `iterate` exists you get `for`, `collect`, `sum`, `maximum`, `in`,
+`enumerate` and the whole `Iterators` module for free.
+'''
+
+  [[section.example]]
+  code = '''
+struct Countdown
+    from::Int
+end
+Base.iterate(c::Countdown, n = c.from) = n < 1 ? nothing : (n, n - 1)
+Base.length(c::Countdown) = c.from
+Base.eltype(::Type{Countdown}) = Int
+
+for k in Countdown(3)
+    print(k, " ")
+end
+println()
+println(collect(Countdown(5)))
+println(sum(Countdown(100)), "  ", 2 in Countdown(3), "  ", maximum(Countdown(4)))
+'''
+
+  [[section.example]]
+  caption = "A sequence of unknown length: a loop works, but `collect` asks for a `length` that does not exist."
+  code = '''
+struct Collatz
+    start::Int
+end
+Base.iterate(c::Collatz, n = c.start) =
+    n == 0 ? nothing : (n, n == 1 ? 0 : iseven(n) ? n ÷ 2 : 3n + 1)
+
+for n in Collatz(6)
+    print(n, " ")
+end
+println()
+collect(Collatz(6))
+'''
+
+  [[section.example]]
+  caption = "Declaring `SizeUnknown` (and the element type) fixes `collect`."
+  code = '''
+struct Collatz
+    start::Int
+end
+Base.iterate(c::Collatz, n = c.start) =
+    n == 0 ? nothing : (n, n == 1 ? 0 : iseven(n) ? n ÷ 2 : 3n + 1)
+Base.IteratorSize(::Type{Collatz}) = Base.SizeUnknown()
+Base.eltype(::Type{Collatz}) = Int
+
+println(collect(Collatz(6)))
+println(length(collect(Collatz(27))), " numbers in the sequence from 27")
+'''
+
+[[section]]
+title = "Generators are lazy, comprehensions are eager"
+body = '''
+`[f(x) for x in xs]` is a **comprehension**: it computes every value now and
+stores them in a new array. `(f(x) for x in xs)` (round brackets, or no
+brackets as the only argument of a function: `sum(f(x) for x in xs)`) is a
+**generator**: an iterator that computes each value when asked for it and
+stores nothing.
+
+Use a generator when the values are consumed once, by `sum`, `maximum`,
+`any`, a loop: it allocates no array. Use a comprehension when you need the
+values again, or need to index them. Notice in the second example that
+nothing is printed until `first` pulls one value out, and only one value is
+computed.
+'''
+
+  [[section.example]]
+  caption = "Inside functions, the generator version allocates nothing; the comprehension allocates a 1000-element array."
+  code = '''
+sum_sq_eager(v) = sum([x^2 for x in v])
+sum_sq_lazy(v) = sum(x^2 for x in v)
+bytes(f, v) = (f(v); @allocated f(v))
+
+v = collect(1:1000)
+println(sum_sq_eager(v) == sum_sq_lazy(v))
+println("eager: ", bytes(sum_sq_eager, v) >= 8000, "   lazy: ", bytes(sum_sq_lazy, v), " bytes")
+'''
+
+  [[section.example]]
+  code = '''
+g = (begin println("computing ", i); i^2 end for i in 1:3)
+println("nothing computed yet")
+first(g)
+'''
+
+[[section]]
+title = "The Iterators toolbox"
+body = '''
+A few wrappers turn up in almost every loop:
+
+* `enumerate(xs)` yields `(i, x)` pairs, counting from 1;
+* `zip(a, b)` walks two collections in step and **stops at the shorter one**;
+* `pairs(v)` yields `index => value` (for a `Dict`, `key => value`);
+* `eachindex(v)` gives the valid indices of `v`; prefer it to `1:length(v)`,
+  which assumes indices start at 1.
+
+The `Iterators` module adds lazy versions of the usual list operations:
+`Iterators.take(it, n)`, `Iterators.drop(it, n)`, `Iterators.filter(pred, it)`,
+`Iterators.map(f, it)`, plus `Iterators.product` (all combinations),
+`Iterators.partition` (chunks of a fixed size), `Iterators.flatten` (one
+level of nesting removed) and `Iterators.countfrom` (1, 2, 3, ... forever).
+Nothing is computed until something like `collect`, `sum` or a loop consumes
+the result.
+'''
+
+  [[section.example]]
+  code = '''
+names = ["ada", "bob", "cy"]
+ages = [36, 41, 29]
+for (i, name) in enumerate(names)
+    println(i, ": ", name)
+end
+for (name, age) in zip(names, ages)
+    println(name, " is ", age)
+end
+println(collect(zip(1:10, "ab")))
+println(collect(pairs(["x", "y"])))
+println(eachindex(ages))
+'''
+
+  [[section.example]]
+  caption = "A lazy pipeline over an infinite sequence: only the five values asked for are computed."
+  code = '''
+evens = Iterators.filter(iseven, Iterators.countfrom(1))
+squares = Iterators.map(x -> x^2, evens)
+collect(Iterators.take(squares, 5))
+'''
+
+  [[section.example]]
+  code = '''
+println(collect(Iterators.product(1:2, "ab")))
+println(collect(Iterators.partition(1:7, 3)))
+println(collect(Iterators.flatten([[1, 2], [3], Int[], [4]])))
+println(collect(Iterators.drop("hello", 2)))
+'''
+
+[[section]]
+title = "Infinite iterators, made finite"
+body = '''
+`Iterators.countfrom`, `Iterators.cycle` and `Iterators.repeated` never end.
+They are useful as long as something stops them: `take` (a fixed count),
+`takewhile` (until a condition fails), `first` of a filtered iterator (the
+first match),
+or a `break` in a loop.
+
+Collecting an infinite iterator is refused: `IteratorSize` reports
+`IsInfinite()` and `collect` has no method for it, so you get a
+`MethodError` straight away instead of a program that never finishes.
+'''
+
+  [[section.example]]
+  code = '''
+println(collect(Iterators.take(Iterators.cycle([:red, :green]), 5)))
+println(collect(Iterators.takewhile(<(100), (2^k for k in Iterators.countfrom(0)))))
+println(first(Iterators.dropwhile(x -> x^2 < 50, Iterators.countfrom(1))))
+println(first(Iterators.filter(x -> x^2 > 50, Iterators.countfrom(1))))
+'''
+
+  [[section.example]]
+  code = '''
+println(Base.IteratorSize(Iterators.countfrom(1)))
+collect(Iterators.countfrom(1))
+'''
+
+[[problem]]
+id = "pairwise-differences"
+title = "Differences between neighbours"
+difficulty = "warm-up"
+kcs = ["iterator-utilities", "generators"]
+entry = "pairwise_diffs"
+prompt = '''
+Write `pairwise_diffs(v)` that returns the vector of differences between
+neighbouring elements: `v[2] - v[1], v[3] - v[2], ...`. A vector with fewer
+than two elements has no differences.
+
+```julia
+pairwise_diffs([1, 4, 9, 16])   # [3, 5, 7]
+pairwise_diffs([5])             # Int64[]
+```
+
+Try `zip(v, Iterators.drop(v, 1))`: it pairs each element with the next one
+without copying anything.
+'''
+starter = '''
+function pairwise_diffs(v)
+    # your code here
+end
+'''
+reference = '''
+pairwise_diffs(v) = [b - a for (a, b) in zip(v, Iterators.drop(v, 1))]
+'''
+cases = ["[1, 4, 9, 16]", "[5]", "Int[]", "[3, 3, -2]"]
+gen = "rng -> [(rand(rng, -100:100, rand(rng, 0:12)),) for _ in 1:25]"
+hints = [
+  "Pair each element with the one after it, then subtract.",
+  "`zip(v, Iterators.drop(v, 1))` yields `(v[1], v[2]), (v[2], v[3]), ...` and stops at the shorter of the two.",
+]
+
+  [problem.perf]
+  args = "rand(rng, -1000:1000, n)"
+  sizes = [500, 8000]
+
+  [[problem.variant]]
+  label = "subtracts in the wrong order"
+  code = '''
+pairwise_diffs(v) = [a - b for (a, b) in zip(v, Iterators.drop(v, 1))]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "grows the result with vcat: every step copies everything so far"
+  code = '''
+function pairwise_diffs(v)
+    out = eltype(v)[]
+    for i in 2:length(v)
+        out = vcat(out, v[i] - v[i-1])
+    end
+    return out
+end
+'''
+  expect = ["correct", "scaling", "slow"]
+
+  [[problem.variant]]
+  label = "slices copy: two extra arrays"
+  code = '''
+pairwise_diffs(v) = isempty(v) ? eltype(v)[] : v[2:end] .- v[1:end-1]
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "diff from Base"
+  code = '''
+pairwise_diffs(v) = diff(v)
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "chunked-sums"
+title = "Sums of fixed-size chunks"
+difficulty = "core"
+kcs = ["iterator-utilities", "lazy-iterators"]
+entry = "chunk_sums"
+prompt = '''
+Write `chunk_sums(v, k)` that splits `v` into consecutive chunks of `k`
+elements (the last chunk may be shorter) and returns the vector of the
+chunks' sums.
+
+```julia
+chunk_sums([1, 2, 3, 4, 5, 6, 7], 3)   # [6, 15, 7]
+chunk_sums(Int[], 4)                    # Int64[]
+```
+
+`Iterators.partition` does the splitting. On an array it yields *views*, so
+no chunk is copied; slicing with `v[i:j]` copies each one.
+'''
+starter = '''
+function chunk_sums(v, k)
+    # your code here
+end
+'''
+reference = '''
+chunk_sums(v, k) = [sum(c) for c in Iterators.partition(v, k)]
+'''
+cases = ["[1, 2, 3, 4, 5, 6, 7], 3", "Int[], 4", "[5, 5], 1", "[1, 2, 3], 10"]
+gen = "rng -> [(rand(rng, -50:50, rand(rng, 0:20)), rand(rng, 1:6)) for _ in 1:30]"
+hints = [
+  "Split the vector into pieces of length `k`, then sum each piece.",
+  "`Iterators.partition(v, k)` yields the pieces; a comprehension `[sum(c) for c in ...]` collects the sums.",
+]
+
+  [problem.perf]
+  args = "rand(rng, 1:100, n), 8"
+  sizes = [16000]
+
+  [[problem.variant]]
+  label = "drops the last, shorter chunk"
+  code = '''
+chunk_sums(v, k) = [sum(@view v[i:i+k-1]) for i in 1:k:length(v)-k+1]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "copies every chunk with a slice"
+  code = '''
+chunk_sums(v, k) = [sum(v[i:min(i + k - 1, end)]) for i in 1:k:length(v)]
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "a plain loop with a running total"
+  code = '''
+function chunk_sums(v, k)
+    out = zeros(eltype(v), cld(length(v), k))
+    for (i, x) in enumerate(v)
+        out[cld(i, k)] += x
+    end
+    return out
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "fibonacci-iterator-sum"
+title = "A Fibonacci iterator"
+difficulty = "stretch"
+kcs = ["custom-iterators", "lazy-iterators"]
+entry = "fib_sum"
+prompt = '''
+Define an iterator type `Fib` whose items are the Fibonacci numbers
+1, 1, 2, 3, 5, 8, ... forever, by adding methods to `Base.iterate` (and
+declaring `Base.IteratorSize` and `Base.eltype`). Then write `fib_sum(n)`
+that returns the sum of the first `n` Fibonacci numbers as an `Int`
+(`0 ≤ n ≤ 88`, so the result fits in an `Int64`).
+
+```julia
+collect(Iterators.take(Fib(), 6))   # [1, 1, 2, 3, 5, 8]
+fib_sum(6)                           # 20
+fib_sum(0)                           # 0
+```
+
+The grader calls `fib_sum`. Consume the iterator lazily: there is no need to
+store the numbers.
+'''
+starter = '''
+struct Fib end
+
+function fib_sum(n)
+    # your code here
+end
+'''
+reference = '''
+struct Fib end
+Base.iterate(::Fib, state = (1, 1)) = (state[1], (state[2], state[1] + state[2]))
+Base.IteratorSize(::Type{Fib}) = Base.IsInfinite()
+Base.eltype(::Type{Fib}) = Int
+
+fib_sum(n) = sum(Iterators.take(Fib(), n); init = 0)
+'''
+cases = ["6", "0", "1", "2", "88"]
+gen = "rng -> [(rand(rng, 0:88),) for _ in 1:20]"
+hints = [
+  "The iterator's state can be the pair of the current and the next number; each step yields the first and moves the pair along.",
+  "`Base.iterate(::Fib, state = (1, 1)) = (state[1], (state[2], state[1] + state[2]))`-style code covers both methods; then sum `Iterators.take(Fib(), n)` with `init = 0`.",
+]
+
+  [problem.perf]
+  args = "n"
+  sizes = [80]
+
+  [[problem.variant]]
+  label = "starts at 0, 1"
+  code = '''
+struct Fib end
+Base.iterate(::Fib, state = (0, 1)) = (state[1], (state[2], state[1] + state[2]))
+Base.IteratorSize(::Type{Fib}) = Base.IsInfinite()
+Base.eltype(::Type{Fib}) = Int
+fib_sum(n) = sum(Iterators.take(Fib(), n); init = 0)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "collects the numbers into an array first"
+  code = '''
+struct Fib end
+Base.iterate(::Fib, state = (1, 1)) = (state[1], (state[2], state[1] + state[2]))
+Base.IteratorSize(::Type{Fib}) = Base.IsInfinite()
+Base.eltype(::Type{Fib}) = Int
+fib_sum(n) = sum(collect(Iterators.take(Fib(), n)); init = 0)
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "untyped fields: the compiler cannot know the item type"
+  code = '''
+mutable struct Fib
+    a
+    b
+end
+Fib() = Fib(1, 1)
+Base.iterate(f::Fib, state = (f.a, f.b)) = (state[1], (state[2], state[1] + state[2]))
+Base.IteratorSize(::Type{Fib}) = Base.IsInfinite()
+function fib_sum(n)
+    s = 0
+    for x in Iterators.take(Fib(), n)
+        s += x
+    end
+    return s
+end
+'''
+  expect = ["correct", "unstable", "slow", "allocates"]
+
+  [[problem.variant]]
+  label = "a loop over two variables, no iterator type"
+  code = '''
+function fib_sum(n)
+    a, b, s = 1, 1, 0
+    for _ in 1:n
+        s += a
+        a, b = b, a + b
+    end
+    return s
+end
+'''
+  expect = ["correct", "fast"]

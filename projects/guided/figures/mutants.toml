@@ -1,0 +1,202 @@
+# Seeded faults in reference/src (one exact snippet replaced each).
+# `tutor guided verify figures` requires each to fail the acceptance test set of
+# its behaviour and to be caught by the exemplary tests (reference/test).
+# Students see only the behaviour a surviving mutant breaks, never the edit.
+
+# ---- milestone 1 ----
+
+[[mutant]]
+id = "empty-as-zero"
+milestone = 1
+behaviour = "read-wide"
+file = "Figures.jl"
+find = "isempty(strip(s)) ? missing : parse(Float64, s)"
+replace = "isempty(strip(s)) ? 0.0 : parse(Float64, s)"
+
+[[mutant]]
+id = "date-as-text"
+milestone = 1
+behaviour = "read-wide"
+file = "Figures.jl"
+find = "DataFrame(date = [Date(r[1]) for r in rows])"
+replace = "DataFrame(date = [String(r[1]) for r in rows])"
+
+[[mutant]]
+id = "keeps-missing"
+milestone = 1
+behaviour = "long-format"
+file = "Figures.jl"
+find = "    t = dropmissing(t, :temp)\n"
+replace = ""
+
+[[mutant]]
+id = "sorted-date-first"
+milestone = 1
+behaviour = "long-format"
+file = "Figures.jl"
+find = "select(t, :date, :city, :temp), [:city, :date])"
+replace = "select(t, :date, :city, :temp), [:date, :city])"
+
+[[mutant]]
+id = "plain-mean"
+milestone = 1
+behaviour = "monthly-means"
+file = "Figures.jl"
+find = ":temp => mean_present => :mean_temp"
+replace = ":temp => mean => :mean_temp"
+
+[[mutant]]
+id = "unsorted-means"
+milestone = 1
+behaviour = "monthly-means"
+file = "Figures.jl"
+find = "    return sort!(s, [:city, :month])"
+replace = "    return s"
+
+# ---- milestone 2 ----
+
+[[mutant]]
+id = "copied-title"
+milestone = 2
+behaviour = "makie-structure"
+file = "Figures.jl"
+find = "Axis(fig[1, 2]; title = MONTHLY_TITLE,"
+replace = "Axis(fig[1, 2]; title = DAILY_TITLE,"
+
+[[mutant]]
+id = "swapped-labels"
+milestone = 2
+behaviour = "makie-structure"
+file = "Figures.jl"
+find = "xlabel = MONTH_LABEL, ylabel = MEAN_LABEL)"
+replace = "xlabel = MEAN_LABEL, ylabel = MONTH_LABEL)"
+
+[[mutant]]
+id = "day-of-month"
+milestone = 2
+behaviour = "makie-lines"
+file = "Figures.jl"
+find = "lines!(ax1, dayofyear.(g.date), g.temp; label = first(g.city))"
+replace = "lines!(ax1, day.(g.date), g.temp; label = first(g.city))"
+
+[[mutant]]
+id = "one-line"
+milestone = 2
+behaviour = "makie-lines"
+file = "Figures.jl"
+find = '''
+    for g in groupby(sort(long, [:city, :date]), :city; sort = true)
+        lines!(ax1, dayofyear.(g.date), g.temp; label = first(g.city))
+    end
+'''
+replace = '''
+    lines!(ax1, dayofyear.(long.date), long.temp; label = "temperature")
+'''
+
+[[mutant]]
+id = "no-dodge"
+milestone = 2
+behaviour = "makie-bars"
+file = "Figures.jl"
+find = "; dodge = idx, color"
+replace = "; color"
+
+[[mutant]]
+id = "no-legend"
+milestone = 2
+behaviour = "makie-legend"
+file = "Figures.jl"
+find = "    Legend(fig[1, 3], ax1, CITY_LABEL)\n"
+replace = ""
+
+# ---- milestone 3 ----
+
+[[mutant]]
+id = "group-not-color"
+milestone = 3
+behaviour = "aog-mapping"
+file = "Figures.jl"
+find = ":temp => TEMP_LABEL, color = :city => CITY_LABEL)"
+replace = ":temp => TEMP_LABEL, group = :city)"
+
+[[mutant]]
+id = "aog-day-of-month"
+milestone = 3
+behaviour = "aog-mapping"
+file = "Figures.jl"
+find = ":date => dayofyear => DAY_LABEL"
+replace = ":date => day => DAY_LABEL"
+
+[[mutant]]
+id = "default-x-label"
+milestone = 3
+behaviour = "aog-labels"
+file = "Figures.jl"
+find = ":month => MONTH_LABEL, :mean_temp => MEAN_LABEL"
+replace = ":month, :mean_temp"
+
+[[mutant]]
+id = "no-monthly-title"
+milestone = 3
+behaviour = "aog-labels"
+file = "Figures.jl"
+find = "AoG.draw!(fig[1, 2], bars; axis = (; title = MONTHLY_TITLE))"
+replace = "AoG.draw!(fig[1, 2], bars)"
+
+[[mutant]]
+id = "no-aog-legend"
+milestone = 3
+behaviour = "aog-legend"
+file = "Figures.jl"
+find = "    AoG.legend!(fig[1, 3], grid)\n"
+replace = ""
+
+# ---- milestone 4 ----
+
+[[mutant]]
+id = "no-group"
+milestone = 4
+behaviour = "plots-series"
+file = "Figures.jl"
+find = "t.temp; group = t.city,"
+replace = "t.temp;"
+
+[[mutant]]
+id = "plots-no-labels"
+milestone = 4
+behaviour = "plots-series"
+file = "Figures.jl"
+find = "                      title = DAILY_TITLE, xlabel = DAY_LABEL, ylabel = TEMP_LABEL)"
+replace = "                      title = DAILY_TITLE)"
+
+[[mutant]]
+id = "gadfly-no-color"
+milestone = 4
+behaviour = "gadfly-svg"
+file = "Figures.jl"
+find = "y = :temp, color = :city, Gadfly.Geom.line"
+replace = "y = :temp, Gadfly.Geom.line"
+
+[[mutant]]
+id = "gadfly-no-xlabel"
+milestone = 4
+behaviour = "gadfly-svg"
+file = "Figures.jl"
+find = "Gadfly.Guide.xlabel(DAY_LABEL),"
+replace = ""
+
+[[mutant]]
+id = "unsorted-paths"
+milestone = 4
+behaviour = "svg-files"
+file = "Figures.jl"
+find = "    return sort(paths)"
+replace = "    return paths"
+
+[[mutant]]
+id = "plots-png"
+milestone = 4
+behaviour = "svg-files"
+file = "Figures.jl"
+find = "Plots.savefig(plots_panel(long), paths[3])"
+replace = "Plots.savefig(plots_panel(long), replace(paths[3], \".svg\" => \".png\"))"

@@ -1,0 +1,1394 @@
+id = "22-plotting"
+title = "Plotting with Makie, AlgebraOfGraphics, Plots.jl and Gadfly"
+track = "ecosystem"
+env = "plots"
+status = "ready"
+summary = "Figures from Julia data with the four main plotting packages: Makie's figure, layout and axis model (through CairoMakie), the grammar of graphics in AlgebraOfGraphics and Gadfly, Plots.jl's one interface over several backends and its recipes, how to choose between them, and why the first plot in a fresh session is slow."
+kcs = ["plotting", "makie", "figure-layout", "observables", "grammar-of-graphics", "plot-recipes", "time-to-first-plot"]
+prerequisites = ["21-dataframes"]
+
+[[section]]
+title = "Makie's model: a Figure holds a layout of blocks"
+body = '''
+[Makie](https://docs.makie.org/stable/) (version 0.24 here) draws through a
+*backend*: CairoMakie writes static PNG, SVG and PDF files, GLMakie opens an
+interactive window on the GPU, WGLMakie draws in a browser. The plotting code
+is the same for all three; this course uses CairoMakie because its output is
+a file.
+
+Three kinds of object make up a picture:
+
+* A `Figure` is the canvas. It owns a **layout**, a grid you index like a
+  matrix: `fig[1, 2]` is row 1, column 2. The grid grows as you place things
+  in it.
+* **Blocks** live in layout cells: `Axis` (a 2D coordinate system with ticks,
+  labels and a title), `Legend`, `Colorbar`, `Label`. They are listed in
+  `fig.content`.
+* **Plots** (`lines!`, `scatter!`, `heatmap!`, ...) live inside an axis.
+
+The functions without `!` create what is missing: `lines(x, y)` makes a new
+Figure, an Axis in `fig[1, 1]` and the plot, and returns all three (destructure
+them as `fig, ax, plt = lines(x, y)`). The `!` versions add a plot to an
+existing axis, the same convention as `push!`. If you know matplotlib's object
+interface, `Figure` and `Axis` play the roles of `fig` and `ax` from
+`plt.subplots()`, but the layout is a property of the figure, not a fixed
+grid chosen up front.
+
+A block's attributes (`ax.xlabel`, `ax.title`) are **Observables**: containers
+whose value you read with `[]` and assign with `ax.xlabel = "time"`.
+Assigning updates the figure; the section on observables explains why. A
+plot's attributes (a line's `color`) are stored differently since Makie 0.24,
+in an internal compute graph, but you change them the same way:
+`plt.color = :red`.
+'''
+
+  [[section.example]]
+  caption = "Two plots in one axis, labels and a legend; the figure value is drawn, not printed."
+  code = '''
+using CairoMakie
+t = range(0, 4π, length = 200)
+fig = Figure(size = (600, 350))
+ax = Axis(fig[1, 1]; xlabel = "t (s)", ylabel = "amplitude", title = "Damped oscillation")
+lines!(ax, t, exp.(-t ./ 5) .* cos.(t); label = "signal")
+scatter!(ax, t[1:20:end], exp.(-t[1:20:end] ./ 5) .* cos.(t[1:20:end]); label = "samples", color = :red)
+axislegend(ax; position = :rt)
+fig
+'''
+
+  [[section.example]]
+  caption = "The same model read back as data: blocks in `fig.content`, the grid size, attributes as observables."
+  code = '''
+using CairoMakie
+fig = Figure(size = (600, 350))
+left = Axis(fig[1, 1]; title = "left", xlabel = "t")
+right = Axis(fig[1, 2]; title = "right")
+lines!(left, 1:10, (1:10) .^ 2)
+println(typeof.(fig.content))
+println("layout size: ", size(fig.layout))
+println("left xlabel: ", left.xlabel[])
+right.xlabel = "s"
+println("right xlabel after assignment: ", right.xlabel[])
+println(length(left.scene.plots), " plot in the left axis, ", length(right.scene.plots), " in the right")
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using CairoMakie
+fig = Figure()
+Axis(fig[1, 1])
+Axis(fig[2, 1])
+Colorbar(fig[1:2, 2])
+size(fig.layout)
+'''
+  choices = ["(2, 1)", "(3, 1)", "(2, 2)"]
+  answer = 3
+  explain = "The layout is a grid of rows and columns. Two axes stacked in column 1 and a colorbar spanning both rows of column 2 make a 2 by 2 grid; `fig[1:2, 2]` occupies two cells, it does not add a row."
+  misconceptions = [
+    "That counts the axes only. The colorbar is a block too and takes column 2.",
+    "Blocks are not stacked one per row: each goes where its index says, and `fig[1:2, 2]` spans existing rows.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You have `fig, ax, plt = lines(x, y)` and want a scatter of the same data on top of the line. What do you write?"
+  choices = [
+    "`scatter(x, y)`",
+    "`scatter!(ax, x, y)`",
+    "`fig[1, 1] = scatter(x, y)`",
+  ]
+  answer = 2
+  explain = "The `!` functions add a plot to an existing axis (here `ax`, or the current axis when you omit it). The plain function always creates a new figure and axis."
+  misconceptions = [
+    "`scatter` without `!` builds a new Figure with its own Axis; the line stays alone in the old one.",
+    "",
+    "Assigning to a layout cell places a block, and `scatter(x, y)` returns a whole new figure, not a block.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A nightly job on a Linux server with no display and no GPU must write `report.pdf` from a Makie figure. Which backend does the script load?"
+  choices = [
+    "GLMakie, since `save` works the same with every backend",
+    "WGLMakie, since a browser can render without a GPU",
+    "CairoMakie, which draws on the CPU into vector files",
+  ]
+  answer = 3
+  explain = "The plot functions belong to Makie and are the same for every backend; the backend decides where the pixels go. CairoMakie renders with the Cairo library on the CPU and writes PNG, SVG and PDF, so it needs neither a window nor a GPU. GLMakie and WGLMakie are for interactive work (sliders, rotating 3D views)."
+  misconceptions = [
+    "GLMakie draws through OpenGL, which needs a display and a graphics driver, and it saves raster images only, not PDF.",
+    "WGLMakie draws with WebGL inside a browser page opened by a Julia session; it is for interactive notebooks and web apps, not for writing PDF files on a server.",
+    "",
+  ]
+
+[[section]]
+title = "Heatmaps, contours, bars and multi-axis layouts"
+body = '''
+A heatmap or contour plot needs a function evaluated on a grid. A
+comprehension with two `for` clauses builds it: in
+`[f(x, y) for x in xs, y in ys]` the **first** index runs over `xs`, so
+`z[i, j] = f(xs[i], ys[j])` and `size(z) == (length(xs), length(ys))`.
+`heatmap!(ax, xs, ys, z)` uses exactly that convention: `z[i, j]` is drawn
+at `(xs[i], ys[j])`, so rows of the matrix go along the x axis.
+
+This is the opposite of matplotlib's `imshow` and of Plots.jl's `heatmap`,
+which treat the matrix as an image (rows go down the y axis). Data copied
+from one convention to the other appears transposed; with a non-square grid
+you get a dimension error instead, which at least shows the mistake.
+
+A `Colorbar` needs to know which plot's colors it explains:
+`Colorbar(fig[1, 2], hm)` takes the plot object returned by `heatmap!`.
+Layout cells can span: `fig[1, 1:2]` covers two columns. `linkyaxes!`
+(and `linkxaxes!`) make axes share limits, and `colsize!`/`rowsize!` change
+how the grid divides the space.
+'''
+
+  [[section.example]]
+  caption = "A heatmap with its colorbar, and a contour plot of the same matrix with a linked y axis."
+  code = '''
+using CairoMakie
+xs = range(-2, 2, length = 60)
+ys = range(-1, 1, length = 30)
+z = [exp(-(x^2 + 3y^2)) * cos(3x) for x in xs, y in ys]   # z[i, j] is at (xs[i], ys[j])
+fig = Figure(size = (600, 350))
+ax1 = Axis(fig[1, 1]; title = "heatmap", xlabel = "x", ylabel = "y")
+hm = heatmap!(ax1, xs, ys, z; colormap = :viridis)
+Colorbar(fig[1, 2], hm; label = "heatmap value z")
+ax2 = Axis(fig[1, 3]; title = "contour", xlabel = "x")
+contour!(ax2, xs, ys, z; levels = 8, color = :black)
+linkyaxes!(ax1, ax2)
+fig
+'''
+
+  [[section.example]]
+  caption = "One axis spanning two columns above two smaller ones; `colsize!` gives the left column two thirds of the width."
+  code = '''
+using CairoMakie
+fig = Figure(size = (600, 350))
+top = Axis(fig[1, 1:2]; ylabel = "units sold", xticks = (1:6, ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]))
+barplot!(top, 1:6, [3, 5, 2, 6, 4, 7]; color = 1:6, colormap = :tab10, colorrange = (1, 10))
+left = Axis(fig[2, 1]; xlabel = "n", ylabel = "√n")
+scatter!(left, 1:10, sqrt.(1:10))
+right = Axis(fig[2, 2]; xlabel = "n", ylabel = "n mod 3")
+stairs!(right, 1:10, (1:10) .% 3)
+colsize!(fig.layout, 1, Relative(2 / 3))
+fig
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+xs = 1:3
+ys = 1:2
+z = [10x + y for x in xs, y in ys]
+size(z), z[3, 1]
+'''
+  choices = ["((3, 2), 31)", "((2, 3), 13)", "((3, 2), 13)"]
+  answer = 1
+  explain = "The first `for` clause gives the first index: `z[i, j] = 10xs[i] + ys[j]`, a 3 by 2 matrix, and `z[3, 1] = 31`. Makie's `heatmap!(ax, xs, ys, z)` expects exactly this shape."
+  misconceptions = [
+    "",
+    "That is the image convention (rows are y). A two-clause comprehension puts the first clause on the rows.",
+    "The shape is right, but `z[3, 1]` takes the third `x` and the first `y`: 10·3 + 1.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You port a matplotlib plot to `heatmap!(ax, xs, ys, Z)` in Makie. `Z` has one row per y value, as `imshow` expects, and the grid is square, so there is no error. What do you see?"
+  choices = [
+    "The expected picture: Makie reads each row as one y value",
+    "x and y swapped: the picture mirrored about its diagonal",
+    "Upside down, because Makie draws row 1 at the top",
+  ]
+  answer = 2
+  explain = "Makie puts `Z[i, j]` at `(xs[i], ys[j])`, so the first index runs along x. `imshow` (and Plots.jl's `heatmap`) read the matrix as an image, `Z[row, column]` with rows along y. Pass `permutedims(Z)`, or build the matrix with `x` as the first comprehension clause."
+  misconceptions = [
+    "That is the image convention. Makie treats the matrix as samples of `f(x, y)`: the first index is x.",
+    "",
+    "Row 1 at the top is `imshow`'s default (`origin = \"upper\"`). Makie does not flip anything; it swaps the roles of the two indices.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does `Colorbar(fig[1, 2], hm)` take the heatmap `hm` as an argument?"
+  choices = [
+    "It copies that plot's colormap and color limits",
+    "It moves the heatmap into the colorbar's cell",
+    "It sets the heatmap's colors from the colorbar's settings",
+  ]
+  answer = 1
+  explain = "A colorbar is a legend for a color mapping, and the plot owns that mapping. Linking the two keeps them consistent: change the plot's `colorrange` and the colorbar follows. A `Colorbar` without a plot shows its own default limits, unrelated to the data."
+  misconceptions = [
+    "",
+    "Blocks are placed by the layout index (`fig[1, 2]`); the plot stays in its axis.",
+    "The information flows the other way: the heatmap's `colormap` and `colorrange` decide the colors, and the colorbar displays them.",
+  ]
+
+[[section]]
+title = "Observables, themes and saving files"
+body = '''
+An `Observable` holds a value and a list of listeners. `obs[]` reads it,
+`obs[] = v` replaces it and calls every listener. `lift(f, obs)` (or the
+macro `@lift f($obs)`) makes a new observable that recomputes `f` whenever
+`obs` changes, and `on(f, obs)` runs `f` for its side effect.
+
+Observables are how outside values reach a plot. Pass an observable instead
+of an array and the plot depends on it: assigning a new value updates the
+plot, and Makie recomputes only what depends on that input. In
+GLMakie a slider or a mouse event updates an observable and the window
+follows, which is how Makie does interactivity and animation (`record`
+writes one frame per update). A static CairoMakie figure only renders when
+it is saved or displayed, so here the effect shows in the plot's data, not on
+screen.
+
+A **theme** is a set of default attributes. `with_theme(theme) do ... end`
+applies one to the figures built inside the block; `set_theme!(theme)`
+changes the default for the session. Themes compose: `theme_minimal()`,
+`theme_light()`, `theme_dark()`, or `Theme(fontsize = 14, Axis = (xgridvisible = false,))`.
+
+`save("name.png", fig)` writes a raster image; `.svg` and `.pdf` give vector
+files whose lines stay sharp at any zoom. `px_per_unit = 2` doubles the PNG
+resolution without changing the layout.
+'''
+
+  [[section.example]]
+  caption = "`lift` and `on` react to an assignment; the line plot's data follows the observable."
+  code = '''
+using CairoMakie
+n = Observable(3)
+squares = lift(k -> (1:k) .^ 2, n)
+on(k -> println("n changed to ", k), n)
+fig, ax, plt = lines(squares)
+println("before: ", length(plt[1][]), " points")
+n[] = 5
+println(squares[])
+println("after: ", length(plt[1][]), " points")
+'''
+
+  [[section.example]]
+  caption = "A theme for one figure, saved as PNG and as SVG (both files are shown below). The legend gets its own layout cell, `f[1, 2]`, so it cannot cover the curves."
+  code = '''
+using CairoMakie
+xs = range(0, 10, length = 200)
+fig = with_theme(theme_minimal(); fontsize = 14) do
+    f = Figure(size = (600, 350))
+    ax = Axis(f[1, 1]; xlabel = "t", ylabel = "signal", title = "theme_minimal")
+    for k in 1:3
+        lines!(ax, xs, sin.(xs .+ k); label = "phase $k")
+    end
+    Legend(f[1, 2], ax)
+    f
+end
+save("themed.png", fig)
+save("themed.svg", fig);
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using CairoMakie
+x = Observable(2)
+y = lift(v -> v^2, x)
+x[] = 5
+y[]
+'''
+  choices = ["4", "25", "ERROR: MethodError"]
+  answer = 2
+  explain = "`lift` registers a listener on `x`: assigning `x[] = 5` recomputes `y` immediately, so it holds 25."
+  misconceptions = [
+    "That would be true if `lift` computed the value once. It subscribes to `x` and recomputes on every change.",
+    "",
+    "`x` holds an `Int` and `v^2` works on it; there is no type problem.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why do Makie plots take Observables at all, when CairoMakie output is a static file?"
+  choices = [
+    "Because they make a single CairoMakie render faster",
+    "Because a plain array must be wrapped in one first",
+    "So updates (sliders, animation frames) reach the plot",
+  ]
+  answer = 3
+  explain = "An observable connects a changing input to the plot: a slider in GLMakie, or the loop of `record` that writes one frame per assignment, sets a new value and only the dependent parts are recomputed. The same plotting code then serves a static file and an interactive window. For a static file nothing changes after the first render, which is why plain arrays are fine there."
+  misconceptions = [
+    "A static render draws everything once either way; observables are about updates, not the speed of one render.",
+    "Plain arrays work everywhere (most examples here pass them); an observable is needed only for data that will change.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You call `set_theme!(theme_dark())` at the top of a script and later want one light figure. What is the cleanest way?"
+  choices = [
+    "Build that figure inside `with_theme(theme_light()) do ... end`",
+    "Restart Julia, since a theme cannot be changed after it is set",
+    "Set the background color of every block of that figure by hand",
+  ]
+  answer = 1
+  explain = "`with_theme` applies a theme only to what is built inside the block and restores the previous one afterwards; `set_theme!` changes the session default."
+  misconceptions = [
+    "",
+    "Themes are ordinary values; `set_theme!()` with no argument resets to the default at any time.",
+    "That works, but it is what themes exist to avoid: one theme sets every block's defaults.",
+  ]
+
+[[section]]
+title = "AlgebraOfGraphics: a grammar of graphics on top of Makie"
+body = '''
+Makie asks *how* to draw: which axis, which plot function, which color for
+which series. [AlgebraOfGraphics](https://aog.makie.org/stable/) (AoG,
+version 0.13 here) asks *what the data means*, in the tradition of R's
+ggplot2: a figure is built from a data table, a **mapping** from columns to
+aesthetics (x, y, color, marker, facet), and a **visual** (which Makie plot
+type to use) or an **analysis** (`linear()`, `histogram()`, `density()`)
+that transforms the data first.
+
+The pieces combine with two operators. `*` merges specifications into one
+layer (`data(df) * mapping(:x, :y) * visual(Scatter)`), `+` stacks layers,
+and `*` distributes over `+`, so `mapping(...) * (visual(Scatter) + linear())`
+is a scatter plus a fitted line for every group. `draw(spec)` turns the
+result into a Makie figure, with axis labels from the column names, a legend
+for each grouped aesthetic and one color per group, chosen for you.
+
+Grouping and faceting come from the mapping, not from loops: `color = :drug`
+splits the data by that column; `col = :site`, `row = ...` or `layout = ...`
+draw one axis per value, with shared scales. AoG wants **long** data (one
+row per observation, a column naming the series), which `stack` produces from
+a wide table (unit 21).
+
+Python users will recognise seaborn's `hue=` and `col=`; R users ggplot2's
+`aes()` and `facet_wrap`. Because the output is a Makie figure, everything
+from the previous sections (themes, `save`, adding plots to an axis) still
+applies.
+'''
+
+  [[section.example]]
+  caption = "Scatter plus a linear fit, one color per group: the legend, labels and colors come from the data."
+  code = '''
+using AlgebraOfGraphics, CairoMakie, DataFrames, Random
+rng = Xoshiro(1)
+dose = repeat(1.0:6.0, 2)
+drug = repeat(["A", "B"], inner = 6)
+response = [d * (g == "A" ? 1.0 : 1.6) for (d, g) in zip(dose, drug)] .+ 0.6 .* randn(rng, 12)
+df = DataFrame(; dose, drug, response)
+spec = data(df) * mapping(:dose, :response, color = :drug) * (visual(Scatter) + linear())
+draw(spec; figure = (; size = (600, 350)))
+'''
+
+  [[section.example]]
+  caption = "A wide table stacked into long format, then one facet per column value with `col`."
+  code = '''
+using AlgebraOfGraphics, CairoMakie, DataFrames
+month = 1:12
+wide = DataFrame(month = month,
+                 north = 2 .- 8 .* cos.(2π .* (month .- 1) ./ 12),
+                 south = 18 .+ 6 .* cos.(2π .* (month .- 1) ./ 12),
+                 coast = 12 .- 3 .* cos.(2π .* (month .- 1) ./ 12))
+long = stack(wide, Not(:month); variable_name = :site, value_name = :temp)
+println(first(long, 3))
+spec = data(long) * mapping(:month, :temp => "temperature (°C)", col = :site) * visual(Lines)
+draw(spec; figure = (; size = (600, 300)))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "AoG wants long data. What does this print?"
+  code = '''
+using DataFrames
+wide = DataFrame(x = 1:3, a = [1, 2, 3], b = [4, 5, 6])
+long = stack(wide, [:a, :b])
+nrow(long), names(long)
+'''
+  choices = [
+    "(6, [\"x\", \"variable\", \"value\"])",
+    "(3, [\"x\", \"a\", \"b\"])",
+    "(6, [\"variable\", \"value\"])",
+  ]
+  answer = 1
+  explain = "`stack` makes one row per (row, stacked column) pair: 3 × 2 = 6 rows. Columns not stacked (`x`) are repeated, and the column name and value go into `variable` and `value`."
+  misconceptions = [
+    "",
+    "That is the wide table unchanged; stacking moves the column names into the data.",
+    "The id column `x` is kept and repeated, otherwise you could not plot against it.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "What does `data(df) * mapping(:x, :y, color = :g) * (visual(Scatter) + linear())` describe?"
+  choices = [
+    "A scatter layer and a linear-fit layer, both split by group `g`",
+    "A scatter whose y values are multiplied by a fitted line",
+    "A scatter of `g` against a linear model of `x` and `y`",
+  ]
+  answer = 1
+  explain = "`*` merges specifications and distributes over `+`, so the expression equals `data * mapping * visual(Scatter) + data * mapping * linear()`: two layers on the same data and mapping. The `color = :g` mapping applies to both, giving one fit per group."
+  misconceptions = [
+    "",
+    "`*` is the algebra's merge, not arithmetic on the data: nothing is multiplied numerically.",
+    "`color = :g` maps `g` to color; the axes are still `x` and `y`.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "Nothing is drawn here. What does this print?"
+  code = '''
+using AlgebraOfGraphics, CairoMakie
+single = mapping(:x, :y) * visual(Lines)
+both = mapping(:x, :y) * (visual(Lines) + visual(Scatter))
+typeof(single), typeof(both)
+'''
+  choices = ["(Layer, Layer)", "(Layers, Layers)", "(Layer, Layers)"]
+  answer = 3
+  explain = "`*` merges specifications into a single `Layer`; `+` collects layers into `Layers`, and `*` distributes over it, so `both` holds two layers that share the mapping. `draw` accepts either."
+  misconceptions = [
+    "`+` does not merge two visuals into one layer: each visual stays its own layer, drawn on top of the other.",
+    "A product of specifications with no `+` anywhere is one layer; `Layers` appears only when something is added.",
+    "",
+  ]
+
+[[section]]
+title = "Plots.jl: one interface, several backends"
+body = '''
+[Plots.jl](https://docs.juliaplots.org/stable/) (version 1.41 here) is the
+older of the two big families. It defines one set of functions and keyword
+attributes and hands the drawing to a **backend**: GR (the default, used
+here), PlotlyJS for interactive HTML, PythonPlot (matplotlib), PGFPlotsX for
+LaTeX, UnicodePlots for the terminal. You switch with `gr()`, `plotlyjs()`,
+and the same `plot` call draws with the new backend, within what each backend
+supports.
+
+The style is MATLAB's and pyplot's: `plot(x, y; xlabel = "x", lw = 2)`
+creates a plot, `scatter!(p, ...)` adds to it (or to the current plot when
+`p` is omitted), and `plot(p1, p2; layout = (1, 2))` puts finished plots side
+by side. A **matrix** argument means one series per column, so
+`plot(x, [sin.(x) cos.(x)])` draws two lines; per-series attributes are then
+given as a **row** vector: `label = ["sin" "cos"]` (a column vector would be
+read as one value per point). `savefig(p, "file.png")` writes a file.
+
+**Recipes** are how other packages teach Plots about their types without
+depending on it. The small package RecipesBase provides the `@recipe` macro;
+a recipe says what a value means as plot data and which attribute defaults
+apply, and Plots does the drawing. A **type recipe** converts one argument: "a `Kelvin` is these
+numbers in °C". A **user recipe** describes a whole value: "a `Forecast` is
+its days against its temperatures, with markers". Inside a recipe, `-->`
+sets a default the caller can override and `:=` forces a value. This is why
+`plot(sol)` draws an ODE solution from DifferentialEquations (its recipe
+plots every component against time, with labels), and why, once StatsPlots
+is loaded, `plot(Normal(0, 1))` draws a density: StatsPlots holds the recipes
+for Distributions' types. Makie has its own recipe system (`@recipe` in
+Makie) and does not read these.
+'''
+
+  [[section.example]]
+  caption = "Two series from a matrix (labels as a row vector), then points added with `scatter!`."
+  code = '''
+using Plots
+x = range(0, 2π, length = 100)
+p = plot(x, [sin.(x) cos.(x)]; label = ["sin" "cos"], xlabel = "x", lw = 2, size = (600, 350))
+scatter!(p, [π / 2, π], [1, -1]; label = "marked", ms = 6)
+p
+'''
+
+  [[section.example]]
+  caption = "Finished plots combined with `layout`, written with `savefig`."
+  notice = "Notice the heatmap: Plots puts the matrix rows on the y axis."
+  code = '''
+using Plots
+n = 1:10
+p1 = bar(n, n .^ 2; title = "squares", legend = false)
+p2 = heatmap([i + 10j for i in 1:3, j in 1:8]; title = "i + 10j (3 rows, 8 columns)")
+p = plot(p1, p2; layout = (1, 2), size = (600, 300))
+savefig(p, "panels.png");
+'''
+
+  [[section.example]]
+  caption = "A type recipe (`Kelvin` becomes °C) and a user recipe (`Forecast` with default labels and markers)."
+  code = '''
+using Plots
+struct Kelvin
+    values::Vector{Float64}
+end
+# type recipe: how a Kelvin argument becomes numbers
+@recipe f(::Type{Kelvin}, k::Kelvin) = k.values .- 273.15
+
+struct Forecast
+    days::Vector{Int}
+    temps::Kelvin
+end
+# user recipe: what a Forecast looks like; --> sets defaults the caller can override
+@recipe function f(fc::Forecast)
+    xlabel --> "day"
+    ylabel --> "°C"
+    marker --> :circle
+    label --> "forecast"
+    fc.days, fc.temps
+end
+
+fc = Forecast(1:5, Kelvin([290.1, 291.4, 288.9, 287.5, 289.0]))
+p = plot(fc; color = :red, size = (600, 350))
+println(round.(p[1][1][:y], digits = 2))
+p
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using Plots
+p = plot(1:3, [1 2; 3 4; 5 6])
+length(p.series_list)
+'''
+  choices = ["3", "1", "2"]
+  answer = 3
+  explain = "A matrix argument is one series per **column**: two columns, two lines, each with three points against `1:3`."
+  misconceptions = [
+    "Rows are the points, not the series; three rows means three points per line.",
+    "Plots does not flatten a matrix into one series; each column becomes its own line with its own color.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`plot(x, [a b c]; label = [\"a\", \"b\", \"c\"])` labels the lines wrongly. Why?"
+  choices = [
+    "Labels must be symbols such as `:a`, not strings",
+    "The labels must be a row vector: `[\"a\" \"b\" \"c\"]`",
+    "Plots ignores `label` when y is a matrix of series",
+  ]
+  answer = 2
+  explain = "Series go along the second dimension (columns), so attributes that vary by series must vary along the second dimension too: a 1×3 row vector. A column vector is read as one value per data point."
+  misconceptions = [
+    "Strings are the normal label type; the problem is the shape of the vector.",
+    "",
+    "Labels work with matrices; they have to be laid out like the series, along the columns.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A package defines a `Spectrum` type and wants `plot(s)` to work for Plots users. Why write a recipe with RecipesBase instead of a `plot(s::Spectrum)` method that calls Plots?"
+  choices = [
+    "Recipes are drawn by a faster backend than plain methods",
+    "Julia forbids adding methods to another package's `plot`",
+    "The package then depends on RecipesBase, not on Plots",
+  ]
+  answer = 3
+  explain = "A recipe only describes data and attribute defaults. RecipesBase is small and has no dependencies, so every package can afford it; Plots applies the recipe when the user loads Plots, with any backend, and users can still override every default."
+  misconceptions = [
+    "The drawing is done by the same backend either way; recipes are about dependencies and composability.",
+    "It is allowed (the method is for your own type, so it is not type piracy), but the package would then depend on Plots and every user would load it.",
+    "",
+  ]
+
+[[section]]
+title = "Gadfly: layers, geometries and scales"
+body = '''
+[Gadfly](https://gadflyjl.org/stable/) (version 1.4 here) is the closest
+Julia port of ggplot2 and of the *Grammar of Graphics* book it is based on. A
+plot is a list of **layers**; each layer maps data columns to aesthetics
+(`x = :dose, y = :response, color = :drug`) and draws them with a
+**geometry** (`Geom.point`, `Geom.line`, `Geom.bar`, `Geom.histogram`), after
+optional **statistics** (`Stat.smooth`, binning). **Scales** (`Scale.x_log10`,
+`Scale.color_discrete_manual`) control how values become positions and
+colors, and **guides** (`Guide.xlabel`, `Guide.title`) the annotations.
+
+Gadfly draws with Compose, its own vector graphics library, so its native
+output is SVG; PNG and PDF need Cairo and Fontconfig. `draw(SVG("file.svg",
+16cm, 9cm), p)` writes a file of a given size, and
+`set_default_plot_size(16cm, 9cm)` sets the size for displayed plots.
+
+Compared with AoG: both are grammars of graphics, but Gadfly is
+self-contained (no Makie), and its only interactivity is the zoom and pan of
+its SVGJS backend (SVG with JavaScript, viewed in a browser). AoG inherits
+Makie's layouts, plot types and backends.
+'''
+
+  [[section.example]]
+  caption = "One layer with two geometries and a color mapping; Gadfly renders it as SVG."
+  code = '''
+using Gadfly, DataFrames
+set_default_plot_size(16cm, 9cm)
+df = DataFrame(dose = repeat(1:6, 2),
+               response = [1.1, 2.3, 2.8, 4.2, 5.1, 5.8, 1.9, 3.1, 4.9, 6.2, 8.1, 9.4],
+               drug = repeat(["A", "B"], inner = 6))
+plot(df, x = :dose, y = :response, color = :drug, Geom.point, Geom.line,
+     Guide.xlabel("dose (mg)"), Guide.ylabel("response"),
+     Scale.color_discrete_manual("steelblue", "darkorange"))
+'''
+
+  [[section.example]]
+  caption = "Two layers from different data, a logarithmic y scale, and `draw` to an SVG file of a chosen size."
+  code = '''
+using Gadfly
+n = 1:12
+measured = [3.0, 4.1, 6.8, 9.9, 15.2, 23.0, 33.1, 52.4, 77.0, 118.0, 171.0, 260.0]
+model = 2.0 .* 1.5 .^ n
+p = plot(layer(x = n, y = measured, Geom.point),
+         layer(x = n, y = model, Geom.line, Theme(default_color = "firebrick")),
+         Scale.y_log10, Guide.xlabel("week"), Guide.ylabel("cases (log scale)"),
+         Guide.manual_color_key("", ["measured", "model 2·1.5ⁿ"], ["deepskyblue", "firebrick"]))
+draw(SVG("growth.svg", 16cm, 9cm), p);
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "With only Gadfly loaded (no Cairo), what does this print?"
+  code = '''
+using Gadfly
+p = plot(x = [1, 2, 3], y = [2, 4, 3], Geom.line)
+showable(MIME("image/png"), p), showable(MIME("image/svg+xml"), p)
+'''
+  choices = ["(true, true)", "(false, true)", "(true, false)"]
+  answer = 2
+  explain = "Gadfly draws through Compose, which writes SVG itself; raster formats need the Cairo backend. That is why the course stores Gadfly figures as `.svg`."
+  misconceptions = [
+    "PNG output needs Cairo and Fontconfig loaded; Gadfly alone cannot rasterise.",
+    "",
+    "SVG is Gadfly's native format, the one that always works.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`plot(df, x = :week, y = :cases, Geom.point)` grows exponentially and you want the same points on a logarithmic y axis, with ticks still in cases. What do you change?"
+  choices = [
+    "Plot `y = log10.(df.cases)` with the same geometry",
+    "Add `Guide.ylabel(\"cases (log scale)\")` to the call",
+    "Add `Scale.y_log10` to the call and keep `Geom.point` as it is",
+  ]
+  answer = 3
+  explain = "The grammar separates the mark (a geometry: point, line, bar) from the mapping of values to the page (a scale: linear or log axis, color palette) and from the annotations (guides). A log axis is a scale: the points move, the geometry stays, and the ticks keep data units."
+  misconceptions = [
+    "The points land in the same places, but the axis now shows log10 values (1, 2, 3) instead of cases (10, 100, 1000): the transformation moved into the data, where the ticks cannot know about it.",
+    "A guide only annotates: the label would say \"log scale\" while the axis stays linear.",
+    "",
+  ]
+
+[[section]]
+title = "Choosing a package, and time to first plot"
+body = '''
+What each package offers, for the versions in this environment:
+
+* **Makie** (CairoMakie, GLMakie, WGLMakie): a layout system with nested
+  grids, spanning cells and aligned colorbars and legends (the heatmap and
+  bar chart examples above), 3D, GPU interactivity and animation through
+  observables, and active development. Its interface still changes between
+  minor versions (0.24 moved plot attributes into a new compute graph);
+  check the docs of the version you use.
+* **AlgebraOfGraphics**: the shortest path from a long DataFrame to a grouped,
+  faceted figure with labels and legends; it is Makie underneath, so you can
+  drop down to Makie for details.
+* **Plots.jl**: a long-established interface, many backends, and the recipe
+  system that packages such as DifferentialEquations and StatsPlots (which
+  holds the recipes for Distributions) build on. Layout control is coarser
+  than Makie's: `layout` arranges finished plots in a grid.
+* **Gadfly**: a faithful ggplot2-style grammar with SVG output and few
+  dependencies on the rest of the ecosystem; maintained, but with little new
+  development.
+
+**Time to first plot.** Julia compiles each method the first time it is
+called with new argument types. A plotting package has thousands of methods,
+so the first figure in a fresh process spends most of its time compiling, and
+the second identical figure is fast. Two mechanisms reduce this. Packages
+declare a representative workload with
+[PrecompileTools](https://julialang.github.io/PrecompileTools.jl/stable/)
+(`@compile_workload`), which runs when the package is installed; since Julia
+1.9, **package images** store the native code compiled during that workload
+in the depot, so loading the package loads machine code instead of
+recompiling it. What the workload did not cover is still compiled on first
+use. Further steps are a custom system image built with
+[PackageCompiler](https://julialang.github.io/PackageCompiler.jl/stable/),
+or keeping one session open (with Revise) instead of starting a new process
+per plot. The measurement below shows the effect; its numbers depend on the
+machine, so the example is recorded but not checked.
+'''
+
+  [[section.example]]
+  caption = "Loading CairoMakie, then rendering the same small figure twice in one process. Timings vary: recorded, not checked."
+  check = false
+  code = '''
+t0 = time()
+using CairoMakie
+t_load = time() - t0
+println("load CairoMakie: ", round(t_load; digits = 1), " s")
+render() = colorbuffer(lines(1:10, (1:10) .^ 2; figure = (; size = (300, 200))).figure)
+@time render()   # first render: @time reports the share spent compiling
+@time render();  # the same work again, already compiled
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In one Julia session the first `save(\"a.png\", fig)` takes seconds and the second, for a similar figure, takes milliseconds. Why?"
+  choices = [
+    "The first call wrote a larger, higher-resolution PNG",
+    "Julia cached the image file and the second call copied it",
+    "The first call compiled code that the second one reuses",
+  ]
+  answer = 3
+  explain = "Julia compiles each method the first time it is called with new argument types, and the second call reuses that native code. Package images cover what the package's precompile workload exercised; anything else is compiled the first time you hit it."
+  misconceptions = [
+    "File size is a tiny part of the cost; the same figure saved twice shows the same difference.",
+    "Nothing is cached at the file level: the second figure is rendered from scratch, with code already compiled.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "What do package images (Julia 1.9 and later) store?"
+  choices = [
+    "Pre-rendered images of the plots that the workload drew",
+    "Native code compiled during the package's precompile workload",
+    "Type-inferred code only; native code is generated in each session",
+  ]
+  answer = 2
+  explain = "Package images save the native machine code for the methods compiled while the package precompiled (including its `@compile_workload`), and load it with the package, so methods covered by the workload need no compilation after `using`."
+  misconceptions = [
+    "Nothing graphical is cached; the saving is compiled code, which every figure then reuses.",
+    "",
+    "That was the situation before 1.9: precompile files held inferred code and native code was generated again in every session. Package images add the native code.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You need a publication figure with a heatmap, an aligned colorbar and two inset axes spanning rows, plus a version a colleague can explore with sliders. Which fits best?"
+  choices = [
+    "Gadfly, whose SVGJS output adds zoom and pan in a browser",
+    "Plots.jl, with GR for the file and PlotlyJS for the rest",
+    "Makie: CairoMakie for the file, GLMakie (same code) for the sliders",
+  ]
+  answer = 3
+  explain = "Spanning cells and aligned colorbars are what Makie's layout system is for (the examples above use both), and the same figure code runs interactively in GLMakie, with `Slider` blocks feeding observables."
+  misconceptions = [
+    "Pan and zoom are not controls that change the data, and Gadfly has no layout of independent axes with spanning cells.",
+    "Plots can make the static figure, with coarser layout control, but it has no slider widgets: PlotlyJS adds zoom and hover, and the slider version would be a separate program.",
+    "",
+  ]
+
+[[section]]
+title = "Where to go next"
+body = '''
+Each package does much more than the examples above. Places to look next:
+
+* Makie's [plot reference](https://docs.makie.org/stable/reference/plots/overview)
+  lists every plot type: statistical ones (`hist`, `density`, `boxplot`,
+  `violin`, `qqplot`), fields (`arrows`, `streamplot`), surfaces and volumes
+  in 3D (`surface`, `meshscatter`, `volume`, with `Axis3`), and `text`,
+  `band`, `errorbars`. The
+  [layout tutorial](https://docs.makie.org/stable/tutorials/layout-tutorial)
+  builds a complex figure step by step, and
+  [animations](https://docs.makie.org/stable/explanations/animation) shows
+  `record`. Reach for Makie when you control every axis and cell yourself,
+  or need 3D, animation or interactivity.
+* AoG's examples, such as
+  [histograms](https://aog.makie.org/stable/examples/statistical-analyses/histograms)
+  and [faceting](https://aog.makie.org/stable/examples/layout/faceting),
+  and its [analyses reference](https://aog.makie.org/stable/reference/analyses)
+  (`histogram`, `density`, `frequency`, `expectation`, `smooth`). Reach for
+  AoG when the data is a long table and the figure is "one color per group,
+  one panel per category".
+* Plots.jl: [attributes](https://docs.juliaplots.org/stable/attributes/),
+  [layouts](https://docs.juliaplots.org/stable/layouts/),
+  [recipes](https://docs.juliaplots.org/stable/recipes/), and StatsPlots for
+  `@df df plot(:x, :y)` and the Distributions recipes. Reach for Plots when
+  a package you use ships a recipe (`plot(sol)`), or for a quick line plot
+  with MATLAB-style keywords.
+* Gadfly's [gallery](https://gadflyjl.org/stable/gallery/geometries/) has one
+  example per geometry and statistic. Reach for Gadfly when you want a
+  ggplot2-style grammar with SVG output and no Makie dependency.
+'''
+
+  [[section.example]]
+  caption = "Makie's statistical plots: a normalised histogram with a density, and a boxplot next to a violin."
+  code = '''
+using CairoMakie, Random
+rng = Xoshiro(3)
+a = randn(rng, 500)
+b = 0.7 .* randn(rng, 500) .+ 1
+fig = Figure(size = (600, 350))
+ax1 = Axis(fig[1, 1]; title = "hist and density")
+hist!(ax1, a; bins = 25, normalization = :pdf, color = (:steelblue, 0.5))
+density!(ax1, b; color = (:darkorange, 0.5))
+ax2 = Axis(fig[1, 2]; title = "boxplot and violin", xticks = (1:2, ["a", "b"]))
+boxplot!(ax2, fill(1, 500), a)
+violin!(ax2, fill(2, 500), b)
+fig
+'''
+
+  [[section.example]]
+  caption = "An AoG analysis: `histogram` bins the data per group before drawing."
+  code = '''
+using AlgebraOfGraphics, CairoMakie, DataFrames, Random
+rng = Xoshiro(4)
+df = DataFrame(value = [randn(rng, 300); 1.5 .+ 0.6 .* randn(rng, 300)],
+               group = repeat(["control", "treated"], inner = 300))
+spec = data(df) * mapping(:value, color = :group) * histogram(bins = 30) * visual(alpha = 0.6)
+draw(spec; figure = (; size = (600, 300)))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using CairoMakie
+fig, ax, plt = lines(1:3, [2, 4, 3])
+typeof(ax)
+'''
+  choices = ["Figure", "Axis", "Scene"]
+  answer = 2
+  explain = "A non-mutating plot function returns a `FigureAxisPlot`, which destructures into the new Figure, the Axis it created in `fig[1, 1]`, and the plot."
+  misconceptions = [
+    "The figure is the first of the three values, not the second.",
+    "",
+    "An Axis contains a scene (`ax.scene`), but the value returned is the Axis block.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You want a figure of the distribution of a DataFrame column per group, with one panel per country. Which is the shortest route?"
+  choices = [
+    "Plots.jl: `histogram(df.value; group = df.country)`",
+    "AoG: `color` and `layout` in one mapping, then `histogram()`",
+    "Makie: one `Axis` per country in a loop, plus a `Legend` by hand",
+  ]
+  answer = 2
+  explain = "Grouping, faceting, binning and the legend are all one mapping and one analysis in AoG: `data(df) * mapping(:value, color = :group, layout = :country) * histogram()`. The Makie loop works too, but you write by hand what the grammar derives."
+  misconceptions = [
+    "`group` splits the data into one colored series per country in a single axis: there is no panel per country, and the split by group is lost.",
+    "",
+    "That draws the same figure with more code: the loop, the colors and the legend are what AoG builds from the mapping.",
+  ]
+
+[[problem]]
+id = "makie-panel-row"
+title = "A row of labelled panels"
+difficulty = "warm-up"
+kcs = ["makie", "figure-layout"]
+entry = "panel_row"
+packages = ["CairoMakie"]
+prompt = '''
+Write `panel_row(n, xlabel, ylabel)` that returns a Makie `Figure` with `n`
+axes side by side in row 1 (columns 1 to `n`). Axis `j` has the title
+`"panel j"` (so `"panel 1"`, `"panel 2"`, ...) and the x label `xlabel`;
+only the **first** axis has the y label `ylabel`, and the others have the
+empty y label `""` (they share the first one's, as in a figure where the y
+axes line up). Assume `n >= 1`.
+
+```julia
+fig = panel_row(3, "time (s)", "signal")
+count(c -> c isa Axis, fig.content)   # 3
+size(fig.layout)                      # (1, 3)
+```
+
+The grader inspects the returned Figure (its axes, their labels and their
+cells), not the pixels.
+'''
+starter = '''
+using CairoMakie
+
+function panel_row(n, xlabel, ylabel)
+    fig = Figure()
+    # your code here
+    return fig
+end
+'''
+reference = '''
+using CairoMakie
+
+function panel_row(n, xlabel, ylabel)
+    fig = Figure(size = (250n, 300))
+    for j in 1:n
+        Axis(fig[1, j]; title = "panel $j", xlabel = xlabel, ylabel = j == 1 ? ylabel : "")
+    end
+    return fig
+end
+'''
+cases = ["3, \"time (s)\", \"signal\"", "1, \"x\", \"y\"", "4, \"dose\", \"response\""]
+gen = "rng -> [(rand(rng, 1:5), rand(rng, [\"t\", \"x (m)\", \"dose\"]), rand(rng, [\"y\", \"count\", \"signal\"])) for _ in 1:8]"
+compare = "custom"
+checker = '''
+(got, expected) -> begin
+    cell(a) = (s = a.layoutobservables.gridcontent[].span; (first(s.rows), last(s.rows), first(s.cols), last(s.cols)))
+    axes_of(f) = sort!([(cell(a), a.title[], a.xlabel[], a.ylabel[]) for a in f.content if a isa Axis]; by = first)
+    got isa Figure && size(got.layout) == size(expected.layout) && axes_of(got) == axes_of(expected)
+end
+'''
+hints = [
+  "A layout cell is `fig[row, column]`; creating an `Axis` in a cell places it there, and keyword arguments set its labels.",
+  "Ask, for each panel, which of the two indices of its cell changes from panel to panel, and which of its three labels differs between the first panel and the rest.",
+]
+# No perf section: the time is spent inside Makie building blocks, not in the
+# learner's loop, so a timing verdict would measure Makie, not the solution.
+
+  [[problem.variant]]
+  label = "every axis in fig[1, 1]: they overlap in one cell"
+  code = '''
+using CairoMakie
+function panel_row(n, xlabel, ylabel)
+    fig = Figure()
+    for j in 1:n
+        Axis(fig[1, 1]; title = "panel $j", xlabel = xlabel, ylabel = j == 1 ? ylabel : "")
+    end
+    return fig
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a column instead of a row"
+  code = '''
+using CairoMakie
+function panel_row(n, xlabel, ylabel)
+    fig = Figure()
+    for j in 1:n
+        Axis(fig[j, 1]; title = "panel $j", xlabel = xlabel, ylabel = j == 1 ? ylabel : "")
+    end
+    return fig
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "y label on every axis"
+  code = '''
+using CairoMakie
+function panel_row(n, xlabel, ylabel)
+    fig = Figure()
+    for j in 1:n
+        Axis(fig[1, j]; title = "panel $j", xlabel = xlabel, ylabel = ylabel)
+    end
+    return fig
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "axes first, then labels assigned as observable attributes"
+  code = '''
+using CairoMakie
+function panel_row(n, xlabel, ylabel)
+    fig = Figure()
+    axs = [Axis(fig[1, j]) for j in n:-1:1]
+    for ax in axs
+        col = first(ax.layoutobservables.gridcontent[].span.cols)
+        ax.title = "panel $col"
+        ax.xlabel = xlabel
+    end
+    axs[end].ylabel = ylabel
+    return fig
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "aog-long-format"
+title = "Long format for AlgebraOfGraphics"
+difficulty = "core"
+kcs = ["grammar-of-graphics", "dataframes"]
+entry = "long_format"
+packages = ["DataFrames"]
+prompt = '''
+A sensor log arrives as a wide DataFrame: a column `x` and one column per
+sensor, with `missing` where a sensor had no reading. AlgebraOfGraphics wants
+long data, so write `long_format(df)` returning a new DataFrame with exactly
+the columns `x`, `series` and `y`:
+
+* one row per non-missing reading (rows where the value is `missing` are dropped);
+* `series` is the sensor's column name as a `String`;
+* rows ordered by sensor, in the order of the input's columns, and within a
+  sensor in the input's row order.
+
+Do not modify `df`.
+
+```julia
+df = DataFrame(x = [1, 2, 3], a = [1.0, missing, 3.0], b = [4.0, 5.0, 6.0])
+long_format(df)
+# 5×3 DataFrame: (1, "a", 1.0), (3, "a", 3.0), (1, "b", 4.0), (2, "b", 5.0), (3, "b", 6.0)
+```
+
+The result plugs straight into
+`draw(data(long_format(df)) * mapping(:x, :y, color = :series) * visual(Lines))`.
+'''
+starter = '''
+using DataFrames
+
+function long_format(df)
+    # your code here
+end
+'''
+reference = '''
+using DataFrames
+
+function long_format(df)
+    long = stack(df, Not(:x); variable_name = :series, value_name = :y)
+    return dropmissing!(long, :y)
+end
+'''
+cases = [
+  "DataFrame(x = [1, 2, 3], a = [1.0, missing, 3.0], b = [4.0, 5.0, 6.0])",
+  "DataFrame(x = 1:4, temp = [20.5, 21.0, missing, 22.0], rain = [missing, 1.5, 0.0, missing], wind = [3.0, 3.5, 4.0, 2.5])",
+  "DataFrame(x = [0.5, 1.0], only = [missing, 2.0])",
+]
+gen = "rng -> [(m = rand(rng, 0:12); k = rand(rng, 1:4); (DataFrame([\"x\" => collect(1:m); [string('a' + i) => [rand(rng) < 0.25 ? missing : round(randn(rng); digits = 2) for _ in 1:m] for i in 0:k-1]]),)) for _ in 1:20]"
+compare_args = true
+hints = [
+  "Unit 21's `stack` turns the non-`x` columns into a column of names and a column of values.",
+  "Compare what `stack` returns with the required result: look at the names of its columns and at the rows whose value is `missing`. Both have a fix in DataFrames (a keyword, a function); neither needs a loop.",
+]
+
+  [problem.perf]
+  args = "DataFrame(x = 1:n, a = [rand(rng) < 0.1 ? missing : randn(rng) for _ in 1:n], b = randn(rng, n), c = randn(rng, n))"
+  sizes = [20000]
+
+  [[problem.variant]]
+  label = "keeps the missing readings"
+  code = '''
+using DataFrames
+long_format(df) = stack(df, Not(:x); variable_name = :series, value_name = :y)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "keeps stack's default column names variable and value"
+  code = '''
+using DataFrames
+long_format(df) = dropmissing!(stack(df, Not(:x)), :value)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "drops every row of the wide table that has any missing value"
+  code = '''
+using DataFrames
+long_format(df) = stack(dropmissing(df), Not(:x); variable_name = :series, value_name = :y)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "push! one row at a time, reading df[i, name] dynamically"
+  code = '''
+using DataFrames
+function long_format(df)
+    out = DataFrame(x = eltype(df.x)[], series = String[], y = Float64[])
+    for name in names(df, Not(:x)), i in 1:nrow(df)
+        v = df[i, name]
+        ismissing(v) || push!(out, (df.x[i], name, v))
+    end
+    return out
+end
+'''
+  expect = ["correct", "slow"]
+
+  [[problem.variant]]
+  label = "one small DataFrame per sensor, then vcat"
+  code = '''
+using DataFrames
+function long_format(df)
+    parts = [dropmissing(DataFrame(x = df.x, series = name, y = df[!, name]), :y) for name in names(df, Not(:x))]
+    return reduce(vcat, parts)
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "makie-heatmap-colorbar"
+title = "A heatmap of f(x, y) with its colorbar"
+difficulty = "stretch"
+kcs = ["makie", "figure-layout"]
+entry = "heatmap_figure"
+packages = ["CairoMakie"]
+prompt = '''
+Write `heatmap_figure(f, xs, ys)` returning a Makie `Figure` with
+
+* an `Axis` in `fig[1, 1]` with x label `"x"` and y label `"y"`, containing
+  one heatmap of `f` sampled on the grid: the value at `(xs[i], ys[j])` is
+  `f(xs[i], ys[j])`;
+* a `Colorbar` in `fig[1, 2]` for that heatmap, with label `"f(x, y)"`.
+
+```julia
+fig = heatmap_figure((x, y) -> x + 10y, 1:3, 1:2)
+```
+
+The grader reads the heatmap's data back from the figure and compares it
+with the expected grid, so the orientation of the matrix matters: check it
+on a grid that is not square.
+'''
+starter = '''
+using CairoMakie
+
+function heatmap_figure(f, xs, ys)
+    fig = Figure()
+    # your code here
+    return fig
+end
+'''
+reference = '''
+using CairoMakie
+
+function heatmap_figure(f, xs, ys)
+    fig = Figure(size = (600, 350))
+    ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "y")
+    z = [f(x, y) for x in xs, y in ys]
+    hm = heatmap!(ax, xs, ys, z)
+    Colorbar(fig[1, 2], hm; label = "f(x, y)")
+    return fig
+end
+'''
+cases = [
+  "(x, y) -> x + 10y, 1:3, 1:2",
+  "(x, y) -> sin(x) * cos(y), range(0, 3, length = 7), range(0, 1, length = 4)",
+  "(x, y) -> x * y, 1:2, 1:5",
+]
+gen = "rng -> [(a = rand(rng, 1:5); ((x, y) -> a * x - y^2, range(-1, 1, length = rand(rng, 2:6)), range(0, 2, length = rand(rng, 2:6)))) for _ in 1:6]"
+compare = "custom"
+checker = '''
+(got, expected) -> begin
+    got isa Figure || return false
+    cell(b) = (s = b.layoutobservables.gridcontent[].span; (s.rows, s.cols))
+    function parts(fig)
+        axs = [c for c in fig.content if c isa Axis]
+        cbs = [c for c in fig.content if c isa Colorbar]
+        hms = [p for a in axs for p in a.scene.plots if p isa Heatmap]
+        return axs, cbs, hms
+    end
+    ga, gc, gh = parts(got)
+    ea, ec, eh = parts(expected)
+    length(ga) == 1 && length(gc) == 1 && length(gh) == 1 || return false
+    cell(ga[1]) == cell(ea[1]) && cell(gc[1]) == cell(ec[1]) || return false
+    ga[1].xlabel[] == "x" && ga[1].ylabel[] == "y" && gc[1].label[] == ec[1].label[] || return false
+    # A Colorbar built from a plot takes its limits from it (the data's extrema);
+    # an unlinked one has limits === nothing and shows (0, 1).
+    lg = gc[1].limits[]; le = ec[1].limits[]
+    lg === nothing && return false
+    isapprox(collect(Float64, lg), collect(Float64, le); rtol = 1e-6) || return false
+    zg = gh[1][3][]; ze = eh[1][3][]
+    # Makie stores heatmap values as Float32: compare at single precision
+    size(zg) == size(ze) && isapprox(zg, ze; rtol = 1e-6)
+end
+'''
+hints = [
+  "Makie draws `z[i, j]` at `(xs[i], ys[j])`: the matrix's first index runs along x. Check `size(z)` against `(length(xs), length(ys))` on a grid that is not square.",
+  "A colorbar on its own shows default limits. Look at what the heatmap call returns, and at which `Colorbar` argument tells it whose colors to explain.",
+]
+# No perf section: building a figure is dominated by Makie's own block and
+# plot construction; timing would measure Makie internals, not the learner's
+# grid computation.
+
+  [[problem.variant]]
+  label = "image convention: rows of z are y values (transposed)"
+  code = '''
+using CairoMakie
+function heatmap_figure(f, xs, ys)
+    fig = Figure()
+    ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "y")
+    z = [f(x, y) for y in ys, x in xs]
+    hm = heatmap!(ax, z)
+    Colorbar(fig[1, 2], hm; label = "f(x, y)")
+    return fig
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "colorbar placed below the axis"
+  code = '''
+using CairoMakie
+function heatmap_figure(f, xs, ys)
+    fig = Figure()
+    ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "y")
+    hm = heatmap!(ax, xs, ys, [f(x, y) for x in xs, y in ys])
+    Colorbar(fig[2, 1], hm; label = "f(x, y)", vertical = false)
+    return fig
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "colorbar not linked to the heatmap (default limits)"
+  code = '''
+using CairoMakie
+function heatmap_figure(f, xs, ys)
+    fig = Figure()
+    ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "y")
+    heatmap!(ax, xs, ys, [f(x, y) for x in xs, y in ys])
+    Colorbar(fig[1, 2]; label = "f(x, y)")
+    return fig
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "contourf instead of a heatmap"
+  code = '''
+using CairoMakie
+function heatmap_figure(f, xs, ys)
+    fig = Figure()
+    ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "y")
+    c = contourf!(ax, xs, ys, [f(x, y) for x in xs, y in ys])
+    Colorbar(fig[1, 2], c; label = "f(x, y)")
+    return fig
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "broadcasting f over xs and a transposed ys"
+  code = '''
+using CairoMakie
+function heatmap_figure(f, xs, ys)
+    fig = Figure()
+    ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "y")
+    hm = heatmap!(ax, xs, ys, f.(xs, permutedims(ys)))
+    Colorbar(fig[1, 2], hm; label = "f(x, y)")
+    return fig
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "makie-stacked-panels-bug"
+title = "Fix the stacked panels"
+difficulty = "core"
+kcs = ["makie", "figure-layout"]
+entry = "stacked_panels"
+packages = ["CairoMakie"]
+prompt = '''
+A colleague wrote `stacked_panels(t, ys, names)` to draw several signals
+measured at the same times `t`, one panel per signal. It should return a
+Makie `Figure` where
+
+* there is one `Axis` per signal, stacked in column 1: signal `k` goes in
+  `fig[k, 1]`;
+* axis `k` has the y label `names[k]` and contains exactly one line plot,
+  `ys[k]` against `t`, and nothing else;
+* the x axes of all panels are linked (`linkxaxes!`), so zooming one zooms all.
+
+```julia
+t = range(0, 1, length = 50)
+fig = stacked_panels(t, [sin.(2π .* t), cos.(2π .* t)], ["sin", "cos"])
+```
+
+The code runs without an error and the figure has the right number of
+panels with the right labels, but the drawing is wrong. Find the bug and fix
+it; keep the function's signature. The grader inspects the returned Figure
+(each axis's cell, y label, and the data of the plots it contains), not the
+pixels.
+'''
+starter = '''
+using CairoMakie
+
+function stacked_panels(t, ys, names)
+    fig = Figure(size = (600, 150 * length(ys)))
+    axs = [Axis(fig[k, 1]; ylabel = names[k]) for k in eachindex(ys)]
+    for (k, y) in enumerate(ys)
+        lines!(t, y)
+    end
+    linkxaxes!(axs...)
+    return fig
+end
+'''
+reference = '''
+using CairoMakie
+
+function stacked_panels(t, ys, names)
+    fig = Figure(size = (600, 150 * length(ys)))
+    axs = [Axis(fig[k, 1]; ylabel = names[k]) for k in eachindex(ys)]
+    for (k, y) in enumerate(ys)
+        lines!(axs[k], t, y)
+    end
+    linkxaxes!(axs...)
+    return fig
+end
+'''
+cases = [
+  "range(0, 1, length = 50), [sin.(2π .* range(0, 1, length = 50)), cos.(2π .* range(0, 1, length = 50))], [\"sin\", \"cos\"]",
+  "1:4, [[1.0, 2.0, 3.0, 4.0], [4.0, 3.0, 2.0, 1.0], [0.0, 1.0, 0.0, 1.0]], [\"up\", \"down\", \"zigzag\"]",
+  "[0.0, 0.5, 2.0], [[1.0, -1.0, 1.0]], [\"only\"]",
+]
+gen = "rng -> [(m = rand(rng, 2:8); n = rand(rng, 1:4); (sort(rand(rng, m)), [round.(randn(rng, m); digits = 2) for _ in 1:n], [string(\"s\", k) for k in 1:n])) for _ in 1:6]"
+compare = "custom"
+checker = '''
+(got, expected) -> begin
+    got isa Figure || return false
+    cell(a) = (s = a.layoutobservables.gridcontent[].span; (first(s.rows), last(s.rows), first(s.cols), last(s.cols)))
+    axes_of(f) = sort!([a for a in f.content if a isa Axis]; by = cell)
+    panel(a) = (cell(a), a.ylabel[], length(a.scene.plots), [p[1][] for p in a.scene.plots if p isa Lines])
+    ga = axes_of(got); ea = axes_of(expected)
+    length(ga) == length(ea) || return false
+    all(isequal(panel(g), panel(e)) for (g, e) in zip(ga, ea)) || return false
+    # every axis linked to all the others along x
+    all(a -> length(unique(a.xaxislinks)) == length(ga) - 1, ga)
+end
+'''
+hints = [
+  "Count the plots in each axis of the returned figure (`ax.scene.plots`). Where did the lines go?",
+  "A plotting call with `!` and no axis argument draws into the *current* axis. Which axis is current once the comprehension has finished?",
+]
+# No perf section: the work is Makie building axes and plots; a timing
+# verdict would measure Makie internals, not the learner's fix.
+
+  [[problem.variant]]
+  label = "passes the axis but drops t: plots ys[k] against 1:n"
+  code = '''
+using CairoMakie
+function stacked_panels(t, ys, names)
+    fig = Figure(size = (600, 150 * length(ys)))
+    axs = [Axis(fig[k, 1]; ylabel = names[k]) for k in eachindex(ys)]
+    for (k, y) in enumerate(ys)
+        lines!(axs[k], y)
+    end
+    linkxaxes!(axs...)
+    return fig
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "draws every signal into every axis"
+  code = '''
+using CairoMakie
+function stacked_panels(t, ys, names)
+    fig = Figure(size = (600, 150 * length(ys)))
+    axs = [Axis(fig[k, 1]; ylabel = names[k]) for k in eachindex(ys)]
+    for ax in axs, y in ys
+        lines!(ax, t, y)
+    end
+    linkxaxes!(axs...)
+    return fig
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "forgets to link the x axes"
+  code = '''
+using CairoMakie
+function stacked_panels(t, ys, names)
+    fig = Figure(size = (600, 150 * length(ys)))
+    axs = [Axis(fig[k, 1]; ylabel = names[k]) for k in eachindex(ys)]
+    for (ax, y) in zip(axs, ys)
+        lines!(ax, t, y)
+    end
+    return fig
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "creates each axis with its plot: lines(fig[k, 1], ...; axis = ...)"
+  code = '''
+using CairoMakie
+function stacked_panels(t, ys, names)
+    fig = Figure(size = (600, 150 * length(ys)))
+    axs = Axis[]
+    for k in eachindex(ys)
+        ax, _ = lines(fig[k, 1], t, ys[k]; axis = (; ylabel = names[k]))
+        push!(axs, ax)
+    end
+    linkxaxes!(axs...)
+    return fig
+end
+'''
+  expect = ["correct"]

@@ -1,0 +1,438 @@
+name = "derivcheck"
+package = "DerivCheck"
+env = "calculus"
+status = "ready"
+title = "DerivCheck: does a hand-written gradient agree?"
+summary = "Build a gradient checker: the gradient of a function three ways (symbolically with Symbolics.jl, by forward-mode automatic differentiation with ForwardDiff.jl, and by central differences with a step you derive), then a function that compares a hand-written gradient with AD over a set of points and reports where it is worst. You write the code and the tests, with tolerances you can justify."
+kcs = ["packages", "testing", "symbolic-differentiation", "automatic-differentiation", "finite-differences", "floating-point", "concrete-types"]
+reading = '''
+Prerequisites: course unit 23 (derivatives) and unit 08 (types).
+
+Throughout, a function to differentiate takes one vector and returns a
+number: `f(v) = v[1]^2 * sin(v[2])`. Write it with `v[1]`, `v[2]` and
+generic arithmetic (no `Float64` annotations inside), so the same `f` works
+on Symbolics variables, on ForwardDiff's dual numbers and on plain floats.
+
+Tolerances are part of the work here. Every `≈` in your tests needs an
+`rtol` and a one-line reason in a comment (how many rounded operations, what
+size the values are, what the method's error is). The checker warns on `==`
+between floats inside `@test`.
+'''
+
+[[milestone]]
+id = 0
+title = "A package with a test suite"
+min_score = 1.0
+goal = '''
+Create the package as in the tidy project's milestone 0 (`tutor guided show
+tidy 0` has the full steps): `Pkg.generate("DerivCheck")`, move
+`Project.toml` and `src/` into this folder, run `./tutor guided deps <this
+folder>` from the julia-tutor folder (Symbolics and ForwardDiff), and write
+`test/runtests.jl` with `using DerivCheck, Test` and one check. Also add
+`using LinearAlgebra` to the module if you want `norm` (it is a standard
+library, always available).
+'''
+
+  [[milestone.api]]
+  signature = "module DerivCheck"
+  doc = "Defined in src/DerivCheck.jl."
+
+  [[milestone.behaviour]]
+  id = "package-layout"
+  kc = "packages"
+  spec = "`src/DerivCheck.jl` defines a module named `DerivCheck` that loads without errors."
+  hints = [
+    "A package is a module whose name matches its file name under src/.",
+    "Open src/DerivCheck.jl: its first code line should be `module DerivCheck` and its last `end`.",
+    "If loading fails, the error above names the line; a `using` of a package missing from the environment is the usual cause.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Any check that runs counts here.",
+    "`@test DerivCheck isa Module` is enough for milestone 0.",
+    "Put it inside a `@testset` so the report names it.",
+  ]
+
+[[milestone]]
+id = 1
+title = "Symbolic gradients"
+min_score = 1.0
+must_cover = ["sym-values", "sym-returns-vector", "sym-n-check"]
+goal = '''
+Let Symbolics.jl differentiate `f` exactly, as a formula, and compile the
+formula into a function you can call on numbers.
+'''
+
+  [[milestone.api]]
+  signature = "symbolic_gradient(f, n::Integer) -> Function"
+  doc = "`G = symbolic_gradient(f, n)`; then `G(x)` for a vector `x` of length `n` returns the gradient as a `Vector`."
+
+  [[milestone.behaviour]]
+  id = "sym-values"
+  kc = "symbolic-differentiation"
+  spec = "`symbolic_gradient(f, n)(x)` equals the gradient of `f` at `x` up to rounding, component i being the derivative with respect to `x[i]`."
+  hints = [
+    "Symbolics needs symbolic variables to call `f` on before it can differentiate.",
+    "Make `n` symbolic variables as a vector, call `f` on that vector, and differentiate the expression with respect to the same vector, in order.",
+    "The Symbolics manual's section on variables shows how to make a numbered vector of them in one call, and its derivatives page lists a function that takes an expression and that vector.",
+  ]
+  answer_tokens = ["Symbolics.gradient", "Symbolics.variables"]
+  test_hints = [
+    "Compare with a gradient you worked out by hand.",
+    "Use a function where the two components differ (so a swapped order shows), at two or more points.",
+    "Write your hand-derived gradient as a Julia function and compare with `≈` and a stated `rtol`.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "sym-returns-vector"
+  kc = "symbolic-differentiation"
+  spec = "The returned function gives a `Vector{Float64}` of length `n` for a `Vector{Float64}` input, and can be called many times."
+  hints = [
+    "A symbolic expression is not a function of numbers yet.",
+    "Symbolics can generate a Julia function from expressions (the manual's page on function building); for an array of expressions it returns two versions.",
+    "Of the two, take the one that returns a new array rather than filling one; the same page shows the keyword that gives a compiled function instead of an expression.",
+  ]
+  answer_tokens = ["build_function", "Val(false)"]
+  test_hints = [
+    "Check the type of what the returned function gives back, not only its values.",
+    "`@test G(x) isa Vector{Float64}`.",
+    "Call the same returned function on two different points.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "sym-n-check"
+  kc = "errors"
+  spec = "`n < 1` throws an `ArgumentError`."
+  hints = [
+    "A gradient of a function of no variables is not meaningful; say so early.",
+    "Check the argument at the top of the function and throw the standard exception for a bad argument.",
+    "One line before any symbolic work: if `n` is below 1, throw the exception type Base uses for an invalid argument value, with a message that names `n`.",
+  ]
+  answer_tokens = ["ArgumentError"]
+  test_hints = [
+    "Test the call that should fail.",
+    "`@test_throws` checks that a call throws a given exception type.",
+    "Use `n = 0`.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why does `f(v) = v[1]^2 * sin(v[2])` work on Symbolics variables, on dual numbers and on floats, while `f(v::Vector{Float64}) = ...` works only on floats?"
+  choices = [
+    "The untyped version is generic: `*`, `^` and `sin` have methods for each number type, chosen when `f` is called",
+    "Symbolics rewrites the source code of `f` before calling it",
+    "Untyped functions run slower but accept more input",
+  ]
+  answer = 1
+  explain = "Julia compiles a specialised version of the untyped `f` for each argument type it is called with; the operations inside dispatch to the methods for that type. An annotation `::Vector{Float64}` only restricts which calls are allowed."
+  misconceptions = [
+    "",
+    "Symbolics calls `f` like any other caller would, with a vector of symbolic `Num` values; nothing reads the source.",
+    "The generic `f` is compiled for each concrete argument type and is as fast as the annotated one on floats.",
+  ]
+
+[[milestone]]
+id = 2
+title = "Forward-mode automatic differentiation"
+min_score = 1.0
+must_cover = ["ad-gradient", "ad-jacobian"]
+goal = '''
+Get the same derivatives from ForwardDiff.jl, which pushes dual numbers
+through `f` instead of building a formula. This is the reference that
+milestone 4 compares against, so it must be exact up to rounding.
+'''
+
+  [[milestone.api]]
+  signature = "ad_gradient(f, x::AbstractVector) -> Vector"
+  doc = "The gradient of a scalar `f` at `x`."
+
+  [[milestone.api]]
+  signature = "ad_jacobian(F, x::AbstractVector) -> Matrix"
+  doc = "For a vector-valued `F`: entry (i, j) is the derivative of output i with respect to input j."
+
+  [[milestone.behaviour]]
+  id = "ad-gradient"
+  kc = "automatic-differentiation"
+  spec = "`ad_gradient(f, x)` equals the exact gradient up to rounding (relative 1e-13 on well-scaled examples), unlike a finite-difference approximation."
+  hints = [
+    "Forward-mode AD computes derivatives exactly, up to rounding, by running `f` on dual numbers.",
+    "ForwardDiff has a function for the gradient of a scalar function of a vector.",
+    "The ForwardDiff manual's API page has one function per derivative shape; the one for a scalar of a vector takes `f` and `x` and returns a vector.",
+  ]
+  answer_tokens = ["ForwardDiff.gradient"]
+  test_hints = [
+    "Compare with a hand-derived gradient, with a tight tolerance.",
+    "A tolerance of 1e-6 would also accept a finite-difference approximation; AD is better than that, so test it.",
+    "Use `rtol = 1e-13` with a comment saying why it is safe (a few rounded operations).",
+  ]
+
+  [[milestone.behaviour]]
+  id = "ad-jacobian"
+  kc = "automatic-differentiation"
+  spec = "`ad_jacobian(F, x)` has size (length of F(x), length of x), with entry (i, j) = dF_i/dx_j."
+  hints = [
+    "Think about which index is the output and which is the input.",
+    "Rows are outputs, columns are inputs: a map from 3 inputs to 2 outputs has a 2 × 3 Jacobian.",
+    "ForwardDiff's function for a vector of a vector already follows that convention; if your result is transposed, look for a `'` or a swapped index of your own.",
+  ]
+  answer_tokens = ["ForwardDiff.jacobian"]
+  test_hints = [
+    "Use an `F` whose Jacobian is not square.",
+    "Check `size(J)` and the values of a Jacobian you work out by hand.",
+    "A square, non-symmetric Jacobian catches a transpose too.",
+  ]
+
+  [[milestone.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using ForwardDiff
+f(v) = v[1] * v[2]
+ForwardDiff.gradient(f, [3.0, 4.0])
+'''
+  choices = [
+    """
+2-element Vector{Float64}:
+ 4.0
+ 3.0""",
+    """
+2-element Vector{Float64}:
+ 3.0
+ 4.0""",
+    "12.0",
+  ]
+  answer = 1
+  explain = "The derivative of v1·v2 with respect to v1 is v2 = 4, and with respect to v2 it is v1 = 3."
+  misconceptions = [
+    "",
+    "That is the input. Component i of the gradient is the derivative with respect to v[i]: for a product, the other factor.",
+    "12 is f(x), the value; the gradient is a vector with one entry per input.",
+  ]
+
+[[milestone]]
+id = 3
+title = "Central differences with a derived step"
+min_score = 1.0
+must_cover = ["fd-accuracy", "fd-relative-step", "fd-step-keyword", "fd-no-mutation"]
+goal = '''
+Approximate the gradient by central differences:
+(f(x + s eᵢ) - f(x - s eᵢ)) / 2s for each component i. The step s is the
+whole difficulty. The truncation error grows like s² · |f‴| / 6; the
+rounding error grows like eps · |f| / s. Balance them: s proportional to
+cbrt(eps) ≈ 6e-6, scaled by the size of xᵢ, so that 1e6 and 1e-3 get
+sensible steps. Write the derivation in a comment next to your step.
+'''
+
+  [[milestone.api]]
+  signature = "central_difference(f, x::AbstractVector; h = cbrt(eps(Float64))) -> Vector{Float64}"
+  doc = "Step for component i: h * max(1, abs(x[i])). `x` is not changed (an integer vector is accepted)."
+
+  [[milestone.behaviour]]
+  id = "fd-accuracy"
+  kc = "finite-differences"
+  spec = "On well-scaled smooth functions the result agrees with the exact gradient to a relative 1e-8 (the error is about eps^(2/3))."
+  hints = [
+    "Compare one component with what you get by hand on a simple function, like x³ at x = 1.",
+    "A central difference evaluates `f` on both sides of `x`, at the same distance.",
+    "Check both evaluation points and the denominator: divide by the distance between the two points you evaluated, not by the step itself.",
+  ]
+  answer_tokens = ["2step", "2 * step", "2s"]
+  test_hints = [
+    "Compare with a hand-derived gradient at a few points.",
+    "Use a tolerance that a one-sided difference (error ~ s) would fail but a central one (error ~ s²) passes, and say why in a comment.",
+    "rtol = 1e-8 with the default step works for functions with values and derivatives of size ~1.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "fd-relative-step"
+  kc = "floating-point"
+  spec = "The step scales with |x[i]|: at x = 1e6 the result still agrees to a relative 1e-8."
+  hints = [
+    "At large |x|, `x + s` with a tiny `s` loses most of `s` to rounding.",
+    "The step should be relative to the size of `x[i]`, with a floor for `x[i]` near zero.",
+    "Scale `h` by the size of `x[i]`, but never by less than one: then the step is `h` itself near zero and grows with `x[i]` away from it.",
+  ]
+  answer_tokens = ["max(1", "max(one"]
+  test_hints = [
+    "Test at a point with large components.",
+    "Work out the rounding error eps·|f|/s for an absolute step at x = 1e6 and pick a function where it shows.",
+    "`x³` at `x = 1e6`: an absolute step of 6e-6 loses about 1e-5 relative; a relative step stays near 1e-11.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "fd-step-keyword"
+  kc = "functions"
+  spec = "The keyword `h` sets the relative step factor."
+  hints = [
+    "The keyword argument must actually be used.",
+    "Use `h` where you compute the step, not a constant.",
+    "For a cubic the central difference equals 3x² + s² exactly: a test can tell which `s` was used.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Call with a large `h` and check the effect.",
+    "For `f(v) = v[1]^3` the result is 3x² + s² with s = h · max(1, |x|), up to rounding.",
+    "Use `x = 2.0, h = 0.1` and expect 12.04.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "fd-no-mutation"
+  kc = "mutation"
+  spec = "`x` is the same after the call, and integer vectors are accepted."
+  hints = [
+    "Perturbing `x` in place is fast but changes the caller's vector unless you work on a copy.",
+    "An integer vector cannot hold `x + s` at all.",
+    "Copy `x` into a `Vector{Float64}` once and perturb the copy, restoring each component after use.",
+  ]
+  answer_tokens = ["Vector{Float64}(x)", "float(x)", "copy(x)"]
+  test_hints = [
+    "Check `x` after the call.",
+    "Compare `x` with a copy you made before the call.",
+    "Also call it on `[1, 2]`.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Halving the step of a central difference from 1e-5 to 5e-6 at x = 1 made the error larger. What is going on?"
+  choices = [
+    "Below the optimal step the rounding error, which grows like eps/s, dominates the truncation error",
+    "The function must not be differentiable at x = 1",
+    "Central differences are only first-order accurate",
+  ]
+  answer = 1
+  explain = "The total error is about s²|f'''|/6 + eps|f|/s. It is smallest near s = cbrt(3 eps |f| / |f'''|), about 1e-5 for well-scaled f; below that, smaller steps lose more to rounding than they gain."
+  misconceptions = [
+    "",
+    "A smooth function shows the same behaviour: it comes from floating-point rounding, not from the function.",
+    "Central differences are second-order: the truncation error falls like s². The growth comes from rounding.",
+  ]
+
+[[milestone]]
+id = 4
+title = "The checker"
+min_score = 0.8
+must_cover = ["report-fields", "agreement", "worst-point", "relative-floor", "nan-fails", "empty-points"]
+goal = '''
+Put it together: given `f`, a hand-written gradient `grad` and some points,
+compare `grad(x)` with `ad_gradient(f, x)` at each point and report.
+'''
+
+  [[milestone.api]]
+  signature = "struct GradientReport (fields ok, worst_point, worst_error)"
+  doc = "ok::Bool, worst_point::Vector{Float64}, worst_error::Float64: concrete field types."
+
+  [[milestone.api]]
+  signature = "check_gradient(f, grad, points; rtol = 1e-8) -> GradientReport"
+  doc = "Error at a point: norm(grad(x) - ad) / max(norm(ad), 1). ok when the largest error is at most rtol."
+
+  [[milestone.behaviour]]
+  id = "report-fields"
+  kc = "concrete-types"
+  spec = "`GradientReport` has fields `ok::Bool`, `worst_point::Vector{Float64}`, `worst_error::Float64`, all concrete types."
+  hints = [
+    "A field with an abstract type makes every access to it a dynamic lookup.",
+    "`AbstractVector` and `Real` are abstract; the spec names the concrete types.",
+    "Declare each field with the exact type the spec gives.",
+  ]
+  answer_tokens = ["::Vector{Float64}", "::Float64"]
+  test_hints = [
+    "Test the field types, not only the values.",
+    "`fieldtypes(GradientReport)` lists the declared types; `isconcretetype` checks each.",
+    "`@test all(isconcretetype, fieldtypes(GradientReport))`.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "agreement"
+  kc = "testing"
+  spec = "A correct gradient gives `ok == true` with an error of a few eps; a wrong one gives `ok == false` at the default `rtol`; `ok` uses the `rtol` passed in."
+  hints = [
+    "The comparison against `rtol` decides `ok`.",
+    "Make sure the keyword is what is compared, not a constant.",
+    "Pass a large `rtol` with a slightly wrong gradient: `ok` should become true.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Test a right and a wrong gradient.",
+    "Then call with a large `rtol` and check the wrong gradient passes.",
+    "Pick the wrong gradient's error size so it falls between the two `rtol` values.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "worst-point"
+  kc = "testing"
+  spec = "`worst_point` is the point with the largest error and `worst_error` that error."
+  hints = [
+    "Keep the largest error seen so far and the point it came from.",
+    "Update both only when the current error is larger than the largest so far.",
+    "Start the running maximum below any possible error.",
+  ]
+  answer_tokens = ["-Inf"]
+  test_hints = [
+    "Use a gradient that is wrong at only some points.",
+    "Work out the error at each point by hand and check which one is reported.",
+    "Make the worst point not the first or the only wrong one.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "relative-floor"
+  kc = "floating-point"
+  spec = "Where the true gradient is zero the error is measured absolutely (the denominator is max(norm, 1)), so a correct gradient passes there."
+  hints = [
+    "What does a relative error do when the reference is zero?",
+    "0/0 is NaN and anything else over 0 is Inf: a correct gradient would fail at a minimum.",
+    "Divide by the larger of the reference's norm and 1.",
+  ]
+  answer_tokens = ["max(norm"]
+  test_hints = [
+    "Test at a point where the gradient is zero.",
+    "A minimum of a simple function, like x = 1 for (x - 1)².",
+    "Check both: the right gradient passes there, and one off by 1e-3 does not.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "nan-fails"
+  kc = "floating-point"
+  spec = "A gradient that returns NaN at any point is never `ok`."
+  hints = [
+    "Every comparison with NaN is false.",
+    "`NaN > worst` is false, so a NaN error is never recorded as the worst.",
+    "Turn a NaN error into `Inf` before comparing.",
+  ]
+  answer_tokens = ["isnan"]
+  test_hints = [
+    "Pass a gradient that returns NaN.",
+    "Check `ok` is false.",
+    "Also try NaN at one point only, not the first.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "empty-points"
+  kc = "errors"
+  spec = "An empty list of points throws an `ArgumentError`."
+  hints = [
+    "With no points, what would `ok` mean?",
+    "Check the argument first.",
+    "One line before the loop: when there are no points, throw the exception type Base uses for an invalid argument value, as `symbolic_gradient` does for `n`.",
+  ]
+  answer_tokens = ["isempty"]
+  test_hints = [
+    "Test the call that should fail.",
+    "`@test_throws ArgumentError`.",
+    "An empty vector of vectors: `Vector{Float64}[]`.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why compare the hand-written gradient with ForwardDiff rather than with central differences?"
+  choices = [
+    "AD is exact up to rounding, so a tight tolerance is meaningful; central differences carry an error near 1e-10 that a tight tolerance would flag",
+    "Central differences cannot handle functions of several variables",
+    "ForwardDiff is always faster than two function evaluations per component",
+  ]
+  answer = 1
+  explain = "A checker's tolerance must sit above the reference's own error. AD's error is a few eps, so the checker can use 1e-8 or tighter; with central differences it would have to accept errors near eps^(2/3)."
+  misconceptions = [
+    "",
+    "Central differences work component by component for any number of variables; milestone 3 does exactly that.",
+    "For many inputs forward-mode AD costs about as much as differences; the reason is accuracy, not speed.",
+  ]

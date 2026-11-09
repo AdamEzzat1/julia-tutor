@@ -1,0 +1,414 @@
+id = "09-dispatch"
+title = "Multiple dispatch"
+track = "core"
+env = "base"
+summary = "Functions are sets of methods chosen by the types of all arguments. Replace isa chains with methods, extend Base for your own types, resolve ambiguities, and let promotion handle mixed types."
+kcs = ["multiple-dispatch", "methods", "method-specificity", "extending-base", "method-ambiguity", "promotion-conversion"]
+prerequisites = ["08-types"]
+lessons = ["L01-dispatch"]
+
+[[section]]
+title = "A function is a set of methods"
+body = '''
+Each definition `f(args) = ...` with a different signature adds a
+**method** to the same generic function `f`; it does not replace the previous
+one. `methods(f)` lists them. When you call `f`, Julia picks the most specific
+method that matches the types of the arguments **at run time**. The order in
+which the methods were defined plays no part.
+
+A method with no annotation on an argument accepts `Any`. Methods can also
+differ in the number of arguments.
+'''
+
+  [[section.example]]
+  code = '''
+describe(x) = "something"
+describe(x::Real) = "a real number"
+describe(x::Integer) = "an integer"
+describe(x, y) = "two things"
+println(describe("hi"), ", ", describe(2.5), ", ", describe(3), ", ", describe(1, 2))
+methods(describe)
+'''
+
+[[section]]
+title = "Specificity on all arguments"
+body = '''
+Julia looks at **every** argument, not just the first (a method does not
+belong to the class of its first argument, as in Python or Java). Among the
+methods that match, the one whose signature is a subtype of all the others
+wins. In the example, `(Int, Number)` beats `(Number, Number)` for `(1, 2.0)`,
+and `(Number, Int)` beats it for `(2.0, 1)`.
+
+The types are those of the *values*: a `Vector{Any}` holding `3` still
+dispatches on `Int64`.
+'''
+
+  [[section.example]]
+  code = '''
+combine(x::Number, y::Number) = "numbers"
+combine(x::Int, y::Number) = "int first"
+combine(x::Number, y::Int) = "int second"
+println(combine(1.0, 2.0), " | ", combine(1, 2.0), " | ", combine(2.0, 1))
+items = Any[3, 2.5]
+println(combine(items[1], items[2]))
+'''
+
+[[section]]
+title = "Ambiguity: fix it with the intersection"
+body = '''
+With the three methods above, `combine(1, 2)` matches both `(Int, Number)` and
+`(Number, Int)`, and neither is more specific than the other. Julia does not
+guess: it throws a `MethodError` saying the call is **ambiguous**, and even
+suggests the fix. Reordering the definitions changes nothing. Define a method
+for the intersection, `(Int, Int)`.
+'''
+
+  [[section.example]]
+  code = '''
+combine(x::Number, y::Number) = "numbers"
+combine(x::Int, y::Number) = "int first"
+combine(x::Number, y::Int) = "int second"
+combine(1, 2)
+'''
+
+  [[section.example]]
+  code = '''
+combine(x::Number, y::Number) = "numbers"
+combine(x::Int, y::Number) = "int first"
+combine(x::Number, y::Int) = "int second"
+combine(x::Int, y::Int) = "both ints"
+combine(1, 2)
+'''
+
+[[section]]
+title = "Methods instead of isa chains"
+body = '''
+Code like `if s isa Circle ... elseif s isa Rect ... end` has to be edited
+every time someone adds a shape. With dispatch each type brings its own
+method, and code written against the abstract type (`sum(area, shapes)`) works
+for shapes that did not exist when it was written. A new type only needs new
+methods; nothing else changes.
+'''
+
+  [[section.example]]
+  code = '''
+abstract type Shape end
+struct Circle <: Shape
+    r::Float64
+end
+struct Rect <: Shape
+    w::Float64
+    h::Float64
+end
+area(c::Circle) = π * c.r^2
+area(r::Rect) = r.w * r.h
+
+shapes = Shape[Circle(1), Rect(2, 3)]
+println(round(sum(area, shapes), digits = 4))
+
+struct Square <: Shape        # added later, nothing else edited
+    s::Float64
+end
+area(q::Square) = q.s^2
+push!(shapes, Square(2))
+println(round(sum(area, shapes), digits = 4))
+'''
+
+[[section]]
+title = "Extending Base for your types"
+body = '''
+Base functions are generic functions too, so you add methods to them for your
+own types: `Base.show(io::IO, p::Point)` decides how a value prints (in
+arrays, in `println`, everywhere), and `Base.:+` lets `+`, and therefore
+`sum`, work on your type. Only add methods where at least one argument is
+your own type; adding `Base.:+(::Int, ::String)` would change behaviour for
+everyone ("type piracy").
+
+Equality comes as a set. If you define `==`, define `hash` consistently
+(equal values must have equal hashes), because `Dict` and `Set` use `isequal`
+together with `hash`; `isequal` falls back to `==`. The default `==` on a
+struct compares fields with `===`, which for a `Vector` field means "the same
+array", not "equal contents". In the example the Set still has two elements
+after `==` is defined, until `hash` is defined to match.
+'''
+
+  [[section.example]]
+  code = '''
+struct Point
+    x::Float64
+    y::Float64
+end
+Base.show(io::IO, p::Point) = print(io, "(", p.x, ", ", p.y, ")")
+Base.:+(a::Point, b::Point) = Point(a.x + b.x, a.y + b.y)
+pts = [Point(1, 2), Point(3, 4), Point(0.5, 0)]
+println(Point(1, 2) + Point(3, 4))
+println(sum(pts))
+pts
+'''
+
+  [[section.example]]
+  code = '''
+struct Bag
+    items::Vector{Int}
+end
+println(Bag([1]) == Bag([1]), " ", length(Set([Bag([1]), Bag([1])])))
+Base.:(==)(a::Bag, b::Bag) = a.items == b.items
+println(Bag([1]) == Bag([1]), " ", length(Set([Bag([1]), Bag([1])])))
+Base.hash(b::Bag, h::UInt) = hash(b.items, hash(:Bag, h))
+println(length(Set([Bag([1]), Bag([1])])))
+'''
+
+[[section]]
+title = "Promotion and conversion"
+body = '''
+How does `1 + 2.5` work without a method for every pair of number types?
+Base has a fallback `+(x::Number, y::Number) = +(promote(x, y)...)`:
+`promote` converts its arguments to a common type, chosen by
+`promote_type`, and then the same-type method runs. `convert(T, x)` converts
+one value, and refuses when the value would change (`InexactError`).
+
+The same trick fixes the `Point2(1, 2.5)` error from the types unit: an outer
+constructor that promotes, then calls the parametric one.
+'''
+
+  [[section.example]]
+  code = '''
+println(promote(1, 2.5), " ", promote(1, 2//3), " ", promote_type(Int, Float64))
+println(convert(Float64, 3), " ", convert(Int, 3.0))
+convert(Int, 3.5)
+'''
+
+  [[section.example]]
+  code = '''
+struct Point2{T<:Real}
+    x::T
+    y::T
+end
+Point2(x::Real, y::Real) = Point2(promote(x, y)...)
+Point2(1, 2.5)
+'''
+
+[[problem]]
+id = "describe-by-type"
+title = "Describe a value by its type"
+difficulty = "warm-up"
+kcs = ["multiple-dispatch", "method-specificity"]
+entry = "kind"
+prompt = '''
+Write `kind(x)` returning a `String` that depends on the type of `x`:
+
+* `"boolean"` for `true` / `false`,
+* `"integer"` for any other integer (`3`, `Int8(3)`, `big(3)`),
+* `"float"` for any floating-point number,
+* `"text"` for any string,
+* `"vector of N"` for a vector of length N,
+* `"other"` for anything else (a `Char`, a `Symbol`, a tuple, ...).
+
+```julia
+kind(3)          # "integer"
+kind(true)       # "boolean"
+kind([1, 2])     # "vector of 2"
+```
+
+Try writing one method per case instead of an `if` chain. Look up where
+`Bool` sits in the type tree.
+'''
+starter = '''
+function kind(x)
+    # your code here
+end
+'''
+reference = '''
+kind(x) = "other"
+kind(x::Integer) = "integer"
+kind(x::Bool) = "boolean"
+kind(x::AbstractFloat) = "float"
+kind(x::AbstractString) = "text"
+kind(x::AbstractVector) = "vector of $(length(x))"
+'''
+cases = ["3", "true", "2.5", "\"hi\"", "[1, 2]", "'c'", "Int8(3)", "big(3)", "2.5f0", ":sym", "(1, 2)", "Float64[]", "SubString(\"hello\", 1, 2)", "1:4"]
+hints = [
+  "One method per type family: `kind(x::Integer) = ...` and a fallback `kind(x) = \"other\"`.",
+  "`Bool` is a subtype of `Integer`, so it needs its own, more specific method.",
+]
+
+  [problem.perf]
+  args = "rand(rng, 1:100)"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "forgets that Bool is an Integer"
+  code = '''
+kind(x) = "other"
+kind(x::Integer) = "integer"
+kind(x::AbstractFloat) = "float"
+kind(x::AbstractString) = "text"
+kind(x::AbstractVector) = "vector of $(length(x))"
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "concrete types only (Int, Float64, String, Vector)"
+  code = '''
+kind(x) = "other"
+kind(x::Int) = "integer"
+kind(x::Bool) = "boolean"
+kind(x::Float64) = "float"
+kind(x::String) = "text"
+kind(x::Vector) = "vector of $(length(x))"
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "an isa chain in the right order also works"
+  code = '''
+function kind(x)
+    if x isa Bool
+        return "boolean"
+    elseif x isa Integer
+        return "integer"
+    elseif x isa AbstractFloat
+        return "float"
+    elseif x isa AbstractString
+        return "text"
+    elseif x isa AbstractVector
+        return "vector of $(length(x))"
+    else
+        return "other"
+    end
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "vector2d-path-length"
+title = "A 2-D vector type and the length of a path"
+difficulty = "core"
+kcs = ["extending-base", "structs", "concrete-types"]
+entry = "path_length"
+prompt = '''
+Define a struct `Vec2` for 2-D vectors, give it a `-` method
+(`Base.:-(a::Vec2, b::Vec2)`) and a function `norm2(v::Vec2)` for its
+Euclidean length. Then write `path_length(xs, ys)` returning the total length
+of the polyline through the points `(xs[i], ys[i])` in order, as a `Float64`,
+using your type: the sum of `norm2(p[i] - p[i-1])`. A path of 0 or 1 points
+has length 0.0.
+
+```julia
+path_length([0.0, 3.0, 3.0], [0.0, 4.0, 0.0])   # 5.0 + 4.0 = 9.0
+```
+
+The grader times your function on 20 000 points and checks memory and type
+stability.
+'''
+starter = '''
+struct Vec2
+    # two fields
+end
+
+function path_length(xs, ys)
+    # your code here
+end
+'''
+reference = '''
+struct Vec2
+    x::Float64
+    y::Float64
+end
+Base.:-(a::Vec2, b::Vec2) = Vec2(a.x - b.x, a.y - b.y)
+norm2(v::Vec2) = sqrt(v.x^2 + v.y^2)
+
+function path_length(xs, ys)
+    total = 0.0
+    for i in 2:length(xs)
+        total += norm2(Vec2(xs[i], ys[i]) - Vec2(xs[i-1], ys[i-1]))
+    end
+    return total
+end
+'''
+cases = ["[0.0, 3.0, 3.0], [0.0, 4.0, 0.0]", "Float64[], Float64[]", "[1.0], [2.0]", "[0.0, 1.0, 0.0], [0.0, 0.0, 0.0]"]
+gen = "rng -> [(n = rand(rng, 0:10); (randn(rng, n), randn(rng, n))) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "Make `Vec2` a plain immutable struct with concrete field types; building one costs nothing then.",
+  "Loop `for i in 2:length(xs)` and construct the two points on the fly; arrays of points or `diff` allocate.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n), randn(rng, n)"
+  sizes = [20000]
+
+  [[problem.variant]]
+  label = "sums squared lengths (no sqrt)"
+  code = '''
+struct Vec2
+    x::Float64
+    y::Float64
+end
+Base.:-(a::Vec2, b::Vec2) = Vec2(a.x - b.x, a.y - b.y)
+function path_length(xs, ys)
+    total = 0.0
+    for i in 2:length(xs)
+        d = Vec2(xs[i], ys[i]) - Vec2(xs[i-1], ys[i-1])
+        total += d.x^2 + d.y^2
+    end
+    return total
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "an array of points and diff"
+  code = '''
+struct Vec2
+    x::Float64
+    y::Float64
+end
+Base.:-(a::Vec2, b::Vec2) = Vec2(a.x - b.x, a.y - b.y)
+norm2(v::Vec2) = sqrt(v.x^2 + v.y^2)
+function path_length(xs, ys)
+    pts = Vec2.(xs, ys)
+    return sum(norm2, diff(pts); init = 0.0)
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "untyped fields, points stored in a vector"
+  code = '''
+struct Vec2
+    x
+    y
+end
+Base.:-(a::Vec2, b::Vec2) = Vec2(a.x - b.x, a.y - b.y)
+norm2(v::Vec2) = sqrt(v.x^2 + v.y^2)
+function path_length(xs, ys)
+    pts = [Vec2(x, y) for (x, y) in zip(xs, ys)]
+    total = 0.0
+    for i in 2:length(pts)
+        total += norm2(pts[i] - pts[i-1])
+    end
+    return total
+end
+'''
+  expect = ["correct", "unstable", "allocates", "slow"]
+
+  [[problem.variant]]
+  label = "parametric Vec2{T} and hypot"
+  code = '''
+struct Vec2{T<:Real}
+    x::T
+    y::T
+end
+Base.:-(a::Vec2, b::Vec2) = Vec2(a.x - b.x, a.y - b.y)
+norm2(v::Vec2) = hypot(v.x, v.y)
+function path_length(xs, ys)
+    total = 0.0
+    for i in 2:length(xs)
+        total += norm2(Vec2(xs[i], ys[i]) - Vec2(xs[i-1], ys[i-1]))
+    end
+    return total
+end
+'''
+  expect = ["correct"]

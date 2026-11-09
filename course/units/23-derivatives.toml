@@ -1,0 +1,1416 @@
+id = "23-derivatives"
+title = "Derivatives three ways: ForwardDiff.jl and Symbolics.jl"
+track = "ecosystem"
+env = "calculus"
+status = "ready"
+summary = "Finite differences and their two kinds of error, forward-mode automatic differentiation with dual numbers (by hand, then with ForwardDiff.jl), what a function must look like for AD to work, the cost of forward mode in many inputs, and symbolic differentiation and code generation with Symbolics.jl."
+kcs = ["finite-differences", "dual-numbers", "forward-mode-ad", "generic-code-for-ad", "symbolic-differentiation", "code-generation"]
+prerequisites = ["15-generic-programming"]
+
+[[section]]
+title = "Three ways to get a derivative"
+body = '''
+There are three ways to have a computer produce the derivative of `f`:
+
+* **Finite differences** evaluate `f` at nearby points and divide:
+  `(f(x + h) - f(x)) / h` (forward) or `(f(x + h) - f(x - h)) / 2h`
+  (central). They need nothing but values of `f`, so they work on any black
+  box. They are approximations, with two errors pulling in opposite
+  directions. **Truncation error** comes from the Taylor terms the formula
+  drops: it is proportional to `h` for the forward formula and to `h^2` for
+  the central one, so a smaller `h` helps. **Round-off error** comes from
+  subtracting two nearly equal values of `f`: each carries a relative error
+  of about `eps() ≈ 2.2e-16`, and dividing by `h` amplifies it to about
+  `eps() * |f| / h`, so a smaller `h` hurts. The best `h` balances the two:
+  near `sqrt(eps()) ≈ 1e-8` for the forward formula (error around `1e-8`) and
+  near `cbrt(eps()) ≈ 6e-6` for the central one (error around `1e-11`).
+* **Automatic differentiation (AD)** applies the chain rule to every
+  elementary operation the program executes (`+`, `*`, `sin`, `exp`, ...).
+  There is no step size: the result is the exact derivative of the
+  computation, up to the rounding of the operations themselves. It works
+  through loops, branches and function calls.
+* **Symbolic differentiation** manipulates the formula and returns a formula:
+  `d/dx x^2 sin(x) = 2x sin(x) + x^2 cos(x)`. It gives exact derivatives you
+  can read, simplify and turn into code, but it needs `f` as an expression,
+  and expressions can grow large.
+
+Use finite differences when `f` is code you cannot change or see into (a C
+library, an external simulator), or to cross-check an AD result. Use AD for
+derivatives of Julia code at points: gradients for optimization, Jacobians
+for Newton's method. Use symbolic differentiation when you want the formula
+itself, or code generated from it. In Python terms: `scipy.optimize.approx_fprime`,
+JAX or PyTorch, and SymPy; in MATLAB, `gradient`, `dlgradient` and the
+Symbolic Math Toolbox's `diff`.
+'''
+
+  [[section.example]]
+  caption = "The error of both difference formulas for d/dx sin(x) at x = 1, as h shrinks."
+  code = '''
+using Printf
+f(x) = sin(x)
+exact = cos(1.0)
+println("    h    forward  central")
+for k in 1:2:15
+    h = 10.0^-k
+    fwd = (f(1.0 + h) - f(1.0)) / h
+    cen = (f(1.0 + h) - f(1.0 - h)) / (2h)
+    @printf("1e-%02d  %.1e  %.1e\n", k, abs(fwd - exact), abs(cen - exact))
+end
+'''
+
+  [[section.example]]
+  caption = "Forward-mode AD on the same function: no step size."
+  code = '''
+using ForwardDiff
+ForwardDiff.derivative(sin, 1.0) - cos(1.0)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In the table, the forward-difference error falls until `h = 1e-7` and then grows again as `h` gets smaller. Why does it grow?"
+  choices = [
+    "Truncation error grows, because the dropped Taylor terms are divided by an ever smaller `h`",
+    "Round-off: the two values of `f` share most digits, and dividing by `h` magnifies what is left",
+    "Julia stores numbers below `1e-8` with fewer significant bits, so `h` itself is inexact",
+  ]
+  answer = 2
+  explain = "`f(1 + h)` and `f(1)` agree in almost every digit, so their difference keeps mostly rounding noise. Round-off error is about `eps() * |f| / h`: it grows as `h` shrinks, while truncation error (about `h * |f''| / 2`) shrinks. Below the balance point the round-off term dominates."
+  misconceptions = [
+    "Truncation error is proportional to `h` (or `h^2`): it shrinks with `h`. It is the error that dominates on the left of the table, where `h` is large.",
+    "",
+    "Every value here is a `Float64` with the same 53-bit significand. Small numbers lose nothing; the subtraction of two nearly equal numbers does.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+h = 1e-20
+(sin(1.0 + h) - sin(1.0)) / h
+'''
+  choices = ["0.5403023058681398", "NaN", "0.0"]
+  answer = 3
+  explain = "`1.0 + 1e-20` rounds to `1.0` (the spacing of floats near 1 is `eps() ≈ 2.2e-16`), so the numerator is exactly zero."
+  misconceptions = [
+    "That is `cos(1.0)`, the exact derivative. A step far below `eps()` cannot reach it: `1.0 + h == 1.0`.",
+    "`NaN` comes from `0/0`. Here the numerator is `0.0` but `h` is not zero, so the result is `0.0`.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You need the derivative of a function that calls a compiled C library through `ccall`. Which method works?"
+  choices = [
+    "Finite differences",
+    "ForwardDiff, since it handles any Julia function",
+    "Symbolics, by tracing the function with symbolic variables",
+  ]
+  answer = 1
+  explain = "Finite differences only need values of `f`. AD and symbolic tracing both need to run Julia code on their own number types, and a C function only accepts machine floats."
+  misconceptions = [
+    "",
+    "ForwardDiff passes dual numbers through Julia code. A C function takes a `Cdouble`: the dual number cannot cross that boundary.",
+    "Tracing works by running Julia methods on symbolic values; C code never sees them, it needs a concrete `Float64`.",
+  ]
+
+[[section]]
+title = "Dual numbers: forward-mode AD by hand"
+body = '''
+Forward-mode AD rests on one idea. Extend each number `a` to a pair
+`a + a′ε`, with the rule `ε² = 0`. Then for any smooth `f`,
+`f(a + ε) = f(a) + f′(a)ε`: the Taylor terms of order two and higher vanish,
+and the `ε` coefficient is the derivative. These pairs are **dual numbers**.
+
+Each operation needs a rule for both parts, and the rules are the familiar
+ones from calculus: `(a, a′) + (b, b′) = (a + b, a′ + b′)`, the product rule
+`(a, a′) * (b, b′) = (ab, a′b + ab′)`, and the chain rule
+`sin(a, a′) = (sin a, cos(a) a′)`. Start with `(x, 1)` (the **seed**: dx/dx = 1),
+run the program, and the result is `(f(x), f′(x))`.
+
+In Julia this is a struct and a few methods. Because a function like
+`f(x) = 3x * x + sin(x)` has no type annotations, Julia compiles a version of
+it for the new type, and each `*` and `sin` dispatches to the dual rules.
+Constants such as `3` become duals with derivative 0 through promotion (unit
+15). This is what ForwardDiff.jl does, with more operations, many partial
+derivatives at once, and care for performance.
+'''
+
+  [[section.example]]
+  caption = "A dual number in eight lines, run through a function written without derivatives in mind."
+  code = '''
+struct Dual <: Number
+    v::Float64   # value
+    d::Float64   # derivative
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.v + b.v, a.d + b.d)
+Base.:*(a::Dual, b::Dual) = Dual(a.v * b.v, a.d * b.v + a.v * b.d)
+Base.sin(a::Dual) = Dual(sin(a.v), cos(a.v) * a.d)
+Base.convert(::Type{Dual}, x::Real) = Dual(x, 0.0)
+Base.promote_rule(::Type{Dual}, ::Type{<:Real}) = Dual
+
+f(x) = 3x * x + sin(x)
+y = f(Dual(2.0, 1.0))
+println("f(2)  = ", y.v, " (direct: ", f(2.0), ")")
+println("f'(2) = ", y.d, " (by hand: ", 6 * 2.0 + cos(2.0), ")")
+'''
+
+  [[section.example]]
+  caption = "ForwardDiff's own Dual follows the same rules."
+  code = '''
+using ForwardDiff
+d = ForwardDiff.Dual(2.0, 1.0)
+println(d)
+println(sin(d))
+println(cos(2.0))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "With the hand-written `Dual` from the first example, what does this print?"
+  code = '''
+struct Dual <: Number
+    v::Float64
+    d::Float64
+end
+Base.:*(a::Dual, b::Dual) = Dual(a.v * b.v, a.d * b.v + a.v * b.d)
+g(x) = x * x * x
+y = g(Dual(2.0, 0.0))
+(y.v, y.d)
+'''
+  choices = ["(8.0, 12.0)", "(8.0, 0.0)", "(12.0, 0.0)"]
+  answer = 2
+  explain = "The seed is the derivative of the input with respect to the variable you differentiate by. Seeding with 0 says the input does not vary, so every derivative part stays 0."
+  misconceptions = [
+    "12.0 is g'(2), but only with the seed `Dual(2.0, 1.0)`. With seed 0 the product rule adds zeros.",
+    "",
+    "The first part is the value `g(2) = 8`, computed exactly as for a plain number.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does `f(x) = 3x * x + sin(x)` work on the `Dual` type without any change to `f`?"
+  choices = [
+    "Julia converts the `Dual` argument to `Float64` before calling `f`, then rebuilds the derivative part from the result",
+    "Julia compiles `f` for `Dual`, and each `*`, `+` and `sin` inside dispatches to the `Dual` methods",
+    "Declaring `Dual <: Number` makes Julia apply the chain rule to every function called on a `Dual`",
+  ]
+  answer = 2
+  explain = "Generic code plus multiple dispatch: `f` says nothing about types, so the same source runs on `Float64`, `Dual` or any other number type that has `*`, `+` and `sin`."
+  misconceptions = [
+    "Nothing converts the argument: if it did, the derivative part would be lost. `f` really runs on `Dual` values.",
+    "",
+    "Subtyping `Number` provides fallbacks (such as promotion for `3x`), but the derivative rules are the methods we wrote. Without `Base.sin(::Dual)` the call fails.",
+  ]
+
+[[section]]
+title = "ForwardDiff: derivative, gradient, jacobian, hessian"
+body = '''
+ForwardDiff.jl (version 1.4 here) packages the dual-number idea with four
+entry points:
+
+* `ForwardDiff.derivative(f, x)` for `f: ℝ → ℝ` (or `ℝ → ℝᵐ`).
+* `ForwardDiff.gradient(f, x)` for `f: ℝⁿ → ℝ`; `x` is a vector, and the
+  result is the vector of partial derivatives.
+* `ForwardDiff.jacobian(f, x)` for `f: ℝⁿ → ℝᵐ`; the result is the `m × n`
+  matrix whose row `i` is the gradient of output `i`.
+* `ForwardDiff.hessian(f, x)` for `f: ℝⁿ → ℝ`: the matrix of second
+  derivatives, computed as the Jacobian of the gradient (dual numbers whose
+  parts are dual numbers).
+
+For a gradient, each `Dual` carries a whole tuple of partial derivatives,
+one per input, so one evaluation of `f` can produce several partials at
+once. The type `Dual{Tag, Float64, N}` records `N`, the number of partials,
+and a **tag** naming the function being differentiated. Tags keep the
+perturbations of nested calls apart (a derivative inside a derivative), so
+nested calls give correct results. JAX users will recognize `jacfwd` and
+`hessian`.
+
+All four have in-place forms (`gradient!`, `jacobian!`, ...) that write into
+a preallocated result, for use in loops.
+'''
+
+  [[section.example]]
+  caption = "Gradient and Hessian of the Rosenbrock function at (-1.2, 1) and at its minimum (1, 1)."
+  code = '''
+using ForwardDiff
+rosen(v) = (1 - v[1])^2 + 100 * (v[2] - v[1]^2)^2
+println(ForwardDiff.gradient(rosen, [-1.2, 1.0]))
+println(ForwardDiff.hessian(rosen, [-1.2, 1.0]))
+println(ForwardDiff.gradient(rosen, [1.0, 1.0]))
+'''
+
+  [[section.example]]
+  caption = "The Jacobian of polar-to-Cartesian coordinates; its determinant is r."
+  code = '''
+using ForwardDiff, LinearAlgebra
+polar(v) = [v[1] * cos(v[2]), v[1] * sin(v[2])]
+J = ForwardDiff.jacobian(polar, [2.0, 0.5])
+println(round.(J, digits = 6))
+det(J)
+'''
+
+  [[section.example]]
+  caption = "Nesting: the derivative of a derivative."
+  code = '''
+using ForwardDiff
+dsin(x) = ForwardDiff.derivative(sin, x)
+(ForwardDiff.derivative(dsin, 1.0), -sin(1.0))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using ForwardDiff
+println(ForwardDiff.gradient(v -> v[1] * v[2]^2, [3.0, 2.0]))
+'''
+  choices = ["[12.0, 4.0]", "12.0", "[4.0, 12.0]"]
+  answer = 3
+  explain = "∂/∂v₁ (v₁v₂²) = v₂² = 4 and ∂/∂v₂ = 2v₁v₂ = 12, in the order of the inputs."
+  misconceptions = [
+    "These are the right partials in the wrong order: entry `i` of the gradient is the derivative with respect to input `i`.",
+    "12 is one partial; `gradient` returns one partial per input, as a vector the size of `x`.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using ForwardDiff
+size(ForwardDiff.jacobian(v -> [sum(v), prod(v)], [1.0, 2.0, 3.0]))
+'''
+  choices = ["(3, 2)", "(2, 3)", "(6,)"]
+  answer = 2
+  explain = "Two outputs, three inputs: the Jacobian has one row per output and one column per input."
+  misconceptions = [
+    "That is the transpose. Row `i` of the Jacobian is the gradient of output `i`, so there are as many rows as outputs.",
+    "",
+    "`jacobian` returns a matrix, not a flattened vector of all partials.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does each ForwardDiff dual type carry a tag such as `Tag{typeof(f), Float64}`?"
+  choices = [
+    "To keep apart the perturbations of nested calls, such as a derivative taken inside a derivative",
+    "To record the operations of `f`, so that ForwardDiff can replay them backwards for a gradient",
+    "To cache each function's derivative under its name, so a repeated call costs nothing",
+  ]
+  answer = 1
+  explain = "In `derivative(x -> x * derivative(y -> x + y, 1.0), 1.0)` the inner and outer calls each add a perturbation. Without distinct tags, the inner call could treat the outer perturbation as its own (perturbation confusion) and return a wrong derivative."
+  misconceptions = [
+    "",
+    "ForwardDiff is forward mode only: it never records operations to replay backwards. That is what reverse-mode tools (Zygote, Enzyme, ReverseDiff) do.",
+    "ForwardDiff caches nothing between calls; the tag is part of the number's type, used by dispatch.",
+  ]
+
+[[section]]
+title = "Generic code: what ForwardDiff needs from your function"
+body = '''
+ForwardDiff calls your function with `Dual` numbers (or an array of them).
+Anything that insists on `Float64` breaks it:
+
+* **Argument annotations**: `f(x::Float64)` or `f(v::Vector{Float64})` have
+  no method for a `Dual` argument: `MethodError: no method matching f(::Dual{...})`.
+  Annotate with `Real` or `AbstractVector{<:Real}`, or not at all.
+* **Preallocated `Float64` buffers**: `buf = zeros(n)` followed by
+  `buf[i] = v[i]^2` must convert a `Dual` to `Float64` to store it, and
+  fails with `MethodError: no method matching Float64(::Dual{...})`. Allocate
+  with the input's element type: `zeros(eltype(v), n)` or `similar(v)`.
+* **Explicit conversions** such as `Float64(x)` fail the same way, and
+  calling code outside Julia (C, Fortran) cannot take a `Dual` at all.
+
+A variable is different from a container slot. `s = 0.0; s += v[i]^2`
+rebinds `s` to a `Dual`, so it works, but `s` has type
+`Union{Float64, Dual}` inside the loop: correct and type-unstable (unit 14).
+`s = zero(eltype(v))` gives `s` the right type from the start.
+
+The rule is the one from unit 15: write code against the abstract type
+(`Real`, `AbstractArray`) and take concrete types from the arguments. Code
+written that way works for `Float64`, `Float32`, `BigFloat`, dual numbers and
+symbolic variables alike. (The examples print only the first line of each
+error: the full message also lists candidate methods.)
+'''
+
+  [[section.example]]
+  caption = "Two functions that cannot be differentiated, and why."
+  code = '''
+using ForwardDiff
+firstline(err) = first(split(sprint(showerror, err), '\n'))
+
+area(r::Float64) = pi * r^2
+try
+    ForwardDiff.derivative(area, 2.0)
+catch err
+    println(firstline(err))
+end
+
+function sumsq(v)
+    buf = zeros(length(v))          # a Float64 buffer
+    for i in eachindex(v)
+        buf[i] = v[i]^2
+    end
+    return sum(buf)
+end
+try
+    ForwardDiff.gradient(sumsq, [1.0, 2.0])
+catch err
+    println(firstline(err))
+end
+'''
+
+  [[section.example]]
+  caption = "The generic versions: the same code, with types taken from the argument."
+  code = '''
+using ForwardDiff
+area(r::Real) = pi * r^2
+function sumsq(v::AbstractVector{<:Real})
+    buf = zeros(eltype(v), length(v))
+    for i in eachindex(v)
+        buf[i] = v[i]^2
+    end
+    return sum(buf)
+end
+println(ForwardDiff.derivative(area, 2.0), "  ", 4pi)
+println(ForwardDiff.gradient(sumsq, [1.0, 2.0]))
+println(sumsq(Float32[1, 2]), " ", typeof(sumsq(Float32[1, 2])))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Which version of `sumsq` can `ForwardDiff.gradient` differentiate?"
+  choices = [
+    "`sumsq(v::Vector{Float64}) = sum(x -> x^2, v)`",
+    "One that fills `buf = zeros(length(v))` and returns `sum(buf)`",
+    "One that fills `buf = similar(v)` and returns `sum(buf)`",
+  ]
+  answer = 3
+  explain = "`similar(v)` has the element type of `v`, so it holds duals when `v` does. The other two force `Float64`: one in the signature, one in the buffer."
+  misconceptions = [
+    "The body is generic, but the signature only accepts `Vector{Float64}`; ForwardDiff passes a `Vector` of duals, which matches no method.",
+    "`zeros(n)` is a `Vector{Float64}`; storing a dual in it calls `Float64(::Dual)`, which has no method.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "`ForwardDiff.value` returns the plain value part of a dual. What does this print?"
+  code = '''
+using ForwardDiff
+h(x) = ForwardDiff.value(x)^2
+ForwardDiff.derivative(h, 3.0)
+'''
+  choices = ["6.0", "0.0", "9.0"]
+  answer = 2
+  explain = "Taking the value strips the derivative part, so `h` returns a plain `Float64` and ForwardDiff sees a result that does not depend on its perturbation: derivative 0, without an error."
+  misconceptions = [
+    "6.0 is d/dx x² at 3, which you get from `h(x) = x^2`. Dropping to the value inside the function cuts the chain rule.",
+    "",
+    "9.0 is the value h(3); `derivative` returns the derivative part.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A function differentiated by ForwardDiff starts with `s = 0.0` and then does `s += v[i]^2` in a loop. What happens?"
+  choices = [
+    "A `MethodError`, because `s` was created as a `Float64` and cannot hold a dual",
+    "A correct derivative, but `s` changes type in the loop (type-unstable)",
+    "A silent derivative of 0, because `s` stores each dual as a `Float64`",
+  ]
+  answer = 2
+  explain = "`s += ...` makes `s` refer to a new value, a `Dual`; nothing is converted. Inference gives `s` the type `Union{Float64, Dual}`, which costs speed; `s = zero(eltype(v))` fixes it."
+  misconceptions = [
+    "Only a container slot (an array element, a typed field) converts on assignment. A local variable is just a name and can be rebound to a value of another type.",
+    "",
+    "The duals flow through `s` correctly; the derivative is lost only if the code extracts plain values, for example with `ForwardDiff.value`.",
+  ]
+
+[[section]]
+title = "The cost of forward mode, and reverse mode"
+body = '''
+A dual number carries one partial derivative per direction it tracks. A
+gradient with `n` inputs needs all `n` directions, and ForwardDiff carries
+them in **chunks**: by default at most 12 partials per dual
+(`ForwardDiff.pickchunksize(n)`), so it evaluates `f` about `n / 12` times,
+each evaluation doing the arithmetic of `f` plus extra work for every
+partial it carries. The cost of a gradient therefore grows in proportion to `n` times
+the cost of `f`. For a Jacobian of `f: ℝⁿ → ℝᵐ`, forward mode costs in
+proportion to `n` (the inputs), whatever `m` is.
+
+You can set the chunk size with a config object,
+`ForwardDiff.GradientConfig(f, x, ForwardDiff.Chunk{4}())`, passed as the
+third argument. A larger chunk means fewer evaluations of `f` but wider duals
+(more memory per number). Without a config, ForwardDiff uses all `n`
+partials when `n` is at most 12, and otherwise splits the `n` partials into
+chunks of at most 12 each.
+
+**Reverse mode** (backpropagation) runs `f` once forward while recording
+the operations, then once backward from the output, accumulating the
+derivative of the output with respect to every intermediate value. A
+gradient then costs a small constant multiple of the cost of `f`, whatever
+`n` is, in exchange for storing the intermediate values. In Julia the
+reverse-mode tools are [Zygote.jl](https://fluxml.ai/Zygote.jl/stable/)
+(used by Flux), [Enzyme.jl](https://enzyme.mit.edu/julia/stable/)
+(differentiates at the LLVM level) and ReverseDiff.jl; they are not
+installed in this environment.
+[DifferentiationInterface.jl](https://juliadiff.org/DifferentiationInterface.jl/DifferentiationInterface/stable/)
+gives them all one API so you can switch backends.
+
+The choice: forward mode for few inputs, or more outputs than inputs (a
+Jacobian of a small system, a derivative along one direction); reverse mode
+for a scalar loss of many parameters (neural networks, large fits).
+'''
+
+  [[section.example]]
+  caption = "Counting the evaluations of f that one gradient costs."
+  code = '''
+using ForwardDiff
+calls = Ref(0)
+counted(v) = (calls[] += 1; sum(abs2, v))
+for n in (1, 10, 100, 1000)
+    calls[] = 0
+    ForwardDiff.gradient(counted, ones(n))
+    println(n, " inputs: ", calls[], " evaluations, chunk size ", ForwardDiff.pickchunksize(n))
+end
+calls[] = 0
+cfg = ForwardDiff.GradientConfig(counted, ones(100), ForwardDiff.Chunk{1}())
+ForwardDiff.gradient(counted, ones(100), cfg)
+println("100 inputs, chunk 1: ", calls[], " evaluations")
+'''
+
+  [[section.example]]
+  caption = "Time of a gradient divided by the time of f (machine-dependent, so not checked)."
+  check = false
+  code = '''
+using ForwardDiff
+f(v) = sum(x -> x^2 + sin(x), v)
+for n in (16, 160, 1600)
+    v = collect(range(0, 1, length = n))
+    f(v); ForwardDiff.gradient(f, v)                 # compile first
+    t_f = minimum(@elapsed(f(v)) for _ in 1:2000)
+    t_g = minimum(@elapsed(ForwardDiff.gradient(f, v)) for _ in 1:20)
+    println(n, " inputs: one gradient costs about ", round(Int, t_g / t_f), " evaluations of f")
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "With the `counted` function from the first example, how many evaluations does a gradient with 13 inputs cost?"
+  code = '''
+using ForwardDiff
+calls = Ref(0)
+counted(v) = (calls[] += 1; sum(abs2, v))
+ForwardDiff.gradient(counted, ones(13))
+calls[]
+'''
+  choices = ["1", "13", "2"]
+  answer = 3
+  explain = "13 partials do not fit in one chunk of at most 12, so ForwardDiff splits them into two chunks (of 7 and 6) and evaluates `f` twice."
+  misconceptions = [
+    "One evaluation would need a dual with 13 partials; the default chunk size is capped at 12.",
+    "13 evaluations is chunk size 1, one direction per call, like a finite-difference gradient. ForwardDiff carries several partials per dual.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You need the gradient of a scalar loss with respect to a million neural-network weights. Which method fits?"
+  choices = [
+    "Reverse mode (Zygote or Enzyme)",
+    "ForwardDiff with a large chunk size",
+    "Central finite differences",
+    "Symbolics.jl, then `build_function`",
+  ]
+  answer = 1
+  explain = "One output, many inputs: reverse mode gets the whole gradient for a small multiple of one evaluation of the loss."
+  misconceptions = [
+    "",
+    "Forward mode costs in proportion to the number of inputs: a million partials means on the order of a million / chunk evaluations, each with wide duals.",
+    "Two million evaluations of the loss, and each partial has an error around `1e-11` at best.",
+    "A symbolic expression for a deep network's gradient grows very large; symbolic methods are for formulas, not for millions of parameters.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`f` maps 2 inputs to 1000 outputs, and you need its Jacobian. Which mode costs less?"
+  choices = [
+    "Reverse mode, because it is always cheaper",
+    "Forward mode, because its cost grows with the number of inputs",
+    "They cost the same, because the Jacobian has the same 2000 entries either way",
+  ]
+  answer = 2
+  explain = "Forward mode gets one column of the Jacobian per input direction (2 here, in one chunk). Reverse mode gets one row per output: 1000 backward passes."
+  misconceptions = [
+    "Reverse mode is cheaper for few outputs. With 1000 outputs it needs 1000 backward passes, one per row.",
+    "",
+    "The number of entries is the same, but forward mode fills a whole column per pass and reverse mode a whole row, so the shape decides the cost.",
+  ]
+
+[[section]]
+title = "Symbolics.jl: variables and expressions"
+body = '''
+Symbolics.jl (version 7.48 here) is a computer algebra system written in
+Julia. `@variables x y` creates symbolic variables, of type `Num`. `Num` is a
+subtype of `Real`, so the generic-code trick from the dual numbers applies
+again: running ordinary Julia code on `Num` values builds an **expression
+tree** (an operation with arguments, such as `sin` applied to `x`) instead of
+a number. Arithmetic is normalized as the tree is built: like terms are
+collected (`x + x` becomes `2x`), and constants are multiplied out.
+
+`simplify(e)` applies a set of rewrite rules (from SymbolicUtils.jl, the
+term-rewriting engine underneath) until no rule changes the expression any
+more. It does not multiply out powers of sums unless asked:
+`simplify(e; expand = true)`. A simplifier is not a decision procedure: two
+expressions can be equal for every `x` while `simplify` leaves their
+difference in a form that is not visibly 0, so test equality numerically
+too when it matters.
+
+`substitute(e, Dict(x => 1.0))` replaces variables by values. Calls such
+as `sin(1.0)` stay in the tree unless you pass `fold = Val(true)`, and
+`Symbolics.value` turns the resulting `Num` into a plain `Float64`.
+
+SymPy users will find the same ideas: `symbols`, `simplify`, `expand`,
+`subs`. The difference is that Symbolics expressions are built by running
+Julia code, so any generic Julia function can produce one.
+'''
+
+  [[section.example]]
+  caption = "Ordinary code on symbolic variables builds expressions."
+  code = '''
+using Symbolics
+@variables x y
+p(t) = 3t^2 + 2t + 1          # an ordinary Julia function
+println(p(x))
+println(x + x + y * x - x * y)
+println(typeof(p(x)), " ", p(x) isa Real)
+'''
+
+  [[section.example]]
+  caption = "`simplify` with and without expansion."
+  code = '''
+using Symbolics
+@variables x
+e = (x + 1)^2 - (x^2 + 2x + 1)
+println(simplify(e))
+println(simplify(e; expand = true))
+println(simplify(sin(x)^2 + cos(x)^2))
+'''
+
+  [[section.example]]
+  caption = "Substituting values, then folding to a number."
+  code = '''
+using Symbolics
+@variables x y
+e = x^2 * sin(x) + 3x * y
+println(substitute(e, Dict(x => 1.0, y => 2.0)))
+v = substitute(e, Dict(x => 1.0, y => 2.0); fold = Val(true))
+println(Symbolics.value(v), " ", typeof(Symbolics.value(v)))
+println(1.0^2 * sin(1.0) + 3 * 1.0 * 2.0)
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using Symbolics: Symbolics, @variables
+@variables x
+println(x + x + 3x)
+'''
+  choices = ["x + x + 3x", "5x", "5"]
+  answer = 2
+  explain = "Symbolics collects like terms as it builds a sum, so the expression is already `5x` before any call to `simplify`."
+  misconceptions = [
+    "Sums and products are normalized on construction; only rules such as trigonometric identities wait for `simplify`.",
+    "",
+    "`x` is a variable with no value; the result is an expression in `x`, not a number.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`simplify((x + 1)^2 - (x^2 + 2x + 1))` does not return `0`. Why?"
+  choices = [
+    "The two expressions differ for some values of `x`, so the difference is not identically 0",
+    "Floating-point rounding in the coefficients 2 and 1 leaves a tiny remainder",
+    "By default `simplify` does not expand `(x + 1)^2`, so nothing cancels",
+  ]
+  answer = 3
+  explain = "Without expansion, `(x + 1)^2` is a power of a sum, a different tree from `x^2 + 2x + 1`. With `expand = true`, both become sums of monomials and cancel to 0."
+  misconceptions = [
+    "They are equal for every `x` (expand the square). The simplifier's rules, not the mathematics, decide what it finds.",
+    "The coefficients here are exact integers; symbolic arithmetic on them does not round.",
+    "",
+  ]
+
+[[section]]
+title = "Symbolic derivatives and code generation"
+body = '''
+`Symbolics.derivative(e, x)` returns the derivative as an expression.
+The operator form, `D = Differential(x)`, builds `D(e)`, a **lazy**
+derivative term that stays unevaluated (useful when writing equations, such
+as `D(u) ~ -u` for an ODE); `expand_derivatives(D(e))` applies the
+differentiation rules. `Symbolics.jacobian(exprs, vars)` and
+`Symbolics.hessian(e, vars)` give matrices of expressions.
+
+These are exact formulas: no step size, no rounding until you evaluate. The
+price is **expression swell**: the derivative of a long nested expression can
+be much larger than the expression, while AD only ever handles numbers.
+
+`build_function(e, x, y)` turns an expression into Julia code (an `Expr`
+defining a function of `x` and `y`); `eval` compiles it. With
+`expression = Val(false)` you get a callable directly. The generated
+function is ordinary Julia with no symbolic overhead: evaluating it costs
+what the formula costs, and it is itself generic, so ForwardDiff can
+differentiate it. This is how ModelingToolkit (below) produces fast ODE
+right-hand sides and their Jacobians. SymPy's counterpart is `lambdify`;
+MATLAB's is `matlabFunction`.
+'''
+
+  [[section.example]]
+  caption = "Two ways to differentiate an expression."
+  code = '''
+using Symbolics
+@variables x y
+e = x^2 * sin(x) + 3x * y
+println(Symbolics.derivative(e, x))
+D = Differential(x)
+println(D(e))
+println(expand_derivatives(D(e)))
+'''
+
+  [[section.example]]
+  caption = "A symbolic Jacobian (compare the ForwardDiff example in section 3)."
+  code = '''
+using Symbolics
+@variables r θ
+J = Symbolics.jacobian([r * cos(θ), r * sin(θ)], [r, θ])
+println(J)
+println(simplify(J[1, 1] * J[2, 2] - J[1, 2] * J[2, 1]))
+'''
+
+  [[section.example]]
+  caption = "From expression to compiled function, checked against ForwardDiff."
+  code = '''
+using Symbolics, ForwardDiff
+@variables x
+e = x^2 * sin(x)
+de = Symbolics.derivative(e, x)
+fexpr = build_function(de, x)
+println(fexpr isa Expr)
+df = eval(fexpr)
+println(df(1.0))
+println(ForwardDiff.derivative(t -> t^2 * sin(t), 1.0))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using Symbolics: Symbolics, @variables
+@variables x
+println(Symbolics.derivative(x^3, x))
+'''
+  choices = ["3x", "x^3", "3(x^2)"]
+  answer = 3
+  explain = "d/dx x³ = 3x²; Symbolics prints the power in parentheses."
+  misconceptions = [
+    "The exponent goes down by one, not to 1: 3x² is the derivative of x³.",
+    "That is the expression itself. `Symbolics.derivative` differentiates immediately; the lazy form is `Differential(x)(x^3)`.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "With `D = Differential(x)`, what is `D(x^2)` before you call `expand_derivatives`?"
+  choices = [
+    "An unevaluated derivative term, which prints as `Differential(x, 1)(x^2)`",
+    "The expression `2x`, the same result `Symbolics.derivative` gives",
+    "A function of `x` that returns the slope when called at a point",
+  ]
+  answer = 1
+  explain = "`Differential` builds a term that means \"the derivative of this\". Keeping it lazy lets you write equations such as `D(u) ~ -u`; `expand_derivatives` evaluates it."
+  misconceptions = [
+    "",
+    "That is `expand_derivatives(D(x^2))` or `Symbolics.derivative(x^2, x)`. `D(...)` only wraps its argument.",
+    "`D(x^2)` is an expression like any other; to get a callable, pass an expression to `build_function`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You need the symbolic derivative's value at a million points. What should you do?"
+  choices = [
+    "Call `substitute(e, Dict(x => p); fold = Val(true))` for each point `p`",
+    "Compile it once with `build_function`, then call the result at each point",
+    "Re-derive with `Symbolics.derivative` at each point, then substitute",
+  ]
+  answer = 2
+  explain = "`build_function` compiles the formula once into plain Julia code. `substitute` walks and rebuilds the expression tree at every call, which costs far more than the arithmetic."
+  misconceptions = [
+    "`substitute` is fine for a few values, but each call traverses the tree and allocates new terms.",
+    "",
+    "The derivative does not depend on the point; derive once, compile once, evaluate many times.",
+  ]
+
+[[section]]
+title = "Where to go next"
+body = '''
+A few more things these packages do, each a starting point:
+
+* **AD differentiates the code path taken.** At a branch or a kink,
+  ForwardDiff returns the derivative of the branch that ran, not a
+  mathematical subgradient or a warning. Keep this in mind when your
+  function has `abs`, `max`, `if` or a clamp and is evaluated exactly at
+  the switch.
+* **Other number types.** ForwardDiff works with any `Real` element type the
+  function accepts, such as `BigFloat` for high-precision derivatives.
+  Reach for this when you need to check a `Float64` derivative against a
+  more accurate one.
+* **Sparsity detection.** `Symbolics.jacobian_sparsity(exprs, vars)` returns
+  which entries of a Jacobian can be nonzero, by tracing the expressions.
+  Solvers use the pattern to compute a sparse Jacobian with a few AD passes
+  by grouping columns that share no row (matrix coloring). Reach for this
+  when a system has many unknowns but each equation involves only a few.
+* **Algebra.** Symbolics also solves linear equations
+  (`symbolic_linear_solve`), computes Taylor polynomials (`taylor`), and
+  works with arrays of variables (`@variables u[1:3]`). Reach for this when
+  you want a closed-form result to read or to turn into code.
+* **Modeling.** [ModelingToolkit.jl](https://docs.sciml.ai/ModelingToolkit/stable/)
+  builds on Symbolics: you write a model as symbolic equations, and it
+  simplifies them and generates the ODE code, Jacobians and sparsity patterns
+  for the DifferentialEquations solvers. Reach for this when you write a
+  physical model as equations and want the solver code generated from them.
+
+Optimization (unit 25) uses ForwardDiff to supply the gradients for Optim.jl.
+
+Documentation: [ForwardDiff.jl](https://juliadiff.org/ForwardDiff.jl/stable/)
+(read the "Limitations" page), [Symbolics.jl](https://docs.sciml.ai/Symbolics/stable/),
+and [JuliaDiff](https://juliadiff.org/) for the list of AD packages.
+'''
+
+  [[section.example]]
+  caption = "AD follows the branch: abs at 0, and a high-precision derivative."
+  notice = "Notice that `abs` reports slope 1 at `0.0` and slope -1 at `-0.0`: the sign bit picks the branch, although both zeros are the same point."
+  code = '''
+using ForwardDiff
+println(ForwardDiff.derivative(abs, 0.0))
+println(ForwardDiff.derivative(abs, -0.0))
+println(ForwardDiff.derivative(x -> exp(x) / x, big"1.5"))
+'''
+
+  [[section.example]]
+  caption = "Which Jacobian entries can be nonzero."
+  code = '''
+using Symbolics
+@variables x y z
+pattern = Symbolics.jacobian_sparsity([x^2, x * y, sin(z)], [x, y, z])
+Matrix(pattern)
+'''
+
+  [[section.example]]
+  caption = "Solving a linear equation and a Taylor polynomial."
+  code = '''
+using Symbolics
+@variables x
+println(symbolic_linear_solve(2x + 3 ~ 7, x))
+println(Symbolics.taylor(exp(x), x, 0, 0:3))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`relu(x) = max(x, 0.0)` has a kink at 0. What can you say in advance about `ForwardDiff.derivative(relu, 0.0)`?"
+  choices = [
+    "It is 0.5, the average of the slopes 0 and 1 on the two sides of the kink",
+    "It is `NaN`, because ForwardDiff detects that `max` has no derivative at a tie",
+    "It is 0.0 or 1.0: the slope of whichever argument `max` returns at the tie",
+    "It throws an error, because ForwardDiff refuses to differentiate at a kink",
+  ]
+  answer = 3
+  explain = "AD reports the derivative of the code path that ran. At `x = 0.0` the two arguments of `max` are equal, and which one it returns (with its derivative part) is an implementation detail of `max` for duals. Away from the tie the answer is clear: slope 0 at `-1.0`, slope 1 at `1.0`. Do not rely on the value at the kink itself."
+  misconceptions = [
+    "AD never averages one-sided slopes: it differentiates the operations executed, and one branch of `max` ran.",
+    "AD does not detect kinks; it returns the derivative of the branch taken, a plain number.",
+    "",
+    "ForwardDiff gives no error or warning at a kink; it differentiates whatever code ran.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "What is a Jacobian sparsity pattern from `Symbolics.jacobian_sparsity` used for?"
+  choices = [
+    "Computing a sparse Jacobian in few AD passes, by grouping columns that share no row",
+    "Making a finite-difference Jacobian exact, by computing its nonzero entries symbolically",
+    "Replacing the Jacobian at points where the function is not differentiable, such as kinks",
+  ]
+  answer = 1
+  explain = "Columns with disjoint nonzero rows can be perturbed together in one pass (one forward-mode direction), so a banded Jacobian of any size needs only as many passes as the band is wide."
+  misconceptions = [
+    "",
+    "The pattern says where nonzeros can be, not their values; exactness comes from AD or symbolic differentiation.",
+    "A pattern only describes structure. A non-differentiable point is still non-differentiable.",
+  ]
+
+[[problem]]
+id = "dual-horner"
+title = "A dual number for polynomials"
+difficulty = "warm-up"
+kcs = ["dual-numbers", "forward-mode-ad"]
+entry = "value_and_slope"
+packages = ["ForwardDiff"]
+prompt = '''
+Without ForwardDiff, write your own tiny dual number type (a struct with a value
+and a derivative, plus `+` and `*` methods) and use it to evaluate a
+polynomial and its derivative in one pass of Horner's rule.
+
+`value_and_slope(coeffs, x)` takes the coefficients in ascending order,
+`p(x) = coeffs[1] + coeffs[2]*x + coeffs[3]*x^2 + ...`, and returns the tuple
+`(p(x), p′(x))` of `Float64`s. An empty `coeffs` is the zero polynomial.
+
+```julia
+value_and_slope([1.0, 2.0, 3.0], 2.0)   # (17.0, 14.0): p = 1 + 2x + 3x², p′ = 2 + 6x
+value_and_slope([5.0], 3.0)             # (5.0, 0.0)
+```
+
+Horner's rule is `acc = 0; for c in reverse(coeffs); acc = acc * x + c; end`.
+Run that loop with `x` replaced by a dual number seeded with derivative 1.
+The grader measures speed on a polynomial of 10,000 terms.
+'''
+starter = '''
+# Define your dual number type here.
+
+function value_and_slope(coeffs, x)
+    # your code here
+end
+'''
+reference = '''
+struct Dual
+    v::Float64   # value
+    d::Float64   # derivative
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.v + b.v, a.d + b.d)
+Base.:*(a::Dual, b::Dual) = Dual(a.v * b.v, a.d * b.v + a.v * b.d)
+
+function value_and_slope(coeffs, x)
+    t = Dual(x, 1.0)              # seed: dx/dx = 1
+    acc = Dual(0.0, 0.0)
+    for c in Iterators.reverse(coeffs)
+        acc = acc * t + Dual(c, 0.0)   # constants have derivative 0
+    end
+    return (acc.v, acc.d)
+end
+'''
+cases = ["[1.0, 2.0, 3.0], 2.0", "[5.0], 3.0", "Float64[], 2.0", "[0.0, 0.0, 0.0, 1.0], -1.5", "[2.0, -3.0, 0.0, 0.5, 1.0], 0.5"]
+# Coefficients are small integers and x a multiple of 1/2, so p(x) and p'(x)
+# are exact in Float64 for every evaluation order (degree <= 8, |values| < 2^30
+# with denominators <= 2^8). rtol = 1e-12 only absorbs reordering on other inputs.
+gen = "rng -> [(Float64.(rand(rng, -5:5, rand(rng, 0:9))), rand(rng, -6:6) / 2) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "A dual number is a pair (value, derivative). The product needs the product rule: what is the derivative part of (a, a′) * (b, b′)?",
+  "What derivative part does a constant coefficient have, and what does the variable have? The accumulator starts as the zero polynomial.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n), 0.5"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "product rule drops a term"
+  code = '''
+struct Dual
+    v::Float64
+    d::Float64
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.v + b.v, a.d + b.d)
+Base.:*(a::Dual, b::Dual) = Dual(a.v * b.v, a.d * b.v)
+function value_and_slope(coeffs, x)
+    t = Dual(x, 1.0)
+    acc = Dual(0.0, 0.0)
+    for c in Iterators.reverse(coeffs)
+        acc = acc * t + Dual(c, 0.0)
+    end
+    return (acc.v, acc.d)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "seeds the variable with derivative 0"
+  code = '''
+struct Dual
+    v::Float64
+    d::Float64
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.v + b.v, a.d + b.d)
+Base.:*(a::Dual, b::Dual) = Dual(a.v * b.v, a.d * b.v + a.v * b.d)
+function value_and_slope(coeffs, x)
+    t = Dual(x, 0.0)
+    acc = Dual(0.0, 0.0)
+    for c in Iterators.reverse(coeffs)
+        acc = acc * t + Dual(c, 0.0)
+    end
+    return (acc.v, acc.d)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "no dual: differentiates the coefficients into a new vector"
+  code = '''
+function horner(coeffs, x)
+    acc = 0.0
+    for c in Iterators.reverse(coeffs)
+        acc = acc * x + c
+    end
+    return acc
+end
+function value_and_slope(coeffs, x)
+    dcoeffs = [i * coeffs[i + 1] for i in 1:length(coeffs) - 1]
+    return (horner(coeffs, x), horner(dcoeffs, x))
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "a parametric dual with promotion, used through generic Horner"
+  code = '''
+struct Dual{T<:Real} <: Number
+    v::T
+    d::T
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.v + b.v, a.d + b.d)
+Base.:*(a::Dual, b::Dual) = Dual(a.v * b.v, a.d * b.v + a.v * b.d)
+Base.convert(::Type{Dual{T}}, x::Real) where {T} = Dual(T(x), zero(T))
+Base.promote_rule(::Type{Dual{T}}, ::Type{S}) where {T, S<:Real} = Dual{promote_type(T, S)}
+horner(coeffs, x) = foldr((c, acc) -> acc * x + c, coeffs; init = zero(x))
+function value_and_slope(coeffs, x)
+    y = horner(coeffs, Dual(x, one(x)))
+    return (y.v, y.d)
+end
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "no dual: Horner for p and p' side by side"
+  code = '''
+function value_and_slope(coeffs, x)
+    p, dp = 0.0, 0.0
+    for c in Iterators.reverse(coeffs)
+        dp = dp * x + p
+        p = p * x + c
+    end
+    return (p, dp)
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "newton-step-forwarddiff"
+title = "Newton's method with ForwardDiff"
+difficulty = "core"
+kcs = ["forward-mode-ad"]
+entry = "newton_minimize"
+packages = ["ForwardDiff"]
+prompt = '''
+Newton's method for minimizing a smooth `f: ℝⁿ → ℝ` moves from `x` to
+
+    x_new = x - H(x) \ g(x)
+
+where `g` is the gradient and `H` the Hessian of `f` at `x`. Write
+`newton_minimize(f, x0, tol, maxiter)` that iterates this step from `x0`,
+with both derivatives from ForwardDiff, and returns the tuple `(x, k)`: the
+final point (a `Vector{Float64}`) and the number of Newton steps taken (an
+`Int`).
+
+* Before each step, compute the gradient at the current point. If its norm
+  (`norm` from LinearAlgebra) is below `tol`, stop and return.
+* Take at most `maxiter` steps. If the gradient is still not small after
+  `maxiter` steps, return the point reached and `maxiter`.
+* A starting point that already satisfies the test returns `(x0, 0)`.
+
+Solving with `\` is preferred to `inv(H) * g` (one factorization, better
+accuracy); both pass here.
+
+```julia
+newton_minimize(v -> (v[1] - 1)^2 + 2(v[2] + 3)^2, [0.0, 0.0], 1e-10, 20)  # ([1.0, -3.0], 1): exact in one step for a quadratic
+newton_minimize(v -> sum(abs2, v), [0.0, 0.0], 1e-12, 10)                  # ([0.0, 0.0], 0)
+newton_minimize(v -> (1 - v[1])^2 + 100(v[2] - v[1]^2)^2, [-1.2, 1.0], 1e-6, 2)  # stops after 2 steps
+```
+
+The grader measures the time on a function of 12 inputs.
+'''
+starter = '''
+using ForwardDiff, LinearAlgebra
+
+function newton_minimize(f, x0, tol, maxiter)
+    # your code here
+end
+'''
+reference = '''
+using ForwardDiff, LinearAlgebra
+
+function newton_minimize(f, x0, tol, maxiter)
+    x = x0
+    for k in 0:maxiter - 1
+        g = ForwardDiff.gradient(f, x)
+        norm(g) < tol && return (x, k)
+        x = x - ForwardDiff.hessian(f, x) \ g
+    end
+    return (x, maxiter)
+end
+'''
+cases = [
+  "v -> (v[1] - 1)^2 + 2(v[2] + 3)^2, [0.0, 0.0], 1e-10, 20",
+  "v -> sum(abs2, v), [0.0, 0.0], 1e-12, 10",
+  "v -> (1 - v[1])^2 + 100(v[2] - v[1]^2)^2, [-1.2, 1.0], 1e-6, 50",
+  "v -> (1 - v[1])^2 + 100(v[2] - v[1]^2)^2, [-1.2, 1.0], 1e-6, 2",
+  "v -> sum(exp, v) - sum(v), [1.0, -0.5, 2.0], 1e-10, 50",
+]
+# The gradient and Hessian from AD are accurate to a few ulps. Every Hessian in
+# the cases and in gen is well conditioned: for gen, H = A' diag(exp(Av)) A + 2I
+# with |A_ij| <= 1 has eigenvalues >= 2 and cond(H) < 100 near the minimizer;
+# the Rosenbrock Hessian has cond(H) about 2500 at the minimizer. A
+# backward-stable solve then errs by about cond(H) * eps < 1e-12 relative per
+# step; inv(H) * g and the other correct variants stay far inside rtol = 1e-8.
+# The step counts are compared exactly (rtol on an Int), so no gradient norm
+# along a path may sit near tol. Measured before recording: the closest norm
+# to tol is a factor 8.6 away for Rosenbrock at tol = 1e-6 (norms 8.6e-6, then
+# 8.3e-9), 3.3 for the exp case, and 1.29 (0.11 decades) over the 15 gen cases
+# at the grader's seed. Correct variants change g by about cond(H) * eps * |H|
+# ~ 1e-13 absolute, far below those gaps. tol = 1e-6 for gen and Rosenbrock
+# keeps that roundoff six orders below tol (at 1e-10, a few of 3000 random gen
+# cases came within 0.05% of tol).
+gen = "rng -> [(A = 2 .* rand(rng, 3, 3) .- 1; (v -> sum(exp, A * v) + sum(abs2, v), 2 .* rand(rng, 3) .- 1, 1e-6, 30)) for _ in 1:15]"
+compare = "isapprox"
+rtol = 1e-8
+hints = [
+  "Each iteration needs the gradient (for the stopping test and the step) and the Hessian (for the step). ForwardDiff has one function for each.",
+  "Count Newton steps, not gradient evaluations: the test runs before each step, so a stationary starting point takes 0 steps. Check the sign of the step on the quadratic example, which must land on `[1.0, -3.0]` in one step.",
+]
+
+  [problem.perf]
+  args = "v -> sum(abs2, v) + sum(exp, v) / length(v), randn(rng, n), 1e-10, 50"
+  sizes = [12]
+
+  [[problem.variant]]
+  label = "adds the step: moves uphill"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function newton_minimize(f, x0, tol, maxiter)
+    x = x0
+    for k in 0:maxiter - 1
+        g = ForwardDiff.gradient(f, x)
+        norm(g) < tol && return (x, k)
+        x = x + ForwardDiff.hessian(f, x) \ g
+    end
+    return (x, maxiter)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "counts gradient evaluations instead of steps"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function newton_minimize(f, x0, tol, maxiter)
+    x = x0
+    for k in 1:maxiter
+        g = ForwardDiff.gradient(f, x)
+        norm(g) < tol && return (x, k)
+        x = x - ForwardDiff.hessian(f, x) \ g
+    end
+    return (x, maxiter)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "stops when the step is small, not the gradient"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function newton_minimize(f, x0, tol, maxiter)
+    x = x0
+    for k in 1:maxiter
+        s = ForwardDiff.hessian(f, x) \ ForwardDiff.gradient(f, x)
+        x = x - s
+        norm(s) < tol && return (x, k)
+    end
+    return (x, maxiter)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "uses only the diagonal of the Hessian"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function newton_minimize(f, x0, tol, maxiter)
+    x = x0
+    for k in 0:maxiter - 1
+        g = ForwardDiff.gradient(f, x)
+        norm(g) < tol && return (x, k)
+        x = x .- g ./ diag(ForwardDiff.hessian(f, x))
+    end
+    return (x, maxiter)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "forms the inverse"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function newton_minimize(f, x0, tol, maxiter)
+    x = x0
+    for k in 0:maxiter - 1
+        g = ForwardDiff.gradient(f, x)
+        norm(g) < tol && return (x, k)
+        x = x - inv(ForwardDiff.hessian(f, x)) * g
+    end
+    return (x, maxiter)
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "a while loop, Hessian as the Jacobian of the gradient"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function newton_minimize(f, x0, tol, maxiter)
+    x, k = x0, 0
+    g = ForwardDiff.gradient(f, x)
+    while norm(g) >= tol && k < maxiter
+        H = ForwardDiff.jacobian(y -> ForwardDiff.gradient(f, y), x)
+        x = x - H \ g
+        k += 1
+        g = ForwardDiff.gradient(f, x)
+    end
+    return (x, k)
+end
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "every Hessian entry from its own nested derivative"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function newton_minimize(f, x0, tol, maxiter)
+    x = x0
+    n = length(x)
+    for k in 0:maxiter - 1
+        g = ForwardDiff.gradient(f, x)
+        norm(g) < tol && return (x, k)
+        H = zeros(n, n)
+        for i in 1:n, j in 1:n
+            ei = [m == i ? 1.0 : 0.0 for m in 1:n]
+            ej = [m == j ? 1.0 : 0.0 for m in 1:n]
+            H[i, j] = ForwardDiff.derivative(a -> ForwardDiff.derivative(b -> f(x .+ a .* ei .+ b .* ej), 0.0), 0.0)
+        end
+        x = x - H \ g
+    end
+    return (x, maxiter)
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "generic-for-forwarddiff"
+title = "Make a simulation differentiable"
+difficulty = "stretch"
+kcs = ["generic-code-for-ad", "forward-mode-ad"]
+entry = "position_sensitivity"
+packages = ["ForwardDiff"]
+prompt = '''
+This function simulates a damped spring (stiffness `k`, damping `c`) for
+`nsteps` steps of size 0.01, starting at position 1 and velocity 0, and
+returns the final position:
+
+```julia
+function final_position(p::Vector{Float64}, nsteps::Int)
+    k, c = p
+    dt = 0.01
+    u = zeros(2)              # position, velocity
+    u[1] = 1.0
+    for _ in 1:nsteps
+        a = -k * u[1] - c * u[2]
+        u[1] += dt * u[2]
+        u[2] += dt * a
+    end
+    return u[1]
+end
+```
+
+ForwardDiff cannot differentiate it as written. Make it generic (keep the
+update order exactly as it is), then write `position_sensitivity(p, nsteps)`
+returning the gradient of the final position with respect to `p = [k, c]`,
+computed with `ForwardDiff.gradient`.
+
+```julia
+position_sensitivity([1.0, 0.1], 100)   # a 2-element Vector{Float64}
+position_sensitivity([1.0, 0.1], 0)     # [0.0, 0.0]: nothing has happened yet
+```
+
+The grader checks the gradient, then measures speed, allocations and type
+stability at 32,000 steps: aim for a loop that allocates nothing.
+'''
+starter = '''
+using ForwardDiff
+
+# Make this function generic so that ForwardDiff can run it on dual numbers.
+function final_position(p::Vector{Float64}, nsteps::Int)
+    k, c = p
+    dt = 0.01
+    u = zeros(2)              # position, velocity
+    u[1] = 1.0
+    for _ in 1:nsteps
+        a = -k * u[1] - c * u[2]
+        u[1] += dt * u[2]
+        u[2] += dt * a
+    end
+    return u[1]
+end
+
+function position_sensitivity(p, nsteps)
+    # your code here
+end
+'''
+reference = '''
+using ForwardDiff
+
+function final_position(p::AbstractVector{<:Real}, nsteps::Integer)
+    k, c = p
+    dt = 0.01
+    T = eltype(p)
+    x, v = one(T), zero(T)        # position, velocity, with the element type of p
+    for _ in 1:nsteps
+        a = -k * x - c * v
+        x += dt * v
+        v += dt * a
+    end
+    return x
+end
+
+position_sensitivity(p, nsteps) = ForwardDiff.gradient(q -> final_position(q, nsteps), p)
+'''
+cases = ["[1.0, 0.1], 100", "[1.0, 0.1], 0", "[2.5, 0.3], 1000", "[0.5, 0.0], 314"]
+# Forward mode propagates the derivatives through the same recurrence as the
+# values, so any rewrite that keeps the update order performs the same
+# floating-point operations (bitwise equal in practice). One explicit Euler
+# step multiplies phase-plane areas by det = 1 - c*dt + k*dt^2 (the eigenvalues
+# have modulus sqrt(det)). With c >= 0.05 (gen) or c = 0.1, 0.3 (cases), c*dt
+# exceeds k*dt^2 and the step contracts. The undamped case [0.5, 0.0], 314 has
+# det = 1 + 5e-5: it grows, but only by a factor 1.00005^157 < 1.01 over its
+# 314 steps. Either way rounding grows at most about linearly: <= nsteps * eps
+# times a bounded factor, about 2e-13 for 1000 steps. rtol = 1e-9 leaves a wide margin, while a
+# forward difference (relative error ~ h ~ 1e-6) fails clearly.
+gen = "rng -> [([0.5 + 2rand(rng), 0.05 + 0.3rand(rng)], rand(rng, 0:600)) for _ in 1:15]"
+compare = "isapprox"
+rtol = 1e-9
+hints = [
+  "ForwardDiff calls `final_position` with a vector of dual numbers. Which parts of the code demand `Float64`?",
+  "Loosen the signature, and give the state the element type of `p` (`eltype(p)`) instead of `Float64`. `ForwardDiff.gradient` wants a function of `p` alone: wrap the call in a closure that fixes `nsteps`.",
+]
+
+  [problem.perf]
+  args = "[1.0 + rand(rng), 0.1 + 0.2rand(rng)], n"
+  sizes = [32000]
+
+  [[problem.variant]]
+  label = "keeps the Float64 buffer (only the signature loosened)"
+  code = '''
+using ForwardDiff
+function final_position(p, nsteps)
+    k, c = p
+    dt = 0.01
+    u = zeros(2)
+    u[1] = 1.0
+    for _ in 1:nsteps
+        a = -k * u[1] - c * u[2]
+        u[1] += dt * u[2]
+        u[2] += dt * a
+    end
+    return u[1]
+end
+position_sensitivity(p, nsteps) = ForwardDiff.gradient(q -> final_position(q, nsteps), p)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "forward differences instead of AD"
+  code = '''
+function final_position(p, nsteps)
+    k, c = p
+    dt = 0.01
+    x, v = 1.0, 0.0
+    for _ in 1:nsteps
+        a = -k * x - c * v
+        x += dt * v
+        v += dt * a
+    end
+    return x
+end
+function position_sensitivity(p, nsteps)
+    h = 1e-6
+    f0 = final_position(p, nsteps)
+    return [(final_position(p .+ h .* [1.0, 0.0], nsteps) - f0) / h,
+            (final_position(p .+ h .* [0.0, 1.0], nsteps) - f0) / h]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a buffer of the right element type"
+  code = '''
+using ForwardDiff
+function final_position(p, nsteps)
+    k, c = p
+    dt = 0.01
+    u = zeros(eltype(p), 2)
+    u[1] = 1
+    for _ in 1:nsteps
+        a = -k * u[1] - c * u[2]
+        u[1] += dt * u[2]
+        u[2] += dt * a
+    end
+    return u[1]
+end
+position_sensitivity(p, nsteps) = ForwardDiff.gradient(q -> final_position(q, nsteps), p)
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "starts from the literals 1.0 and 0.0: the state changes type"
+  code = '''
+using ForwardDiff
+function final_position(p, nsteps)
+    k, c = p
+    dt = 0.01
+    x, v = 1.0, 0.0
+    for _ in 1:nsteps
+        a = -k * x - c * v
+        x += dt * v
+        v += dt * a
+    end
+    return x
+end
+position_sensitivity(p, nsteps) = ForwardDiff.gradient(q -> final_position(q, nsteps), p)
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "builds a new state vector every step"
+  code = '''
+using ForwardDiff
+function final_position(p, nsteps)
+    k, c = p
+    dt = 0.01
+    u = [one(eltype(p)), zero(eltype(p))]
+    for _ in 1:nsteps
+        a = -k * u[1] - c * u[2]
+        u = [u[1] + dt * u[2], u[2] + dt * a]
+    end
+    return u[1]
+end
+position_sensitivity(p, nsteps) = ForwardDiff.gradient(q -> final_position(q, nsteps), p)
+'''
+  expect = ["correct", "allocates"]

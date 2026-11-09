@@ -1,0 +1,450 @@
+id = "02-numbers"
+title = "Numbers: integers, floats, rationals and conversion"
+track = "foundations"
+env = "base"
+status = "ready"
+summary = "Machine integers wrap around, floats are approximate, and the integer division functions disagree on negative numbers. Rationals and BigInt when you need exactness, and how to convert between number types without surprises."
+kcs = ["integer-overflow", "floating-point", "integer-division", "rationals", "bigint", "conversion", "promotion"]
+prerequisites = ["01-first-steps"]
+
+[[section]]
+title = "Integers have a fixed size and wrap around"
+body = '''
+An integer literal is an `Int64` (on a 64-bit machine `Int` is another name
+for `Int64`). It holds 64 bits, so there is a largest and a smallest value:
+`typemax(Int)` and `typemin(Int)`.
+
+Going past the largest value does **not** raise an error and does not switch
+to a bigger type, as Python does. The arithmetic *wraps around*: one more than
+`typemax(Int)` is `typemin(Int)`. Julia does this on purpose, because checking
+every addition would make all integer code slower. Powers wrap too: `2^63`
+is one past `typemax(Int)`, so it comes out as `typemin(Int)`, and `2^64`
+needs 65 bits, so what is left in 64 bits is `0`.
+
+Smaller types such as `Int8` (−128 to 127) wrap the same way, just sooner.
+'''
+
+  [[section.example]]
+  code = '''
+println(typemax(Int))
+println(typemin(Int))
+println(typemax(Int) + 1)
+println(2^63)
+println(2^64)
+'''
+
+  [[section.example]]
+  caption = "An `Int8` wraps after 127. Arithmetic between two `Int8`s stays `Int8`."
+  code = '''
+x = Int8(127)
+y = x + Int8(1)
+println(y, " ", typeof(y))
+'''
+
+[[section]]
+title = "Floating point is approximate"
+body = '''
+A `Float64` stores a number in binary with about 16 significant decimal
+digits. Most decimal fractions, like `0.1`, have no exact binary form, so
+`0.1 + 0.2` is not exactly `0.3` and `==` says `false`. This is the same in
+every language that uses IEEE floating point (Python, MATLAB, R, C).
+
+Compare floats with `≈` (type `\approx` then Tab), which is `isapprox`: equal
+within a relative tolerance. Close to zero a *relative* tolerance is useless
+(nothing is relatively close to 0), so pass an absolute one with `atol`.
+`eps()` is the gap between `1.0` and the next float.
+'''
+
+  [[section.example]]
+  code = '''
+println(0.1 + 0.2)
+println(0.1 + 0.2 == 0.3)
+println(0.1 + 0.2 ≈ 0.3)
+println(1e-20 ≈ 0.0)
+println(isapprox(1e-20, 0.0; atol = 1e-12))
+eps()
+'''
+
+  [[section.example]]
+  caption = "Dividing by zero gives `Inf` or `NaN` for floats, but an error for integer division."
+  code = '''
+println(1 / 0)
+println(0 / 0)
+println(1 ÷ 0)
+'''
+
+[[section]]
+title = "Integer division and remainders with negative numbers"
+body = '''
+`÷` (`\div`) and `div` divide and **truncate toward zero**; `%` and `rem` give
+the matching remainder, which has the sign of the *dividend*. `fld` rounds
+toward minus infinity (floor) and `mod` gives the matching remainder, which has
+the sign of the *divisor*. `cld` rounds up (ceiling).
+
+For positive numbers `÷`/`fld` and `%`/`mod` agree. With a negative number they
+do not, as the table shows. If you come from Python: Python's `//` is `fld`
+and Python's `%` is `mod`, not Julia's `%`. Use `mod` for "wrap into the
+range `0:n-1`" (clock arithmetic, circular indexing).
+'''
+
+  [[section.example]]
+  code = '''
+for (a, b) in ((7, 2), (-7, 2), (7, -2))
+    println("a = $a, b = $b:  a ÷ b = ", a ÷ b, ",  a % b = ", a % b,
+            ",  fld = ", fld(a, b), ",  mod = ", mod(a, b), ",  cld = ", cld(a, b))
+end
+'''
+
+  [[section.example]]
+  caption = "`divrem` returns the quotient and remainder together; `mod` wraps negative positions back into range."
+  code = '''
+println(divrem(-7, 2))
+println(fldmod(-7, 2))
+println(mod(-1, 12), " ", mod(13, 12))
+'''
+
+[[section]]
+title = "Exact arithmetic: Rational and BigInt"
+body = '''
+`//` builds a `Rational`: an exact fraction, always stored in lowest terms.
+Rationals never round, so `1//10 + 2//10 == 3//10` is `true`.
+
+`BigInt` is an integer of unlimited size; `big(x)` converts a number to it.
+Use it when results really exceed 64 bits. It is much slower than `Int`
+(every operation allocates memory), so do not use it "just in case".
+Some functions refuse to overflow silently: `factorial(21)` does not fit in an
+`Int64`, and `factorial` says so instead of wrapping.
+'''
+
+  [[section.example]]
+  code = '''
+x = 1//3 + 1//6
+println(x, " ", typeof(x))
+println(1//10 + 2//10 == 3//10)
+println(numerator(6//8), " ", denominator(6//8))
+'''
+
+  [[section.example]]
+  code = '''
+println(big(2)^100)
+println(typeof(big(2)^100))
+println(factorial(big(25)))
+factorial(21)
+'''
+
+[[section]]
+title = "Converting between number types"
+body = '''
+Calling a type as a function, `Int(x)`, converts *exactly or not at all*:
+`Int(2.0)` is `2`, but `Int(2.5)` throws an `InexactError` because 2.5 is not
+an integer. The same goes for values out of range, like `Int8(200)`.
+
+To get an integer from a float that is not whole, say how to round:
+`round(Int, x)`, `trunc(Int, x)` (toward zero), `floor(Int, x)` (down) or
+`ceil(Int, x)` (up). Without the type they return a float. Notice that
+`round` breaks ties to the *even* neighbour: `round(2.5)` is `2.0`, while
+`round(3.5)` is `4.0`.
+'''
+
+  [[section.example]]
+  code = '''
+println(Int(2.0))
+println(round(Int, 2.7), " ", trunc(Int, -2.7), " ", floor(Int, -2.7), " ", ceil(Int, -2.7))
+println(round(2.5), " ", round(3.5), " ", round(-2.5))
+println(float(3), " ", Float64(1//4))
+Int(2.5)
+'''
+
+  [[section.example]]
+  code = '''
+Int8(200)
+'''
+
+[[section]]
+title = "Promotion: mixing number types"
+body = '''
+When an operation mixes types, Julia *promotes* both arguments to a common type
+that can represent them and then computes in that type: `Int` and `Float64`
+give `Float64`, `Int` and `Rational` give a `Rational`, a `Rational` and a
+`Float64` give `Float64`. `promote` shows the result of that step.
+
+Mixing an `Int8` with an `Int` gives an `Int`; the small type does not
+"win". This is why you rarely need to convert by hand before arithmetic.
+'''
+
+  [[section.example]]
+  code = '''
+println(typeof(1 + 2.0))
+println(1 + 1//2)
+println(1//2 + 0.25)
+println(typeof(Int8(1) + 1))
+promote(1, 2.5, 3//4)
+'''
+
+[[problem]]
+id = "digit-sum"
+title = "Sum of the digits"
+difficulty = "warm-up"
+kcs = ["integer-division"]
+entry = "digit_sum"
+prompt = '''
+Write `digit_sum(n)` returning the sum of the decimal digits of the integer
+`n`. The sign does not count: the digit sum of `-123` is 6, the same as for
+`123`. The digit sum of `0` is `0`.
+
+```julia
+digit_sum(1234)   # 10
+digit_sum(-907)   # 16
+```
+
+Peel off one digit at a time with integer division rather than going through a
+string. Check what `%` gives you for a negative number.
+'''
+starter = '''
+function digit_sum(n)
+    # your code here
+end
+'''
+reference = '''
+function digit_sum(n)
+    s = 0
+    while n != 0
+        n, d = divrem(n, 10)
+        s += abs(d)
+    end
+    return s
+end
+'''
+cases = ["1234", "0", "-907", "typemax(Int)"]
+gen = "rng -> [(rand(rng, -10^18:10^18),) for _ in 1:30]"
+hints = [
+  "`n % 10` is the last digit and `n ÷ 10` drops it. Repeat until nothing is left.",
+  "For a negative `n`, `n % 10` is negative (the remainder has the sign of the dividend). Take `abs` of each digit, or of `n` first.",
+]
+
+  [problem.perf]
+  args = "rand(rng, -10^18:10^18)"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "negative digits for negative n"
+  code = '''
+function digit_sum(n)
+    s = 0
+    while n != 0
+        s += n % 10
+        n ÷= 10
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "loop stops at zero for negatives"
+  code = '''
+function digit_sum(n)
+    s = 0
+    while n > 0
+        s += n % 10
+        n ÷= 10
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "digits() from Base"
+  code = '''
+digit_sum(n) = sum(abs, digits(n); init = 0)
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "collatz-steps"
+title = "Collatz steps"
+difficulty = "core"
+kcs = ["integer-division", "conversion"]
+entry = "collatz_steps"
+prompt = '''
+The Collatz map takes a positive integer `n` to `n ÷ 2` if `n` is even and to
+`3n + 1` if it is odd. Write `collatz_steps(n)` returning how many steps it
+takes to reach `1` (zero for `n = 1`). The result is an `Int`.
+
+```julia
+collatz_steps(1)   # 0
+collatz_steps(6)   # 8: 6 → 3 → 10 → 5 → 16 → 8 → 4 → 2 → 1
+```
+
+The grader also measures speed and type stability: keep `n` an integer the
+whole time.
+'''
+starter = '''
+function collatz_steps(n)
+    # your code here
+end
+'''
+reference = '''
+function collatz_steps(n)
+    steps = 0
+    while n != 1
+        n = iseven(n) ? n ÷ 2 : 3n + 1
+        steps += 1
+    end
+    return steps
+end
+'''
+cases = ["1", "6", "27", "97"]
+gen = "rng -> [(rand(rng, 1:10^6),) for _ in 1:30]"
+hints = [
+  "Loop while `n != 1`, update `n`, and count the updates.",
+  "`n / 2` is a Float64 even when `n` is even; `n ÷ 2` stays an integer.",
+]
+
+  [problem.perf]
+  args = "837799"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "counts the starting number too"
+  code = '''
+function collatz_steps(n)
+    steps = 1
+    while n != 1
+        n = iseven(n) ? n ÷ 2 : 3n + 1
+        steps += 1
+    end
+    return steps
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "n / 2 turns n into a Float64"
+  code = '''
+function collatz_steps(n)
+    steps = 0
+    while n != 1
+        n = n % 2 == 0 ? n / 2 : 3n + 1
+        steps += 1
+    end
+    return steps
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "BigInt just in case"
+  code = '''
+function collatz_steps(n)
+    m = big(n)
+    steps = 0
+    while m != 1
+        m = iseven(m) ? m ÷ 2 : 3m + 1
+        steps += 1
+    end
+    return steps
+end
+'''
+  expect = ["correct", "allocates", "slow"]
+
+  [[problem.variant]]
+  label = "bit shift for the even step"
+  code = '''
+function collatz_steps(n)
+    steps = 0
+    while n != 1
+        n = iseven(n) ? n >> 1 : 3n + 1
+        steps += 1
+    end
+    return steps
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "mean-no-overflow"
+title = "Mean of large integers"
+difficulty = "stretch"
+kcs = ["integer-overflow", "promotion"]
+entry = "mean_int"
+prompt = '''
+Write `mean_int(v)` returning the mean of a non-empty `Vector{Int}` as a
+`Float64`. The values can be as large as `typemax(Int)`, so the sum of two of
+them already overflows an `Int64`.
+
+```julia
+mean_int([1, 2, 3, 4])                  # 2.5
+mean_int([typemax(Int), typemax(Int)])  # 9.223372036854776e18
+```
+
+Results are compared with a relative tolerance of 1e-12. The grader times
+your function on a vector of 100 000 numbers.
+'''
+starter = '''
+function mean_int(v)
+    # your code here
+end
+'''
+reference = '''
+function mean_int(v)
+    s = Int128(0)
+    for x in v
+        s += x
+    end
+    return s / length(v)
+end
+'''
+cases = ["[1, 2, 3, 4]", "[typemax(Int), typemax(Int)]", "[-3, 3, 1]", "[typemin(Int), typemin(Int), 5]"]
+gen = "rng -> vcat([(rand(rng, typemax(Int)÷2:typemax(Int), rand(rng, 1:50)),) for _ in 1:10], [(rand(rng, Int, rand(rng, 1:50)),) for _ in 1:10], [(rand(rng, -100:100, rand(rng, 1:50)),) for _ in 1:10])"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "`sum(v)` wraps around when the true total is larger than `typemax(Int)`. Accumulate in a type with more room.",
+  "`Int128` holds any sum of up to 2^63 `Int64` values, and stays fast. `Int128 / Int` is a `Float64`.",
+]
+
+  [problem.perf]
+  args = "rand(rng, Int, n)"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "plain sum overflows"
+  code = '''
+mean_int(v) = sum(v) / length(v)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Int accumulator that becomes an Int128"
+  code = '''
+function mean_int(v)
+    s = 0
+    for x in v
+        s += Int128(x)
+    end
+    return s / length(v)
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "BigInt accumulator"
+  code = '''
+function mean_int(v)
+    s = big(0)
+    for x in v
+        s += x
+    end
+    return Float64(s / length(v))
+end
+'''
+  expect = ["correct", "allocates", "slow"]
+
+  [[problem.variant]]
+  label = "sum in Float64"
+  code = '''
+mean_int(v) = sum(float, v) / length(v)
+'''
+  expect = ["correct", "fast"]

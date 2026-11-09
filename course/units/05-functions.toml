@@ -1,0 +1,450 @@
+id = "05-functions"
+title = "Functions"
+track = "foundations"
+env = "base"
+status = "ready"
+summary = "Defining functions in long and short form, returning several values, default, keyword and variable arguments, anonymous functions and do-blocks, closures, the ! convention for functions that mutate, and why one definition works for every number type."
+kcs = ["functions", "multiple-return", "default-arguments", "keyword-arguments", "varargs", "anonymous-functions", "higher-order-functions", "closures", "mutation-convention", "generic-functions"]
+prerequisites = ["04-control-flow"]
+
+[[section]]
+title = "Defining functions and returning values"
+body = '''
+The long form is `function name(args) ... end`; for a one-line body the short
+form `name(args) = expression` is the same thing. A function returns the value
+of its **last expression**, so `return` is only needed to leave early. A
+function whose last expression is `println(...)` returns `nothing`.
+
+To return several values, return a tuple; the caller can *destructure* it
+into separate variables. `_` throws a value away.
+'''
+
+  [[section.example]]
+  code = '''
+function hypot2(a, b)
+    s = a^2 + b^2
+    sqrt(s)            # last expression: the return value
+end
+area(r) = π * r^2      # short form
+sign_word(x) = x < 0 ? "negative" : "non-negative"
+println(hypot2(3, 4), " ", area(1.0), " ", sign_word(-2))
+'''
+
+  [[section.example]]
+  code = '''
+function stats(v)
+    return minimum(v), maximum(v), sum(v) / length(v)
+end
+lo, hi, avg = stats([4, 8, 1, 7])
+println("lo = $lo, hi = $hi, avg = $avg")
+_, top, _ = stats([4, 8, 1, 7])
+println(top)
+stats([1, 2])
+'''
+
+  [[section.example]]
+  caption = "A function that ends with `println` returns `nothing`."
+  code = '''
+greet(name) = println("Hi, ", name)
+r = greet("Ada")
+r === nothing
+'''
+
+[[section]]
+title = "Default, keyword and variable arguments"
+body = '''
+Positional arguments can have defaults: `f(x, n = 2)`. Arguments after a
+semicolon are **keyword arguments**, passed by name in any order
+(`round_to(x; digits = 2)`); they are best for options. A keyword argument
+cannot be passed by position, as the error shows.
+
+`args...` in a definition collects any number of arguments into a tuple
+(*varargs*). In a call, `f(v...)` does the opposite: it *splats* a collection
+into separate arguments.
+'''
+
+  [[section.example]]
+  code = '''
+power(x, n = 2) = x^n
+function label(x; unit = "m", digits = 1)
+    return string(round(x; digits = digits), " ", unit)
+end
+println(power(3), " ", power(3, 3))
+println(label(2.345), ", ", label(2.345; digits = 2), ", ", label(2.345; unit = "km"))
+'''
+
+  [[section.example]]
+  code = '''
+function label(x; unit = "m")
+    return string(x, " ", unit)
+end
+label(2, "km")
+'''
+
+  [[section.example]]
+  code = '''
+function total(xs...)
+    println("got ", length(xs), " arguments in a ", typeof(xs))
+    return sum(xs; init = 0)
+end
+println(total(1, 2, 3))
+println(total())
+v = [5, 1, 9]
+println(max(v...), " ", total(v...))
+'''
+
+[[section]]
+title = "Anonymous functions, map, filter, sort and do-blocks"
+body = '''
+`x -> x^2` is a function without a name (`(a, b) -> a + b` for two
+arguments). Functions are values, so you can pass them to other functions:
+`map(f, v)` applies `f` to each element, `filter(pred, v)` keeps the elements
+for which `pred` is `true`, and `sort(v; by = f)` sorts by the key `f(x)`.
+
+When the function argument is long, a **do-block** passes it as the first
+argument: `map(v) do x ... end` is `map(x -> ..., v)`.
+'''
+
+  [[section.example]]
+  code = '''
+v = [3, -1, 4, -1, 5]
+println(map(x -> x^2, v))
+println(filter(x -> x > 0, v))
+words = ["pear", "fig", "banana", "kiwi"]
+println(sort(words; by = length))
+println(sort(words; by = w -> (length(w), w), rev = true))
+'''
+
+  [[section.example]]
+  code = '''
+labels = map([7, 12, 15]) do n
+    if n % 15 == 0
+        "fifteen-ish"
+    elseif n % 2 == 0
+        "even"
+    else
+        "odd"
+    end
+end
+println(labels)
+sum(1:4) do x
+    x^2
+end
+'''
+
+[[section]]
+title = "Closures capture variables"
+body = '''
+A function defined inside another function can use the outer function's
+local variables; it *closes over* them, so it is called a **closure**.
+`make_adder(n)` returns a new function that remembers its own `n`.
+
+A closure captures the *variable*, not a snapshot of its value, so it can
+update it, like the counter below. In a loop, each iteration has a fresh
+loop variable, so closures made in a comprehension each see their own `i`
+(Python programmers expect `[3, 3, 3]` here).
+'''
+
+  [[section.example]]
+  code = '''
+make_adder(n) = x -> x + n
+add5 = make_adder(5)
+add10 = make_adder(10)
+println(add5(1), " ", add10(1))
+
+function make_counter()
+    count = 0
+    return () -> (count += 1)
+end
+c = make_counter()
+c(); c()
+println(c())
+fs = [() -> i for i in 1:3]
+[f() for f in fs]
+'''
+
+[[section]]
+title = "The ! convention and generic functions"
+body = '''
+By convention a function whose name ends in `!` **modifies one of its
+arguments** (usually the first): `sort!(v)` sorts `v` in place, while `sort(v)`
+returns a sorted copy and leaves `v` alone. `push!`, `append!` and `fill!`
+follow the same rule. The `!` is only part of the name; Julia does not
+enforce it, but every Julia programmer reads it as a warning, so follow it in
+your own code.
+
+Function arguments without type annotations accept anything that supports the
+operations used. One definition of `f(x) = 2x + 1` works for an `Int`, a
+`Float64`, a `Rational` and a `BigInt`, and Julia compiles a specialised
+version for each type, so generic code is not slow.
+'''
+
+  [[section.example]]
+  code = '''
+v = [3, 1, 2]
+w = sort(v)
+println(v, " ", w)
+sort!(v)
+println(v)
+
+function double!(v)
+    for i in eachindex(v)
+        v[i] *= 2
+    end
+    return v
+end
+double!(v)
+println(v)
+'''
+
+  [[section.example]]
+  code = '''
+f(x) = 2x + 1
+println(f(3), " ", f(1.5), " ", f(1//3), " ", f(big(10)^20))
+println(typeof(f(3)), " ", typeof(f(1.5)), " ", typeof(f(1//3)))
+'''
+
+[[problem]]
+id = "apply-n-times"
+title = "Apply a function n times"
+difficulty = "warm-up"
+kcs = ["higher-order-functions", "functions"]
+entry = "apply_n"
+prompt = '''
+Write `apply_n(f, n, x)` returning `f(f(...f(x)...))` with `f` applied `n`
+times. For `n = 0` it returns `x` unchanged.
+
+```julia
+apply_n(x -> 2x, 3, 1)       # 8
+apply_n(uppercase, 0, "ab")  # "ab"
+```
+'''
+starter = '''
+function apply_n(f, n, x)
+    # your code here
+end
+'''
+reference = '''
+function apply_n(f, n, x)
+    for _ in 1:n
+        x = f(x)
+    end
+    return x
+end
+'''
+cases = ["x -> 2x, 3, 1", "uppercase, 0, \"ab\"", "sqrt, 2, 16.0", "x -> x + 1, 10, 0"]
+gen = "rng -> [(x -> 3x - 1, rand(rng, 0:10), rand(rng, -5:5)) for _ in 1:20]"
+hints = [
+  "A loop that runs `n` times and replaces `x` by `f(x)` each time.",
+  "`for _ in 1:n` runs zero times when `n` is 0, which is exactly what you want.",
+]
+
+  [problem.perf]
+  args = "cos, n, rand(rng)"
+  sizes = [1000]
+
+  [[problem.variant]]
+  label = "one application short"
+  code = '''
+function apply_n(f, n, x)
+    for _ in 1:n-1
+        x = f(x)
+    end
+    return x
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "composes n copies with ∘ (fails for n = 0)"
+  code = '''
+apply_n(f, n, x) = reduce(∘, fill(f, n))(x)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "recursion"
+  code = '''
+apply_n(f, n, x) = n == 0 ? x : apply_n(f, n - 1, f(x))
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "moving-average"
+title = "Moving average"
+difficulty = "core"
+kcs = ["functions", "default-arguments"]
+entry = "moving_average"
+prompt = '''
+Write `moving_average(v, window = 3)` returning a `Vector{Float64}` with the
+mean of every run of `window` consecutive elements of `v`: the result has
+`length(v) - window + 1` entries. `window` is an optional argument with
+default 3, and you can assume `1 ≤ window ≤ length(v)`.
+
+```julia
+moving_average([1, 2, 3, 4, 5])          # [2.0, 3.0, 4.0]
+moving_average([1.0, 2.0, 4.0, 8.0], 2)  # [1.5, 3.0, 6.0]
+```
+
+The grader times your function with a window of a tenth of the vector's
+length, at two lengths. Recomputing every window from scratch is correct, but
+consecutive windows share all but two elements. Results are compared with a
+relative tolerance of 1e-8.
+'''
+starter = '''
+function moving_average(v, window = 3)
+    # your code here
+end
+'''
+reference = '''
+function moving_average(v, window = 3)
+    m = length(v) - window + 1
+    out = Vector{Float64}(undef, m)
+    s = 0.0
+    for i in 1:window
+        s += v[i]
+    end
+    out[1] = s / window
+    for i in 2:m
+        s += v[i+window-1] - v[i-1]
+        out[i] = s / window
+    end
+    return out
+end
+'''
+cases = ["[1, 2, 3, 4, 5]", "[1.0, 2.0, 4.0, 8.0], 2", "[5, 7], 2", "[2.5, 3.5], 1"]
+gen = "rng -> vcat([(let v = rand(rng, rand(rng, 1:20)); (v, rand(rng, 1:length(v))) end) for _ in 1:15], [(let v = rand(rng, -9:9, rand(rng, 1:20)); (v, rand(rng, 1:length(v))) end) for _ in 1:15])"
+compare = "isapprox"
+rtol = 1e-8
+hints = [
+  "Write the default in the signature, `function moving_average(v, window = 3)`. Then think about how the sum of one window differs from the sum of the next.",
+  "Keep a running sum: add the element entering the window and subtract the one leaving it. Start the sum at `0.0` so it is a Float64 from the beginning.",
+]
+
+  [problem.perf]
+  args = "rand(rng, n), n ÷ 10"
+  sizes = [1000, 16000]
+
+  [[problem.variant]]
+  label = "misses the last window"
+  code = '''
+function moving_average(v, window = 3)
+    return [sum(@view v[i:i+window-1]) / window for i in 1:length(v)-window]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "slices every window"
+  code = '''
+function moving_average(v, window = 3)
+    return [sum(v[i:i+window-1]) / window for i in 1:length(v)-window+1]
+end
+'''
+  expect = ["correct", "allocates", "scaling"]
+
+  [[problem.variant]]
+  label = "sums every window through a view"
+  code = '''
+function moving_average(v, window = 3)
+    return [sum(@view v[i:i+window-1]) / window for i in 1:length(v)-window+1]
+end
+'''
+  expect = ["correct", "scaling"]
+
+  [[problem.variant]]
+  label = "running sum that starts as the integer 0"
+  code = '''
+function moving_average(v, window = 3)
+    m = length(v) - window + 1
+    out = Vector{Float64}(undef, m)
+    s = 0
+    for i in 1:window
+        s += v[i]
+    end
+    out[1] = s / window
+    for i in 2:m
+        s += v[i+window-1] - v[i-1]
+        out[i] = s / window
+    end
+    return out
+end
+'''
+  expect = ["correct", "unstable"]
+
+[[problem]]
+id = "sort-words"
+title = "Sort words by length, then alphabetically"
+difficulty = "stretch"
+kcs = ["higher-order-functions", "mutation-convention"]
+entry = "sort_words"
+prompt = '''
+Write `sort_words(ws)` returning a **new** vector with the strings of `ws`
+sorted longest first; words of the same length go in alphabetical order. The
+input vector must not change (the name has no `!`).
+
+```julia
+sort_words(["fig", "apple", "kiwi", "pear", "date"])
+# ["apple", "date", "kiwi", "pear", "fig"]
+```
+
+The grader checks the input after the call, and times your function on 500 and
+8000 words.
+'''
+starter = '''
+function sort_words(ws)
+    # your code here
+end
+'''
+reference = '''
+sort_words(ws) = sort(ws; by = w -> (-length(w), w))
+'''
+cases = ["[\"fig\", \"apple\", \"kiwi\", \"pear\", \"date\"]", "String[]", "[\"b\", \"a\", \"ccc\", \"bb\", \"aa\"]"]
+gen = "rng -> [([randstring(rng, 'a':'d', rand(rng, 1:4)) for _ in 1:rand(rng, 0:15)],) for _ in 1:20]"
+compare_args = true
+hints = [
+  "`sort` takes a `by` keyword: a function from an element to the key to sort on.",
+  "Tuples compare element by element, so a key like `(-length(w), w)` sorts by length descending, then alphabetically.",
+]
+
+  [problem.perf]
+  args = "[randstring(rng, 'a':'z', rand(rng, 1:8)) for _ in 1:n]"
+  sizes = [500, 8000]
+
+  [[problem.variant]]
+  label = "sort! changes the input"
+  code = '''
+sort_words(ws) = sort!(ws; by = w -> (-length(w), w))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "rev = true reverses the alphabetical tie-break too"
+  code = '''
+sort_words(ws) = sort(ws; by = w -> (length(w), w), rev = true)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a custom lt comparison"
+  code = '''
+sort_words(ws) = sort(ws; lt = (a, b) -> length(a) != length(b) ? length(a) > length(b) : a < b)
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "hand-written selection sort"
+  code = '''
+function sort_words(ws)
+    out = copy(ws)
+    for i in eachindex(out)
+        m = i
+        for j in i+1:lastindex(out)
+            (-length(out[j]), out[j]) < (-length(out[m]), out[m]) && (m = j)
+        end
+        out[i], out[m] = out[m], out[i]
+    end
+    return out
+end
+'''
+  expect = ["correct", "scaling", "slow"]

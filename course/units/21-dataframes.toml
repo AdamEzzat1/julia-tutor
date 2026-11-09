@@ -1,0 +1,1639 @@
+id = "21-dataframes"
+title = "Tables with DataFrames.jl and CSV.jl"
+track = "ecosystem"
+env = "data"
+summary = "Tabular data in Julia: what a DataFrame is and why its columns are plain vectors, selecting rows and columns, the source => function => destination minilanguage, split-apply-combine with groupby, joins and missing values, reading and writing CSV with type inference, reshaping, and a tour of what else both packages do."
+kcs = ["dataframes", "split-apply-combine", "joins", "missing-values", "csv"]
+prerequisites = ["20-stdlib-tour"]
+
+[[section]]
+title = "Building and inspecting a DataFrame"
+body = '''
+DataFrames.jl (version 1.8 here) is for tables that fit in memory: data you
+clean, filter, join, group and summarize before modelling or plotting it. It
+plays the part of pandas in Python and of `data.frame` with dplyr in R.
+
+A `DataFrame` is a table of named columns, and each column is an
+**ordinary Julia vector** with its own element type: a `Vector{Int64}` of
+salaries next to a `Vector{String}` of names. There is no hidden storage
+format. Anything you can do with a vector (`sum`, `sort`, broadcasting, your
+own functions) works on a column, and the table is a list of those vectors
+plus their names. Build one from keyword arguments, one per column. The
+display shows each column's type under its name (`String`, `Int64`) and
+numbers the rows.
+
+`nrow`, `ncol` and `names` describe the shape; `describe` gives a summary
+per column (pass the statistics you want to keep it short).
+
+Three differences from pandas matter early:
+
+* There is **no row index**. Rows are numbered `1:nrow(df)`; a label you
+  want to look rows up by is just another column, used in a join or a
+  filter.
+* Functions return a new table unless their name ends in `!`
+  (`sort` copies, `sort!` reorders in place), the usual Julia convention.
+* The constructor **copies** the vectors you pass (`copycols = true`), so
+  later changes to your vector do not reach the table. Pass
+  `copycols = false` to share them.
+
+For R users, the dplyr verbs have direct counterparts: `select` is
+`select`, `mutate` is `transform`, `filter` is `subset`, `group_by` is
+`groupby`, `summarise` is `combine`, and the `*_join` functions are
+`innerjoin`, `leftjoin`, `rightjoin`, `outerjoin`, `semijoin` and
+`antijoin`. The DataFrames manual keeps a
+[comparison with pandas, dplyr and Stata](https://dataframes.juliadata.org/stable/man/comparisons/).
+
+DataFrames.jl implements the [Tables.jl](https://tables.juliadata.org/stable/)
+interface, a small set of functions for "something with named columns".
+CSV.jl, database drivers, Arrow.jl and the plotting packages speak the same
+interface, which is why they exchange tables with a `DataFrame` without
+depending on DataFrames.jl.
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames
+df = DataFrame(name = ["Ann", "Bob", "Cy", "Dee"],
+               dept = ["eng", "ops", "eng", "ops"],
+               salary = [120, 90, 105, 95])
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames
+df = DataFrame(name = ["Ann", "Bob", "Cy", "Dee"],
+               dept = ["eng", "ops", "eng", "ops"],
+               salary = [120, 90, 105, 95])
+println(nrow(df), " rows, ", ncol(df), " columns: ", names(df))
+describe(df, :min, :max)
+'''
+
+  [[section.example]]
+  caption = "The constructor copies unless told otherwise."
+  code = '''
+using DataFrames
+v = [1, 2, 3]
+copied = DataFrame(a = v)
+shared = DataFrame(a = v; copycols = false)
+v[1] = 100
+println(copied.a)
+println(shared.a)
+println(shared.a === v)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "How does a `DataFrame` hold its data?"
+  choices = [
+    "As a `Matrix{Any}` grid, one cell per value, like a spreadsheet",
+    "As one typed vector per column, plus the column names",
+    "As a vector of rows, each row a named tuple of its values",
+  ]
+  answer = 2
+  explain = "A DataFrame is a list of ordinary Julia column vectors, each with its own element type, plus their names. The display shows a concrete element type for each column (`Int64`, `String`) because each column is a typed vector, and `df.salary` hands you that vector."
+  misconceptions = [
+    "A spreadsheet grid is the usual mental picture, but a `Matrix{Any}` would lose the per-column types the display shows, and arithmetic on it would be slow.",
+    "",
+    "That is a row-oriented layout (Tables.jl calls it a row table). Column operations such as `sum(df.salary)` would then have to visit every row object.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using DataFrames
+df = DataFrame(a = [1, 2], b = [1.5, 2.5])
+eltype.(eachcol(df))
+'''
+  choices = [
+    "2-element Vector{DataType}:\n Float64\n Float64",
+    "2-element Vector{DataType}:\n Any\n Any",
+    "2-element Vector{DataType}:\n Int64\n Float64",
+  ]
+  answer = 3
+  explain = "`eachcol` iterates over the column vectors, and each keeps the element type it was built with: `[1, 2]` is a `Vector{Int64}`, `[1.5, 2.5]` a `Vector{Float64}`."
+  misconceptions = [
+    "Promotion to a common type happens when values go into one array, as in `[1 1.5; 2 2.5]`. Columns are separate vectors, so the integers stay integers.",
+    "`Any` would mean the table stores untyped cells; each column is a concrete vector instead.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "An R user writes `d |> group_by(dept) |> summarise(m = mean(salary))`. Which DataFrames.jl call gives the same table, one row per department?"
+  choices = [
+    "`transform(groupby(df, :dept), :salary => mean => :m)`",
+    "`select(df, :dept, :salary => mean => :m)`",
+    "`combine(groupby(df, :dept), :salary => mean => :m)`",
+  ]
+  answer = 3
+  explain = "`groupby` is `group_by`, and `combine` is `summarise`: it applies the function to each group and returns one row per group when the function returns one value."
+  misconceptions = [
+    "`transform` is dplyr's `mutate`: it keeps every input row and writes the group mean next to each one.",
+    "Without `groupby` there is one group, the whole table, so `mean` gives the company-wide mean, repeated on every row.",
+    "",
+  ]
+
+[[section]]
+title = "Columns: the vector itself or a copy"
+body = '''
+`df.salary` and `df[!, :salary]` return the column vector itself, with no
+copy: changing it changes the table. `df[:, :salary]` returns a **copy**.
+This is the same choice as with array slices, made explicit. Assigning to a
+new name adds a column: `df.bonus = df.salary .÷ 10`.
+
+Prefer `df[:, :col]` when you want an independent vector to modify, and
+`df.col` for reading.
+
+Writing follows the same split. `df[!, :col] = v` (or `df.col = v`)
+**replaces** the column with `v`, whatever its element type.
+`df[:, :col] .= x` writes **into** the existing vector, so `x` has to fit
+its element type: `0` fits in an `Int64` column, `0.5` does not.
+
+A design consequence: the type `DataFrame` does not record its column
+types. That keeps one compiled method working for every table (a table with
+200 columns does not need a new specialization of each function), but it
+means the compiler does not know what `df.x` returns inside a function that
+receives `df`. The fix is a **function barrier**: pull the column out and
+pass it to another function, which Julia compiles for the concrete vector
+type. `combine`, `select` and `transform` do exactly that with the
+functions you give them, which is one reason to prefer them over loops over
+`df`. The last example asks inference, through `Base.return_types`, what
+each version returns.
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames
+df = DataFrame(name = ["Ann", "Bob"], salary = [120, 90])
+println(df.salary === df[!, :salary])   # the same vector
+println(df.salary === df[:, :salary])   # a copy
+c = df[:, :salary]
+c[1] = 0                                # does not touch df
+v = df.salary
+v[2] = 99                               # does
+df
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames
+df = DataFrame(name = ["Ann", "Bob"], salary = [120, 90])
+df.bonus = df.salary .÷ 10
+df
+'''
+
+  [[section.example]]
+  caption = "Replacing a column versus writing into it. The example ends in an error on purpose."
+  code = '''
+using DataFrames
+df = DataFrame(id = [1, 2], score = [7, 9])
+df[!, :score] = [7.5, 9.0]     # replaces the column: now Float64
+println(eltype(df.score))
+df[:, :id] .= 0                # writes into the existing Int64 vector
+println(df.id)
+df[:, :id] .= 0.5              # 0.5 does not fit in an Int64 vector
+'''
+
+  [[section.example]]
+  caption = "What the compiler knows about a column, with and without a function barrier."
+  notice = "Notice `Any` for the function that reads `df.x` itself, and `Int64` for the one that receives the column."
+  code = '''
+using DataFrames
+df = DataFrame(x = [1, 2, 3], y = [0.5, 1.5, 2.5])
+total_inline(df) = sum(df.x)   # sees only df::DataFrame
+kernel(v) = sum(v)             # compiled for the column's own type
+println(Base.return_types(total_inline, (DataFrame,)))
+println(Base.return_types(kernel, (typeof(df.x),)))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using DataFrames
+df = DataFrame(a = [1, 2, 3])
+x = df[:, :a]
+y = df.a
+x[1] = 10
+y[2] = 20
+df.a
+'''
+  choices = [
+    "3-element Vector{Int64}:\n 10\n 20\n  3",
+    "3-element Vector{Int64}:\n  1\n 20\n  3",
+    "3-element Vector{Int64}:\n 1\n 2\n 3",
+  ]
+  answer = 2
+  explain = "`df[:, :a]` copies, so writing to `x` leaves the table alone; `df.a` is the column itself, so `y[2] = 20` changes the table."
+  misconceptions = [
+    "That treats `df[:, :a]` as a view. The `:` row selector means \"all rows, copied\"; `!` is the one that hands out the column without copying.",
+    "",
+    "That is R's copy-on-modify model. In Julia `df.a` returns the stored vector, and writing to it writes to the table.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`df.id` is a `Vector{Int64}`. Why does `df[:, :id] .= 0.5` throw an `InexactError` while `df[!, :id] = [0.5, 0.5]` works?"
+  choices = [
+    "`.=` writes into the existing `Int64` vector; `df[!, :id] = v` swaps in a new vector",
+    "Broadcasting assignment into a column of a DataFrame is not supported",
+    "`df[!, :id] = ...` rounds 0.5 to the integer 0 first, so it fits",
+  ]
+  answer = 1
+  explain = "An `Int64` vector cannot hold 0.5. In-place assignment keeps the vector and its element type, as `v .= 0.5` would for any `Vector{Int64}`. Replacing the column swaps in the new vector, so the column becomes `Float64`."
+  misconceptions = [
+    "",
+    "Broadcasting into a column is fine (`df[:, :id] .= 0` works); the problem is the value, not the dot.",
+    "Nothing is converted: the new vector replaces the old one, and `eltype(df.id)` is then `Float64`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Inside `f(df) = sum(df.x)`, the compiler cannot infer the result type, but `combine(df, :x => sum)` gives a fast, type-stable `sum`. Why?"
+  choices = [
+    "`combine` converts every column to `Float64` before it calls `sum`",
+    "`df.x` copies the column, and the copy has no element type",
+    "`combine` calls `sum` on the column vector: a function barrier",
+    "DataFrames stores columns as `Vector{Any}`, and `combine` makes them concrete",
+  ]
+  answer = 3
+  explain = "The `DataFrame` type does not record column types, so inside `f` the compiler does not know what `df.x` is. `combine` passes the column vector to `sum`, which is compiled for that concrete type. Calling a function with the column is a function barrier: dispatch happens once on the column's real type, and the function body runs fully typed. The minilanguage is built around this."
+  misconceptions = [
+    "Columns keep their own types; an `Int64` column summed by `combine` gives an `Int64`.",
+    "`df.x` returns the stored vector without copying, and the vector is typed; what is missing is the compiler's knowledge of that type at the call site.",
+    "",
+    "Columns are concrete vectors (`Vector{Int64}` here); only the table's type leaves them unrecorded.",
+  ]
+
+[[section]]
+title = "Choosing rows"
+body = '''
+Three ways to keep the rows that satisfy a condition:
+
+* **Boolean indexing**, as with arrays: `df[df.salary .> 100, :]` (the `:`
+  means all columns).
+* `filter(:salary => s -> s > 100, df)`: the function receives one value per
+  row.
+* `subset(df, :salary => ByRow(s -> s > 100))`: the function receives the
+  whole column, so wrap a per-row function in `ByRow`. `subset` takes several
+  conditions and keeps rows where all hold.
+
+All three return a new DataFrame.
+
+A condition on a column with `missing` values returns `missing` for those
+rows (`missing > 100` is `missing`), and neither function guesses what you
+meant: `filter` throws a `TypeError`, `subset` throws an error that names
+the fix (the second and third examples). `subset(...; skipmissing = true)`
+drops those rows.
+
+`subset(...; view = true)` (or `@view df[rows, :]`) returns a `SubDataFrame`
+instead: a window onto the parent's rows that copies nothing, and writes go
+through to the parent. Use it to work on part of a large table without
+duplicating it. In pandas before 3.0 the same question (copy or view?) was
+decided by the library and showed up as `SettingWithCopyWarning` (pandas 3.0
+made copy-on-write the default); here you choose.
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames
+df = DataFrame(name = ["Ann", "Bob", "Cy", "Dee"],
+               dept = ["eng", "ops", "eng", "ops"],
+               salary = [120, 90, 105, 95])
+println(df[df.salary .> 100, :])
+println(filter(:salary => s -> s > 100, df))
+subset(df, :salary => ByRow(>(92)), :dept => ByRow(==("ops")))
+'''
+
+  [[section.example]]
+  caption = "`filter` on a column with `missing`: the condition is `missing` for Bob. The example ends in an error on purpose."
+  code = '''
+using DataFrames
+df = DataFrame(name = ["Ann", "Bob", "Cy"], salary = [120, missing, 105])
+filter(:salary => >(100), df)
+'''
+
+  [[section.example]]
+  caption = "The same condition in `subset`: the error names the keyword that decides. It ends in an error on purpose."
+  code = '''
+using DataFrames
+df = DataFrame(name = ["Ann", "Bob", "Cy"], salary = [120, missing, 105])
+subset(df, :salary => ByRow(>(100)))
+'''
+
+  [[section.example]]
+  caption = "Missing values in a condition, and a view that writes through."
+  code = '''
+using DataFrames
+df = DataFrame(name = ["Ann", "Bob", "Cy"], salary = [120, missing, 105])
+println(subset(df, :salary => ByRow(>(100)); skipmissing = true))
+high = subset(df, :salary => ByRow(>(110)); skipmissing = true, view = true)
+println(high isa SubDataFrame)
+high[1, :salary] = 125
+df
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using DataFrames
+df = DataFrame(x = [3, missing, 8])
+nrow(subset(df, :x => ByRow(>(2)); skipmissing = true))
+'''
+  choices = ["3", "0", "2"]
+  answer = 3
+  explain = "`>(2)` is the function `x -> x > 2`. Rows 1 and 3 pass; row 2 gives `missing`, and `skipmissing = true` drops it."
+  misconceptions = [
+    "`skipmissing = true` drops the rows whose condition is `missing`; it does not keep them.",
+    "`>(2)` fixes the right-hand side: it tests `x > 2`, not `2 > x`.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`df.x` is `[3, missing, 8]`. Why does `filter(:x => >(2), df)` throw?"
+  choices = [
+    "`filter` cannot take a `column => function` pair, only a row function",
+    "`missing > 2` is `missing`, not `true` or `false`",
+    "Comparisons such as `>` are not defined on a `Union{Missing, Int64}` column",
+  ]
+  answer = 2
+  explain = "`filter` needs `true` or `false` for every row, and missing values follow three-valued logic: an unknown value compared with 2 gives an unknown result. `filter` refuses to decide for you; `subset` with `skipmissing = true`, or `coalesce`, makes the choice explicit."
+  misconceptions = [
+    "The pair form works (the first example of this section uses it); the problem is the value the function returns for row 2.",
+    "",
+    "`3 > 2` and `8 > 2` work fine on that column; only the `missing` row produces a non-Bool.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "When is `subset(df, cond; view = true)` the better choice?"
+  choices = [
+    "To read or update some rows of a large table without copying them",
+    "Always: a view makes every later operation on the rows faster than a copy",
+    "When the result must stay independent of `df` after later edits to `df`",
+  ]
+  answer = 1
+  explain = "A `SubDataFrame` stores the parent and a list of row numbers, so creating it copies no data and writes go to the parent."
+  misconceptions = [
+    "",
+    "Every access through a view goes through the row list. If you work on the subset many times, a compact copy can be faster.",
+    "That is what the default (copying) result gives; a view is tied to `df`, and writes to it change `df`.",
+  ]
+
+[[section]]
+title = "Transforming and summarizing: src => fun => dst"
+body = '''
+`select` keeps the columns you name (and can compute new ones); `transform`
+keeps all columns and adds new ones. Both use the **minilanguage**
+`source => function => destination`: the function is applied to the source
+column(s), *as whole vectors*, and the result is stored under the destination
+name. Use `ByRow(f)` to apply `f` to each row instead.
+
+**Split-apply-combine**: `groupby(df, :dept)` splits the rows by department,
+and `combine(g, ...)` applies the same minilanguage to each group and stacks
+the results, one row per group. `nrow => :n` counts rows. `sort` orders rows
+by one or more columns; `order(:col, rev = true)` sorts that column
+descending.
+
+The forms of the minilanguage, all ordinary Julia `Pair` values:
+
+* `:a` keeps a column, `:a => :b` renames it.
+* `:a => f` applies `f` and names the result automatically (`a_f`).
+* `[:a, :b] => f => :c` calls `f(a, b)` with the two column vectors.
+* `:a => f => AsTable` spreads a named tuple returned by `f` into several
+  columns (shown in the last section).
+
+The three verbs differ only in which columns and how many rows come back:
+`select` returns the columns you list with one row per input row,
+`transform` returns all columns plus the new ones, still one row per input
+row, and `combine` returns whatever the functions return, one row per group
+for reductions. `select!` and `transform!` change `df` in place. The last
+example of this section passes the same pair to all three.
+
+Because the pairs are values, you can build them in code:
+`[:a, :b] .=> mean` is a vector of two pairs. Compare pandas, where
+`df.groupby("dept").agg(avg=("salary", "mean"))` names functions by string,
+and dplyr, which reads unquoted column names from your code. Here the
+function is a real Julia function, called with each column vector, which is
+also the function barrier from the previous section.
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames
+df = DataFrame(name = ["Ann", "Bob", "Cy"], salary = [120, 90, 105])
+transform(df, :salary => (s -> s .- sum(s) / length(s)) => :vs_mean,
+              :name => ByRow(lowercase) => :login)
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames, Statistics
+df = DataFrame(name = ["Ann", "Bob", "Cy", "Dee", "Eve"],
+               dept = ["eng", "ops", "eng", "ops", "eng"],
+               salary = [120, 90, 105, 95, 130])
+g = groupby(df, :dept)
+combine(g, :salary => mean => :avg_salary, :salary => maximum => :top, nrow => :n)
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames
+df = DataFrame(name = ["Ann", "Bob", "Cy", "Dee", "Eve"],
+               dept = ["eng", "ops", "eng", "ops", "eng"],
+               salary = [120, 90, 105, 95, 130])
+sort(df, [:dept, order(:salary, rev = true)])
+'''
+
+  [[section.example]]
+  caption = "The same pair through select, transform and combine on a grouped table."
+  notice = "Notice 3, 3 and 2 rows, and that `select` on a grouped table keeps the grouping column `dept`."
+  code = '''
+using DataFrames
+df = DataFrame(name = ["Ann", "Bob", "Cy"], dept = ["eng", "ops", "eng"],
+               salary = [120, 90, 105])
+g = groupby(df, :dept)
+println(select(g, :salary => sum => :dept_total))
+println(transform(g, :salary => sum => :dept_total))
+combine(g, :salary => sum => :dept_total)
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using DataFrames
+df = DataFrame(salary = [120, 90])
+names(combine(df, :salary => sum))
+'''
+  choices = [
+    "1-element Vector{String}:\n \"salary\"",
+    "1-element Vector{String}:\n \"salary_sum\"",
+    "1-element Vector{String}:\n \"sum\"",
+  ]
+  answer = 2
+  explain = "Without a destination, the result is named from the source and the function: `salary_sum`. Write `:salary => sum => :total` to choose the name."
+  misconceptions = [
+    "Only `:salary => :salary` (or a function that keeps the name explicitly) would reuse the source name; an automatic name records the function too.",
+    "",
+    "The source column is part of the automatic name, so two sums of different columns do not collide.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print? Note the `ByRow`."
+  code = '''
+using DataFrames
+df = DataFrame(x = [1, 2, 3])
+transform(df, :x => ByRow(v -> v - sum(v) / length(v)) => :c).c
+'''
+  choices = [
+    "3-element Vector{Float64}:\n -1.0\n  0.0\n  1.0",
+    "3-element Vector{Float64}:\n 0.0\n 0.0\n 0.0",
+    "ERROR: MethodError: no method matching length(::Int64)",
+  ]
+  answer = 2
+  explain = "`ByRow` calls the function once per row with a single number, so `sum(v)` is `v` and `length(v)` is 1: every row gets `v - v`. Centering needs the whole column, so drop `ByRow`."
+  misconceptions = [
+    "That is the result without `ByRow`, where `v` is the whole column and `sum(v) / length(v)` its mean.",
+    "",
+    "Numbers are iterable in Julia: `length(2)` is 1 and `sum(2)` is 2, so nothing throws; the result is just not what was meant.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You want each employee's salary as a share of their department's total, keeping every original column. Which call?"
+  choices = [
+    "`combine(groupby(df, :dept), :salary => (s -> s ./ sum(s)) => :share)`",
+    "`transform(df, :salary => (s -> s ./ sum(s)) => :share)`",
+    "`transform(groupby(df, :dept), :salary => ByRow(s -> s / sum(s)) => :share)`",
+    "`transform(groupby(df, :dept), :salary => (s -> s ./ sum(s)) => :share)`",
+  ]
+  answer = 4
+  explain = "`transform` keeps all columns and one row per input row; on a grouped table the function sees one department's salaries at a time, so `sum(s)` is that department's total."
+  misconceptions = [
+    "`combine` keeps only the grouping columns and the new ones; `name` and the rest are gone.",
+    "Without `groupby` the function sees the whole column, so the share is of the company total.",
+    "With `ByRow` each call gets one salary, so `sum(s)` is that salary and every share is 1.0.",
+    "",
+  ]
+
+[[section]]
+title = "Joins and missing values"
+body = '''
+`innerjoin(a, b, on = :key)` keeps the rows whose key appears in both
+tables; `leftjoin` keeps every row of `a`, filling the columns from `b` with
+`missing` where there is no match (the column type becomes
+`Union{Missing, Int64}`, shown as `Int64?`). When the key columns have
+different names, write `on = :dept => :name`.
+
+The other join kinds:
+
+* `rightjoin` keeps every row of `b`; `outerjoin` keeps every row of both,
+  with `missing` on whichever side had no match.
+* `semijoin(a, b, on = ...)` keeps the rows of `a` that have a match, and
+  adds no columns from `b`; `antijoin` keeps the rows of `a` that have
+  **no** match. They answer "which orders have a customer?" without
+  duplicating rows.
+* `crossjoin` pairs every row of `a` with every row of `b`.
+
+A key that appears twice on each side produces 2 × 2 = 4 rows: a join
+returns every matching pair. `validate = (left, right)` makes a join
+throw when keys are not unique on a side you mark `true` (the fourth
+example).
+
+`missing` spreads through arithmetic (`missing + 1` is `missing`), so use
+`ismissing`, `skipmissing` or `coalesce(x, default)` to handle it
+explicitly.
+
+It spreads through comparisons too: `missing == missing` is `missing`
+(an unknown value compared with another unknown value), while
+`isequal(missing, missing)` is `true`, which is what sorting, grouping and
+joins use. Julia's choice of a separate `missing` value differs from
+pandas' default dtypes, which store a gap in a number column as `NaN` and
+turn an integer column into floats. Here the column becomes
+`Union{Missing, Int64}` and the values stay integers. R's `NA` is the
+closest relative.
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames
+staff = DataFrame(name = ["Ann", "Bob", "Cy"], dept = ["eng", "ops", "hr"])
+floors = DataFrame(dept = ["eng", "ops", "lab"], floor = [3, 1, 2])
+println(innerjoin(staff, floors, on = :dept))
+leftjoin(staff, floors, on = :dept)
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames
+staff = DataFrame(name = ["Ann", "Bob", "Cy"], dept = ["eng", "ops", "hr"])
+floors = DataFrame(dept = ["eng", "ops", "lab"], floor = [3, 1, 2])
+j = leftjoin(staff, floors, on = :dept)
+println(count(ismissing, j.floor), " without a floor")
+println(sum(skipmissing(j.floor)))
+coalesce.(j.floor, 0)
+'''
+
+  [[section.example]]
+  caption = "Duplicate keys, outer joins, and the two filtering joins."
+  notice = "Notice the 4 rows for `k = 1`, and that `outerjoin` makes both value columns `String?`, since either side can be absent."
+  code = '''
+using DataFrames
+a = DataFrame(k = [1, 1, 2], left = ["p", "q", "r"])
+b = DataFrame(k = [1, 1, 3], right = ["s", "t", "u"])
+println(nrow(innerjoin(a, b, on = :k)))
+println(outerjoin(a, b, on = :k))
+println(semijoin(a, b, on = :k))
+antijoin(a, b, on = :k)
+'''
+
+  [[section.example]]
+  caption = "`validate` checks key uniqueness per side: `b` has key 1 twice. The example ends in an error on purpose."
+  code = '''
+using DataFrames
+a = DataFrame(k = [1, 2], left = ["p", "q"])
+b = DataFrame(k = [1, 1], right = ["s", "t"])
+println(nrow(innerjoin(a, b, on = :k, validate = (true, false))))
+innerjoin(a, b, on = :k, validate = (true, true))
+'''
+
+  [[section.example]]
+  caption = "Three-valued logic."
+  code = '''
+x = [1, missing, 3]
+println(missing == missing, " ", isequal(missing, missing))
+println(x .> 2)
+println(sum(skipmissing(x)), " ", coalesce.(x, 0))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using DataFrames
+a = DataFrame(k = [1, 2, 2], x = [10, 20, 30])
+b = DataFrame(k = [2, 2, 2], y = [4, 5, 6])
+nrow(innerjoin(a, b, on = :k))
+'''
+  choices = ["2", "6", "3"]
+  answer = 2
+  explain = "Each of the two rows with `k = 2` in `a` meets each of the three in `b`: 2 × 3 = 6 rows. `k = 1` has no match and is dropped."
+  misconceptions = [
+    "That counts the matching rows of `a`, which is what `semijoin` returns; a join returns every matching pair.",
+    "",
+    "That counts the matching rows of `b`. Duplicate keys multiply, they do not collapse.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You need the orders whose `customer_id` does not appear in `customers`. Which join gives exactly those rows?"
+  choices = [
+    "`semijoin(orders, customers, on = :customer_id => :id)`",
+    "`innerjoin(orders, customers, on = :customer_id => :id)`",
+    "`leftjoin(orders, customers, on = :customer_id => :id)`",
+    "`antijoin(orders, customers, on = :customer_id => :id)`",
+  ]
+  answer = 4
+  explain = "`antijoin` keeps the rows of the left table that have no match, and adds no columns, so duplicate customers cannot multiply rows either."
+  misconceptions = [
+    "`semijoin` is the opposite filter: the orders that do have a customer.",
+    "`innerjoin` keeps only the matched orders (and repeats an order once per matching customer).",
+    "`leftjoin` keeps every order; the unmatched ones are there, but you still have to find the rows with `missing` customer columns.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+[1, missing, 3] == [1, missing, 3]
+'''
+  choices = ["true", "false", "missing"]
+  answer = 3
+  explain = "`==` compares element by element, and `missing == missing` is `missing`: the comparison cannot know whether two unknown values are equal. Use `isequal` for \"same contents, missing included\", which gives `true`."
+  misconceptions = [
+    "That is `isequal`'s answer. `==` follows three-valued logic.",
+    "Nothing shows the arrays differ; the result is unknown, not false.",
+    "",
+  ]
+
+[[section]]
+title = "Reading and writing CSV with CSV.jl"
+body = '''
+CSV.jl reads a file with `CSV.read(path, DataFrame)`. It accepts any input
+stream, so for text already in memory pass an `IOBuffer`. It detects the
+column types, and empty fields become `missing`. Text columns get a compact
+string type by default (`DataStrings.DataString` with the package versions
+installed here); pass `stringtype = String` when you
+want ordinary `String` columns.
+
+CSV.jl (version 1.3 here) has two entry points:
+
+* `CSV.File(source)` parses the text into typed columns and returns a
+  `CSV.File`, which is a table on its own: `f.col` gives a column, and
+  iterating gives rows with `row.col` fields. It needs no DataFrames.jl.
+* `CSV.read(source, DataFrame)` parses the same way and hands the columns
+  to the `DataFrame` without copying them. `DataFrame(CSV.File(source))`
+  gives the same table but copies every column once more. The second
+  argument can be any Tables.jl sink.
+
+**Type inference.** CSV.jl looks at the values of each column and picks
+the narrowest type that parses all of them: `Int64`, then `Float64`, then
+dates in ISO format (`2024-03-05`), and text otherwise. An empty field
+makes the column `Union{Missing, T}`. Inference has no notion of meaning,
+so three things go wrong often: a zip code like `02139` becomes the integer
+2139, a missing marker like `NA` turns a whole number column into text, and
+a day-first date stays text. The keywords fix each one:
+
+* `types = Dict(:zip => String)` forces a column's type
+  (`types = String` forces all of them).
+* `missingstring = "NA"` (or a vector of markers) says what means missing.
+* `dateformat = "dd/mm/yyyy"` says how dates are written.
+* `select = [:id, :score]` (or `drop`) parses only some columns;
+  `delim = ';'` and `decimal = ','` read European-style files. Without
+  `delim`, CSV.jl guesses the delimiter from the first rows; with decimal
+  commas in the data, pass it explicitly.
+
+**Threads.** For a large input, CSV.jl splits the text into chunks and
+parses them on several tasks at once, `ntasks` of them (by default the
+number of threads Julia was started with, as in `julia -t 4`), then joins
+the chunks. The values are the same either way; the columns may then come
+back as a chained vector type from SentinelArrays.jl, which behaves like
+any other vector. This course runs Julia with one thread, so here parsing
+is sequential.
+
+**Writing.** `CSV.write(path_or_io, table)` writes any table. Fields
+containing the delimiter are quoted, and `missing` is written as an empty
+field unless you pass `missingstring`.
+
+For pandas users: `types` is `dtype`, `missingstring` is `na_values`,
+`select` is `usecols`, and `dateformat` plays the part of `parse_dates`
+with a format. The full list is in the
+[CSV.File docstring](https://csv.juliadata.org/stable/reading.html).
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames, CSV
+text = """
+city,temp,rain
+Oslo,4.5,12
+Rome,18.0,
+Lima,19.2,1
+"""
+df = CSV.read(IOBuffer(text), DataFrame)
+println(eltype(df.city))
+df = CSV.read(IOBuffer(text), DataFrame; stringtype = String)
+'''
+
+  [[section.example]]
+  caption = "A CSV.File is already a table: columns by name, rows by iteration."
+  code = '''
+using CSV
+f = CSV.File(IOBuffer("a,b\n1,x\n2,y\n"))
+println(length(f), " rows, columns ", propertynames(f))
+println(f.a)
+for row in f
+    println(row.a + 1, " ", row.b)
+end
+'''
+
+  [[section.example]]
+  caption = "Inference guesses wrong three times; three keywords fix it."
+  code = '''
+using CSV, DataFrames
+text = """
+id,zip,when,score
+1,02139,05/03/2024,NA
+2,10001,17/11/2023,7
+"""
+println(eltype.(eachcol(CSV.read(IOBuffer(text), DataFrame))))
+df = CSV.read(IOBuffer(text), DataFrame; missingstring = "NA",
+              types = Dict(:zip => String), dateformat = "dd/mm/yyyy")
+println(eltype.(eachcol(df)))
+df
+'''
+
+  [[section.example]]
+  caption = "Writing: quoting and missing values."
+  notice = "Notice that `\"tea, green\"` is quoted in the comma file and not in the semicolon file, where the comma is ordinary text."
+  code = '''
+using CSV, DataFrames
+df = DataFrame(item = ["tea, green", "jam"], qty = [3, missing])
+io = IOBuffer()
+CSV.write(io, df)
+print(String(take!(io)))
+CSV.write(io, df; delim = ';', missingstring = "NA")
+print(String(take!(io)))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using CSV, DataFrames
+df = CSV.read(IOBuffer("zip\n02139\n10001\n"), DataFrame)
+df.zip[1]
+'''
+  choices = ["\"02139\"", "2139", "2139.0"]
+  answer = 2
+  explain = "Every value in the column parses as an integer, so inference picks `Int64` and the leading zero is gone. Codes that only look like numbers need `types = Dict(:zip => String)`."
+  misconceptions = [
+    "CSV.jl does not keep the text of a field once a numeric type parses all of them; a string column has to be asked for.",
+    "",
+    "Integers are tried before floats, and no value here has a decimal point.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using CSV, DataFrames
+df = CSV.read(IOBuffer("x\n1\nNA\n3\n"), DataFrame; stringtype = String)
+eltype(df.x)
+'''
+  choices = ["Union{Missing, Int64}", "Int64", "String"]
+  answer = 3
+  explain = "By default only an empty field means missing. `NA` is a value that does not parse as a number, so the whole column becomes text. `missingstring = \"NA\"` gives `Union{Missing, Int64}`."
+  misconceptions = [
+    "That is the result with `missingstring = \"NA\"`. R writes `NA` for missing, but CSV.jl does not assume it.",
+    "One value that is not an integer rules `Int64` out for the whole column.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Julia started with `julia -t 4` parses a 2 GB file with `CSV.read`. What changes compared with this course's one-thread runs?"
+  choices = [
+    "The file is parsed in chunks on several tasks; the values and column element types are the same",
+    "Nothing: CSV.jl always parses sequentially",
+    "Each chunk infers its own types, so the same column can come back with different types on different runs",
+  ]
+  answer = 1
+  explain = "`ntasks` defaults to the thread count. The chunks' results are combined into one column per field, with one element type, so only the speed (and possibly the vector container type) changes."
+  misconceptions = [
+    "",
+    "Multithreaded parsing is the default for large inputs when Julia has several threads; `ntasks = 1` turns it off.",
+    "Chunks' types are reconciled into one type per column; the parse is deterministic.",
+  ]
+
+[[section]]
+title = "Reshaping: wide and long"
+body = '''
+A *wide* table has one column per measurement; a *long* table has one row
+per (id, measurement) pair, which is what `groupby` and plotting packages
+often want. `stack(df, cols)` goes from wide to long, producing `variable`
+and `value` columns; `unstack(long, :variable, :value)` goes back.
+
+Long format puts one observation on each row (Hadley Wickham's "tidy
+data"). Then "mean per month" is a `groupby(:month)`, and a plotting
+package can map the `month` column to colour. Wide format is what people
+read and what spreadsheets export.
+
+The details:
+
+* `stack(df, cols)` keeps all the other columns as identifiers, so
+  `stack(wide, Not(:city))` stacks every column but `city`.
+  `variable_name` and `value_name` name the two new columns.
+* `unstack(long, :variable, :value)` uses every remaining column as the
+  row key; `unstack(long, :city, :month, :temp)` names the key explicitly.
+* A (row, column) combination that has no row in the long table becomes
+  `missing`, which is why the unstacked columns have type `Int64?` even
+  when nothing is missing. `fill = 0` uses another value. Two rows for the
+  same combination throw unless you pass `combine = f` to reduce them.
+
+pandas calls these `melt` and `pivot`; tidyr calls them `pivot_longer` and
+`pivot_wider`.
+'''
+
+  [[section.example]]
+  code = '''
+using DataFrames
+wide = DataFrame(city = ["Oslo", "Rome"], jan = [-3, 8], jul = [17, 25])
+long = stack(wide, [:jan, :jul])
+println(long)
+unstack(long, :variable, :value)
+'''
+
+  [[section.example]]
+  caption = "In long format the grouping is one `groupby(:month)`; unstack fills the gaps with missing or a value you choose."
+  code = '''
+using DataFrames, Statistics
+wide = DataFrame(city = ["Oslo", "Rome"], jan = [-3, 8], jul = [17, 25])
+long = stack(wide, Not(:city); variable_name = :month, value_name = :temp)
+println(combine(groupby(long, :month), :temp => mean => :avg))
+part = long[1:3, :]          # Rome's July value is gone
+println(unstack(part, :month, :temp))
+unstack(part, :month, :temp; fill = 0)
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using DataFrames
+df = DataFrame(id = 1:3, a = 4:6, b = 7:9, c = 1:3)
+nrow(stack(df, [:a, :b, :c]))
+'''
+  choices = ["3", "12", "9"]
+  answer = 3
+  explain = "Each of the 3 rows gives one long row per stacked column: 3 × 3 = 9. `id` is not stacked; it is repeated as the identifier."
+  misconceptions = [
+    "Stacking changes the number of rows: it trades columns for rows.",
+    "Only the listed columns are stacked; `id` stays an identifier column.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Temperatures are in a wide table with columns `city`, `jan`, ..., `dec`. You want the mean temperature of each month across cities with `groupby`. What do you do first?"
+  choices = [
+    "Nothing: `groupby(wide, :jan)` already groups the rows by month",
+    "`stack` the month columns, then `groupby(long, :variable)`",
+    "`unstack` the table on `city`, then `groupby` the month columns",
+  ]
+  answer = 2
+  explain = "`groupby` groups rows by the values of a column. The month is a column name in the wide table, so it has to become a value first, which is what `stack` does."
+  misconceptions = [
+    "`groupby(wide, :jan)` groups cities by their January temperature, not by month.",
+    "",
+    "The table is already wide; `unstack` widens a long table further.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "After `unstack(long, :variable, :value)` the new columns have type `Int64?` although the input had no missing values. Why?"
+  choices = [
+    "`stack` had already made the values `Int64?`",
+    "`unstack` always turns integer values into floats that can hold `missing`",
+    "An absent (row, column) pair would get `missing`",
+  ]
+  answer = 3
+  explain = "Some (row, column) combinations might have no row in the long table, and `unstack` fills those with `missing` unless `fill` is given. The result column must be able to hold a gap for any absent combination, so it allows `missing` by default. With `fill = 0` the type stays `Int64`."
+  misconceptions = [
+    "The long table's `value` column is a plain `Int64` column, as the first example shows.",
+    "The element type is still `Int64`, only widened to allow `missing`; nothing becomes a float.",
+    "",
+  ]
+
+[[section]]
+title = "Where to go next"
+body = '''
+The [DataFrames.jl manual](https://dataframes.juliadata.org/stable/) and the
+[CSV.jl manual](https://csv.juliadata.org/stable/) cover the rest. Parts
+not shown in the sections above:
+
+* **Several outputs from one function.** `:x => f => AsTable` takes a
+  named tuple from `f` and makes one column per field, in `combine`,
+  `select` or `transform`. Reach for this when one pass over a group
+  computes several numbers (a minimum and a maximum, a fit's coefficients).
+* **Grouped filtering and transforms.** `subset` and `transform` take a
+  grouped table, so "keep the top earner of each department" is a
+  condition that compares each salary with its group's maximum. Reach for
+  this when a row's fate depends on the other rows of its group.
+* **Broadcast pairs.** `[:a, :b] .=> [minimum maximum]` builds a matrix of
+  pairs, one output column per (column, function) combination. Reach for
+  this when the same summaries apply to many columns.
+* **Nested data.** `flatten(df, :tags)` turns a column of vectors into one
+  row per element, repeating the other columns (an empty vector produces no
+  row). Reach for this when a field holds a list (tags, parsed JSON arrays)
+  and you want to group or count its elements.
+* **Cleaning.** `dropmissing`, `unique`, `nonunique`, `rename!`,
+  `disallowmissing`, `vcat` and `append!` for adding rows. Reach for these
+  when a table arrives with gaps, duplicates or awkward names.
+* **CSV.jl beyond `read`.** `CSV.Rows` iterates over a file one row at a
+  time without building columns, and `CSV.Chunks` returns a large file in
+  pieces. Gzip-compressed input is decompressed while reading. Reach for
+  these when a file is larger than memory.
+* **Other front ends.** Reach for these when you write many transformations
+  and want shorter code for them. [DataFramesMeta.jl](https://juliadata.github.io/DataFramesMeta.jl/stable/)
+  provides macros such as `@transform(df, :c = :a .+ :b)` and
+  `@subset(df, :x .> 2)` that rewrite into the same `transform` and
+  `subset` calls, with column names written like variables.
+  [Tidier.jl](https://tidierorg.github.io/Tidier.jl/dev/) reproduces the
+  dplyr and tidyr verbs (`@mutate`, `@summarize`, `@pivot_longer`) on top of
+  DataFrames.jl. Neither is installed in this course's environment.
+'''
+
+  [[section.example]]
+  caption = "Two outputs per group with AsTable, and a grouped subset."
+  code = '''
+using DataFrames
+df = DataFrame(dept = ["eng", "ops", "eng", "ops", "eng"],
+               name = ["Ann", "Bob", "Cy", "Dee", "Eve"],
+               salary = [120, 90, 105, 95, 130])
+g = groupby(df, :dept)
+println(combine(g, :salary => (s -> (lo = minimum(s), hi = maximum(s))) => AsTable))
+subset(g, :salary => s -> s .== maximum(s))
+'''
+
+  [[section.example]]
+  caption = "flatten turns a column of vectors into rows; then ordinary grouping counts them."
+  code = '''
+using DataFrames
+posts = DataFrame(id = [1, 2, 3], tags = [["julia", "data"], ["csv"], ["julia"]])
+long = flatten(posts, :tags)
+println(long)
+sort(combine(groupby(long, :tags), nrow => :n), :tags)
+'''
+
+  [[section.example]]
+  caption = "A matrix of pairs: every column with every function."
+  code = '''
+using DataFrames
+df = DataFrame(a = [1, 2, 3], b = [10, 20, 30])
+combine(df, [:a, :b] .=> [minimum maximum])
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`combine(df, :x => (v -> (lo = minimum(v), hi = maximum(v))))` throws `ArgumentError: Table returned but a single output column was expected`. What fixes it?"
+  choices = [
+    "Wrap the function in `ByRow`",
+    "Add `=> AsTable` as the destination, so each field becomes a column",
+    "Return a vector `[minimum(v), maximum(v)]` instead of a named tuple",
+  ]
+  answer = 2
+  explain = "With `=> AsTable` the named tuple becomes the columns `lo` and `hi`. A named tuple of results is a one-row table. Without a destination, `combine` expects one column; `AsTable` says to spread the fields into columns named after them."
+  misconceptions = [
+    "`ByRow` would call the function on each single value; the issue is the shape of the result, not how the function is called.",
+    "",
+    "That gives one column with two rows (minimum, then maximum), not two named columns.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using DataFrames
+df = DataFrame(id = [1, 2, 3], v = [[1, 2], Int[], [3]])
+nrow(flatten(df, :v))
+'''
+  choices = ["4", "3", "2"]
+  answer = 2
+  explain = "Row 1 gives two rows, row 3 gives one, and row 2's empty vector gives none: 3 rows. Id 2 disappears from the result."
+  misconceptions = [
+    "An empty vector does not become a row with `missing`; it contributes no rows at all.",
+    "",
+    "Row 1 has two elements, so it becomes two rows, not one.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "What does DataFramesMeta.jl's `@transform(df, :c = :a .+ :b)` add over `transform(df, [:a, :b] => ((a, b) -> a .+ b) => :c)`?"
+  choices = [
+    "A faster engine than `transform`",
+    "A separate table type that replaces `DataFrame` in your code",
+    "Shorter syntax for the same `transform` call",
+  ]
+  answer = 3
+  explain = "The macro rewrites the expression into the same `transform` call. The macros are a front end. They read `:a` and `:b` as column references and build the `source => function => destination` pair for you, so performance and results match the plain call."
+  misconceptions = [
+    "The macro expands into a `transform` call; the same code runs.",
+    "It works on ordinary `DataFrame`s and returns them.",
+    "",
+  ]
+
+[[problem]]
+id = "df-top-k"
+title = "The top k rows"
+difficulty = "warm-up"
+kcs = ["dataframes"]
+entry = "top_k"
+prompt = '''
+`data` is a named tuple with columns `name` (`Vector{String}`) and `score`
+(`Vector{Int}`). Write `top_k(data, k)` that finds the `k` rows of highest
+score, highest first; rows with equal scores are ordered by name,
+alphabetically. If there are fewer than `k` rows, use all of them. Return the
+rows as a `Vector{Tuple{String, Int}}` of `(name, score)` pairs.
+
+```julia
+top_k((name = ["c", "a", "b"], score = [5, 9, 5]), 2)   # [("a", 9), ("b", 5)]
+```
+'''
+starter = '''
+using DataFrames
+
+function top_k(data, k)
+    df = DataFrame(data)
+    # your code here
+end
+'''
+reference = '''
+using DataFrames
+
+function top_k(data, k)
+    df = sort(DataFrame(data), [order(:score, rev = true), :name])
+    top = first(df, k)
+    return collect(zip(top.name, top.score))
+end
+'''
+cases = [
+  "(name = [\"c\", \"a\", \"b\"], score = [5, 9, 5]), 2",
+  "(name = [\"x\", \"y\"], score = [1, 2]), 5",
+  "(name = [\"p\", \"q\", \"r\"], score = [3, 3, 3]), 1",
+  "(name = [\"z\", \"m\"], score = [4, 8]), 0",
+]
+gen = "rng -> [(m = rand(rng, 0:20); ((name = [string(c) for c in rand(rng, 'a':'z', m)], score = rand(rng, 1:6, m)), rand(rng, 0:25))) for _ in 1:20]"
+hints = [
+  "Sort by two keys: the score first, descending, then the name to break ties.",
+  "Check the two edges of the prompt: rows with equal scores (which key decides their order?) and a `k` larger than the table (does your way of taking the first `k` rows still work?).",
+]
+
+  [problem.perf]
+  args = "(name = [randstring(rng, 4) for _ in 1:n], score = rand(rng, 1:100, n)), 10"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "ties are left in input order"
+  code = '''
+using DataFrames
+function top_k(data, k)
+    top = first(sort(DataFrame(data), :score, rev = true), k)
+    return collect(zip(top.name, top.score))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "fails when k is larger than the table"
+  code = '''
+using DataFrames
+function top_k(data, k)
+    top = sort(DataFrame(data), [order(:score, rev = true), :name])[1:k, :]
+    return collect(zip(top.name, top.score))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sorts by name, then a stable sort by score"
+  code = '''
+using DataFrames
+function top_k(data, k)
+    df = sort(DataFrame(data), :name)
+    sort!(df, :score; rev = true)
+    top = df[1:min(k, nrow(df)), :]
+    return collect(zip(top.name, top.score))
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "no DataFrame: sort the pairs with a key"
+  code = '''
+function top_k(data, k)
+    rows = sort!(collect(zip(data.name, data.score)); by = r -> (-r[2], r[1]))
+    return rows[1:min(k, length(rows))]
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "df-mean-by-group"
+title = "Mean price per category"
+difficulty = "core"
+kcs = ["split-apply-combine", "dataframes"]
+entry = "mean_by_category"
+prompt = '''
+`data` is a named tuple of two equal-length columns, `category`
+(`Vector{String}`) and `price` (`Vector{Int}`, in cents), which
+`DataFrame(data)` turns into a table. Write `mean_by_category(data)` that
+returns, for each category, the tuple `(category, mean price)`, as a
+`Vector{Tuple{String, Float64}}` sorted by category name. Assume at least one
+row.
+
+```julia
+mean_by_category((category = ["b", "a", "b"], price = [100, 250, 300]))
+# [("a", 250.0), ("b", 200.0)]
+```
+
+The grader also measures speed and memory.
+'''
+starter = '''
+using DataFrames, Statistics
+
+function mean_by_category(data)
+    df = DataFrame(data)
+    # your code here
+end
+'''
+reference = '''
+using DataFrames, Statistics
+
+function mean_by_category(data)
+    df = DataFrame(data)
+    g = combine(groupby(df, :category), :price => mean => :mean_price)
+    sort!(g, :category)
+    return collect(zip(g.category::Vector{String}, g.mean_price::Vector{Float64}))
+end
+'''
+cases = [
+  "(category = [\"b\", \"a\", \"b\"], price = [100, 250, 300])",
+  "(category = [\"x\"], price = [7])",
+  "(category = [\"tea\", \"tea\", \"jam\", \"tea\"], price = [300, 350, 420, 310])",
+]
+gen = "rng -> [(m = rand(rng, 1:60); ((category = rand(rng, [\"ale\", \"bun\", \"cod\", \"dip\", \"egg\"], m), price = rand(rng, 1:5000, m)),)) for _ in 1:15]"
+hints = [
+  "This is split-apply-combine: split the rows by category, reduce each group's prices to one number, and collect one row per group.",
+  "Which of the three verbs returns one row per group? After it, check whether the rows come back in the order the prompt asks for.",
+]
+
+  [problem.perf]
+  args = "(category = rand(rng, [string(\"c\", i) for i in 1:20], n), price = rand(rng, 1:5000, n))"
+  sizes = [20000]
+
+  [[problem.variant]]
+  label = "forgets to sort by category"
+  code = '''
+using DataFrames, Statistics
+function mean_by_category(data)
+    g = combine(groupby(DataFrame(data), :category), :price => mean => :mean_price)
+    return collect(zip(g.category::Vector{String}, g.mean_price::Vector{Float64}))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "median instead of mean"
+  code = '''
+using DataFrames, Statistics
+function mean_by_category(data)
+    g = sort!(combine(groupby(DataFrame(data), :category), :price => median => :m), :category)
+    return collect(zip(g.category::Vector{String}, g.m::Vector{Float64}))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "builds a second DataFrame row by row with push!, then filters it once per category"
+  code = '''
+using DataFrames, Statistics
+function mean_by_category(data)
+    df = DataFrame(category = String[], price = Int[])
+    for i in eachindex(data.category)
+        push!(df, (category = data.category[i], price = data.price[i]))
+    end
+    out = Tuple{String, Float64}[]
+    for c in sort(unique(df.category))
+        rows = df[df.category .== c, :]
+        push!(out, (c, mean(rows.price)))
+    end
+    return out
+end
+'''
+  expect = ["correct", "slow", "allocates"]
+
+  [[problem.variant]]
+  label = "loops over eachrow: every row.field is looked up dynamically"
+  code = '''
+using DataFrames, Statistics
+function mean_by_category(data)
+    df = DataFrame(data)
+    sums = Dict{String, Int}()
+    counts = Dict{String, Int}()
+    for row in eachrow(df)
+        c = row.category
+        p = row.price
+        sums[c] = get(sums, c, 0) + p
+        counts[c] = get(counts, c, 0) + 1
+    end
+    return [(c, sums[c] / counts[c]) for c in sort(collect(keys(sums)))]
+end
+'''
+  expect = ["correct", "slow", "allocates"]
+
+  [[problem.variant]]
+  label = "groupby(...; sort = true) and sum/length"
+  code = '''
+using DataFrames, Statistics
+function mean_by_category(data)
+    g = combine(groupby(DataFrame(data), :category; sort = true), :price => (p -> sum(p) / length(p)) => :m)
+    return collect(zip(g.category::Vector{String}, g.m::Vector{Float64}))
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "df-unmatched-keys"
+title = "Orders without a customer"
+difficulty = "core"
+kcs = ["joins", "missing-values"]
+entry = "count_unmatched"
+prompt = '''
+`orders` has columns `order_id` and `customer_id`; `customers` has columns
+`id` and `name` (named tuples of vectors, as in the other problems). Some
+orders refer to customer ids that are not in `customers`, and a customer id
+may appear more than once in `customers`. Write
+`count_unmatched(orders, customers)` returning the number of **orders** whose
+`customer_id` has no match.
+
+```julia
+orders = (order_id = [1, 2, 3, 4], customer_id = [10, 11, 10, 12])
+customers = (id = [10, 12, 12], name = ["Ann", "Bob", "Bob (dup)"])
+count_unmatched(orders, customers)   # 1 (order 2)
+```
+
+The grader measures how the time grows with the table sizes.
+'''
+starter = '''
+using DataFrames
+
+function count_unmatched(orders, customers)
+    # your code here
+end
+'''
+reference = '''
+using DataFrames
+
+function count_unmatched(orders, customers)
+    j = leftjoin(DataFrame(orders), DataFrame(customers), on = :customer_id => :id)
+    return count(ismissing, j.name)
+end
+'''
+cases = [
+  "(order_id = [1, 2, 3, 4], customer_id = [10, 11, 10, 12]), (id = [10, 12, 12], name = [\"Ann\", \"Bob\", \"Bob (dup)\"])",
+  "(order_id = [1], customer_id = [5]), (id = Int[], name = String[])",
+  "(order_id = Int[], customer_id = Int[]), (id = [1], name = [\"Ann\"])",
+]
+gen = "rng -> [(n = rand(rng, 0:30); m = rand(rng, 0:20); ((order_id = collect(1:n), customer_id = rand(rng, 1:25, n)), (id = rand(rng, 1:25, m), name = [string(\"c\", i) for i in 1:m]))) for _ in 1:20]"
+hints = [
+  "The question per order is only \"does its `customer_id` exist on the other side?\". The section on joins lists joins that answer exactly that, and a lookup structure answers it too.",
+  "Test your answer on the prompt's example, where customer 12 appears twice: an approach that counts matched pairs subtracts order 4 twice. Also check that the time stays near-linear when both tables grow.",
+]
+
+  [problem.perf]
+  args = "(order_id = collect(1:n), customer_id = rand(rng, 1:2n, n)), (id = rand(rng, 1:2n, n), name = [string(\"c\", i) for i in 1:n])"
+  sizes = [1000, 16000]
+
+  [[problem.variant]]
+  label = "counts customers without orders instead"
+  code = '''
+using DataFrames
+function count_unmatched(orders, customers)
+    j = leftjoin(DataFrame(customers), DataFrame(orders), on = :id => :customer_id)
+    return count(ismissing, j.order_id)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "orders minus inner-join rows: duplicate customers are counted twice"
+  code = '''
+using DataFrames
+function count_unmatched(orders, customers)
+    o = DataFrame(orders)
+    return nrow(o) - nrow(innerjoin(o, DataFrame(customers), on = :customer_id => :id))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "searches the id vector for every order"
+  code = '''
+count_unmatched(orders, customers) = count(c -> !(c in customers.id), orders.customer_id)
+'''
+  expect = ["correct", "scaling"]
+
+  [[problem.variant]]
+  label = "antijoin"
+  code = '''
+using DataFrames
+count_unmatched(orders, customers) =
+    nrow(antijoin(DataFrame(orders), DataFrame(customers), on = :customer_id => :id))
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "a Set of known ids, no DataFrame at all"
+  code = '''
+function count_unmatched(orders, customers)
+    known = Set(customers.id)
+    return count(c -> !(c in known), orders.customer_id)
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "df-raise-report"
+title = "Fix the raise report"
+difficulty = "core"
+kcs = ["dataframes", "split-apply-combine"]
+entry = "mean_after_raise"
+packages = ["DataFrames"]
+prompt = '''
+`df` is a payroll `DataFrame` with columns `dept` (`Vector{String}`) and
+`salary` (`Vector{Float64}`), at least one row. `mean_after_raise(df, pct)`
+should return the mean salary of each department after every salary rises
+by `pct` percent, as a `Vector{Tuple{String, Float64}}` of `(dept, mean)`
+sorted by department name. The caller keeps using `df` as the current
+payroll afterwards, so the function must leave it as it was.
+
+The starter code is a colleague's version. It is wrong: find the bug and
+fix it.
+
+```julia
+df = DataFrame(dept = ["ops", "eng", "eng"], salary = [100.0, 200.0, 300.0])
+mean_after_raise(df, 10)   # [("eng", 275.0), ("ops", 110.0)], up to rounding
+```
+
+The grader compares your result and `df` after the call with the
+reference's, and measures speed.
+'''
+starter = '''
+using DataFrames, Statistics
+
+function mean_after_raise(df, pct)
+    salary = df.salary
+    salary .*= 1 + pct / 100
+    g = combine(groupby(df, :dept; sort = true), :salary => mean => :mean)
+    return collect(zip(g.dept, g.mean))
+end
+'''
+reference = '''
+using DataFrames, Statistics
+
+function mean_after_raise(df, pct)
+    raised = transform(df, :salary => (s -> s .* (1 + pct / 100)) => :salary)
+    g = combine(groupby(raised, :dept; sort = true), :salary => mean => :mean)
+    return collect(zip(g.dept, g.mean))
+end
+'''
+# The starter's means are right; its bug is that `df.salary` is the stored
+# column, so `.*=` raises the caller's payroll too. `compare_args` makes the
+# grader compare `df` after the call. Means of a few raised salaries: the
+# variants scale before or after averaging, which moves the result by a few
+# ulps, hence isapprox with rtol = 1e-12.
+# The return type is not asserted: `g.dept` cannot be inferred from a
+# DataFrame, and the grader judges stability relative to the reference.
+compare = "isapprox"
+rtol = 1e-12
+compare_args = true
+cases = [
+  "DataFrame(dept = [\"ops\", \"eng\", \"eng\"], salary = [100.0, 200.0, 300.0]), 10",
+  "DataFrame(dept = [\"hr\"], salary = [50.0]), 0",
+  "DataFrame(dept = [\"lab\", \"eng\", \"lab\", \"hr\"], salary = [80.0, 120.0, 90.0, 70.0]), 3",
+]
+gen = "rng -> [(m = rand(rng, 1:30); (DataFrame(dept = rand(rng, [\"eng\", \"ops\", \"hr\", \"lab\"], m), salary = rand(rng, 40:200, m) .* 1.0), rand(rng, 0:15))) for _ in 1:15]"
+hints = [
+  "The means come out right on the first call. Call the function twice on the same table, or print `df` after one call, and compare with what the caller expects to still have.",
+  "Look at what the first line of the function hands you: the column stored in `df`, or a vector of your own? Then check which table the grouping reads its salaries from.",
+]
+
+  [problem.perf]
+  args = "DataFrame(dept = rand(rng, [\"eng\", \"ops\", \"hr\", \"lab\"], n), salary = rand(rng, 40:200, n) .* 1.0), 3"
+  sizes = [20000]
+
+  [[problem.variant]]
+  label = "df[!, :salary] instead of df.salary: still the stored column"
+  code = '''
+using DataFrames, Statistics
+function mean_after_raise(df, pct)
+    salary = df[!, :salary]
+    salary .*= 1 + pct / 100
+    g = combine(groupby(df, :dept; sort = true), :salary => mean => :mean)
+    return collect(zip(g.dept, g.mean))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "copies the column, but groups the original table: the raise is lost"
+  code = '''
+using DataFrames, Statistics
+function mean_after_raise(df, pct)
+    salary = df[:, :salary]
+    salary .*= 1 + pct / 100
+    g = combine(groupby(df, :dept; sort = true), :salary => mean => :mean)
+    return collect(zip(g.dept, g.mean))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "copies the whole table first, then raises in place"
+  code = '''
+using DataFrames, Statistics
+function mean_after_raise(df, pct)
+    t = copy(df)
+    t.salary .*= 1 + pct / 100
+    g = combine(groupby(t, :dept; sort = true), :salary => mean => :mean)
+    return collect(zip(g.dept, g.mean))
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "raises the means instead of the salaries"
+  code = '''
+using DataFrames, Statistics
+function mean_after_raise(df, pct)
+    f = 1 + pct / 100
+    g = combine(groupby(df, :dept; sort = true), :salary => (s -> mean(s) * f) => :mean)
+    return collect(zip(g.dept, g.mean))
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "csv-rain-summary"
+title = "Read a European CSV"
+difficulty = "stretch"
+kcs = ["csv", "missing-values"]
+packages = ["CSV", "DataFrames"]
+entry = "rain_summary"
+prompt = '''
+`s` is the text of a CSV file with the header `city;rain`. Fields are
+separated by `;`, rainfall in millimetres is written with a decimal
+**comma** (`12,5`), and a day without a measurement says `NA`. At least one
+day has a measurement. Write `rain_summary(s)` returning the tuple
+`(number of NA days, mean of the measured days)` as a `Tuple{Int, Float64}`.
+
+```julia
+rain_summary("city;rain\nOslo;12,5\nRome;NA\nLima;3,0\n")   # (1, 7.75)
+```
+
+Parse the text with `CSV.read(IOBuffer(s), DataFrame; ...)`. The grader
+also checks type stability: the `DataFrame` does not tell the compiler
+what `df.rain` holds.
+'''
+starter = '''
+using CSV, DataFrames, Statistics
+
+function rain_summary(s)
+    df = CSV.read(IOBuffer(s), DataFrame)
+    # your code here
+end
+'''
+reference = '''
+using CSV, DataFrames, Statistics
+
+summarize_rain(r) = (count(ismissing, r), mean(skipmissing(r)))
+
+function rain_summary(s)
+    df = CSV.read(IOBuffer(s), DataFrame; delim = ';', decimal = ',', missingstring = "NA")
+    return summarize_rain(df.rain)::Tuple{Int, Float64}
+end
+'''
+# The assertion is what makes the entry's return type concrete: inference
+# cannot see through `df.rain`, so a barrier alone returns `Any` (the
+# "no return type" variant below), and hint 2 points the learner at it.
+cases = [
+  '"city;rain\nOslo;12,5\nRome;NA\nLima;3,0\n"',
+  '"city;rain\nOslo;0,5\n"',
+  '"city;rain\nRome;NA\nRome;NA\nLima;10,0\nOslo;2,5\n"',
+]
+gen = '''rng -> [(m = rand(rng, 1:25); rows = [string(rand(rng, ["Oslo", "Rome", "Lima"]), ';', (i > 1 && rand(rng) < 0.25) ? "NA" : replace(string(rand(rng, 0:300) / 10), '.' => ',')) for i in 1:m]; (string("city;rain\n", join(rows, '\n'), '\n'),)) for _ in 1:15]'''
+# Means of at most a few thousand values with one decimal: summation order
+# (pairwise in `mean`, left to right in a loop) changes the result by a few ulps.
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "Type inference cannot know that `NA` means missing or that the comma is a decimal separator: tell `CSV.read` how this file is written.",
+  "The `CSV.File` docstring lists the keywords for missing markers, decimals and the delimiter. For type stability, look at two places: the code that works on the column (is it compiled for the column's real type?) and the entry's return value (can the compiler know its type, which the prompt fixes?).",
+]
+
+  [problem.perf]
+  args = '''string("city;rain\n", join([string("c", i % 7, ';', i % 10 == 0 ? "NA" : replace(string(rand(rng, 0:300) / 10), '.' => ',')) for i in 1:n], '\n'), '\n')'''
+  sizes = [5000]
+
+  [[problem.variant]]
+  label = "forgets decimal = ',': the rain column stays text"
+  code = '''
+using CSV, DataFrames, Statistics
+function rain_summary(s)
+    df = CSV.read(IOBuffer(s), DataFrame; delim = ';', missingstring = "NA")
+    r = df.rain
+    return (count(ismissing, r), mean(skipmissing(r)))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "forgets missingstring: NA is read as text"
+  code = '''
+using CSV, DataFrames, Statistics
+function rain_summary(s)
+    df = CSV.read(IOBuffer(s), DataFrame; delim = ';', decimal = ',')
+    r = df.rain
+    return (count(ismissing, r), mean(skipmissing(r)))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "counts NA days as 0 mm in the mean"
+  code = '''
+using CSV, DataFrames, Statistics
+function rain_summary(s)
+    df = CSV.read(IOBuffer(s), DataFrame; delim = ';', decimal = ',', missingstring = "NA")
+    r = df.rain
+    return (count(ismissing, r), mean(coalesce.(r, 0.0)))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "no function barrier: works on df.rain inside the entry function"
+  code = '''
+using CSV, DataFrames, Statistics
+function rain_summary(s)
+    df = CSV.read(IOBuffer(s), DataFrame; delim = ';', decimal = ',', missingstring = "NA")
+    r = df.rain
+    n = count(ismissing, r)
+    return (n, mean(skipmissing(r)))
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "function barrier, but no return type: the entry still infers Any"
+  code = '''
+using CSV, DataFrames, Statistics
+summarize_rain(r) = (count(ismissing, r), mean(skipmissing(r)))
+function rain_summary(s)
+    df = CSV.read(IOBuffer(s), DataFrame; delim = ';', decimal = ',', missingstring = "NA")
+    return summarize_rain(df.rain)
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "return type declared on the helper instead of asserted in the entry"
+  code = '''
+using CSV, DataFrames, Statistics
+function rain_summary(s)
+    df = CSV.read(IOBuffer(s), DataFrame; delim = ';', decimal = ',', missingstring = "NA")
+    return rain_stats(df.rain)
+end
+function rain_stats(r)::Tuple{Int, Float64}
+    return (count(ismissing, r), mean(skipmissing(r)))
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "parses the lines by hand, no CSV.jl"
+  code = '''
+function rain_summary(s)
+    nmiss = 0
+    total = 0.0
+    known = 0
+    for line in Iterators.drop(eachsplit(chomp(s), '\n'), 1)
+        field = split(line, ';')[2]
+        if field == "NA"
+            nmiss += 1
+        else
+            total += parse(Float64, replace(field, ',' => '.'))
+            known += 1
+        end
+    end
+    return (nmiss, total / known)
+end
+'''
+  expect = ["correct"]

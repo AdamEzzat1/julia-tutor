@@ -1,0 +1,3 @@
+# The default environment for course code: Julia and its standard library only
+# (LinearAlgebra, Statistics, Random, Dates, Printf, Test, ... load from @stdlib).
+# Ecosystem units use their own pinned environments next to this one.

@@ -1,0 +1,1444 @@
+id = "26-machine-learning"
+title = "Machine learning: Flux.jl, MLJ.jl, BetaML.jl (and Knet.jl)"
+track = "ecosystem"
+env = "ml"
+status = "ready"
+summary = "Neural networks with Flux (arrays as data, Chain and Dense, gradients with Zygote, training loops with Optimisers.jl rules), classical models through MLJ's uniform model/machine interface with scientific types, pipelines and seeded cross-validation, BetaML's pure-Julia algorithms, and where Knet.jl and Lux.jl fit."
+kcs = ["neural-networks", "autodiff", "training-loops", "mlj", "scientific-types", "cross-validation", "overfitting", "reproducibility"]
+prerequisites = ["25-optimization"]
+
+[[section]]
+title = "Arrays as the data model: features by batch, Float32"
+body = '''
+Flux.jl (version 0.16 here) has no dataset or tensor type of its own: a
+batch of data is an ordinary Julia array. A layer that maps 3 inputs to 2
+outputs takes a `3×N` matrix, **one sample per column**, and returns a
+`2×N` matrix. This is the opposite of PyTorch and scikit-learn, where a
+sample is a row. The reason is memory layout: Julia arrays are
+column-major, so the features of one sample sit next to each other in
+memory, and `W * x` multiplies the weight matrix by a whole batch in one
+BLAS call. A single sample can be a plain vector.
+
+Layers store their weights as `Float32`. Single precision halves memory
+and bandwidth, GPUs are much faster in it, and gradient-based training
+does not need 16 significant digits. A `Float64` input still works, but
+Julia then has to convert, and Flux warns once, because it usually means
+the data was loaded as `Float64` by accident. Build data as `Float32`
+from the start: `rand(rng, Float32, 3, 5)`, `Float32.(x)`, or literals
+like `0.5f0`.
+
+Weights are random. Pass an RNG to the initializer,
+`init = Flux.glorot_uniform(Xoshiro(1))`, so the same code gives the same
+network every run.
+'''
+
+  [[section.example]]
+  caption = "A Dense layer applied to a batch of 5 samples."
+  notice = "Notice that the output has one column per sample, stays `Float32`, and is `W * x .+ b` (the values themselves are not printed: their last digits depend on the CPU's matrix-product kernel)."
+  code = '''
+using Flux, Random
+d = Dense(3 => 2; init = Flux.glorot_uniform(Xoshiro(1)))
+x = rand(Xoshiro(2), Float32, 3, 5)     # 3 features, 5 samples (columns)
+y = d(x)
+println("weight: ", size(d.weight), " ", eltype(d.weight))
+println("output: ", size(y), " ", eltype(y))
+println("one sample: ", size(d(x[:, 1])))
+y ≈ d.weight * x .+ d.bias
+'''
+
+  [[section.example]]
+  caption = "Float64 data into a Float32 layer: it works, with a warning (its last line names a file inside the installation, so this output is recorded but not compared)."
+  check = false
+  code = '''
+using Flux, Random
+d = Dense(3 => 2; init = Flux.glorot_uniform(Xoshiro(1)))
+x64 = rand(Xoshiro(2), 3, 5)            # Float64 by default
+eltype(d(x64))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "Training data is `Float32`, and a learner rescales it by a factor computed in ordinary Julia. What does this print?"
+  code = '''
+x = rand(Float32, 4)
+scale = 2 / length(x)
+println(eltype(scale .* x))
+'''
+  choices = ["Float64", "Float32", "Any"]
+  answer = 1
+  explain = "`2 / length(x)` divides two integers with `/`, which gives a `Float64`. `Float64 * Float32` promotes to `Float64`, so the whole array silently becomes double precision. Write `2f0 / length(x)`, or keep the factor `Int` until it meets a `Float32`."
+  misconceptions = [
+    "",
+    "Julia does not keep the array's type when the scalar is wider: promotion picks the type that can hold both, which is `Float64`.",
+    "Promotion of two concrete float types gives a concrete type, never `Any`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does a Flux layer expect samples as columns (`features × batch`) when scikit-learn uses rows?"
+  choices = [
+    "Flux's authors came from MATLAB and kept its samples-as-columns habit",
+    "A batch stored as rows takes more memory than the same batch as columns",
+    "Julia is column-major, so one sample per column is one contiguous block of memory",
+  ]
+  answer = 3
+  explain = "In column-major storage the features of one sample are adjacent, which is what a layer reads, and the batched forward pass is exactly the matrix product `W * x`. NumPy is row-major, so there the convention flips."
+  misconceptions = [
+    "The convention follows from memory layout, not from habit.",
+    "The memory used is the same either way; only the order of the elements differs.",
+    "",
+  ]
+
+[[section]]
+title = "Chain, Dense and a forward pass"
+body = '''
+`Dense(in => out, σ)` computes `σ.(W * x .+ b)`. `Chain(layer1, layer2, ...)`
+calls its layers in turn, like `nn.Sequential` in PyTorch. A model is an
+ordinary Julia struct holding arrays, and it is a callable: `model(x)` is the
+forward pass. Displaying a model lists its layers and counts its parameters.
+
+The two layers below share one RNG, so the second layer's weights come
+from the stream after the first layer's draws. Creating the RNG again with
+the same seed gives the same network, which is what makes a training run
+repeatable.
+
+The XOR problem below (output 1 when exactly one input is 1) cannot be
+solved by a single `Dense` layer, since the classes are not separable by a
+line; a hidden layer with a nonlinearity can solve it. Before training,
+the outputs are just what the random weights give.
+'''
+
+  [[section.example]]
+  code = '''
+using Flux, Random
+function make_model(seed)
+    rng = Xoshiro(seed)
+    return Chain(Dense(2 => 8, tanh; init = Flux.glorot_uniform(rng)),
+                 Dense(8 => 1, sigmoid; init = Flux.glorot_uniform(rng)))
+end
+model = make_model(3)
+'''
+
+  [[section.example]]
+  code = '''
+using Flux, Random
+function make_model(seed)
+    rng = Xoshiro(seed)
+    return Chain(Dense(2 => 8, tanh; init = Flux.glorot_uniform(rng)),
+                 Dense(8 => 1, sigmoid; init = Flux.glorot_uniform(rng)))
+end
+X = Float32[0 0 1 1; 0 1 0 1]           # the four XOR inputs, one per column
+println(make_model(3)(X) == make_model(3)(X))   # same seed, same network
+println(make_model(3)(X) == make_model(4)(X))
+round.(make_model(3)(X); digits = 1)     # one digit: the last digits depend on the CPU
+'''
+  caption = "The same constructor with two seeds, applied to the four XOR inputs."
+  notice = "Notice that the same seed rebuilds the same network, and that the untrained outputs all sit between 0.3 and 0.6, nowhere near the XOR pattern 0 1 1 0."
+
+  [[section.question]]
+  kind = "output"
+  prompt = "How many trainable numbers does this model have?"
+  code = '''
+using Flux
+m = Chain(Dense(2 => 3, relu), Dense(3 => 1))
+println(sum(length, Flux.trainables(m)))
+'''
+  choices = ["9", "13", "6", "4"]
+  answer = 2
+  explain = "Each `Dense(in => out)` has an `out × in` weight matrix and `out` biases: 2·3 + 3 = 9 for the first layer and 3·1 + 1 = 4 for the second, 13 in all. The activation function has no parameters."
+  misconceptions = [
+    "That counts the first layer only; the second one has parameters too.",
+    "",
+    "That counts the weights and forgets the biases, one per output of each layer.",
+    "That is the second layer alone.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You build `Dense(2 => 8; init = Flux.glorot_uniform(Xoshiro(1)))` and `Dense(8 => 1; init = Flux.glorot_uniform(Xoshiro(1)))` with two separate `Xoshiro(1)` objects. What is the consequence?"
+  choices = [
+    "Both layers draw the same first numbers, so their weights are correlated",
+    "The second constructor raises an error, because seed 1 was already consumed",
+    "Nothing: each `Xoshiro(1)` is a new object, so the two layers get independent weights",
+  ]
+  answer = 1
+  explain = "Two RNGs with the same seed produce the same numbers, so the second layer's 8 weights repeat numbers the first layer already drew. Pass one RNG to every layer of a model, created once from one seed, so the layers draw from consecutive parts of the stream."
+  misconceptions = [
+    "",
+    "A seed is just a starting state; nothing records that it was used before.",
+    "Independence comes from drawing from one stream, not from creating new RNGs with the same seed.",
+  ]
+
+[[section]]
+title = "Gradients with Zygote"
+body = '''
+Training needs the gradient of the loss with respect to every parameter.
+`Flux.gradient(f, args...)` computes it by reverse-mode automatic
+differentiation with [Zygote.jl](https://fluxml.ai/Zygote.jl/stable/).
+Zygote transforms the code of `f`: for each operation it finds a rule for
+the derivative, runs `f` once while keeping what the backward pass needs,
+then walks back, so one call gives the derivative with respect to all
+inputs at a cost of a few evaluations of `f`. It returns **one gradient
+per argument, in a tuple**. Because it works on the code, the inputs are
+plain arrays; the price is that the code must not mutate arrays
+(`x[i] = v` inside a function that Zygote differentiates is an error).
+
+When the argument is a whole model, the gradient has the same shape as the
+model: a `NamedTuple` with a `weight` and a `bias` for a `Dense`, and
+`nothing` for fields that are not trainable (the activation function).
+This is the "explicit" style of Flux 0.14 and later; the old
+`Flux.params` style, where parameters were collected implicitly, is
+deprecated.
+
+The mean squared error of a line fit has a simple gradient, so it can be
+checked by hand. For residuals `r = ŷ - y` over `N` samples,
+`∂mse/∂W = (2/N) · r · xᵀ` and `∂mse/∂b = (2/N) · Σ r`. A second method
+that agrees with the AD result is the usual check that the loss was coded
+right.
+'''
+
+  [[section.example]]
+  code = '''
+using Flux
+f(w) = sum(abs2, w .- 1)                # derivative: 2(w - 1)
+Flux.gradient(f, [0.0, 2.0, 3.0])
+'''
+
+  [[section.example]]
+  caption = "The gradient of a loss with respect to a Dense layer, checked by hand."
+  notice = "Notice that the gradient has the layer's field names, and that the hand formula gives the same numbers (printed to 4 digits, since the Float32 rounding of the AD result can differ between CPUs)."
+  code = '''
+using Flux, Statistics
+d = Dense(1 => 1; init = Flux.zeros32)  # weight 0, bias 0: predicts 0
+x = Float32[1 2 3]
+y = Float32[2 4 6]
+g = Flux.gradient(m -> Flux.mse(m(x), y), d)[1]
+println(keys(g))
+println(round.(g.weight; digits = 4), "  ", round.(g.bias; digits = 4))
+r = d(x) .- y                           # residuals
+println(round((2 / length(y)) * sum(r .* x); digits = 4), "  ", round((2 / length(y)) * sum(r); digits = 4))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using Flux
+Flux.gradient(x -> 3x^2, 2.0)
+'''
+  choices = ["12.0", "(6.0,)", "(12.0,)"]
+  answer = 3
+  explain = "d/dx 3x² = 6x, which is 12 at x = 2. `gradient` returns one gradient per argument, as a tuple, even when there is a single argument."
+  misconceptions = [
+    "The value is right, but `gradient` always returns a tuple, one entry per argument of `f`.",
+    "That is 3x at x = 2: the derivative of x² is 2x, so 3x² gives 6x.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why is reverse mode (Zygote) the right choice for training a network, rather than forward mode (ForwardDiff)?"
+  choices = [
+    "Forward mode gives approximate derivatives, while reverse mode gives exact ones",
+    "One output and many parameters: one backward pass gives every partial derivative",
+    "Forward mode cannot push dual numbers through BLAS matrix products like `W * x`",
+  ]
+  answer = 2
+  explain = "Reverse mode costs about one function evaluation per output, forward mode one per input. A loss has one output and thousands of inputs (the parameters), so reverse mode wins by orders of magnitude."
+  misconceptions = [
+    "Both are exact up to rounding; neither uses finite differences.",
+    "",
+    "ForwardDiff handles matrix products fine (through Julia's generic matrix product instead of BLAS); it is slow here because it needs one pass per group of inputs.",
+  ]
+
+[[section]]
+title = "Training loops: Flux.setup, Flux.update! and Optimisers.jl rules"
+body = '''
+A training step is three lines: compute the gradient, then let an
+optimisation rule turn it into a parameter change. The rules come from
+[Optimisers.jl](https://fluxml.ai/Optimisers.jl/stable/): `Descent(η)` is
+plain gradient descent (`p .-= η .* g`), `Adam(η)` keeps running averages
+of the gradient and its square for every parameter.
+
+`Flux.setup(rule, model)` creates that per-parameter state (for `Adam`, the
+two averages) as a separate tree with the model's shape.
+`Flux.update!(state, model, grad)` changes the model's arrays in place and
+advances the state. Keeping the state out of the model is the design
+choice: the model is just its parameters, so it can be copied, saved or
+moved to a GPU without carrying optimiser internals. In PyTorch the
+optimiser holds references to the parameters instead.
+
+The first loop fits a line to noisy data. The second trains the XOR
+network from the previous section with `Adam`; `Flux.withgradient` returns
+the loss together with the gradient, so it can be printed without a second
+forward pass. Everything random takes a seeded RNG, so a run repeats
+exactly on one machine. Across machines the last digits of a `Float32`
+loss can differ (the order of the additions in a sum or a matrix product
+depends on the CPU's vector width and BLAS kernel), so the examples print
+losses to two significant digits and the XOR predictions as integers.
+'''
+
+  [[section.example]]
+  caption = "Gradient descent on a line: y = 3x + 0.5 plus noise."
+  notice = "Notice that the loss falls quickly and then levels off near the noise variance (0.1², about 0.01), and that the fitted weight and bias are close to 3 and 0.5 but not equal to them: the noise moves the best fit."
+  code = '''
+using Flux, Random
+x = reshape(Float32.(range(-1, 1; length = 20)), 1, :)
+y = 3 .* x .+ 0.5f0 .+ 0.1f0 .* randn(Xoshiro(1), Float32, 1, 20)
+model = Dense(1 => 1; init = Flux.glorot_uniform(Xoshiro(2)))
+state = Flux.setup(Descent(0.2), model)
+for step in 1:100
+    g = Flux.gradient(m -> Flux.mse(m(x), y), model)[1]
+    Flux.update!(state, model, g)
+    step in (1, 5, 20, 100) && println(step, ": loss = ", round(Flux.mse(model(x), y); sigdigits = 2))
+end
+round.((model.weight[1], model.bias[1]); digits = 2)
+'''
+
+  [[section.example]]
+  caption = "XOR with a hidden layer and Adam."
+  notice = "Notice that the loss falls by orders of magnitude and the rounded outputs reproduce the XOR table."
+  code = '''
+using Flux, Random
+X = Float32[0 0 1 1; 0 1 0 1]
+Y = Float32[0 1 1 0]
+rng = Xoshiro(3)
+model = Chain(Dense(2 => 8, tanh; init = Flux.glorot_uniform(rng)),
+              Dense(8 => 1, sigmoid; init = Flux.glorot_uniform(rng)))
+state = Flux.setup(Adam(0.05), model)
+losses = Float32[]
+for epoch in 1:400
+    loss, grads = Flux.withgradient(m -> Flux.binarycrossentropy(m(X), Y), model)
+    Flux.update!(state, model, grads[1])
+    push!(losses, loss)
+end
+println("loss at epoch 1: ", round(losses[1]; sigdigits = 2))
+println("loss at epoch 400 below 0.01: ", losses[end] < 0.01)
+round.(Int, model(X))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "One step of plain gradient descent on a one-element parameter vector. What does this print?"
+  code = '''
+using Flux
+w = [1.0]
+state = Flux.setup(Descent(0.1), w)
+Flux.update!(state, w, [2.0])
+println(w[1])
+'''
+  choices = ["1.2", "0.9", "0.8"]
+  answer = 3
+  explain = "`Descent(η)` subtracts η times the gradient: 1.0 - 0.1 · 2.0 = 0.8. `update!` changes `w` in place."
+  misconceptions = [
+    "That moves along the gradient (ascent); a descent step subtracts it.",
+    "The step is η times the gradient, not η alone: the gradient's size matters.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A learner calls `Flux.setup(Adam(0.01), model)` inside the training loop, before every `update!`. What goes wrong?"
+  choices = [
+    "Nothing: `setup` returns the same state object each time it is called",
+    "Adam's running averages restart from zero at every single step of the loop",
+    "The model's weights are drawn again from their `init` function at every step",
+  ]
+  answer = 2
+  explain = "The state returned by `setup` holds Adam's moment estimates. Creating it anew throws them away each step, so Adam never builds them up and every step behaves like its first one. (For `Descent`, which has no state, it would only waste time.)"
+  misconceptions = [
+    "`setup` builds fresh state each time it is called; the state is what carries information between steps.",
+    "",
+    "`setup` never touches the model's arrays; it only builds the optimiser state beside them.",
+  ]
+
+[[section]]
+title = "MLJ: one interface over many model packages"
+body = '''
+[MLJ.jl](https://juliaai.github.io/MLJ.jl/stable/) (version 0.23 here) plays
+the role of scikit-learn: one interface for models that live in many
+packages (DecisionTree.jl, MLJLinearModels.jl, BetaML, XGBoost, ...).
+`@load DecisionTreeClassifier pkg=DecisionTree` imports the package's MLJ
+interface and returns the model type. MLJ itself implements few algorithms;
+it standardizes how they are fitted, evaluated, composed and tuned.
+
+MLJ splits a scikit-learn estimator in two:
+
+* the **model**, a struct of hyperparameters only (`Tree(max_depth = 3)`);
+* the **machine**, `machine(model, X, y)`, which binds a model to data and
+  holds what was learned.
+
+`fit!(mach)` and `predict(mach, Xnew)` then work the same for every model.
+
+`X` is any table (a `NamedTuple` of columns, a DataFrame, ...) and `y` a
+vector. A classifier here is *probabilistic*: `predict` returns a
+distribution per row (`UnivariateFinite`), and `predict_mode` the most
+likely class.
+
+**Scientific types.** MLJ checks what the data *means*, not how it is
+stored. `scitype(2.5)` is `Continuous`, an `Int` is `Count`, a string is
+`Textual`, and a categorical value is `Multiclass` or `OrderedFactor`. A
+classifier declares that its target must be `Finite` (`Multiclass` or
+`OrderedFactor`), so a vector of `String` or `Int` class labels has to be
+converted with `coerce`. The point: an integer column can be a count, an
+index or a category code, and only you know which; MLJ makes you say it
+instead of guessing. `schema(X)` lists each column's scitype.
+'''
+
+  [[section.example]]
+  code = '''
+using MLJ
+X, y = @load_iris                      # a NamedTuple of 4 columns and a categorical vector
+println(scitype(y))
+schema(X)
+'''
+
+  [[section.example]]
+  caption = "Model, machine, fit!, predict."
+  code = '''
+using MLJ
+Tree = @load DecisionTreeClassifier pkg=DecisionTree verbosity=0
+X, y = @load_iris
+tree = Tree(max_depth = 3, rng = 1)    # hyperparameters only
+mach = machine(tree, X, y)
+fit!(mach; verbosity = 0)
+Xnew = selectrows(X, [1, 51, 101])
+println(string.(predict_mode(mach, Xnew)))
+predict(mach, Xnew)
+'''
+
+  [[section.example]]
+  caption = "Scientific types and coerce."
+  code = '''
+using MLJ
+println(scitype(2.5), "  ", scitype(4), "  ", scitype("a"))
+labels = ["cat", "dog", "dog", "cat"]
+println(scitype(labels))
+y = coerce(labels, Multiclass)
+println(scitype(y))
+Tree = @load DecisionTreeClassifier pkg=DecisionTree verbosity=0
+println(target_scitype(Tree()))
+scitype(y) <: target_scitype(Tree())
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using MLJ
+println(scitype([1, 2, 3]))
+'''
+  choices = ["AbstractVector{Continuous}", "Vector{Int64}", "AbstractVector{Count}", "AbstractVector{Multiclass{3}}"]
+  answer = 3
+  explain = "Integers have the scientific type `Count` by default. To use them as class labels, `coerce(v, Multiclass)`; to use them as real numbers, `coerce(v, Continuous)`."
+  misconceptions = [
+    "MLJ does not treat integers as continuous: `Continuous` is the scitype of floats.",
+    "That is the machine type (`typeof`); `scitype` describes the meaning of the data.",
+    "",
+    "MLJ never guesses that integers are categories; that takes an explicit `coerce`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "What does an MLJ *model* object such as `Tree(max_depth = 3)` contain?"
+  choices = [
+    "Only hyperparameters; `fit!` later stores the learned tree in the machine",
+    "The training data and the fitted tree, like a scikit-learn estimator after `fit`",
+    "A handle to DecisionTree.jl's global state, shared by every tree model",
+  ]
+  answer = 1
+  explain = "MLJ keeps the model as a plain struct of hyperparameters so it can be copied, compared and tuned. `machine(model, X, y)` binds it to data, and `fit!` stores the learned parameters in the machine (`fitted_params(mach)`)."
+  misconceptions = [
+    "",
+    "That is the scikit-learn design, where one estimator holds both; MLJ splits them between the model and the machine.",
+    "Models are self-contained values; nothing global is involved.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Your class labels are `y = [0, 1, 1, 0]` (integers) and you fit a `DecisionTreeClassifier`. What is the fix MLJ expects?"
+  choices = [
+    "`string.(y)`: MLJ classifiers treat string labels as classes",
+    "`coerce(y, Multiclass)`: integers have scitype `Count`, not `Finite`",
+    "Use a regressor: numeric labels make this a regression task in MLJ",
+  ]
+  answer = 2
+  explain = "A classifier's `target_scitype` is `AbstractVector{<:Finite}`. `coerce` turns the integers into a categorical vector whose scitype is `Multiclass{2}`, which is what the model declares."
+  misconceptions = [
+    "Strings have scitype `Textual`, which is not `Finite` either; they would also need `coerce`.",
+    "",
+    "The numbers are codes for classes; treating them as a quantity to predict changes the problem.",
+  ]
+
+[[section]]
+title = "Evaluation on held-out data"
+body = '''
+Accuracy on the training data says how well a model memorized it, not how
+well it predicts new data. A deep decision tree can reach 100% training
+accuracy on noisy labels by giving every point its own leaf; on held-out
+data it then does worse than a shallow tree. That gap is **overfitting**.
+
+`partition(rows, 0.7; shuffle = true, rng = ...)` splits row indices into
+a training and a test part; `fit!(mach, rows = train)` and
+`predict(mach, rows = test)` use them. A single split is noisy, so
+`evaluate(model, X, y; resampling = CV(nfolds = 5, shuffle = true, rng = ...))`
+runs **cross-validation**: each fold is held out once, and the measure is
+combined over the folds (`e.measurement`; the per-fold values are in
+`e.per_fold`). For accuracy, `evaluate` weights each fold's value by the
+fold's size, which equals the accuracy over all held-out rows pooled
+together. When the folds have unequal sizes (150 rows do not split into 7
+equal folds) this is not the plain mean of `e.per_fold`. Every source of
+randomness gets a seed (the split, the folds, and the model's own `rng`),
+so the numbers below reproduce.
+
+A **pipeline** chains steps: `Standardizer() |> LogisticClassifier()`
+learns the means and standard deviations on each training fold only, then
+applies them to the held-out fold, like scikit-learn's `Pipeline`.
+Standardizing the whole data set before splitting would let the test rows
+influence the training (leakage); inside a pipeline it cannot happen.
+'''
+
+  [[section.example]]
+  caption = "Training and test accuracy as the tree gets deeper (labels with 20% noise)."
+  code = '''
+using MLJ, Random
+rng = Xoshiro(1)
+n = 300
+x1, x2 = randn(rng, n), randn(rng, n)
+labels = [(a + b > 0) != (rand(rng) < 0.2) ? "yes" : "no" for (a, b) in zip(x1, x2)]
+X = (x1 = x1, x2 = x2)
+y = coerce(labels, Multiclass)
+Tree = @load DecisionTreeClassifier pkg=DecisionTree verbosity=0
+train, test = partition(eachindex(y), 0.7; shuffle = true, rng = Xoshiro(2))
+for depth in (1, 3, 6, 20)
+    mach = machine(Tree(max_depth = depth, rng = 3), X, y)
+    fit!(mach; rows = train, verbosity = 0)
+    acc_train = accuracy(predict_mode(mach; rows = train), y[train])
+    acc_test = accuracy(predict_mode(mach; rows = test), y[test])
+    println("depth ", rpad(depth, 3), " train ", round(acc_train; digits = 3), "  test ", round(acc_test; digits = 3))
+end
+'''
+
+  [[section.example]]
+  caption = "Seven-fold cross-validation of a pipeline on the 150 iris rows, with a seeded fold assignment."
+  notice = "Notice that the combined accuracy equals the size-weighted mean of the per-fold accuracies, not their plain mean."
+  code = '''
+using MLJ, Random, Statistics
+LogReg = @load LogisticClassifier pkg=MLJLinearModels verbosity=0
+X, y = @load_iris
+pipe = Standardizer() |> LogReg(lambda = 0.1)
+e = evaluate(pipe, X, y; resampling = CV(nfolds = 7, shuffle = true, rng = Xoshiro(4)),
+             measure = [accuracy, log_loss], verbosity = 0)
+println("accuracy, log loss: ", round.(e.measurement; digits = 4))
+acc = e.per_fold[1]
+sizes = [length(test) for (train, test) in e.train_test_rows]
+println("test fold sizes: ", sizes)
+println("plain mean of per-fold accuracies: ", round(mean(acc); digits = 4))
+println("size-weighted mean:                ", round(sum(acc .* sizes) / sum(sizes); digits = 4))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+using MLJ
+train, test = partition(1:10, 0.7)
+(length(train), length(test))
+'''
+  choices = ["(7, 3)", "(3, 7)", "(0.7, 0.3)"]
+  answer = 1
+  explain = "`partition(rows, 0.7)` puts 70% of the rows in the first part and the rest in the second. Without `shuffle = true` it keeps the original order, which is wrong for data sorted by class."
+  misconceptions = [
+    "",
+    "The fraction given is the size of the first part, the training set.",
+    "`partition` returns the index vectors themselves, not the fractions.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In the depth experiment, the depth-20 tree has training accuracy near 1.0 but lower test accuracy than the depth-3 tree. Which conclusion is right?"
+  choices = [
+    "The test set is too small to trust; training accuracy is the better estimate",
+    "Deep trees hit a bug in DecisionTree.jl that degrades their predictions",
+    "The deep tree fits the 20% label noise, which does not carry over to new rows",
+  ]
+  answer = 3
+  explain = "With noisy labels a perfect fit to the training data is a fit to the noise. Held-out data measures what carries over, which is why model choice uses a test set or cross-validation and never training accuracy."
+  misconceptions = [
+    "Training accuracy is biased upwards for exactly this reason; a small test set is noisy but not biased. Cross-validation reduces the noise.",
+    "The tree does exactly what it was asked: with no depth limit it keeps splitting until the training labels are pure.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why put the `Standardizer` in a pipeline instead of standardizing `X` once before calling `evaluate`?"
+  choices = [
+    "A pipeline fuses the two steps, so cross-validation runs noticeably faster",
+    "In the pipeline the scaling is learned on each training fold only",
+    "`evaluate` rejects data that was standardized before it was called",
+  ]
+  answer = 2
+  explain = "Means and standard deviations are learned parameters too. Fitting them on all rows lets the held-out rows shape the training (leakage), which makes the cross-validated score optimistic."
+  misconceptions = [
+    "It does slightly more work (one fit per fold); the reason is correctness, not speed.",
+    "",
+    "`evaluate` cannot know how the data was prepared; that is exactly why leakage goes unnoticed.",
+  ]
+
+[[section]]
+title = "BetaML: pure-Julia algorithms with one small API"
+body = '''
+[BetaML.jl](https://sylvaticus.github.io/BetaML.jl/stable/) (version 0.14
+here) implements its algorithms in Julia itself: clustering (k-means,
+k-medoids, Gaussian mixtures), decision trees and random forests,
+perceptrons and small neural networks, imputation and preprocessing. It
+does not wrap C or Python libraries, so the code you read in its source is
+the code that runs.
+
+Every BetaML model follows the same three calls: build it with keyword
+hyperparameters, `fit!(model, X[, y])`, then `predict(model, Xnew)`. For
+clustering, `fit!` returns the assignments directly. Two conventions differ
+from Flux: **rows are records** (an `N×D` matrix, as in scikit-learn), and
+options such as `rng` and `verbosity = NONE` go to the same constructor.
+Every model has an `rng` option; pass a seeded one, since the default is
+the global RNG.
+
+Each BetaML model is also registered with MLJ, so
+`@load RandomForestClassifier pkg=BetaML` gives the same algorithm with
+MLJ's machines, pipelines and cross-validation.
+'''
+
+  [[section.example]]
+  caption = "k-means and a Gaussian mixture on two blobs (rows are records)."
+  code = '''
+using BetaML, Random
+rng = Xoshiro(1)
+X = vcat(randn(rng, 20, 2), randn(rng, 20, 2) .+ 5)   # 40 records, 2 features
+km = KMeansClusterer(n_classes = 2, rng = Xoshiro(2), verbosity = NONE)
+classes = fit!(km, X)
+println("k-means sizes: ", [count(==(k), classes) for k in 1:2])
+println("same cluster for records 1 and 21? ", classes[1] == classes[21])
+gmm = GaussianMixtureClusterer(n_classes = 2, rng = Xoshiro(2), verbosity = NONE)
+probs = fit!(gmm, X)                  # one row of class probabilities per record
+round.(probs[[1, 2, 21, 22], :]; digits = 3)
+'''
+
+  [[section.example]]
+  caption = "A random forest and a small neural network, same fit!/predict calls."
+  code = '''
+using BetaML, Random
+rng = Xoshiro(1)
+X = rand(rng, 200, 2)
+y = [x[1] + x[2] > 1 ? "above" : "below" for x in eachrow(X)]
+forest = RandomForestEstimator(n_trees = 20, rng = Xoshiro(2), verbosity = NONE)
+fit!(forest, X[1:150, :], y[1:150])
+probs = predict(forest, X[151:end, :])  # one Dict of class => probability per record
+yhat = mode(probs)                      # BetaML's mode: the most likely class of each record
+println("forest test accuracy: ", accuracy(y[151:end], yhat))
+
+ynum = X[:, 1] .^ 2 .+ X[:, 2]               # a regression target
+nn = NeuralNetworkEstimator(layers = [DenseLayer(2, 8, f = tanh, rng = Xoshiro(3)),
+                                      DenseLayer(8, 1, f = identity, rng = Xoshiro(4))],
+                            epochs = 100, rng = Xoshiro(5), verbosity = NONE)
+fit!(nn, X[1:150, :], ynum[1:150])
+pred = predict(nn, X[151:end, :])
+println("nn test RMSE: ", round(sqrt(sum(abs2, pred .- ynum[151:end]) / 50); digits = 3))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "A Gaussian mixture with 3 components on 10 records with 2 features. What does this print?"
+  code = '''
+using BetaML, Random
+m = GaussianMixtureClusterer(n_classes = 3, rng = Xoshiro(1), verbosity = NONE)
+size(fit!(m, rand(Xoshiro(2), 10, 2)))
+'''
+  choices = ["(10,)", "(10, 3)", "(3, 10)", "(2, 3)"]
+  answer = 2
+  explain = "A mixture model gives soft assignments: one row per record, one column per component, each row a probability vector. BetaML puts records in rows."
+  misconceptions = [
+    "That is what k-means returns (one class per record); a mixture returns probabilities.",
+    "",
+    "That would be the Flux orientation (columns are samples); BetaML uses rows.",
+    "That is the shape of the component means, not of the assignments.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You have 200 records with 3 features each and want to fit both a BetaML `RandomForestEstimator` and a Flux `Dense(3 => 1)`. What size must the feature matrix have for each?"
+  choices = [
+    "200×3 for both: in Julia's ML packages a row is always one record",
+    "3×200 for both: Julia is column-major, so every package puts records in columns",
+    "3×200 for BetaML and 200×3 for Flux",
+    "200×3 for BetaML and 3×200 for Flux",
+  ]
+  answer = 4
+  explain = "BetaML follows the scikit-learn convention, one record per row (`N×D`). Flux puts one sample per column (`D×N`), so a `Dense(3 => 1)` takes a `3×200` matrix. Moving data from one to the other takes a transpose, `permutedims(X)` (or the lazy `X'`)."
+  misconceptions = [
+    "That is BetaML's convention (and scikit-learn's); Flux reads one sample per column, so a `200×3` matrix would make `Dense(3 => 1)` fail with a dimension mismatch.",
+    "That is Flux's convention; BetaML (like MLJ and scikit-learn) puts one record per row.",
+    "The two conventions are swapped: BetaML is the rows-are-records package.",
+    "",
+  ]
+
+[[section]]
+title = "Where to go next"
+body = '''
+A short tour of what the examples above did not use, and where Knet.jl
+and Lux.jl fit.
+
+**Flux.** `Flux.DataLoader((x, y); batchsize, shuffle = true, rng)` splits
+data into mini-batches along the last dimension. `Flux.onehotbatch` turns
+labels into one-hot columns for `logitcrossentropy`. `Flux.train!` runs the
+loop of the training section over a data iterator. Convolution, recurrent
+and normalization layers, GPU support (`gpu(model)`) and saving models
+are in the [Flux documentation](https://fluxml.ai/Flux.jl/stable/). Reach
+for Flux when you want to write a neural network and its training loop
+yourself, on arrays you control.
+
+**MLJ.** `models(matching(X, y))` lists every registered model that accepts
+your data's scitypes. `TunedModel` wraps a model with a hyperparameter
+search evaluated by cross-validation, `learning_curve` shows how a score
+changes with one hyperparameter, and `EnsembleModel` bags any model. See
+[the MLJ manual](https://juliaai.github.io/MLJ.jl/stable/). Reach for MLJ
+when the data is a table and you want to compare, tune and cross-validate
+classical models from several packages through one interface.
+
+**Knet.jl** was one of the first deep-learning frameworks written in
+Julia, developed at Koç University by Deniz Yuret's group. It was
+GPU-first (its own `KnetArray` GPU array type) and computed gradients
+with its companion package AutoGrad.jl: you mark parameters with `Param`,
+record a computation with `@diff`, and read gradients with `grad`. As
+pseudo-code (not run here; Knet is not installed in this course):
+
+```text
+w = Param(randn(10, 5))
+J = @diff sum(abs2, w * x .- y)   # records the computation
+grad(J, w)                        # gradient of J with respect to w
+```
+
+This is a tape: `@diff` runs the code and logs every operation applied to
+a `Param`, whatever function performed it. Zygote instead works on the
+code of the function it differentiates (see the gradients section). Reach
+for Knet's documentation when you meet older Julia deep-learning code or
+papers built on it.
+
+Knet has not had a release in years, and most current Julia deep-learning
+work happens in Flux and in [Lux.jl](https://lux.csail.mit.edu/). The
+reasons are shared infrastructure: GPU arrays moved into the common
+CUDA.jl/GPUArrays stack, gradients into general AD packages (Zygote,
+Enzyme, Mooncake) that work on any Julia code, and optimisers into
+Optimisers.jl. Flux and Lux are thin layers over those. **Lux** makes the
+parameters explicit: `ps, st = Lux.setup(rng, model)` and
+`model(x, ps, st)`, so a model is a pure function, which suits
+scientific ML (neural ODEs) and compilers such as Reactant. Flux keeps the
+parameters inside the model struct, which is shorter to write. Reach for
+Lux when the network is one part of a larger differentiated computation,
+such as a neural network inside a differential equation.
+'''
+
+  [[section.example]]
+  caption = "Mini-batches with a seeded shuffle."
+  code = '''
+using Flux, Random
+x = reshape(Float32.(1:10), 1, :)
+y = 2 .* x
+loader = Flux.DataLoader((x, y); batchsize = 4, shuffle = true, rng = Xoshiro(1))
+for (xb, yb) in loader
+    println(Int.(vec(xb)), " => ", Int.(vec(yb)))
+end
+'''
+
+  [[section.example]]
+  caption = "One-hot labels and a softmax classifier's loss."
+  code = '''
+using Flux, Random
+labels = ["b", "a", "c", "a"]
+Y = Flux.onehotbatch(labels, ["a", "b", "c"])
+println(Int.(Y))
+logits = Float32[2 0 0 3; 1 0 0 0; 0 0 4 0]   # one column per sample
+round(Flux.logitcrossentropy(logits, Y); digits = 4)
+'''
+
+  [[section.example]]
+  caption = "Which registered MLJ models accept this data?"
+  code = '''
+using MLJ
+X, y = @load_iris
+ms = models(matching(X, y))
+println(length(ms) > 10)
+println(any(m -> m.name == "DecisionTreeClassifier" && m.package_name == "DecisionTree", ms))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Knet's AutoGrad records a tape of the operations applied to `Param` values while `@diff` runs; Zygote's `gradient` works on the code of your function. What does Zygote's approach require of that function?"
+  choices = [
+    "Its inputs must be wrapped in a tracked type, like AutoGrad's `Param`, before the call",
+    "Loops and `if` branches in it must not depend on the values of its inputs",
+    "It must not mutate arrays: an `x[i] = v` inside it is an error",
+    "It must avoid BLAS calls, since the transformed code never sees concrete values",
+  ]
+  answer = 3
+  explain = "Zygote derives the backward pass from the operations in your function's code, and array mutation has no general derivative rule there, so `setindex!` inside a differentiated function raises an error. A tape needs the opposite: no access to your code, but the parameters wrapped in a type that records what happens to them."
+  misconceptions = [
+    "That is the tape's requirement: a tape only sees operations on tracked values. Zygote takes plain arrays.",
+    "Both approaches follow the branch that was actually taken on this call, so data-dependent control flow is fine.",
+    "",
+    "Zygote runs your function with the real values (the forward pass) and has rules for matrix products; BLAS calls are fine.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "What is the main design difference between Lux.jl and Flux.jl?"
+  choices = [
+    "Lux keeps parameters outside the model, passed as `model(x, ps, st)`",
+    "Lux compiles models for GPUs only, while Flux also runs them on CPUs",
+    "Lux trains with forward-mode AD, while Flux uses reverse-mode Zygote",
+  ]
+  answer = 1
+  explain = "A Lux model is a description of a function; its parameters are a separate `NamedTuple`. That makes models pure functions, which some AD tools and compilers prefer. Flux's layers hold their arrays, so `model(x)` is enough."
+  misconceptions = [
+    "",
+    "Both run on CPU and GPU.",
+    "Both use reverse-mode AD (Zygote, Enzyme) for training; the difference is where parameters live.",
+  ]
+
+[[problem]]
+id = "ml-linear-mse-grad"
+title = "The MSE gradient of a linear model, by hand"
+difficulty = "warm-up"
+kcs = ["autodiff", "neural-networks"]
+entry = "linear_mse_grad"
+packages = ["Flux"]
+prompt = '''
+A linear model predicts `ŷ[j] = w ⋅ x[:, j] + b` for each sample `j`, where
+`x` is a `d×N` matrix (one sample per column, as in Flux), `w` a vector of
+length `d` and `b` a number. Write `linear_mse_grad(w, b, x, y)` returning
+the tuple `(loss, gw, gb)`:
+
+* `loss`: the mean squared error `mean((ŷ .- y) .^ 2)`;
+* `gw`: its gradient with respect to `w` (a vector like `w`);
+* `gb`: its derivative with respect to `b`.
+
+All results must keep the element type of the inputs (`Float32` in, `Float32`
+out).
+
+```julia
+w = Float32[1, 2]; b = 0.5f0
+x = Float32[1 0; 0 1]; y = Float32[1, 2]
+linear_mse_grad(w, b, x, y)   # (0.25f0, Float32[0.5, 0.5], 1.0f0)
+```
+
+You can check your answer with `Flux.gradient((w, b) -> ..., w, b)`. The
+grader compares with a relative tolerance and measures speed and memory.
+'''
+starter = '''
+function linear_mse_grad(w, b, x, y)
+    # your code here
+end
+'''
+reference = '''
+function linear_mse_grad(w, b, x, y)
+    n = length(y)
+    r = x' * w .+ b .- y              # residuals, one per sample
+    loss = sum(abs2, r) / n
+    gw = x * r                        # sum over samples of r[j] * x[:, j]
+    gw .*= 2 / n                      # in place: keeps the eltype of x
+    gb = 2 * sum(r) / n
+    return (loss, gw, gb)
+end
+'''
+cases = [
+  "Float32[1, 2], 0.5f0, Float32[1 0; 0 1], Float32[1, 2]",
+  "[0.5, -1.0, 2.0], 3.0, [1.0 2.0; 0.5 0.0; 1.0 1.0], [0.0, 1.0]",
+  "Float32[2], 1f0, Float32[1 2 3 4], Float32[3, 5, 7, 9]",
+]
+# Inputs are positive and the bias is large, so the residuals do not cancel and no
+# gradient component is near zero: a relative tolerance is meaningful. The cases
+# differ only in summation order from other correct formulas (or from Zygote),
+# about N * eps(Float32) = 100 * 1.2e-7 relative at worst, so rtol = 1e-4 is safe;
+# the wrong formulas below are off by a factor of 2 or N.
+gen = "rng -> [(d = rand(rng, 1:6); m = rand(rng, 1:100); (rand(rng, Float32, d), 2f0 + rand(rng, Float32), rand(rng, Float32, d, m), 0.5f0 .* randn(rng, Float32, m))) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-4
+hints = [
+  "Compute the residuals `r = ŷ .- y` once; the loss and both derivatives are built from them.",
+  "The derivative of `mean(r .^ 2)` with respect to `r[j]` is `2r[j] / N`; the chain rule then multiplies by `x[:, j]` for `w` and by 1 for `b`. Watch the type of `2 / N`.",
+]
+
+  [problem.perf]
+  args = "rand(rng, Float32, 8), 2f0 + rand(rng, Float32), rand(rng, Float32, 8, n), 0.5f0 .* randn(rng, Float32, n)"
+  sizes = [20000]
+
+  [[problem.variant]]
+  label = "2 / n is a Float64: the gradients come back in double precision"
+  code = '''
+function linear_mse_grad(w, b, x, y)
+    n = length(y)
+    r = x' * w .+ b .- y
+    loss = sum(abs2, r) / n
+    return (loss, 2 / n * (x * r), 2 / n * sum(r))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sum instead of mean: the gradient is N times too large"
+  code = '''
+function linear_mse_grad(w, b, x, y)
+    r = x' * w .+ b .- y
+    return (sum(abs2, r), 2 .* (x * r), 2 * sum(r))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "forgets the factor 2 from the square"
+  code = '''
+function linear_mse_grad(w, b, x, y)
+    n = length(y)
+    r = x' * w .+ b .- y
+    return (sum(abs2, r) / n, (x * r) ./ n, sum(r) / n)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Flux.gradient computes the same derivatives"
+  code = '''
+using Flux
+function linear_mse_grad(w, b, x, y)
+    loss(w, b) = sum(abs2, x' * w .+ b .- y) / length(y)
+    gw, gb = Flux.gradient(loss, w, b)
+    return (loss(w, b), gw, gb)
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "loops over samples, slicing a column each time"
+  code = '''
+function linear_mse_grad(w, b, x, y)
+    n = length(y)
+    loss = zero(eltype(x))
+    gw = zero(w)
+    gb = zero(eltype(x))
+    for j in 1:n
+        xj = x[:, j]                  # a copy of the column
+        r = sum(w .* xj) + b - y[j]
+        loss += r^2
+        gw .+= (2 * r) .* xj
+        gb += 2 * r
+    end
+    return (loss / n, gw ./ n, gb / n)
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "ml-train-line"
+title = "Train a line with early stopping"
+difficulty = "core"
+kcs = ["training-loops", "reproducibility", "neural-networks"]
+entry = "train_line"
+packages = ["Flux"]
+prompt = '''
+`x` and `y` are `1×N` `Float32` matrices (one sample per column). Write
+`train_line(x, y, seed, maxsteps, tol)` that trains a `Dense(1 => 1)` layer
+(weight initialized by `Flux.glorot_uniform(Xoshiro(seed))`, bias zero, the
+default) by full-batch gradient descent with `Descent(0.1)` on the loss
+`Flux.mse(model(x), y)`, stops early, and returns the loss history:
+
+* a step starts by computing the loss of the current model and its gradient,
+  and appends that loss to the history;
+* if that loss is below `tol`, training stops there, without an update;
+* otherwise the model is updated and the next step starts;
+* at most `maxsteps` steps run.
+
+Return the history as a `Vector{Float32}`. Its length is the number of
+steps that ran; with `maxsteps = 0` it is empty, and with `tol = 0` no step
+stops early.
+
+```julia
+x = reshape(Float32.(range(-1, 1; length = 20)), 1, :)
+h = train_line(x, 2 .* x .+ 1, 1, 40, 0.1f0)
+h[end] < 0.1f0 <= h[end - 1]   # true: it stopped at the first loss below tol
+```
+
+Any correct loop gives the same numbers up to rounding (the grader uses a
+relative tolerance of 1e-4). It also measures speed.
+'''
+starter = '''
+using Flux, Random
+
+function train_line(x, y, seed, maxsteps, tol)
+    # your code here
+end
+'''
+reference = '''
+using Flux, Random
+
+function train_line(x, y, seed, maxsteps, tol)
+    model = Dense(1 => 1; init = Flux.glorot_uniform(Xoshiro(seed)))
+    state = Flux.setup(Descent(0.1), model)
+    history = Float32[]
+    for _ in 1:maxsteps
+        loss, grads = Flux.withgradient(m -> Flux.mse(m(x), y), model)
+        push!(history, loss)
+        loss < tol && break
+        Flux.update!(state, model, grads[1])
+    end
+    return history
+end
+'''
+cases = [
+  "reshape(Float32.(range(-1, 1; length = 20)), 1, :), reshape(2 .* Float32.(range(-1, 1; length = 20)) .+ 1, 1, :), 1, 40, 0.1f0",
+  "Float32[0 1 2], Float32[1 1 1], 7, 0, 0.1f0",
+  "Float32[-1 0 1 2], Float32[-2 0 2 4], 3, 25, 0f0",
+  "Float32[-1 0 1 2], Float32[-2 0 2 4], 3, 25, 1f3",
+]
+# Steps are at most 40 with Descent(0.1) on inputs in [-1, 1]: the loss still
+# shrinks by several percent per step, so a history shifted by one step (the loss
+# after the update instead of before) differs by far more than rtol, while
+# different correct loops (withgradient, or mse and gradient computed apart, or a
+# hand-written mean) differ only by Float32 rounding, about 1e-6 relative. A loss
+# that lands within 1e-6 of tol (so that rounding could move the stopping step)
+# would need a coincidence of about one in 10^4 per case.
+gen = "rng -> [(m = rand(rng, 5:40); xs = reshape(2 .* rand(rng, Float32, m) .- 1, 1, :); (xs, rand(rng, -3f0:1f0:3f0) .* xs .+ rand(rng, Float32) .+ 0.1f0 .* randn(rng, Float32, 1, m), rand(rng, 1:1000), rand(rng, 0:40), rand(rng, (0f0, 0.02f0, 0.1f0, 0.5f0)))) for _ in 1:12]"
+compare = "isapprox"
+rtol = 1e-4
+hints = [
+  "Create the optimiser state once, before the loop. The loss you record in a step is the loss of the model the gradient is taken at, before that step's update.",
+  "Decide whether to stop between recording the loss and updating: the last entry is then the first loss below `tol`, and the model is not changed after it. Check what your loop does when `maxsteps` is 0.",
+]
+
+  [problem.perf]
+  args = "reshape(2 .* rand(rng, Float32, n) .- 1, 1, :), reshape(randn(rng, Float32, n), 1, :), 1, 20, 0f0"
+  sizes = [500]
+
+  [[problem.variant]]
+  label = "records the loss after the update: the history is shifted by one step"
+  code = '''
+using Flux, Random
+function train_line(x, y, seed, maxsteps, tol)
+    model = Dense(1 => 1; init = Flux.glorot_uniform(Xoshiro(seed)))
+    state = Flux.setup(Descent(0.1), model)
+    history = Float32[]
+    for _ in 1:maxsteps
+        g = Flux.gradient(m -> Flux.mse(m(x), y), model)[1]
+        Flux.update!(state, model, g)
+        loss = Flux.mse(model(x), y)
+        push!(history, loss)
+        loss < tol && break
+    end
+    return history
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "never stops early"
+  code = '''
+using Flux, Random
+function train_line(x, y, seed, maxsteps, tol)
+    model = Dense(1 => 1; init = Flux.glorot_uniform(Xoshiro(seed)))
+    state = Flux.setup(Descent(0.1), model)
+    history = Float32[]
+    for _ in 1:maxsteps
+        loss, grads = Flux.withgradient(m -> Flux.mse(m(x), y), model)
+        push!(history, loss)
+        Flux.update!(state, model, grads[1])
+    end
+    return history
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "ignores the seed: default initialization"
+  code = '''
+using Flux, Random
+function train_line(x, y, seed, maxsteps, tol)
+    model = Dense(1 => 1)
+    state = Flux.setup(Descent(0.1), model)
+    history = Float32[]
+    for _ in 1:maxsteps
+        loss, grads = Flux.withgradient(m -> Flux.mse(m(x), y), model)
+        push!(history, loss)
+        loss < tol && break
+        Flux.update!(state, model, grads[1])
+    end
+    return history
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "loss and gradient computed separately, in a while loop"
+  code = '''
+using Flux, Random
+function train_line(x, y, seed, maxsteps, tol)
+    model = Dense(1 => 1; init = Flux.glorot_uniform(Xoshiro(seed)))
+    state = Flux.setup(Descent(0.1), model)
+    history = Float32[]
+    while length(history) < maxsteps
+        loss = Flux.mse(model(x), y)
+        push!(history, loss)
+        loss < tol && break
+        g = Flux.gradient(m -> Flux.mse(m(x), y), model)[1]
+        Flux.update!(state, model, g)
+    end
+    return history
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "manual update of the arrays instead of an optimiser"
+  code = '''
+using Flux, Random
+function train_line(x, y, seed, maxsteps, tol)
+    model = Dense(1 => 1; init = Flux.glorot_uniform(Xoshiro(seed)))
+    history = Float32[]
+    for _ in 1:maxsteps
+        loss, grads = Flux.withgradient(m -> sum(abs2, m(x) .- y) / length(y), model)
+        push!(history, loss)
+        loss < tol && break
+        model.weight .-= 0.1f0 .* grads[1].weight
+        model.bias .-= 0.1f0 .* grads[1].bias
+    end
+    return history
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "one gradient call per sample, averaged: same step, many more AD calls"
+  code = '''
+using Flux, Random
+function train_line(x, y, seed, maxsteps, tol)
+    model = Dense(1 => 1; init = Flux.glorot_uniform(Xoshiro(seed)))
+    state = Flux.setup(Descent(0.1), model)
+    history = Float32[]
+    n = size(x, 2)
+    for _ in 1:maxsteps
+        loss = Flux.mse(model(x), y)
+        push!(history, loss)
+        loss < tol && break
+        gw = zero(model.weight)
+        gb = zero(model.bias)
+        for j in 1:n
+            g = Flux.gradient(m -> Flux.mse(m(x[:, j:j]), y[:, j:j]), model)[1]
+            gw .+= g.weight
+            gb .+= g.bias
+        end
+        Flux.update!(state, model, (weight = gw ./ n, bias = gb ./ n, σ = nothing))
+    end
+    return history
+end
+'''
+  expect = ["correct", "slow"]
+
+[[problem]]
+id = "ml-fix-layout"
+title = "Fix the bug: records into a Flux model"
+difficulty = "core"
+kcs = ["neural-networks", "training-loops"]
+entry = "fit_linear"
+packages = ["Flux"]
+prompt = '''
+The function in the starter should fit a linear model with Flux to data
+stored the way a table or a CSV file gives it: `X` is an `N×D`
+`Matrix{Float64}` (one record per row) and `y` a `Vector{Float64}` of
+length `N`. It builds `Dense(D => 1)` with weights from
+`Flux.glorot_uniform(Xoshiro(seed))`, runs `steps` full-batch steps of
+`Descent(0.1)` on the mean squared error, and returns the final loss as a
+`Float32`.
+
+It runs without an error, but the loss it returns is not the loss of a
+model trained on these records. Find the bug and fix it. Keep the rest
+(`Float32` data, the initialization, the optimiser, the number of steps)
+as it is.
+
+```julia
+X = [1.0 0.0; 0.0 1.0; 1.0 1.0; 2.0 1.0]   # 4 records, 2 features
+fit_linear(X, [1.0, 2.0, 3.0, 4.0], 1, 10)  # a Float32
+```
+
+The grader compares with a relative tolerance of 1e-4 and measures speed.
+'''
+starter = '''
+using Flux, Random
+
+function fit_linear(X, y, seed, steps)
+    n, d = size(X)
+    xs = Float32.(reshape(X, d, n))         # Flux wants features × samples
+    ys = Float32.(reshape(y, 1, n))
+    model = Dense(d => 1; init = Flux.glorot_uniform(Xoshiro(seed)))
+    state = Flux.setup(Descent(0.1), model)
+    for _ in 1:steps
+        g = Flux.gradient(m -> Flux.mse(m(xs), ys), model)[1]
+        Flux.update!(state, model, g)
+    end
+    return Flux.mse(model(xs), ys)
+end
+'''
+reference = '''
+using Flux, Random
+
+function fit_linear(X, y, seed, steps)
+    n, d = size(X)
+    xs = permutedims(Float32.(X))           # column j is record j
+    ys = Float32.(reshape(y, 1, n))
+    model = Dense(d => 1; init = Flux.glorot_uniform(Xoshiro(seed)))
+    state = Flux.setup(Descent(0.1), model)
+    for _ in 1:steps
+        g = Flux.gradient(m -> Flux.mse(m(xs), ys), model)[1]
+        Flux.update!(state, model, g)
+    end
+    return Flux.mse(model(xs), ys)
+end
+'''
+cases = [
+  "[1.0 0.0; 0.0 1.0; 1.0 1.0; 2.0 1.0], [1.0, 2.0, 3.0, 4.0], 1, 10",
+  "reshape(collect(range(-1.0, 1.0; length = 6)), 6, 1), [0.5, 0.3, 0.1, -0.1, -0.3, -0.5], 2, 5",
+  "[0.5 -1.0 0.2; -0.3 0.8 0.9; 1.0 0.1 -0.6; -0.7 -0.4 0.3; 0.2 0.6 -0.9], [1.0, -0.5, 2.0, 0.0, -1.0], 3, 20",
+]
+# Every correct fix builds the same Float32 matrix, so it trains bit for bit like
+# the reference; rewriting the loss by hand changes only Float32 rounding (about
+# 1e-6 relative after at most 30 contracting steps). The reshape bug trains on
+# scrambled records whenever D > 1, which changes the loss by tens of percent;
+# with D = 1 reshape and transpose agree, so the second case passes either way.
+gen = "rng -> [(m = rand(rng, 5:40); d = rand(rng, 1:4); X = 2 .* rand(rng, m, d) .- 1; (X, X * randn(rng, d) .+ randn(rng) .+ 0.1 .* randn(rng, m), rand(rng, 1:1000), rand(rng, 0:30))) for _ in 1:12]"
+compare = "isapprox"
+rtol = 1e-4
+hints = [
+  "Look at the matrix the model is trained on: for a small `X`, print it next to `X`. Is each of its columns one record (one row of `X`)?",
+  "Getting the right size is not enough: `reshape` keeps the elements in their memory order, column by column. Which operation moves each row of `X` into a column?",
+]
+
+  [problem.perf]
+  args = "2 .* rand(rng, n, 3) .- 1, randn(rng, n), 1, 20"
+  sizes = [500]
+
+  [[problem.variant]]
+  label = "converts to Float32 first but keeps the reshape (the element type was not the bug)"
+  code = '''
+using Flux, Random
+function fit_linear(X, y, seed, steps)
+    n, d = size(X)
+    xs = reshape(Float32.(X), d, n)
+    ys = reshape(Float32.(y), 1, n)
+    model = Dense(d => 1; init = Flux.glorot_uniform(Xoshiro(seed)))
+    state = Flux.setup(Descent(0.1), model)
+    for _ in 1:steps
+        g = Flux.gradient(m -> Flux.mse(m(xs), ys), model)[1]
+        Flux.update!(state, model, g)
+    end
+    return Flux.mse(model(xs), ys)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "fixes the layout but drops the Float32 conversion: the loss comes back as a Float64"
+  code = '''
+using Flux, Random
+function fit_linear(X, y, seed, steps)
+    n, d = size(X)
+    xs = permutedims(X)
+    ys = reshape(y, 1, n)
+    model = Dense(d => 1; init = Flux.glorot_uniform(Xoshiro(seed)))
+    state = Flux.setup(Descent(0.1), model)
+    for _ in 1:steps
+        g = Flux.gradient(m -> Flux.mse(m(xs), ys), model)[1]
+        Flux.update!(state, model, g)
+    end
+    return Flux.mse(model(xs), ys)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the adjoint X' instead of permutedims"
+  code = '''
+using Flux, Random
+function fit_linear(X, y, seed, steps)
+    n, d = size(X)
+    xs = Float32.(X')
+    ys = Float32.(y')
+    model = Dense(d => 1; init = Flux.glorot_uniform(Xoshiro(seed)))
+    state = Flux.setup(Descent(0.1), model)
+    for _ in 1:steps
+        g = Flux.gradient(m -> Flux.mse(m(xs), ys), model)[1]
+        Flux.update!(state, model, g)
+    end
+    return Flux.mse(model(xs), ys)
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "ml-best-depth"
+title = "Choose a tree depth by cross-validation"
+difficulty = "stretch"
+kcs = ["mlj", "cross-validation", "scientific-types", "reproducibility", "overfitting"]
+entry = "best_depth"
+packages = ["MLJ"]
+prompt = '''
+`X` is a `Matrix{Float64}` (rows are observations, columns are features) and
+`y` a `Vector{String}` of class labels. Write `best_depth(X, y, seed)` that
+picks the depth of a decision tree by cross-validation:
+
+* for each depth `d` in `1:6`, the model is
+  `DecisionTreeClassifier(max_depth = d, rng = seed)` from `pkg=DecisionTree`
+  (the starter loads it as `Tree`);
+* its score is the accuracy that `evaluate` reports (the `measurement`
+  field) for 5-fold cross-validation with
+  `CV(nfolds = 5, shuffle = true, rng = Xoshiro(seed))`, and **every depth
+  is scored on the same five folds**;
+* return the tuple `(depth, accuracy)` of the best depth, an `Int` and a
+  `Float64`. If several depths reach the best accuracy (to within `1e-9`),
+  return the smallest of them.
+
+MLJ wants a table and a categorical target (see the scientific types section).
+
+```julia
+best_depth(X, y, 1)   # e.g. (3, 0.85)
+```
+
+The grader compares with a relative tolerance of 1e-8: the folds and the
+trees are fully seeded, so a correct solution reproduces the reference's
+accuracies up to rounding in the last digits.
+'''
+starter = '''
+using MLJ, Random
+Tree = @load DecisionTreeClassifier pkg=DecisionTree verbosity=0
+
+function best_depth(X, y, seed)
+    # your code here
+end
+'''
+reference = '''
+using MLJ, Random
+Tree = @load DecisionTreeClassifier pkg=DecisionTree verbosity=0
+
+function best_depth(X, y, seed)
+    Xt, yc = MLJ.table(X), coerce(y, Multiclass)
+    accs = map(1:6) do depth
+        # a fresh RNG per depth: a used one would give other folds
+        folds = CV(nfolds = 5, shuffle = true, rng = Xoshiro(seed))
+        e = evaluate(Tree(max_depth = depth, rng = seed), Xt, yc;
+                     resampling = folds, measure = accuracy, verbosity = 0)
+        Float64(e.measurement[1])
+    end
+    d = findfirst(>=(maximum(accs) - 1e-9), accs)
+    return (d, accs[d])
+end
+'''
+cases = [
+  "[1.0 0.0; 2.0 0.1; 3.0 0.2; 4.0 0.3; 5.0 0.4; 6.0 0.5; 7.0 0.6; 8.0 0.7; 9.0 0.8; 10.0 0.9], [\"a\", \"a\", \"a\", \"a\", \"a\", \"b\", \"b\", \"b\", \"b\", \"b\"], 1",
+  "randn(Xoshiro(5), 60, 2), [z[1] + 0.5 * z[2] > 0 ? \"pos\" : \"neg\" for z in eachrow(randn(Xoshiro(5), 60, 2))], 7",
+]
+gen = "rng -> [(m = rand(rng, 30:80); Z = randn(rng, m, 3); (Z, [z[1] - z[2] + 0.7 * randn(rng) > 0 ? \"yes\" : \"no\" for z in eachrow(Z)], rand(rng, 1:1000))) for _ in 1:6]"
+compare = "isapprox"
+# Accuracy is a size-weighted mean of ratios of integers; only the order of the
+# arithmetic can round differently. The depth is an integer, compared exactly.
+rtol = 1e-8
+# No perf section: almost all the time is spent inside MLJ's evaluate (30 tree
+# fits), the same for any correct solution, so a timing verdict would not measure
+# the learner's code.
+hints = [
+  "Score all six depths on exactly the same folds. A seeded RNG object changes its state each time it is used: think about where you create it.",
+  "Collect the six accuracies before choosing. When several are equal, check which of them your choice returns: it must be the smallest depth.",
+]
+
+  [[problem.variant]]
+  label = "one CV object for all depths: its RNG moves on, so each depth gets other folds"
+  code = '''
+using MLJ, Random
+Tree = @load DecisionTreeClassifier pkg=DecisionTree verbosity=0
+function best_depth(X, y, seed)
+    Xt, yc = MLJ.table(X), coerce(y, Multiclass)
+    folds = CV(nfolds = 5, shuffle = true, rng = Xoshiro(seed))
+    accs = [evaluate(Tree(max_depth = d, rng = seed), Xt, yc; resampling = folds,
+                     measure = accuracy, verbosity = 0).measurement[1] for d in 1:6]
+    acc, d = findmax(accs)
+    return (d, Float64(acc))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the largest depth among equal accuracies"
+  code = '''
+using MLJ, Random
+Tree = @load DecisionTreeClassifier pkg=DecisionTree verbosity=0
+function best_depth(X, y, seed)
+    Xt, yc = MLJ.table(X), coerce(y, Multiclass)
+    accs = [evaluate(Tree(max_depth = d, rng = seed), Xt, yc;
+                     resampling = CV(nfolds = 5, shuffle = true, rng = Xoshiro(seed)),
+                     measure = accuracy, verbosity = 0).measurement[1] for d in 1:6]
+    d = findlast(>=(maximum(accs) - 1e-9), accs)
+    return (d, Float64(accs[d]))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "chooses by training accuracy"
+  code = '''
+using MLJ, Random
+Tree = @load DecisionTreeClassifier pkg=DecisionTree verbosity=0
+function best_depth(X, y, seed)
+    Xt, yc = MLJ.table(X), coerce(y, Multiclass)
+    accs = map(1:6) do d
+        mach = machine(Tree(max_depth = d, rng = seed), Xt, yc)
+        fit!(mach; verbosity = 0)
+        accuracy(predict_mode(mach, Xt), yc)
+    end
+    d = findfirst(>=(maximum(accs) - 1e-9), accs)
+    return (d, Float64(accs[d]))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "folds not shuffled"
+  code = '''
+using MLJ, Random
+Tree = @load DecisionTreeClassifier pkg=DecisionTree verbosity=0
+function best_depth(X, y, seed)
+    Xt, yc = MLJ.table(X), coerce(y, Multiclass)
+    accs = [evaluate(Tree(max_depth = d, rng = seed), Xt, yc; resampling = CV(nfolds = 5),
+                     measure = accuracy, verbosity = 0).measurement[1] for d in 1:6]
+    d = findfirst(>=(maximum(accs) - 1e-9), accs)
+    return (d, Float64(accs[d]))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a loop over machines with evaluate!, keeping the first best"
+  code = '''
+using MLJ, Random
+Tree = @load DecisionTreeClassifier pkg=DecisionTree verbosity=0
+function best_depth(X, y, seed)
+    Xt, yc = MLJ.table(X), coerce(y, Multiclass)
+    best, bestacc = 0, -Inf
+    for d in 1:6
+        mach = machine(Tree(max_depth = d, rng = seed), Xt, yc)
+        e = evaluate!(mach; resampling = CV(nfolds = 5, shuffle = true, rng = Xoshiro(seed)),
+                      measure = accuracy, verbosity = 0)
+        acc = e.measurement[1]
+        if acc > bestacc + 1e-9
+            best, bestacc = d, acc
+        end
+    end
+    return (best, Float64(bestacc))
+end
+'''
+  expect = ["correct"]
+

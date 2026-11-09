@@ -1,0 +1,22 @@
+# Student-like folders under fixtures/, checked by `tutor guided verify epidemic`
+# through the same path as `tutor guided check`; each must get these verdicts.
+
+[[fixture]]
+name = "m2-good"
+milestone = 2
+expect = ["passed"]
+
+[[fixture]]
+name = "m1-no-saveat"
+milestone = 1
+expect = ["acceptance-fail"]
+
+[[fixture]]
+name = "m1-float-eq"
+milestone = 1
+expect = ["checker-warn"]
+
+[[fixture]]
+name = "m3-weak-tests"
+milestone = 3
+expect = ["weak-tests"]

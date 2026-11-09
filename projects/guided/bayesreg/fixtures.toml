@@ -1,0 +1,23 @@
+# Student-like folders under fixtures/, checked by `tutor guided verify bayesreg`
+# through the same path as `tutor guided check`; each must get these verdicts.
+# Most sit at milestones 1-2: a milestone-3 check samples once per mutant.
+
+[[fixture]]
+name = "m1-weak-tests"
+milestone = 1
+expect = ["weak-tests"]
+
+[[fixture]]
+name = "m1-float-eq"
+milestone = 1
+expect = ["checker-warn"]
+
+[[fixture]]
+name = "m2-sd-as-variance"
+milestone = 2
+expect = ["acceptance-fail", "tests-fail-reference"]
+
+[[fixture]]
+name = "m3-good"
+milestone = 3
+expect = ["passed"]

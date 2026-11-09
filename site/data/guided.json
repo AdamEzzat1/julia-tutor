@@ -1,0 +1,2954 @@
+{
+  "generated_by": "tutor site-data (do not edit; regenerate)",
+  "julia": "1.10.13",
+  "projects": [
+    {
+      "env": "turing",
+      "host_ok": false,
+      "kcs": [
+        "packages",
+        "testing",
+        "bayesian-inference",
+        "conjugate-priors",
+        "mcmc",
+        "monte-carlo-error"
+      ],
+      "milestones": [
+        {
+          "api": [
+            {
+              "doc": "Defined in src/BayesReg.jl.",
+              "signature": "module BayesReg"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A package is a module whose name matches its file name under src/."
+              ],
+              "id": "package-layout",
+              "kc": "packages",
+              "spec": "`src/BayesReg.jl` defines a module named `BayesReg` that loads without errors.",
+              "test_hints": [
+                "Any check that runs counts here."
+              ]
+            }
+          ],
+          "goal": "Create the package as in the tidy project's milestone 0 (`tutor guided show\ntidy 0` has the full steps): `Pkg.generate(\"BayesReg\")`, move\n`Project.toml` and `src/` into this folder, run `./tutor guided deps <this\nfolder>` from the julia-tutor folder (Turing), and write\n`test/runtests.jl` with `using BayesReg, Test` and one check. `using\nTuring, LinearAlgebra, Random, Statistics` inside the module gives you\neverything this project needs: Turing re-exports Distributions.",
+          "id": 0,
+          "min_score": 1.0,
+          "must_cover": [],
+          "mutants": 0,
+          "perf_entry": "",
+          "questions": [],
+          "title": "A package with a test suite"
+        },
+        {
+          "api": [
+            {
+              "doc": "`post = posterior_exact(X, y; sigma = 0.5, tau = 2.0)`; `post.mean` is a `Vector{Float64}` of length `size(X, 2)`, `post.cov` the covariance matrix.",
+              "signature": "posterior_exact(X::AbstractMatrix, y::AbstractVector; sigma, tau) -> NamedTuple (mean, cov)"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Check your formula against the two limits: a flat prior and a very tight one."
+              ],
+              "id": "posterior-mean",
+              "kc": "conjugate-priors",
+              "spec": "`post.mean` equals `A \\ (X'y / sigma^2)` up to rounding (relative error about cond(A) times eps); it tends to the least-squares fit as `tau` grows and to zero as `tau` shrinks.",
+              "test_hints": [
+                "Compare with the formula, computed in the test in a different way (for example with an explicit inverse), with a tolerance from cond(A)."
+              ]
+            },
+            {
+              "hints": [
+                "The covariance is the inverse of the precision, not the precision itself."
+              ],
+              "id": "posterior-cov",
+              "kc": "conjugate-priors",
+              "spec": "`post.cov` is symmetric (exactly), positive definite, and `post.cov * A` equals the identity within a tolerance derived from cond(A).",
+              "test_hints": [
+                "Test the properties a covariance must have, then its value."
+              ]
+            },
+            {
+              "hints": [
+                "The formula squares `sigma` and `tau`, so a negative value gives a plausible answer for a meaningless input."
+              ],
+              "id": "posterior-args",
+              "kc": "errors",
+              "spec": "A `y` whose length differs from the number of rows of `X` throws a `DimensionMismatch`; `sigma <= 0` or `tau <= 0` throws an `ArgumentError`.",
+              "test_hints": [
+                "Test the calls that should fail."
+              ]
+            }
+          ],
+          "goal": "The conjugate posterior in closed form. Form the precision `A`, then get the\nmean by solving a linear system with it and the covariance from a\nfactorisation of it (`A` is symmetric positive definite, so a Cholesky\nfactorisation exists). Tests compare with the formula and with its two\nlimits: a very wide prior (the posterior mean becomes the least-squares fit)\nand a very tight one (it shrinks to zero).",
+          "id": 1,
+          "min_score": 1.0,
+          "must_cover": [
+            "posterior-mean",
+            "posterior-cov",
+            "posterior-args"
+          ],
+          "mutants": 4,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "It moves towards the least-squares fit `X \\ y`",
+                "It moves towards zero",
+                "It stays the same: the prior does not affect the mean",
+                "It becomes undefined, because the prior has no variance left"
+              ],
+              "code": "",
+              "explain": "The prior's precision `I / tau^2` goes to zero, so `A` becomes `X'X / sigma^2` and the mean becomes the solution of the normal equations, the least-squares fit.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "That is the other limit: a tiny `tau` (a tight prior around zero) pulls the mean to zero.",
+                "The prior adds `I / tau^2` to the precision; for small or moderate `tau` it shrinks the mean towards zero.",
+                "A large `tau` is a wide prior, a large variance; it is a small `tau` that leaves little variance."
+              ],
+              "prompt": "With 20 rows of data, what happens to the posterior mean as `tau` grows from 1 to 1e6?"
+            }
+          ],
+          "title": "The exact posterior"
+        },
+        {
+          "api": [
+            {
+              "doc": "Coefficients `w ~ MvNormal(zeros(k), tau^2 I)`, observations `y ~ MvNormal(X w, sigma^2 I)`, with `y` observed.",
+              "signature": "regression_model(X, y; sigma, tau) -> DynamicPPL.Model"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Evaluate the prior part of the model at a fixed `w` and compare with the formula by hand."
+              ],
+              "id": "model-prior",
+              "kc": "bayesian-inference",
+              "spec": "`logprior(model, (w = w,))` equals the log density of `N(0, tau^2 I)` at `w`, `-k/2 log(2 pi tau^2) - |w|^2 / (2 tau^2)`, up to rounding.",
+              "test_hints": [
+                "Compare `logprior` with the formula written out by hand."
+              ]
+            },
+            {
+              "hints": [
+                "Evaluate the likelihood part at a fixed `w` and compare with the formula by hand."
+              ],
+              "id": "model-likelihood",
+              "kc": "bayesian-inference",
+              "spec": "`loglikelihood(model, (w = w,))` equals `-n/2 log(2 pi sigma^2) - |y - X w|^2 / (2 sigma^2)` up to rounding, and `logjoint` is the sum of the two.",
+              "test_hints": [
+                "Compare `loglikelihood` with the formula written out by hand."
+              ]
+            }
+          ],
+          "goal": "Write the same model as a Turing `@model`. A model is a log density you can\nevaluate before sampling anything: `logprior(model, (w = w,))`,\n`loglikelihood(model, (w = w,))` and `logjoint(model, (w = w,))` evaluate it\nat a given `w`. Test those against the normal log densities written out by\nhand. `@model` functions take positional arguments; write the model with\npositional `sigma` and `tau` and let `regression_model` pass its keywords\non (and check them as in milestone 1).",
+          "id": 2,
+          "min_score": 1.0,
+          "must_cover": [
+            "model-prior",
+            "model-likelihood"
+          ],
+          "mutants": 2,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 3,
+              "choices": [
+                "0.5",
+                "0.25",
+                "about 0.71",
+                "1.0"
+              ],
+              "code": "",
+              "explain": "The second argument of `MvNormal` is a covariance: `sigma * I` gives every observation variance 0.5, so a standard deviation of sqrt(0.5), about 0.71. The intended model needs `sigma^2 * I`.",
+              "kind": "choice",
+              "misconceptions": [
+                "That would be the case for `sigma^2 * I`; the matrix holds variances, not standard deviations.",
+                "0.25 is `sigma^2`, the variance the model was meant to have; this one has variance 0.5.",
+                "",
+                "`I` alone would give variance 1; it is scaled by 0.5 here."
+              ],
+              "prompt": "A model has `y ~ MvNormal(X * w, sigma * I)` with `sigma = 0.5`. What noise standard deviation does it assume?"
+            }
+          ],
+          "title": "The Turing model"
+        },
+        {
+          "api": [
+            {
+              "doc": "`n` NUTS draws, every random choice taken from `rng`; no progress bar.",
+              "signature": "sample_posterior(rng::AbstractRNG, model; n = 1000) -> chain"
+            },
+            {
+              "doc": "The draws of `w` as an `n × k` matrix: row `i` is draw `i`, column `j` is `w[j]`.",
+              "signature": "coefficient_draws(chain) -> Matrix{Float64}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Sampling is random; tests need it repeatable, so the randomness has to come from the generator you are given."
+              ],
+              "id": "sample-reproducible",
+              "kc": "mcmc",
+              "spec": "Two calls with `Xoshiro(s)` for the same seed `s` give identical draws.",
+              "test_hints": [
+                "Sample twice from fresh generators with the same seed."
+              ]
+            },
+            {
+              "hints": [
+                "Rows are draws, columns are coefficients."
+              ],
+              "id": "sample-shape",
+              "kc": "mcmc",
+              "spec": "`coefficient_draws(sample_posterior(rng, model; n = n))` has size `(n, k)`: `n` draws (adaptation draws discarded), one column per coefficient.",
+              "test_hints": [
+                "Check `size` of the draws."
+              ]
+            },
+            {
+              "hints": [
+                "The draws must come from the posterior: the model conditioned on the data."
+              ],
+              "id": "posterior-agrees",
+              "kc": "monte-carlo-error",
+              "spec": "Each sampled posterior mean is within 4 Monte Carlo standard errors (posterior sd over the square root of the effective sample size) of the exact mean; for a normal sampling error that bound fails with probability about 6e-5 per coefficient, which the test states.",
+              "test_hints": [
+                "Compare the sampled means with `posterior_exact` on the same data."
+              ]
+            }
+          ],
+          "goal": "Sample the model with NUTS and compare with the exact posterior. Turing 0.49\nreturns a FlexiChains chain: `chain[@varname(w)]` holds one coefficient\nvector per draw. `using Turing.FlexiChains: mcse, ess` gives the Monte Carlo\nstandard error and effective sample size per coefficient,\n`mcse(chain)[@varname(w[1])]`. Keep `n` small in your tests (a few hundred\nto 1000): every check runs them several times.",
+          "id": 3,
+          "min_score": 1.0,
+          "must_cover": [
+            "sample-reproducible",
+            "sample-shape",
+            "posterior-agrees"
+          ],
+          "mutants": 4,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "About 0.0035 (0.11 / sqrt(1000))",
+                "About 0.007 (0.11 / sqrt(250))",
+                "About 0.11, the posterior sd",
+                "Zero: NUTS is exact for a normal posterior"
+              ],
+              "code": "",
+              "explain": "The Monte Carlo standard error is the sd over the square root of the effective sample size. Correlated draws carry less information than independent ones: these 1000 are worth about 250.",
+              "kind": "choice",
+              "misconceptions": [
+                "That treats the draws as independent; successive NUTS draws are correlated, so the chain is worth 250 independent draws, not 1000.",
+                "",
+                "The sd is the spread of the posterior itself; the error of a mean of many draws is much smaller.",
+                "NUTS draws converge to the posterior, but any finite chain's mean has Monte Carlo error."
+              ],
+              "prompt": "1000 NUTS draws of a coefficient have sd 0.11 and ESS 250. How far from the exact posterior mean is their mean typically?"
+            },
+            {
+              "answer": 1,
+              "choices": [
+                "So the test gives the same verdict on every run; the margin then says how far that one run is from failing",
+                "Because NUTS draws are independent of each other only when the sampler starts from a fixed seed, and the 6e-5 assumes independent draws",
+                "Because without a seed the MCSE cannot be computed"
+              ],
+              "code": "",
+              "explain": "With a fixed seed a test either passes every time or fails every time on the pinned versions, so it cannot flake; the 4 MCSE margin is what makes it likely that a correct sampler passes for that seed, and the observed margin is worth stating.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "The seed fixes which draws you get, not how they depend on each other; NUTS draws stay correlated.",
+                "MCSE comes from the draws themselves (their sd and autocorrelation); any chain has one, seeded or not."
+              ],
+              "prompt": "A test passes when the sampled mean is within 4 MCSE of the exact mean, with the seed fixed. Why fix the seed if 4 MCSE already fails only about 6e-5 of the time?"
+            }
+          ],
+          "title": "Sampling"
+        },
+        {
+          "api": [
+            {
+              "doc": "Central `level` interval of the posterior predictive at `xnew` for `post = posterior_exact(...)`.",
+              "signature": "predictive_interval(post::NamedTuple, xnew::AbstractVector; sigma, level = 0.9) -> Tuple{Float64,Float64}"
+            },
+            {
+              "doc": "The same from an `n × k` matrix of draws of `w` (as `coefficient_draws` returns): the mean and variance of `draws * xnew`, plus the noise variance.",
+              "signature": "predictive_interval(draws::AbstractMatrix, xnew::AbstractVector; sigma, level = 0.9) -> Tuple{Float64,Float64}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "The prediction is uncertain for two reasons; both add to its variance."
+              ],
+              "id": "predictive-exact",
+              "kc": "bayesian-inference",
+              "spec": "From the exact posterior: the interval is `mu ± z s` with `mu = xnew'm`, `s^2 = xnew'C xnew + sigma^2` and `z` the normal quantile at `(1 + level) / 2`, up to rounding.",
+              "test_hints": [
+                "Compute the interval in the test from the formula and compare."
+              ]
+            },
+            {
+              "hints": [
+                "The keyword must change the result, and nonsense values must be refused."
+              ],
+              "id": "predictive-level",
+              "kc": "errors",
+              "spec": "The keyword `level` sets the coverage (a higher level gives a wider interval); a `level` outside (0, 1) throws an `ArgumentError`.",
+              "test_hints": [
+                "Call with a level other than the default and check the effect."
+              ]
+            },
+            {
+              "hints": [
+                "From draws, the coefficient part of the predictive variance is the spread of `draws * xnew`."
+              ],
+              "id": "predictive-samples",
+              "kc": "monte-carlo-error",
+              "spec": "From `n` independent draws of the exact posterior, each end of the interval is within 5 standard errors of the exact interval's end (the standard error of the mean and of the variance of `draws * xnew`, derived in the test).",
+              "test_hints": [
+                "Draw independent samples from `MvNormal(post.mean, post.cov)` with a seeded `Xoshiro` and compare with the exact interval."
+              ]
+            }
+          ],
+          "goal": "Predictive intervals for a new input `xnew`. A new observation is uncertain\nfor two reasons: the coefficients are uncertain (variance `xnew' C xnew`)\nand the noise is added on top (variance `sigma^2`). Both are normal here, so\nthe predictive is normal and its central interval uses the normal quantile:\n`quantile(Normal(), p)`. Write one method for the exact posterior and one\nfor a matrix of draws; test the draws version with independent draws from\n`MvNormal(post.mean, post.cov)` (fast, and its Monte Carlo error is\nderivable), not with NUTS.",
+          "id": 4,
+          "min_score": 0.8,
+          "must_cover": [
+            "predictive-exact",
+            "predictive-level",
+            "predictive-samples"
+          ],
+          "mutants": 5,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "It shrinks to zero width",
+                "It shrinks towards a width set by the noise, about 2 * 1.645 * sigma",
+                "It stays the same width",
+                "It grows, because each row adds noise"
+              ],
+              "code": "",
+              "explain": "More data shrinks the coefficient variance `xnew' C xnew` towards zero, but a new observation still carries its own noise, variance `sigma^2`; the width tends to `2 z sigma` with `z = 1.645`.",
+              "kind": "choice",
+              "misconceptions": [
+                "That is the interval for the mean `xnew'w`, not for a new observation, which has noise of its own.",
+                "",
+                "The coefficient part of the variance falls as data are added; only the noise part stays.",
+                "The noise of the data is already in the posterior; more rows make the coefficients more certain, not less."
+              ],
+              "prompt": "With 20 rows of data, how does the 90% predictive interval at a fixed `xnew` change as more rows are added?"
+            }
+          ],
+          "title": "Prediction"
+        }
+      ],
+      "name": "bayesreg",
+      "package": "BayesReg",
+      "packages": [
+        "Turing"
+      ],
+      "reading": "Prerequisites: course unit 27 (probabilistic programming).\n\nThe model: `y = X w + noise`, noise `N(0, sigma^2)` per row with `sigma`\nknown, and the prior `w ~ N(0, tau^2 I)`. Then the posterior of `w` is\nnormal, with precision `A = X'X / sigma^2 + I / tau^2`, covariance `inv(A)`\nand mean `A \\ (X'y / sigma^2)`. Milestone 1 is that formula; everything\nafter it is checked against it.\n\nKeep test data tiny (20 rows, 2 coefficients) and draw it with a seeded\n`Xoshiro`: sampling is the slow part of this project, and every check runs\nyour tests several times. Every random function takes an `rng`. Every\ntolerance in your tests gets a comment saying where it comes from: the\nconditioning of `A` for exact formulas, the Monte Carlo standard error for\nsamples. This env runs in the container only on Windows hosts.",
+      "status": "ready",
+      "summary": "Build Bayesian linear regression twice: first the exact posterior for a normal prior and known noise (closed form, tested exactly), then the same model in Turing.jl sampled with NUTS, and check that the samples agree with the exact answer within a margin derived from the effective sample size. Finish with predictive intervals from both. You write the code and the tests.",
+      "title": "BayesReg: Bayesian linear regression, checked against the exact posterior"
+    },
+    {
+      "env": "ml",
+      "host_ok": false,
+      "kcs": [
+        "packages",
+        "testing",
+        "data-splitting",
+        "neural-networks",
+        "model-evaluation",
+        "reproducibility"
+      ],
+      "milestones": [
+        {
+          "api": [
+            {
+              "doc": "Defined in src/Classify.jl.",
+              "signature": "module Classify"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A package is a module whose name matches its file name under src/."
+              ],
+              "id": "package-layout",
+              "kc": "packages",
+              "spec": "`src/Classify.jl` defines a module named `Classify` that loads without errors.",
+              "test_hints": [
+                "Any check that runs counts here."
+              ]
+            }
+          ],
+          "goal": "Create the package as in the tidy project's milestone 0 (`tutor guided show\ntidy 0` has the full steps): `Pkg.generate(\"Classify\")`, move\n`Project.toml` and `src/` into this folder (next to `data/`), run\n`./tutor guided deps <this folder>` from the julia-tutor folder (Flux, MLJ,\nBetaML, DecisionTree, MLJDecisionTreeInterface and the others of the `ml`\nenvironment), and write `test/runtests.jl` with `using Classify, Test` and\none check. Random and Statistics are standard libraries, always available.",
+          "id": 0,
+          "min_score": 1.0,
+          "must_cover": [],
+          "mutants": 0,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Both export `fit!` and `predict`; with `using` both, an unqualified `fit!` is ambiguous and Julia refuses to call it",
+                "`import` loads a package faster than `using` does",
+                "`using` copies the package's code into your module, `import` does not"
+              ],
+              "code": "",
+              "explain": "When two modules brought in by `using` export the same name, Julia binds neither and asks you to qualify it. Qualified names also tell a reader which library each call belongs to.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "Both load the package the same way and take the same time; they differ only in which names become visible.",
+                "Neither copies code: both make the package's module available, `using` also brings its exported names into scope."
+              ],
+              "prompt": "Why does this project load the libraries with `import MLJ` and `import BetaML` and write `MLJ.fit!`, instead of `using MLJ, BetaML`?"
+            }
+          ],
+          "title": "A package with a test suite"
+        },
+        {
+          "api": [
+            {
+              "doc": "X as a Matrix{Float32} with one column per sample and one row per measurement (Flux's layout); y as a Vector{String} of species, in the same order as X's columns. Of a class with n samples, round(Int, test_fraction * n) go to the test set.",
+              "signature": "load_split(rng, path; test_fraction = 0.3) -> NamedTuple{(:Xtrain, :ytrain, :Xtest, :ytest)}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Check the element type and the shape of what you return: Flux wants one column per sample."
+              ],
+              "id": "load-columns",
+              "kc": "data-splitting",
+              "spec": "`Xtrain` and `Xtest` are `Matrix{Float32}` with 4 rows and one column per sample; `ytrain` and `ytest` are `Vector{String}`; every line of the file appears exactly once, as a column with its own label.",
+              "test_hints": [
+                "Check the types and the sizes, not only that the call works."
+              ]
+            },
+            {
+              "hints": [
+                "A random split of a small data set can leave a rare class almost out of the test set."
+              ],
+              "id": "stratified-split",
+              "kc": "data-splitting",
+              "spec": "Each class's share of the test set is within one sample of `test_fraction` times its size; the two sets are disjoint and together hold every sample; `test_fraction` is used.",
+              "test_hints": [
+                "Count each class in the test set."
+              ]
+            },
+            {
+              "hints": [
+                "Code that uses the global random number generator cannot be repeated in a test."
+              ],
+              "id": "rng-reproducible",
+              "kc": "reproducibility",
+              "spec": "The same seed gives the same split; a different seed gives a different one.",
+              "test_hints": [
+                "Call it twice with the same seed and once with another."
+              ]
+            }
+          ],
+          "goal": "Read `data/flowers.csv` (a header line, then four measurements and a\nspecies per line) and split it into train and test sets that keep the class\nproportions. Use `eachline` and `split`; there is no CSV package here.",
+          "id": 1,
+          "min_score": 1.0,
+          "must_cover": [
+            "load-columns",
+            "stratified-split",
+            "rng-reproducible"
+          ],
+          "mutants": 7,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "So a test can pass `Xoshiro(seed)` and get the same split on every run",
+                "`shuffle(v)` without a generator returns the same order every time, so every split would be identical",
+                "Shuffling with the global generator is not uniformly random"
+              ],
+              "code": "",
+              "explain": "With an explicit generator the caller decides the stream: a fixed `Xoshiro(seed)` in a test gives the same split every run, and a different seed gives another one. Code that reads the global generator depends on whatever drew from it before.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "The global generator moves on with every draw, so `shuffle(v)` gives a different order each call; that is what makes it hard to test.",
+                "The global generator is as uniform as any other; the problem is that a test cannot control its state."
+              ],
+              "prompt": "Why does `load_split` take an `rng` argument instead of calling `shuffle(v)`?"
+            }
+          ],
+          "title": "Data and a reproducible split"
+        },
+        {
+          "api": [
+            {
+              "doc": "classes::Vector{String} is the sorted class list (output row i is classes[i]); mu and sigma are 4 x 1 Matrix{Float32}. A FluxModel is callable: m(X) gives the network's raw outputs, one column per sample.",
+              "signature": "struct FluxModel (fields chain, classes, mu, sigma)"
+            },
+            {
+              "doc": "X as returned by load_split, y the matching labels.",
+              "signature": "train_flux(rng, X, y; epochs = 200) -> FluxModel"
+            },
+            {
+              "doc": "The most likely class of each column of X.",
+              "signature": "predict_flux(model, X) -> Vector{String}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Check the shape of the model's output on a few samples, for a data set with two classes as well as three."
+              ],
+              "id": "flux-shapes",
+              "kc": "neural-networks",
+              "spec": "The output layer has one unit per class (any number of classes, not only 3), `model.classes` is the sorted class list, and `predict_flux` returns one label per column.",
+              "test_hints": [
+                "Train on a tiny data set whose labels first appear in unsorted order."
+              ]
+            },
+            {
+              "hints": [
+                "Make sure the loss goes down during training before looking at accuracy."
+              ],
+              "id": "flux-learns",
+              "kc": "model-evaluation",
+              "spec": "Test accuracy is at least 0.85 for each seed in the acceptance set (calibrated threshold: the reference's lowest over 12 seeds was 0.926).",
+              "test_hints": [
+                "Measure test accuracy on the real data."
+              ]
+            },
+            {
+              "hints": [
+                "Initial weights are random numbers too."
+              ],
+              "id": "flux-seeded",
+              "kc": "reproducibility",
+              "spec": "The same seed gives bit-identical outputs; a different seed gives different ones.",
+              "test_hints": [
+                "Train twice with the same seed and compare the outputs."
+              ]
+            }
+          ],
+          "goal": "A two-layer network, `Dense(features => 16, relu)` then `Dense(16 =>\nclasses)`, initialised from `rng`, trained full-batch with Adam (learning\nrate 0.01) on the cross-entropy of its outputs. The inputs are standardised\nwith the training set's mean and standard deviation, and the model keeps\nthem so that prediction applies the same transformation.",
+          "id": 2,
+          "min_score": 1.0,
+          "must_cover": [
+            "flux-shapes",
+            "flux-learns",
+            "flux-seeded"
+          ],
+          "mutants": 5,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Whether the parameters change at all between steps",
+                "Whether the test set is stratified by class",
+                "Whether 200 epochs is so many that the network overfits"
+              ],
+              "code": "",
+              "explain": "A loss that does not move means training is not changing the model: an update that is never applied, a learning rate of zero, or gradients that do not reach the parameters. Compare the weights before and after one step.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "The split affects how accuracy is measured, but the training loss would still fall on any training set.",
+                "Overfitting drives the training loss down, not flat; a flat loss means the parameters are not being updated."
+              ],
+              "prompt": "After 200 epochs the network's accuracy is 0.40 on three classes and the loss has barely moved from its first value. What do you check first?"
+            }
+          ],
+          "title": "A Flux network"
+        },
+        {
+          "api": [
+            {
+              "doc": "A machine for MLJ.Standardizer() |> DecisionTreeClassifier(rng = rng) (from MLJDecisionTreeInterface), fitted on X (one column per sample) and y.",
+              "signature": "train_mlj(rng, X, y) -> MLJ.Machine"
+            },
+            {
+              "doc": "The most likely class of each column of X.",
+              "signature": "predict_mlj(mach, X) -> Vector{String}"
+            },
+            {
+              "doc": "A fitted forest of 30 trees that draws from rng.",
+              "signature": "train_betaml(rng, X, y) -> BetaML.RandomForestEstimator"
+            },
+            {
+              "doc": "The most likely class of each column of X.",
+              "signature": "predict_betaml(model, X) -> Vector{String}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "MLJ wants a table with one row per sample; Flux wanted columns."
+              ],
+              "id": "mlj-pipeline",
+              "kc": "model-evaluation",
+              "spec": "`train_mlj` returns a fitted `MLJ.Machine` whose model is a pipeline holding a `Standardizer` and a `DecisionTreeClassifier`; `predict_mlj` returns plain `String` labels; test accuracy reaches the calibrated threshold (0.85; lowest seen 0.889).",
+              "test_hints": [
+                "Check what `predict_mlj` returns, and the accuracy on the real split."
+              ]
+            },
+            {
+              "hints": [
+                "BetaML models take their generator as a constructor keyword."
+              ],
+              "id": "betaml-model",
+              "kc": "reproducibility",
+              "spec": "Same seed, same predictions; `predict_betaml` returns plain `String` labels; accuracy at the calibrated threshold (0.85; lowest seen 0.889).",
+              "test_hints": [
+                "Train twice with the same seed and compare the predictions."
+              ]
+            }
+          ],
+          "goal": "The same task with an MLJ pipeline (a standardiser and a decision tree) and\nwith a BetaML random forest of 30 trees. Both libraries want one row per\nsample; you get Flux's layout (one column per sample) and convert.",
+          "id": 3,
+          "min_score": 1.0,
+          "must_cover": [
+            "mlj-pipeline",
+            "betaml-model"
+          ],
+          "mutants": 5,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Nothing: rescaling a feature moves each threshold but not which samples fall on each side",
+                "It raises it, because a tree compares features with each other and needs them on one scale",
+                "It lowers it, since the standardiser's mean and spread come from all the data, test rows included"
+              ],
+              "code": "",
+              "explain": "Standardising is increasing and applied per feature, so every split the tree could make before it can still make, on the same samples. The pipeline step matters for distance- or gradient-based models (like the Flux network), not for trees.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "A tree never compares two features; each split looks at one feature against a threshold, so the scale of the others is irrelevant.",
+                "Fitted on the training rows only (as `train_mlj` is), the standardiser never sees the test rows; and a monotone rescaling does not change a tree's splits anyway."
+              ],
+              "prompt": "A decision tree splits on a threshold of one feature at a time. What does putting a `Standardizer` in front of it do to its test accuracy?"
+            }
+          ],
+          "title": "MLJ and BetaML"
+        },
+        {
+          "api": [
+            {
+              "doc": "Splits path with rng (default test_fraction), then trains Flux, MLJ and BetaML in that order, each with rng as the previous step left it. library is \"flux\", \"mlj\" or \"betaml\"; size is the number of trainable parameters (Flux), of leaves of the tree (MLJ) or of trees (BetaML). Sorted by accuracy, highest first, then by library name.",
+              "signature": "compare(rng, path) -> Vector{NamedTuple{(:library, :accuracy, :seconds, :size)}}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "All three models must see the same split, and accuracy is measured on the samples they did not train on."
+              ],
+              "id": "compare-table",
+              "kc": "model-evaluation",
+              "spec": "Three rows with those field names, sorted as stated; each accuracy equals the test accuracy of the individual functions under the same protocol; the sizes are right (131 parameters for the network).",
+              "test_hints": [
+                "Repeat the protocol by hand in the test and compare."
+              ]
+            },
+            {
+              "hints": [
+                "The first call of a Julia function includes compiling it."
+              ],
+              "id": "compare-timing",
+              "kc": "model-evaluation",
+              "spec": "`seconds` is the time of one training call after an untimed warm-up call, so it holds no compilation (calibrated bound in the acceptance test: under 1 s per library).",
+              "test_hints": [
+                "Check that every time is positive."
+              ]
+            }
+          ],
+          "goal": "One table, one row per library: test accuracy, training time and size.\nThere is no DataFrames in the `ml` environment, so the table is a vector of\nnamed tuples.",
+          "id": 4,
+          "min_score": 1.0,
+          "must_cover": [
+            "compare-table"
+          ],
+          "mutants": 2,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "The first call compiles the methods it runs, and that time is not training",
+                "To warm up the CPU cache so that the timing is stable",
+                "So each model is trained twice and the better one is kept"
+              ],
+              "code": "",
+              "explain": "Julia compiles a method the first time it is called with given argument types. For Flux and MLJ that takes seconds, far longer than training on 63 samples, so a first-call time would measure the compiler.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "Cache effects are microseconds here; compilation is seconds.",
+                "The warm-up model is thrown away; the timed call's model is the one scored."
+              ],
+              "prompt": "Why does `compare` call each training function once before it starts the clock?"
+            }
+          ],
+          "title": "Comparison"
+        }
+      ],
+      "name": "classify",
+      "package": "Classify",
+      "packages": [
+        "BetaML",
+        "DecisionTree",
+        "Flux",
+        "MLJ",
+        "MLJDecisionTreeInterface",
+        "MLJLinearModels"
+      ],
+      "reading": "Prerequisites: course unit 26 (machine learning).\n\n`data/flowers.csv` is the file this project is about: 90 flowers of three\nspecies (40 alba, 30 rosea, 20 viola) with four measurements each. It is\nsynthetic (drawn from seeded normal distributions), and one measurement,\n`stem_mm`, is in millimetres while the others are in centimetres. Open it\nbefore you start. The `ml` environment has no CSV.jl and no DataFrames.jl,\nso you read the file line by line with `eachline` and `split`, and the\ncomparison table is a vector of named tuples.\n\nKnet.jl is another deep-learning library for Julia, older than Flux, with\nits own GPU array type and a define-by-run style close to PyTorch's. It is\nnot installed in this course's environments (the course covers it in text\nonly); the Flux part of this project is what a Knet version would replace.\n\nTwo of these libraries export functions with the same names (`fit!`,\n`predict`), so load them with `import Flux`, `import MLJ`, `import BetaML`\nand write qualified names (`MLJ.machine`, `BetaML.fit!`).\n\nRandomness: every function that shuffles, initialises or samples takes an\n`rng` argument, and tests pass `Xoshiro(seed)`. Julia's default stream is\nstable on the pinned 1.10.13, but code that reads the global RNG cannot be\ntested reproducibly. Accuracy thresholds in the acceptance tests are\ncalibrated on the pinned packages over a stated set of seeds, not derived;\nwrite the same kind of comment next to every threshold in your own tests.\nThis project runs in the container only on Windows hosts.",
+      "status": "ready",
+      "summary": "Build the same classification task three times (a small neural network in Flux.jl, a pipeline with a decision tree in MLJ.jl, and a BetaML.jl random forest), on one seeded, stratified train/test split, and compare them in one table. You write the data handling, the training functions and the tests, including tests that do not flake.",
+      "title": "Classify: one classifier, three libraries"
+    },
+    {
+      "env": "calculus",
+      "host_ok": true,
+      "kcs": [
+        "packages",
+        "testing",
+        "symbolic-differentiation",
+        "automatic-differentiation",
+        "finite-differences",
+        "floating-point",
+        "concrete-types"
+      ],
+      "milestones": [
+        {
+          "api": [
+            {
+              "doc": "Defined in src/DerivCheck.jl.",
+              "signature": "module DerivCheck"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A package is a module whose name matches its file name under src/."
+              ],
+              "id": "package-layout",
+              "kc": "packages",
+              "spec": "`src/DerivCheck.jl` defines a module named `DerivCheck` that loads without errors.",
+              "test_hints": [
+                "Any check that runs counts here."
+              ]
+            }
+          ],
+          "goal": "Create the package as in the tidy project's milestone 0 (`tutor guided show\ntidy 0` has the full steps): `Pkg.generate(\"DerivCheck\")`, move\n`Project.toml` and `src/` into this folder, run `./tutor guided deps <this\nfolder>` from the julia-tutor folder (Symbolics and ForwardDiff), and write\n`test/runtests.jl` with `using DerivCheck, Test` and one check. Also add\n`using LinearAlgebra` to the module if you want `norm` (it is a standard\nlibrary, always available).",
+          "id": 0,
+          "min_score": 1.0,
+          "must_cover": [],
+          "mutants": 0,
+          "perf_entry": "",
+          "questions": [],
+          "title": "A package with a test suite"
+        },
+        {
+          "api": [
+            {
+              "doc": "`G = symbolic_gradient(f, n)`; then `G(x)` for a vector `x` of length `n` returns the gradient as a `Vector`.",
+              "signature": "symbolic_gradient(f, n::Integer) -> Function"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Symbolics needs symbolic variables to call `f` on before it can differentiate."
+              ],
+              "id": "sym-values",
+              "kc": "symbolic-differentiation",
+              "spec": "`symbolic_gradient(f, n)(x)` equals the gradient of `f` at `x` up to rounding, component i being the derivative with respect to `x[i]`.",
+              "test_hints": [
+                "Compare with a gradient you worked out by hand."
+              ]
+            },
+            {
+              "hints": [
+                "A symbolic expression is not a function of numbers yet."
+              ],
+              "id": "sym-returns-vector",
+              "kc": "symbolic-differentiation",
+              "spec": "The returned function gives a `Vector{Float64}` of length `n` for a `Vector{Float64}` input, and can be called many times.",
+              "test_hints": [
+                "Check the type of what the returned function gives back, not only its values."
+              ]
+            },
+            {
+              "hints": [
+                "A gradient of a function of no variables is not meaningful; say so early."
+              ],
+              "id": "sym-n-check",
+              "kc": "errors",
+              "spec": "`n < 1` throws an `ArgumentError`.",
+              "test_hints": [
+                "Test the call that should fail."
+              ]
+            }
+          ],
+          "goal": "Let Symbolics.jl differentiate `f` exactly, as a formula, and compile the\nformula into a function you can call on numbers.",
+          "id": 1,
+          "min_score": 1.0,
+          "must_cover": [
+            "sym-values",
+            "sym-returns-vector",
+            "sym-n-check"
+          ],
+          "mutants": 3,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "The untyped version is generic: `*`, `^` and `sin` have methods for each number type, chosen when `f` is called",
+                "Symbolics rewrites the source code of `f` before calling it",
+                "Untyped functions run slower but accept more input"
+              ],
+              "code": "",
+              "explain": "Julia compiles a specialised version of the untyped `f` for each argument type it is called with; the operations inside dispatch to the methods for that type. An annotation `::Vector{Float64}` only restricts which calls are allowed.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "Symbolics calls `f` like any other caller would, with a vector of symbolic `Num` values; nothing reads the source.",
+                "The generic `f` is compiled for each concrete argument type and is as fast as the annotated one on floats."
+              ],
+              "prompt": "Why does `f(v) = v[1]^2 * sin(v[2])` work on Symbolics variables, on dual numbers and on floats, while `f(v::Vector{Float64}) = ...` works only on floats?"
+            }
+          ],
+          "title": "Symbolic gradients"
+        },
+        {
+          "api": [
+            {
+              "doc": "The gradient of a scalar `f` at `x`.",
+              "signature": "ad_gradient(f, x::AbstractVector) -> Vector"
+            },
+            {
+              "doc": "For a vector-valued `F`: entry (i, j) is the derivative of output i with respect to input j.",
+              "signature": "ad_jacobian(F, x::AbstractVector) -> Matrix"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Forward-mode AD computes derivatives exactly, up to rounding, by running `f` on dual numbers."
+              ],
+              "id": "ad-gradient",
+              "kc": "automatic-differentiation",
+              "spec": "`ad_gradient(f, x)` equals the exact gradient up to rounding (relative 1e-13 on well-scaled examples), unlike a finite-difference approximation.",
+              "test_hints": [
+                "Compare with a hand-derived gradient, with a tight tolerance."
+              ]
+            },
+            {
+              "hints": [
+                "Think about which index is the output and which is the input."
+              ],
+              "id": "ad-jacobian",
+              "kc": "automatic-differentiation",
+              "spec": "`ad_jacobian(F, x)` has size (length of F(x), length of x), with entry (i, j) = dF_i/dx_j.",
+              "test_hints": [
+                "Use an `F` whose Jacobian is not square."
+              ]
+            }
+          ],
+          "goal": "Get the same derivatives from ForwardDiff.jl, which pushes dual numbers\nthrough `f` instead of building a formula. This is the reference that\nmilestone 4 compares against, so it must be exact up to rounding.",
+          "id": 2,
+          "min_score": 1.0,
+          "must_cover": [
+            "ad-gradient",
+            "ad-jacobian"
+          ],
+          "mutants": 2,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "2-element Vector{Float64}:\n 4.0\n 3.0",
+                "2-element Vector{Float64}:\n 3.0\n 4.0",
+                "12.0"
+              ],
+              "code": "using ForwardDiff\nf(v) = v[1] * v[2]\nForwardDiff.gradient(f, [3.0, 4.0])",
+              "explain": "The derivative of v1·v2 with respect to v1 is v2 = 4, and with respect to v2 it is v1 = 3.",
+              "kind": "output",
+              "misconceptions": [
+                "",
+                "That is the input. Component i of the gradient is the derivative with respect to v[i]: for a product, the other factor.",
+                "12 is f(x), the value; the gradient is a vector with one entry per input."
+              ],
+              "prompt": "What does this print?"
+            }
+          ],
+          "title": "Forward-mode automatic differentiation"
+        },
+        {
+          "api": [
+            {
+              "doc": "Step for component i: h * max(1, abs(x[i])). `x` is not changed (an integer vector is accepted).",
+              "signature": "central_difference(f, x::AbstractVector; h = cbrt(eps(Float64))) -> Vector{Float64}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Compare one component with what you get by hand on a simple function, like x³ at x = 1."
+              ],
+              "id": "fd-accuracy",
+              "kc": "finite-differences",
+              "spec": "On well-scaled smooth functions the result agrees with the exact gradient to a relative 1e-8 (the error is about eps^(2/3)).",
+              "test_hints": [
+                "Compare with a hand-derived gradient at a few points."
+              ]
+            },
+            {
+              "hints": [
+                "At large |x|, `x + s` with a tiny `s` loses most of `s` to rounding."
+              ],
+              "id": "fd-relative-step",
+              "kc": "floating-point",
+              "spec": "The step scales with |x[i]|: at x = 1e6 the result still agrees to a relative 1e-8.",
+              "test_hints": [
+                "Test at a point with large components."
+              ]
+            },
+            {
+              "hints": [
+                "The keyword argument must actually be used."
+              ],
+              "id": "fd-step-keyword",
+              "kc": "functions",
+              "spec": "The keyword `h` sets the relative step factor.",
+              "test_hints": [
+                "Call with a large `h` and check the effect."
+              ]
+            },
+            {
+              "hints": [
+                "Perturbing `x` in place is fast but changes the caller's vector unless you work on a copy."
+              ],
+              "id": "fd-no-mutation",
+              "kc": "mutation",
+              "spec": "`x` is the same after the call, and integer vectors are accepted.",
+              "test_hints": [
+                "Check `x` after the call."
+              ]
+            }
+          ],
+          "goal": "Approximate the gradient by central differences:\n(f(x + s eᵢ) - f(x - s eᵢ)) / 2s for each component i. The step s is the\nwhole difficulty. The truncation error grows like s² · |f‴| / 6; the\nrounding error grows like eps · |f| / s. Balance them: s proportional to\ncbrt(eps) ≈ 6e-6, scaled by the size of xᵢ, so that 1e6 and 1e-3 get\nsensible steps. Write the derivation in a comment next to your step.",
+          "id": 3,
+          "min_score": 1.0,
+          "must_cover": [
+            "fd-accuracy",
+            "fd-relative-step",
+            "fd-step-keyword",
+            "fd-no-mutation"
+          ],
+          "mutants": 4,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Below the optimal step the rounding error, which grows like eps/s, dominates the truncation error",
+                "The function must not be differentiable at x = 1",
+                "Central differences are only first-order accurate"
+              ],
+              "code": "",
+              "explain": "The total error is about s²|f'''|/6 + eps|f|/s. It is smallest near s = cbrt(3 eps |f| / |f'''|), about 1e-5 for well-scaled f; below that, smaller steps lose more to rounding than they gain.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "A smooth function shows the same behaviour: it comes from floating-point rounding, not from the function.",
+                "Central differences are second-order: the truncation error falls like s². The growth comes from rounding."
+              ],
+              "prompt": "Halving the step of a central difference from 1e-5 to 5e-6 at x = 1 made the error larger. What is going on?"
+            }
+          ],
+          "title": "Central differences with a derived step"
+        },
+        {
+          "api": [
+            {
+              "doc": "ok::Bool, worst_point::Vector{Float64}, worst_error::Float64: concrete field types.",
+              "signature": "struct GradientReport (fields ok, worst_point, worst_error)"
+            },
+            {
+              "doc": "Error at a point: norm(grad(x) - ad) / max(norm(ad), 1). ok when the largest error is at most rtol.",
+              "signature": "check_gradient(f, grad, points; rtol = 1e-8) -> GradientReport"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A field with an abstract type makes every access to it a dynamic lookup."
+              ],
+              "id": "report-fields",
+              "kc": "concrete-types",
+              "spec": "`GradientReport` has fields `ok::Bool`, `worst_point::Vector{Float64}`, `worst_error::Float64`, all concrete types.",
+              "test_hints": [
+                "Test the field types, not only the values."
+              ]
+            },
+            {
+              "hints": [
+                "The comparison against `rtol` decides `ok`."
+              ],
+              "id": "agreement",
+              "kc": "testing",
+              "spec": "A correct gradient gives `ok == true` with an error of a few eps; a wrong one gives `ok == false` at the default `rtol`; `ok` uses the `rtol` passed in.",
+              "test_hints": [
+                "Test a right and a wrong gradient."
+              ]
+            },
+            {
+              "hints": [
+                "Keep the largest error seen so far and the point it came from."
+              ],
+              "id": "worst-point",
+              "kc": "testing",
+              "spec": "`worst_point` is the point with the largest error and `worst_error` that error.",
+              "test_hints": [
+                "Use a gradient that is wrong at only some points."
+              ]
+            },
+            {
+              "hints": [
+                "What does a relative error do when the reference is zero?"
+              ],
+              "id": "relative-floor",
+              "kc": "floating-point",
+              "spec": "Where the true gradient is zero the error is measured absolutely (the denominator is max(norm, 1)), so a correct gradient passes there.",
+              "test_hints": [
+                "Test at a point where the gradient is zero."
+              ]
+            },
+            {
+              "hints": [
+                "Every comparison with NaN is false."
+              ],
+              "id": "nan-fails",
+              "kc": "floating-point",
+              "spec": "A gradient that returns NaN at any point is never `ok`.",
+              "test_hints": [
+                "Pass a gradient that returns NaN."
+              ]
+            },
+            {
+              "hints": [
+                "With no points, what would `ok` mean?"
+              ],
+              "id": "empty-points",
+              "kc": "errors",
+              "spec": "An empty list of points throws an `ArgumentError`.",
+              "test_hints": [
+                "Test the call that should fail."
+              ]
+            }
+          ],
+          "goal": "Put it together: given `f`, a hand-written gradient `grad` and some points,\ncompare `grad(x)` with `ad_gradient(f, x)` at each point and report.",
+          "id": 4,
+          "min_score": 0.8,
+          "must_cover": [
+            "report-fields",
+            "agreement",
+            "worst-point",
+            "relative-floor",
+            "nan-fails",
+            "empty-points"
+          ],
+          "mutants": 6,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "AD is exact up to rounding, so a tight tolerance is meaningful; central differences carry an error near 1e-10 that a tight tolerance would flag",
+                "Central differences cannot handle functions of several variables",
+                "ForwardDiff is always faster than two function evaluations per component"
+              ],
+              "code": "",
+              "explain": "A checker's tolerance must sit above the reference's own error. AD's error is a few eps, so the checker can use 1e-8 or tighter; with central differences it would have to accept errors near eps^(2/3).",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "Central differences work component by component for any number of variables; milestone 3 does exactly that.",
+                "For many inputs forward-mode AD costs about as much as differences; the reason is accuracy, not speed."
+              ],
+              "prompt": "Why compare the hand-written gradient with ForwardDiff rather than with central differences?"
+            }
+          ],
+          "title": "The checker"
+        }
+      ],
+      "name": "derivcheck",
+      "package": "DerivCheck",
+      "packages": [
+        "ForwardDiff",
+        "Symbolics"
+      ],
+      "reading": "Prerequisites: course unit 23 (derivatives) and unit 08 (types).\n\nThroughout, a function to differentiate takes one vector and returns a\nnumber: `f(v) = v[1]^2 * sin(v[2])`. Write it with `v[1]`, `v[2]` and\ngeneric arithmetic (no `Float64` annotations inside), so the same `f` works\non Symbolics variables, on ForwardDiff's dual numbers and on plain floats.\n\nTolerances are part of the work here. Every `≈` in your tests needs an\n`rtol` and a one-line reason in a comment (how many rounded operations, what\nsize the values are, what the method's error is). The checker warns on `==`\nbetween floats inside `@test`.",
+      "status": "ready",
+      "summary": "Build a gradient checker: the gradient of a function three ways (symbolically with Symbolics.jl, by forward-mode automatic differentiation with ForwardDiff.jl, and by central differences with a step you derive), then a function that compares a hand-written gradient with AD over a set of points and reports where it is worst. You write the code and the tests, with tolerances you can justify.",
+      "title": "DerivCheck: does a hand-written gradient agree?"
+    },
+    {
+      "env": "diffeq",
+      "host_ok": false,
+      "kcs": [
+        "packages",
+        "testing",
+        "ode-models",
+        "conservation",
+        "least-squares",
+        "line-search"
+      ],
+      "milestones": [
+        {
+          "api": [
+            {
+              "doc": "Defined in src/Epidemic.jl, with `using DifferentialEquations` inside.",
+              "signature": "module Epidemic"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A package is a module whose name matches its file name under src/."
+              ],
+              "id": "package-layout",
+              "kc": "packages",
+              "spec": "`src/Epidemic.jl` defines a module named `Epidemic` that loads without errors.",
+              "test_hints": [
+                "Any check that runs counts here."
+              ]
+            }
+          ],
+          "goal": "Create the package as in the tidy project's milestone 0 (`tutor guided show\ntidy 0` has the full steps): `Pkg.generate(\"Epidemic\")`, move\n`Project.toml` and `src/` into this folder, run `./tutor guided deps <this\nfolder>` from the julia-tutor folder (DifferentialEquations), and write\n`test/runtests.jl` with `using Epidemic, Test` and one check. From\nmilestone 1 on, export every name a milestone's API lists: the hidden tests\ncall them after `using Epidemic`.",
+          "id": 0,
+          "min_score": 1.0,
+          "must_cover": [],
+          "mutants": 0,
+          "perf_entry": "",
+          "questions": [],
+          "title": "A package with a test suite"
+        },
+        {
+          "api": [
+            {
+              "doc": "u = (S, I, R) as fractions of the population, p = (beta, gamma): dS = -beta S I, dI = beta S I - gamma I, dR = gamma I.",
+              "signature": "sir!(du, u, p, t) -> nothing"
+            },
+            {
+              "doc": "3 × length(days) states at the given (sorted) days, starting from u0 at day 0, from Tsit5 with abstol = reltol = 1e-10.",
+              "signature": "simulate(p, u0, days) -> Matrix{Float64}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Each compartment's rate is people arriving minus people leaving."
+              ],
+              "id": "rhs-values",
+              "kc": "ode-models",
+              "spec": "`sir!` writes the three derivatives into `du`, returns `nothing` and allocates nothing.",
+              "test_hints": [
+                "Call `sir!` on a state and rates you pick, and compare `du` with rates you work out by hand."
+              ]
+            },
+            {
+              "hints": [
+                "The solver picks its own steps; you ask for output at given times."
+              ],
+              "id": "simulate-saveat",
+              "kc": "ode-models",
+              "spec": "`simulate` returns exactly the requested days as columns, counted from day 0 (also when the first requested day is not 0), at the stated tolerances.",
+              "test_hints": [
+                "Check the size of the result and a value you know without the solver."
+              ]
+            }
+          ],
+          "goal": "Write the SIR right-hand side in place and a function that solves it and\nreturns the states at given days. S, I and R are fractions of the\npopulation: susceptible, infectious, recovered. Each day an infectious\nperson meets enough people to infect beta of them if all were susceptible,\nand recovers at rate gamma.",
+          "id": 1,
+          "min_score": 0.8,
+          "must_cover": [
+            "rhs-values",
+            "simulate-saveat"
+          ],
+          "mutants": 5,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "DifferentialEquations.jl accepts only right-hand sides that modify an argument, and rejects any function that returns an array",
+                "The solver calls it at every stage of every step, and filling a vector it owns saves an allocation per call",
+                "A returned vector is rounded to Float32 by the solver, so writing in place keeps full Float64 accuracy"
+              ],
+              "code": "",
+              "explain": "Tsit5 evaluates the right-hand side six or seven times per step, often thousands of times per solve. The in-place form `f!(du, u, p, t)` lets the solver hand over one preallocated vector every time; the out-of-place form `f(u, p, t)` also works, at an allocation per call (or with static arrays).",
+              "kind": "choice",
+              "misconceptions": [
+                "The out-of-place form `f(u, p, t)` returning the derivative is accepted too; DifferentialEquations detects which one you wrote from the number of arguments.",
+                "",
+                "No rounding happens: the precision follows the element type of `u0` in both forms."
+              ],
+              "prompt": "Why does `sir!` write into `du` instead of returning a new vector of derivatives?"
+            }
+          ],
+          "title": "The model"
+        },
+        {
+          "api": [
+            {
+              "doc": "The time at which I is largest, found by root-finding on beta S - gamma (an event callback on the solution). 0.0 when I never grows (beta S0 <= gamma); `horizon` when I still grows there.",
+              "signature": "peak_day(p, u0; horizon = 365) -> Float64"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Add the three equations together."
+              ],
+              "id": "conservation",
+              "kc": "conservation",
+              "spec": "S + I + R stays equal to its initial value within 1e-9 over a year. The three rates sum to zero, and a Runge-Kutta step keeps every linear invariant of the equations exactly, so only rounding remains (about 1e-13 here); the bound is far above that and far below any real fault.",
+              "test_hints": [
+                "Simulate a year and look at S + I + R on every day."
+              ]
+            },
+            {
+              "hints": [
+                "At the peak dI/dt is zero."
+              ],
+              "id": "peak-condition",
+              "kc": "ode-models",
+              "spec": "At `peak_day`, S equals gamma / beta within 1e-6, and I is at its maximum.",
+              "test_hints": [
+                "Simulate up to the returned day and compare S there with gamma / beta."
+              ]
+            },
+            {
+              "hints": [
+                "What does the event look for if the condition is already negative at the start?"
+              ],
+              "id": "peak-none",
+              "kc": "ode-models",
+              "spec": "When beta S0 <= gamma, I never grows and `peak_day` returns 0.0.",
+              "test_hints": [
+                "Use rates with beta below gamma."
+              ]
+            }
+          ],
+          "goal": "Test the model against facts that do not depend on your code: the\npopulation is conserved, and I peaks where S = gamma / beta (there dI/dt =\nI (beta S - gamma) is zero). Then write `peak_day`.",
+          "id": 2,
+          "min_score": 0.8,
+          "must_cover": [
+            "conservation",
+            "peak-condition"
+          ],
+          "mutants": 5,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "A Runge-Kutta step preserves every linear invariant of the equations exactly, so only rounding is left",
+                "The solver projects the state back onto S + I + R = 1 after every step",
+                "The errors in S, I and R are each near 1e-10 but cancel by chance"
+              ],
+              "code": "",
+              "explain": "Each stage of a Runge-Kutta step adds a linear combination of right-hand side values. Their components sum to zero, so the sum of the state changes by zero in exact arithmetic, whatever the step size. The tolerances bound the error of each component, not of their sum.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "Tsit5 does no projection; a manifold projection would need a callback. The invariant holds because of how the step is built.",
+                "The cancellation is exact, not by chance: it follows from the right-hand side summing to zero, and the drift that remains is rounding."
+              ],
+              "prompt": "With abstol = reltol = 1e-10, S + I + R drifts by only about 1e-13 over a year. Why is that far below the tolerances?"
+            }
+          ],
+          "title": "Checks a model must pass"
+        },
+        {
+          "api": [
+            {
+              "doc": "Constants: the town's size and its state on day 0.",
+              "signature": "POPULATION = 10_000.0; U0 = [0.999, 0.001, 0.0]"
+            },
+            {
+              "doc": "The counts of a CSV with header `day,cases` and days 1, 2, ..., D in order; an `ArgumentError` when a day is out of place.",
+              "signature": "read_cases(io::IO) -> Vector{Int}"
+            },
+            {
+              "doc": "Entry k is the model's new cases on day k from U0: POPULATION * (S(k - 1) - S(k)).",
+              "signature": "expected_cases(p, ndays::Integer) -> Vector{Float64}"
+            },
+            {
+              "doc": "sum over days of mu - y log mu, with mu = expected_cases(p, length(cases)) and y = cases.",
+              "signature": "loss(p, cases::AbstractVector{<:Real}) -> Float64"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "The first line is a header, not data."
+              ],
+              "id": "read-cases",
+              "kc": "testing",
+              "spec": "`read_cases` returns the counts in day order and throws an `ArgumentError` when the days are not 1, 2, ..., D.",
+              "test_hints": [
+                "Read a short CSV you write in the test with `IOBuffer`."
+              ]
+            },
+            {
+              "hints": [
+                "New cases are people leaving S, not people in I."
+              ],
+              "id": "expected-cases",
+              "kc": "ode-models",
+              "spec": "`expected_cases(p, D)[k]` is POPULATION * (S(k - 1) - S(k)): the people infected during day k, not the number infectious on day k nor the total so far.",
+              "test_hints": [
+                "Compute the new cases yourself from `simulate` and compare."
+              ]
+            },
+            {
+              "hints": [
+                "The loss is something to minimise: smaller must mean a better fit."
+              ],
+              "id": "loss-zero-at-truth",
+              "kc": "least-squares",
+              "spec": "On noise-free data generated from p, the loss is minimal at p (a grid around it has no lower value).",
+              "test_hints": [
+                "Test the loss on data you generate yourself, without noise."
+              ]
+            },
+            {
+              "hints": [
+                "Counts are not Gaussian: their variance grows with their mean."
+              ],
+              "id": "loss-poisson",
+              "kc": "least-squares",
+              "spec": "The loss is sum(mu - y log mu) over days, with mu the model's new cases (positive) and y the counts: a sum, not a mean, and not squared differences.",
+              "test_hints": [
+                "Compute the expected value of the loss by hand for some small counts."
+              ]
+            }
+          ],
+          "goal": "`data/cases.csv` has the new cases on days 1 to 50 (the reading says how it\nwas made). Read it without CSV.jl (it is not in this environment), compute\nthe model's new cases per day, and write a loss that compares the two.\nCounts are not Gaussian: their variance grows with their mean, so the loss\nis the Poisson negative log-likelihood.",
+          "id": 3,
+          "min_score": 0.8,
+          "must_cover": [
+            "read-cases",
+            "expected-cases",
+            "loss-zero-at-truth",
+            "loss-poisson"
+          ],
+          "mutants": 7,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "Squared differences cannot be computed on integer counts",
+                "The variance of a count grows with its mean, so squared errors let the busiest days dominate",
+                "The Poisson loss always has a smaller value, so a search on it converges in fewer steps"
+              ],
+              "code": "",
+              "explain": "Least squares is maximum likelihood for equal-variance Gaussian noise. A Poisson count with mean 300 varies by about 17, one with mean 10 by about 3; the Poisson loss weighs each day by what its noise allows.",
+              "kind": "choice",
+              "misconceptions": [
+                "Integers subtract and square like any number; the question is what the loss assumes about the noise.",
+                "",
+                "The size of a loss value says nothing about how fast a search converges; only its shape near the minimum matters."
+              ],
+              "prompt": "Why fit daily counts with the Poisson loss rather than the sum of squared differences?"
+            }
+          ],
+          "title": "Data and a loss"
+        },
+        {
+          "api": [
+            {
+              "doc": "The minimiser of a unimodal f on [a, b] to within tol, with one new evaluation of f per step.",
+              "signature": "golden_section(f, a, b; tol = 1e-8) -> Float64"
+            },
+            {
+              "doc": "The best rates found; both keywords are required (`beta_range = (lo, hi)`, `gamma_grid` a sorted vector or range).",
+              "signature": "fit(cases; beta_range, gamma_grid) -> NamedTuple{(:beta, :gamma)}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Each step keeps the part of the bracket that must hold the minimum."
+              ],
+              "id": "golden-section",
+              "kc": "line-search",
+              "spec": "On a parabola with known minimum the result is within tol, and the number of evaluations is at most log(tol / (b - a)) / log(0.618) + 4.",
+              "test_hints": [
+                "Minimise (x - c)^2 on an interval around a c you pick, and check the result is within tol of c."
+              ]
+            },
+            {
+              "hints": [
+                "Fit on noise-free data first: it should recover the rates almost exactly."
+              ],
+              "id": "fit-recovers",
+              "kc": "least-squares",
+              "spec": "On noise-free data the fit returns the rates within a relative 1e-4; on the shipped data within 5% of the true ones (calibrated: the seed and the observed error are stated in the acceptance test).",
+              "test_hints": [
+                "Fit the model's own new cases (no noise) and check both rates."
+              ]
+            }
+          ],
+          "goal": "Fit beta and gamma: for each gamma on a coarse grid, a golden-section\nsearch over beta; then a golden-section search over gamma between the grid\nneighbours of the best grid point, with the best beta found for each gamma.\nTest the search on a parabola first, where the answer is exact.",
+          "id": 4,
+          "min_score": 0.8,
+          "must_cover": [
+            "golden-section",
+            "fit-recovers"
+          ],
+          "mutants": 5,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "true\n0.618",
+                "false\n0.618",
+                "true\n1.618"
+              ],
+              "code": "r = (sqrt(5) - 1) / 2\nprintln(isapprox(r^2, 1 - r; rtol = 1e-15))\nprintln(round(r; digits = 3))",
+              "explain": "r is the positive root of r^2 + r - 1 = 0, so r^2 = 1 - r up to rounding. That identity is why one interior point of the old bracket lands exactly on an interior point of the new one, and each step needs one new evaluation.",
+              "kind": "output",
+              "misconceptions": [
+                "",
+                "r^2 + r = 1 is the equation that defines r; computed in Float64 the two sides differ by about one eps, inside rtol = 1e-15.",
+                "1.618 is the golden ratio itself, 1/r; the search uses its inverse, the fraction of the bracket kept per step."
+              ],
+              "prompt": "Golden-section search places its interior points at a fraction r of the bracket. What does this print?"
+            }
+          ],
+          "title": "The fit"
+        }
+      ],
+      "name": "epidemic",
+      "package": "Epidemic",
+      "packages": [
+        "DifferentialEquations"
+      ],
+      "reading": "Prerequisites: course unit 24 (differential equations) and unit 23.\nThe `diffeq` environment has DifferentialEquations.jl but not Optim.jl, so\nthe fit is a search you write: it is two parameters, and a golden-section\nsearch is a dozen lines you can test exactly on a parabola first.\nContainer only on Windows hosts (see CLAUDE.md, Known gaps): checks run with\n`--sandbox=docker`, and the first one spends most of its time loading\nDifferentialEquations.\n\n`data/cases.csv` holds 50 days of new cases in a town of 10 000 people. It\nwas simulated, so the answer is known: SIR with beta = 0.45 and\ngamma = 0.17 per day from (S, I, R) = (0.999, 0.001, 0) on day 0, the\nmodel's new cases per day as Poisson means, and Poisson draws from\n`Xoshiro(20261109)` (the script is\n`projects/guided/epidemic/tools/simulate_cases.jl` in the julia-tutor\nrepository). Your fit should land near those rates, but not on\nthem: the noise moves the minimum.\n\nTolerances are part of the work. Every `≈` in your tests needs a reason in\na comment: a bound you derive from the solver tolerances or from rounding,\nor \"calibrated\" with the seed and the error you observed. Every random\ndraw in a test uses an explicit `Xoshiro(seed)`. The checker warns on `==`\nbetween floats inside `@test`.",
+      "status": "ready",
+      "summary": "Build an SIR epidemic model on DifferentialEquations.jl, check it against conservation and a known peak condition, and fit its two rates to noisy daily case counts with a search you write yourself (golden-section search inside a coarse grid). Simulated data with a fixed seed, so the true rates are known.",
+      "title": "Epidemic: an SIR model fitted to case counts"
+    },
+    {
+      "env": "plots",
+      "host_ok": false,
+      "kcs": [
+        "packages",
+        "testing",
+        "data-preparation",
+        "plotting",
+        "figure-structure"
+      ],
+      "milestones": [
+        {
+          "api": [
+            {
+              "doc": "Defined in src/Figures.jl.",
+              "signature": "module Figures"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A package is a module whose name matches its file name under src/."
+              ],
+              "id": "package-layout",
+              "kc": "packages",
+              "spec": "`src/Figures.jl` defines a module named `Figures` that loads without errors.",
+              "test_hints": [
+                "Any check that runs counts here."
+              ]
+            }
+          ],
+          "goal": "Create the package as in the tidy project's milestone 0 (`tutor guided show\ntidy 0` has the full steps): `Pkg.generate(\"Figures\")`, move\n`Project.toml` and `src/` into this folder, run `./tutor guided deps <this\nfolder>` from the julia-tutor folder (CairoMakie, AlgebraOfGraphics, Plots,\nGadfly, DataFrames), and write `test/runtests.jl` with `using Figures, Test`\nand one check.",
+          "id": 0,
+          "min_score": 1.0,
+          "must_cover": [],
+          "mutants": 0,
+          "perf_entry": "",
+          "questions": [],
+          "title": "A package with a test suite"
+        },
+        {
+          "api": [
+            {
+              "doc": "Column date (Date), then one column per city in file order, Union{Missing, Float64}. Use it on the file with open(read_wide, path).",
+              "signature": "read_wide(io::IO) -> DataFrame"
+            },
+            {
+              "doc": "Columns date, city (String), temp (Float64): one row per non-missing value, sorted by city, then date.",
+              "signature": "long_format(wide::DataFrame) -> DataFrame"
+            },
+            {
+              "doc": "Columns city, month (Int, 1 to 12), mean_temp: one row per city and month, sorted by city, then month.",
+              "signature": "monthly_means(long::DataFrame) -> DataFrame"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "There is no CSV package in this environment: a line of the file is text you cut at the commas."
+              ],
+              "id": "read-wide",
+              "kc": "data-preparation",
+              "spec": "`read_wide(io)` reads the wide CSV text: the header names the columns, `date` holds `Date`s, and each city column holds `Union{Missing, Float64}` values, with `missing` (never 0) for an empty field.",
+              "test_hints": [
+                "Read a small text you write in the test (`read_wide(IOBuffer(txt))`) that has an empty field in it."
+              ]
+            },
+            {
+              "hints": [
+                "Plotting libraries want one row per point, with the series name in a column of its own."
+              ],
+              "id": "long-format",
+              "kc": "data-preparation",
+              "spec": "`long_format(wide)` has columns `date`, `city` (`String`) and `temp` (`Float64`): every non-missing value of the wide table appears exactly once, missing ones not at all, and rows are sorted by city, then date.",
+              "test_hints": [
+                "Build a wide `DataFrame` in the test with two cities and one missing value."
+              ]
+            },
+            {
+              "hints": [
+                "This is split-apply-combine with two keys."
+              ],
+              "id": "monthly-means",
+              "kc": "data-preparation",
+              "spec": "`monthly_means(long)` has columns `city`, `month` (`Int`, 1 to 12) and `mean_temp`: one row per city and month, the mean of that month's non-missing temperatures (the input may hold `missing`), sorted by city, then month, whatever the order of the input rows.",
+              "test_hints": [
+                "Give it a small long table with two months for one city."
+              ]
+            }
+          ],
+          "goal": "Turn `data/weather.csv` (one column per city) into the tables the figures\nneed: a long table with one row per observation, and monthly means per\ncity. Everything here is exact (copies and means of a few numbers), so\ntest it exactly or with a tolerance you derive.",
+          "id": 1,
+          "min_score": 0.8,
+          "must_cover": [
+            "read-wide",
+            "long-format",
+            "monthly-means"
+          ],
+          "mutants": 6,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "270",
+                "264",
+                "90"
+              ],
+              "code": "",
+              "explain": "`stack` makes one row per date and city column, 90 × 3 = 270, and keeps the missing values as rows with `missing`; removing them (264 rows) is a separate step, which is why `long_format` has one.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "264 is the count after the missing values are removed; `stack` itself keeps them.",
+                "90 is the number of dates; the long table has one row per date and city."
+              ],
+              "prompt": "`data/weather.csv` has 90 dates, 3 city columns and 6 empty fields. How many rows does `stack(wide, Not(:date))` return?"
+            }
+          ],
+          "title": "Data preparation"
+        },
+        {
+          "api": [
+            {
+              "doc": "Two axes with titles and axis labels, one line per city, bars dodged by city, a legend with one entry per city.",
+              "signature": "makie_panel(long::DataFrame, monthly::DataFrame) -> Makie.Figure"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Each axis has its own title and labels; the second axis is not a copy of the first."
+              ],
+              "id": "makie-structure",
+              "kc": "figure-structure",
+              "spec": "The figure holds two `Axis` blocks, the daily one in cell (1, 1) and the monthly one in cell (1, 2), each with the title, x label and y label given in the reading.",
+              "test_hints": [
+                "Find the axes with `filter(b -> b isa Axis, fig.content)` and check their attributes (`ax.title[]` is the current value)."
+              ]
+            },
+            {
+              "hints": [
+                "One series per city means one plot call per city."
+              ],
+              "id": "makie-lines",
+              "kc": "figure-structure",
+              "spec": "The daily axis holds one `Lines` plot per city, in sorted city order, each with its city name as `label` and points (day of year, temperature) in date order.",
+              "test_hints": [
+                "Count the `Lines` plots in the daily axis: `filter(p -> p isa Lines, ax.scene.plots)`."
+              ]
+            },
+            {
+              "hints": [
+                "Several cities share each month: without grouping, their bars are drawn on top of each other."
+              ],
+              "id": "makie-bars",
+              "kc": "figure-structure",
+              "spec": "The monthly axis holds one `BarPlot` with one bar per row of `monthly`: x is the month, the height is the mean, and `dodge` is the city's position in the sorted list of cities, so the bars of one month stand side by side.",
+              "test_hints": [
+                "Take the one `BarPlot` of the monthly axis and compare its points (`bp[1][]`) with the `month` and `mean_temp` columns."
+              ]
+            },
+            {
+              "hints": [
+                "A legend lists the labelled plots of an axis."
+              ],
+              "id": "makie-legend",
+              "kc": "figure-structure",
+              "spec": "A `Legend` block in cell (1, 3), titled `City`, with one entry per city labelled with the city names in sorted order.",
+              "test_hints": [
+                "Look for a `Legend` in `fig.content`."
+              ]
+            }
+          ],
+          "goal": "A two-panel figure from the two tables: daily temperatures per city as\nlines in `fig[1, 1]`, monthly means as bars in `fig[1, 2]`, and a legend in\n`fig[1, 3]`. Titles and labels are in the reading (`tutor guided show\nfigures`). The x value of a daily point is its day of the year.",
+          "id": 2,
+          "min_score": 0.8,
+          "must_cover": [
+            "makie-structure",
+            "makie-lines",
+            "makie-legend"
+          ],
+          "mutants": 6,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Fonts and renderers differ by machine, so the pixels change for reasons unrelated to your code",
+                "CairoMakie cannot write PNG files inside the container",
+                "Comparing two images pixel by pixel takes minutes"
+              ],
+              "code": "",
+              "explain": "An image test fails when a font version, anti-aliasing or a renderer update moves a few pixels, and passes when a wrong label happens to look right at low resolution. The figure object says exactly what you built: which axes, which labels, how many lines.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "CairoMakie writes PNG, SVG and PDF without a window or GPU; unit 22 records PNG figures in the container.",
+                "Comparing two small images takes milliseconds; the problem is that the pixels themselves are not stable across machines."
+              ],
+              "prompt": "Why do this project's tests inspect `fig.content` and `ax.scene.plots` instead of comparing a saved PNG with a stored one?"
+            }
+          ],
+          "title": "Makie"
+        },
+        {
+          "api": [
+            {
+              "doc": "data(...) * mapping(...) * visual(...) per panel, drawn with draw! into fig[1, 1] and fig[1, 2]; the legend in fig[1, 3].",
+              "signature": "aog_panel(long::DataFrame, monthly::DataFrame) -> Makie.Figure"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "In AlgebraOfGraphics a grouping is part of the mapping, not a loop."
+              ],
+              "id": "aog-mapping",
+              "kc": "plotting",
+              "spec": "Colour maps to city: the daily axis holds one `Lines` plot per city, each in its own colour, with points (day of year, temperature); the monthly axis holds bars for every row of `monthly`.",
+              "test_hints": [
+                "Count the `Lines` plots in the daily axis and collect their colours (`p.color[]`)."
+              ]
+            },
+            {
+              "hints": [
+                "AlgebraOfGraphics names an axis after the column it maps unless you give a label."
+              ],
+              "id": "aog-labels",
+              "kc": "plotting",
+              "spec": "The figure has the two axes of milestone 2 with the same titles and axis labels (find each by its title: `draw!` puts each axis in a nested grid inside its cell).",
+              "test_hints": [
+                "Collect the axes from `fig.content` and look each one up by its title."
+              ]
+            },
+            {
+              "hints": [
+                "`draw!` draws the axes only; the legend is a separate step."
+              ],
+              "id": "aog-legend",
+              "kc": "plotting",
+              "spec": "A `Legend` block in cell (1, 3) of the figure, built from the colour mapping, titled `City`, with the city names as entries in sorted order.",
+              "test_hints": [
+                "Look for a `Legend` block in `fig.content`."
+              ]
+            }
+          ],
+          "goal": "The same two panels, each as one AlgebraOfGraphics specification\n(`data(...) * mapping(...) * visual(...)`) drawn into its cell of one\nfigure, and the legend that AlgebraOfGraphics derives from the colour\nmapping in `fig[1, 3]`.",
+          "id": 3,
+          "min_score": 0.8,
+          "must_cover": [
+            "aog-mapping",
+            "aog-labels",
+            "aog-legend"
+          ],
+          "mutants": 5,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "The plot type that draws each group",
+                "A loop over the cities",
+                "A colour palette for the cities, chosen at random"
+              ],
+              "code": "",
+              "explain": "`data` says where the columns come from, `mapping` which column goes to which role (x, y, colour, which also splits the data into groups), and `visual` how each group is drawn. Swap `Lines` for `Scatter` and the groups and legend stay the same.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "The groups come from `color = :city` in the mapping; `visual` only picks how each group is drawn.",
+                "Colours come from the colour mapping and the default palette, in a fixed order; `visual` does not choose them."
+              ],
+              "prompt": "In `data(long) * mapping(:date => dayofyear => \"Day of year\", :temp, color = :city) * visual(Lines)`, what does `* visual(Lines)` add?"
+            }
+          ],
+          "title": "AlgebraOfGraphics"
+        },
+        {
+          "api": [
+            {
+              "doc": "The daily panel: one series per city, title and axis labels from the reading.",
+              "signature": "plots_panel(long::DataFrame) -> Plots.Plot"
+            },
+            {
+              "doc": "The daily panel: lines, colour mapped to city, title, axis labels and a colour key titled City.",
+              "signature": "gadfly_panel(long::DataFrame) -> Gadfly.Plot"
+            },
+            {
+              "doc": "Writes makie.svg, aog.svg, plots.svg, gadfly.svg into dir; returns the full paths, sorted.",
+              "signature": "save_all(dir::AbstractString, long::DataFrame, monthly::DataFrame) -> Vector{String}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Plots.jl can split one call into several series by a grouping vector."
+              ],
+              "id": "plots-series",
+              "kc": "plotting",
+              "spec": "`plots_panel(long)` returns a `Plots.Plot` with one series per city in sorted order, each labelled with its city, with x the day of year and y the temperature, and the daily panel's title and axis labels.",
+              "test_hints": [
+                "`p.series_list` holds the series, and `s[:label]` is a series' name."
+              ]
+            },
+            {
+              "hints": [
+                "Gadfly writes text into the SVG, so the file shows what the plot says."
+              ],
+              "id": "gadfly-svg",
+              "kc": "plotting",
+              "spec": "`gadfly_panel(long)` returns a `Gadfly.Plot`; drawn to SVG, its text holds every city name (the colour key, titled `City`), the title and both axis labels.",
+              "test_hints": [
+                "Draw the plot into a `mktempdir()` with `Gadfly.draw(Gadfly.SVG(path, 16Gadfly.cm, 9Gadfly.cm), p)` and read the file as text."
+              ]
+            },
+            {
+              "hints": [
+                "Each library has its own way of saving, and the file name's extension chooses the format."
+              ],
+              "id": "svg-files",
+              "kc": "plotting",
+              "spec": "`save_all(dir, long, monthly)` writes `makie.svg`, `aog.svg`, `plots.svg` and `gadfly.svg` into `dir` and returns their full paths, sorted. Each file is an SVG document (its text contains `<svg`), and the Gadfly one holds the city names.",
+              "test_hints": [
+                "Call it on a `mktempdir()` and check `isfile` for each returned path."
+              ]
+            }
+          ],
+          "goal": "The daily panel in Plots.jl and in Gadfly, and one function that saves all\nfour figures as SVG. In the SVG files of CairoMakie and Plots.jl (GR) the\ntext is drawn as glyph outlines, so those files do not contain the labels\nas characters; Gadfly writes `<text>` elements, so its file does.",
+          "id": 4,
+          "min_score": 0.8,
+          "must_cover": [
+            "plots-series",
+            "gadfly-svg",
+            "svg-files"
+          ],
+          "mutants": 6,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "GR draws the letters as outline paths, not as text",
+                "Plots.jl writes the legend into a separate file next to the SVG",
+                "SVG files are compressed binary"
+              ],
+              "code": "",
+              "explain": "SVG can hold text as `<text>` elements or as shapes. GR (Plots.jl's default backend) and Cairo (CairoMakie) turn each glyph into a path, so the file looks right but contains no letters; Gadfly writes `<text>` elements. That is why this project tests text in the Gadfly file only and tests the other figures through their objects.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "The legend is part of the one SVG drawing; nothing else is written.",
+                "SVG is plain XML text (SVGZ is the compressed variant); you can open it in an editor."
+              ],
+              "prompt": "A test reads `plots.svg` and looks for the text `oslo`; it fails although the legend in the picture shows `oslo`. Why?"
+            }
+          ],
+          "title": "Plots.jl and Gadfly"
+        }
+      ],
+      "name": "figures",
+      "package": "Figures",
+      "packages": [
+        "AlgebraOfGraphics",
+        "CairoMakie",
+        "DataFrames",
+        "Gadfly",
+        "Plots",
+        "StatsBase"
+      ],
+      "reading": "Prerequisites: course unit 22 (plotting) and unit 21.\n`data/weather.csv` holds daily temperatures for three cities from January\nto March 2025, one column per city; an empty field means the sensor sent\nnothing that day. The `plots` environment has DataFrames but no CSV\npackage, so milestone 1 starts with a small reader of your own.\n\nFigures are tested through the objects the libraries return (a Makie\n`Figure` has axes, an axis has plots and labels, a `Plots.Plot` has a list\nof series), not by comparing images: renderers differ by machine, so pixel\ntests break for reasons unrelated to your code. Container only on Windows\nhosts.\n\nEvery panel uses the same strings. Daily panel: title `Daily temperature`,\nx label `Day of year`, y label `Temperature (°C)`. Monthly panel: title\n`Monthly mean`, x label `Month`, y label `Mean temperature (°C)`. Legend\ntitle: `City`.",
+      "status": "ready",
+      "summary": "Build the figures for a short report on one data set: data preparation you test exactly, then the same panel of plots in CairoMakie, in AlgebraOfGraphics, in Plots.jl and in Gadfly, each saved to SVG. The tests check what a figure contains (axes, labels, number of series, legend entries), never its pixels.",
+      "title": "Figures: one report figure set, four plotting libraries"
+    },
+    {
+      "env": "optim",
+      "host_ok": false,
+      "kcs": [
+        "packages",
+        "testing",
+        "linear-programming",
+        "duality",
+        "root-finding",
+        "nonlinear-optimisation",
+        "automatic-differentiation"
+      ],
+      "milestones": [
+        {
+          "api": [
+            {
+              "doc": "Defined in src/Production.jl.",
+              "signature": "module Production"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A package is a module whose name matches its file name under src/."
+              ],
+              "id": "package-layout",
+              "kc": "packages",
+              "spec": "`src/Production.jl` defines a module named `Production` that loads without errors.",
+              "test_hints": [
+                "Any check that runs counts here."
+              ]
+            }
+          ],
+          "goal": "Create the package as in the tidy project's milestone 0 (`tutor guided show\ntidy 0` has the full steps): `Pkg.generate(\"Production\")`, move\n`Project.toml` and `src/` into this folder, run `./tutor guided deps <this\nfolder>` from the julia-tutor folder (JuMP, HiGHS, Roots, Optim,\nForwardDiff), and write `test/runtests.jl` with `using Production, Test` and\none check.",
+          "id": 0,
+          "min_score": 1.0,
+          "must_cover": [],
+          "mutants": 0,
+          "perf_entry": "",
+          "questions": [],
+          "title": "A package with a test suite"
+        },
+        {
+          "api": [
+            {
+              "doc": "use[r, p] is resource r per unit of product p. Silent solver; an `ErrorException` if the solver does not report an optimum.",
+              "signature": "solve_plan(margin::Vector, use::Matrix, capacity::Vector) -> NamedTuple{(:units, :profit)}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "The optimum of a linear program sits at a vertex: list the vertices of a small case by hand and compare."
+              ],
+              "id": "plan-optimal",
+              "kc": "linear-programming",
+              "spec": "On a 2-product case solved by hand (a vertex of the feasible polygon), the units and the profit match within 1e-7 (HiGHS's default feasibility tolerance).",
+              "test_hints": [
+                "Solve a two-product case by hand: list the vertices and their profits."
+              ]
+            },
+            {
+              "hints": [
+                "A solution of a linear program satisfies its own constraints: recompute the resource use of the plan and compare it with the capacity."
+              ],
+              "id": "plan-feasible",
+              "kc": "linear-programming",
+              "spec": "The plan uses no resource beyond its capacity (within 1e-7) and no product has negative units.",
+              "test_hints": [
+                "Recompute `use * units` and compare it with the capacity, with the solver's tolerance."
+              ]
+            },
+            {
+              "hints": [
+                "A solver always hands back some numbers; whether they are an optimum is a separate question you must ask."
+              ],
+              "id": "plan-status",
+              "kc": "linear-programming",
+              "spec": "When the solver does not report an optimum (an unbounded plan, such as a product with a positive margin that uses no resource, or an infeasible one), `solve_plan` throws an `ErrorException`.",
+              "test_hints": [
+                "Test a plan that has no optimum."
+              ]
+            }
+          ],
+          "goal": "Model the plan as a linear program and solve it: one nonnegative variable\nper product, one constraint per resource, and the total margin as the\nobjective to maximise. Turn the solver's log off (`set_silent`).",
+          "id": 1,
+          "min_score": 1.0,
+          "must_cover": [
+            "plan-optimal",
+            "plan-feasible",
+            "plan-status"
+          ],
+          "mutants": 5,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "HiGHS rounds whatever point it finds to the nearest vertex before it reports the solution, to remove noise",
+                "Along any edge the profit changes at a constant rate, so moving the better way pays until a constraint stops you",
+                "Points inside the feasible region break at least one constraint",
+                "A linear program has only one feasible point once all its constraints are written down, and that point is a vertex"
+              ],
+              "code": "",
+              "explain": "A linear function has no interior maximum: from any point, moving in the direction that raises it keeps raising it at the same rate until a constraint becomes binding. Repeating that ends at a vertex (several vertices and the edge between them can tie).",
+              "kind": "choice",
+              "misconceptions": [
+                "HiGHS's simplex method moves from vertex to vertex; nothing is rounded. The vertex is where the optimum is, not an artefact.",
+                "",
+                "Interior points satisfy every constraint with room to spare; they are feasible, just not optimal.",
+                "The feasible region is usually a polygon with infinitely many points; the vertices are its corners."
+              ],
+              "prompt": "The profit of a plan is linear in the units. Why is an optimal plan always found at a vertex of the feasible region (when there is an optimum)?"
+            }
+          ],
+          "title": "The linear program"
+        },
+        {
+          "api": [
+            {
+              "doc": "One per resource, in the order of the rows of `use`, nonnegative.",
+              "signature": "shadow_prices(margin, use, capacity) -> Vector{Float64}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A resource that is not used up is worth nothing extra; a binding one is worth the profit one more unit of it brings."
+              ],
+              "id": "shadow-prices",
+              "kc": "duality",
+              "spec": "Each price equals the hand-computed dual within 1e-7 (HiGHS's dual feasibility tolerance), and (profit with capacity + delta) - profit, divided by delta, for a delta that keeps the same vertex; a resource with slack has price 0; there is one price per resource.",
+              "test_hints": [
+                "Solve the dual of a small case by hand: the binding constraints give one equation per product made."
+              ]
+            }
+          ],
+          "goal": "How much more profit would one more unit of each resource bring? Read the\ndual values of the resource constraints and check them against a case you\nsolve by hand and by re-solving with a slightly larger capacity.",
+          "id": 2,
+          "min_score": 1.0,
+          "must_cover": [
+            "shadow-prices"
+          ],
+          "mutants": 2,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "Yes: each unit earns 1.5 in profit and costs only 1.2, so every one of the 12 units gains 0.3, which is 3.6 in all",
+                "No: the price holds only for 6 more units, after which resource 2 has slack; the deal gains 9 and costs 14.4",
+                "No: a shadow price is a cost, so each extra unit lowers the profit by 1.5"
+              ],
+              "code": "",
+              "explain": "A shadow price is a derivative: it holds while the same constraints stay binding. Raising capacity 2 moves the vertex along 3x1 + 2x2 = 18 until x1 reaches 0 at capacity 18; beyond that resource 2 is slack and worth 0. Re-solving with capacity 24 gives profit 45, up 9 from 36.",
+              "kind": "choice",
+              "misconceptions": [
+                "That treats the price as constant for any amount. It is valid only while the current vertex stays optimal; past that the price can drop, here to 0.",
+                "",
+                "A shadow price is the profit gained per extra unit, so it is nonnegative for a resource you can only have more of."
+              ],
+              "prompt": "In the plan max 3x1 + 5x2 with x1 <= 4, 2x2 <= 12, 3x1 + 2x2 <= 18, resource 2 has shadow price 1.5. A supplier offers 12 more units of it at 1.2 each. Is the deal worth it?"
+            }
+          ],
+          "title": "Shadow prices"
+        },
+        {
+          "api": [
+            {
+              "doc": "The smallest margin of `product` at which it is made in the optimal plan, the other margins as given. `Inf` when it is not made at any margin up to 1e6.",
+              "signature": "break_even(margin, use, capacity; product = 1) -> Float64"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "The units of the product, as a function of its margin, jump from 0 to positive at the break-even margin."
+              ],
+              "id": "break-even",
+              "kc": "root-finding",
+              "spec": "Within 1e-6 of the hand-computed value on a 2-product case (ten times HiGHS's dual feasibility tolerance), for `product = 1` and `product = 2`, whatever margin of that product is passed in.",
+              "test_hints": [
+                "Work out a break-even margin by hand: with one resource, a product is made once its margin per unit of resource beats the other's."
+              ]
+            },
+            {
+              "hints": [
+                "A bracket must contain the break-even margin, and that margin can be large."
+              ],
+              "id": "break-even-bracket",
+              "kc": "root-finding",
+              "spec": "The bracket is found, not fixed: break-even margins of 30 and 250 come out right (within 1e-6 relative).",
+              "test_hints": [
+                "Test a break-even margin far above 10."
+              ]
+            },
+            {
+              "hints": [
+                "Some products are never made at any margin: they need a resource there is none of."
+              ],
+              "id": "never-made",
+              "kc": "root-finding",
+              "spec": "A product that needs a resource with zero capacity is never made: the result is positive infinity (a `Float64`).",
+              "test_hints": [
+                "Test a product that can never be made."
+              ]
+            }
+          ],
+          "goal": "At what margin does a product start being made? As a function of its\nmargin m, the product's units in the optimal plan are 0 up to some margin\nand positive beyond it. Find that margin with a bracketing method from\nRoots.jl on units(m) - 1e-6 (the threshold sits above the solver's 1e-7\ntolerance, so a product that is not made always gives a negative value).",
+          "id": 3,
+          "min_score": 1.0,
+          "must_cover": [
+            "break-even",
+            "break-even-bracket",
+            "never-made"
+          ],
+          "mutants": 4,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "The function is a step: its slope is 0 wherever it exists",
+                "Newton's method needs the second derivative, which a linear program does not provide",
+                "Bisection always converges faster than Newton's method"
+              ],
+              "code": "",
+              "explain": "units(m) is piecewise constant in m: it is 0 below the break-even margin and jumps there. Newton's method divides by the slope, which is 0 (or undefined at the jump), so it cannot move. Bisection uses only the sign, which does change across the jump.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "Newton's method for a root needs the first derivative only; the problem is that this derivative is 0.",
+                "Newton's method converges faster (quadratically) on smooth functions; bisection is chosen here because it is the method that works on a jump."
+              ],
+              "prompt": "Why find the break-even margin by bisection rather than by Newton's method on units(m) - 1e-6?"
+            }
+          ],
+          "title": "Break-even margin"
+        },
+        {
+          "api": [
+            {
+              "doc": "argmax of (p - cost) q(p) for a demand function `q`, by LBFGS from `p0` with ForwardDiff gradients.",
+              "signature": "best_price(q, cost; p0 = cost + 1) -> Float64"
+            },
+            {
+              "doc": "The same for q(p) = a exp(-b p).",
+              "signature": "best_price(a, b, cost) -> Float64"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Set the derivative of (p - cost) a exp(-b p) to zero to get the price you expect."
+              ],
+              "id": "price-optimum",
+              "kc": "nonlinear-optimisation",
+              "spec": "`best_price(a, b, cost)` equals the closed form cost + 1/b within 1e-8 (Optim's gradient tolerance divided by the curvature at the optimum, on well-scaled cases).",
+              "test_hints": [
+                "Derive the best price by hand and compare."
+              ]
+            },
+            {
+              "hints": [
+                "The profit per unit sold is the price less the cost."
+              ],
+              "id": "price-general",
+              "kc": "nonlinear-optimisation",
+              "spec": "For other demand curves, such as q(p) = 10 - p, the result is the hand-computed argmax within 1e-8, and the start point `p0` is a keyword.",
+              "test_hints": [
+                "Test a demand curve other than the exponential one."
+              ]
+            },
+            {
+              "hints": [
+                "Optim can take a gradient you write, approximate one by finite differences, or ask an AD package."
+              ],
+              "id": "gradient-ad",
+              "kc": "automatic-differentiation",
+              "spec": "The gradient comes from ForwardDiff, not from finite differences: during the search `q` is called with `ForwardDiff.Dual` numbers.",
+              "test_hints": [
+                "Test what `q` is called with, not only the price."
+              ]
+            }
+          ],
+          "goal": "Demand falls with price. For a demand curve q(p), choose the price that\nmaximises the margin times the demand, (p - cost) q(p), with Optim.jl's\nLBFGS and exact gradients from ForwardDiff. In Optim 2 the keyword value\nfor that comes from `Optim.ADTypes` (unit 25 shows it); the older\n`autodiff = :forward` of many tutorials is rejected with a `TypeError`.\nThen the exponential curve q(p) = a exp(-b p), whose best price you can\nderive by hand.",
+          "id": 4,
+          "min_score": 1.0,
+          "must_cover": [
+            "price-optimum",
+            "price-general",
+            "gradient-ad"
+          ],
+          "mutants": 4,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "LBFGS accepts only anonymous functions as its objective, so a named function with typed methods is rejected",
+                "ForwardDiff calls `q` with dual numbers, and the annotation allows only Float64",
+                "`exp` has no method for Float64 inside Optim"
+              ],
+              "code": "",
+              "explain": "Forward-mode AD evaluates the objective on `ForwardDiff.Dual` numbers, which carry a value and a derivative. A method restricted to `Float64` has no method for them. Leave arguments untyped (or `::Real`) so the same function works on both.",
+              "kind": "choice",
+              "misconceptions": [
+                "Optim takes any callable; a named function works the same as an anonymous one when its methods accept the argument types.",
+                "",
+                "`exp(::Float64)` exists everywhere; the call that fails is `q` itself, given a `Dual` its annotation does not allow."
+              ],
+              "prompt": "`best_price(p -> 100 * exp(-0.5p), 2.0)` works, but with `q(p::Float64) = 100 * exp(-0.5p)` it throws a `MethodError`. Why?"
+            }
+          ],
+          "title": "Pricing against demand"
+        }
+      ],
+      "name": "production",
+      "package": "Production",
+      "packages": [
+        "ForwardDiff",
+        "HiGHS",
+        "JuMP",
+        "Optim",
+        "Roots"
+      ],
+      "reading": "Prerequisites: course unit 25 (optimisation).\n\nA product uses fixed amounts of each resource per unit and earns a fixed\nmargin; resources are limited per week. The plan is how many units of each\nproduct to make. Throughout, `margin[p]` is the profit per unit of product\n`p`, `use[r, p]` the amount of resource `r` one unit of product `p` needs\n(all entries >= 0), and `capacity[r]` how much of resource `r` there is.\n\nSolvers work to tolerances, so their answers are not exact. HiGHS's\ndefaults are 1e-7 for primal and dual feasibility; Optim's LBFGS stops when\nthe gradient is below 1e-8. Every `≈` in your tests needs an `atol` or\n`rtol` and a one-line comment saying which of these it comes from. The\nchecker warns on `==` between floats inside `@test`.\n\nThis project's environment (`optim`) runs only in the container on Windows\nhosts; `tutor guided check` uses it by default.",
+      "status": "ready",
+      "summary": "Build a production planner: a linear program in JuMP solved with HiGHS, with the shadow prices of each resource checked against a case you solve by hand; a break-even margin found with Roots.jl; and a price chosen against a demand curve with Optim.jl and ForwardDiff gradients.",
+      "title": "Production: plan a factory's weekly output"
+    },
+    {
+      "env": "python",
+      "host_ok": true,
+      "kcs": [
+        "packages",
+        "testing",
+        "python-interop",
+        "memory-layout",
+        "floating-point",
+        "performance"
+      ],
+      "milestones": [
+        {
+          "api": [
+            {
+              "doc": "Defined in src/PyBridge.jl.",
+              "signature": "module PyBridge"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A package is a module whose name matches its file name under src/."
+              ],
+              "id": "package-layout",
+              "kc": "packages",
+              "spec": "`src/PyBridge.jl` defines a module named `PyBridge` that loads without errors.",
+              "test_hints": [
+                "Any check that runs counts here."
+              ]
+            }
+          ],
+          "goal": "Create the package as in the tidy project's milestone 0 (`tutor guided show\ntidy 0` has the full steps): `Pkg.generate(\"PyBridge\")`, move `Project.toml`\nand `src/` into this folder, run `./tutor guided deps <this folder>` from the\njulia-tutor folder (PythonCall), and write `test/runtests.jl` with\n`using PyBridge, Test` and one check.",
+          "id": 0,
+          "min_score": 1.0,
+          "must_cover": [],
+          "mutants": 0,
+          "perf_entry": "",
+          "questions": [],
+          "title": "A package with a test suite"
+        },
+        {
+          "api": [
+            {
+              "doc": "A NumPy array over the same memory as `v` (no copy).",
+              "signature": "as_numpy(v::Vector{Float64}) -> Py"
+            },
+            {
+              "doc": "A Julia copy of a 1-D NumPy array; integer arrays are converted to Float64.",
+              "signature": "from_numpy(a::Py) -> Vector{Float64}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Some conversions copy the data and others describe memory that already exists."
+              ],
+              "id": "view-shares",
+              "kc": "python-interop",
+              "spec": "A write through the NumPy array returned by `as_numpy(v)` is visible in `v`, and a write to `v` is visible in the array.",
+              "test_hints": [
+                "Change one side, read the other."
+              ]
+            },
+            {
+              "hints": [
+                "A wrapper around Python memory changes when Python changes it."
+              ],
+              "id": "copy-independent",
+              "kc": "python-interop",
+              "spec": "`from_numpy(a)` is a `Vector{Float64}`; changing it does not change `a`, and changing `a` does not change it.",
+              "test_hints": [
+                "Check the type, then change each side."
+              ]
+            },
+            {
+              "hints": [
+                "NumPy arrays carry an element type; integers are a common one."
+              ],
+              "id": "copy-converts",
+              "kc": "python-interop",
+              "spec": "An integer NumPy array (e.g. `np.arange(3)`) gives a `Vector{Float64}` with the same values.",
+              "test_hints": [
+                "Test an integer array, not only floats."
+              ]
+            }
+          ],
+          "goal": "Two ways across the boundary, with the difference made testable: a view\nshares the Julia vector's memory, a copy owns its own. Write through one side\nand read the other to tell them apart.",
+          "id": 1,
+          "min_score": 1.0,
+          "must_cover": [
+            "view-shares",
+            "copy-independent",
+            "copy-converts"
+          ],
+          "mutants": 3,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "3-element Vector{Float64}:\n 7.0\n 2.0\n 3.0",
+                "3-element Vector{Float64}:\n 7.0\n 8.0\n 3.0",
+                "3-element Vector{Float64}:\n 1.0\n 2.0\n 3.0"
+              ],
+              "code": "using PythonCall\nnp = pyimport(\"numpy\")\nv = [1.0, 2.0, 3.0]\na = np.asarray(v)\nb = np.array(v)\na[0] = 7.0\nb[1] = 8.0\nv",
+              "explain": "`np.asarray` reuses the Julia vector's memory, so writing `a[0]` changes `v[1]`. `np.array` copies by default, so `b` is separate and `v[2]` keeps its value.",
+              "kind": "output",
+              "misconceptions": [
+                "",
+                "`np.array` copies its input unless told otherwise (`copy=False`); only the `asarray` view shares `v`'s memory.",
+                "`np.asarray` makes no copy when its input already exposes a suitable buffer, and a Julia `Vector{Float64}` does."
+              ],
+              "prompt": "What does the last line show?"
+            },
+            {
+              "answer": 1,
+              "choices": [
+                "The result must stay as it is whatever Python later does to `a`",
+                "A `PyArray` cannot be indexed, iterated or broadcast over from Julia code",
+                "Copying is faster than wrapping for arrays of any size"
+              ],
+              "code": "",
+              "explain": "A `PyArray` is a view: it reads Python's memory, so a later write on the Python side shows through, and it is only valid while the Python object lives. A copy owns its data.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "A `PyArray` is an `AbstractArray`: indexing, iteration and broadcasting all work on it.",
+                "Wrapping costs a few hundred bytes whatever the size; a copy costs 8 bytes per element. Milestone 4 measures this."
+              ],
+              "prompt": "Why does `from_numpy` return a new `Vector{Float64}` rather than `PyArray(a)`?"
+            }
+          ],
+          "title": "Copies and views"
+        },
+        {
+          "api": [
+            {
+              "doc": "A NumPy view of `A` (no copy) with `A[i, j] == a[i-1, j-1]` and shape `size(A)`.",
+              "signature": "as_numpy(A::Matrix{Float64}) -> Py"
+            },
+            {
+              "doc": "For a 2-D array (in either memory order): a Julia copy with `M[i, j] == a[i-1, j-1]`.",
+              "signature": "from_numpy(a::Py) -> Matrix{Float64}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A square matrix can hide swapped indices; use a non-square one."
+              ],
+              "id": "matrix-layout",
+              "kc": "memory-layout",
+              "spec": "For a non-square `A`, `as_numpy(A)` has shape `size(A)` and element `(i-1, j-1)` equal to `A[i, j]`.",
+              "test_hints": [
+                "Use a 2 × 3 matrix with distinct entries."
+              ]
+            },
+            {
+              "hints": [
+                "Making the array C-ordered means copying it into a new layout."
+              ],
+              "id": "matrix-shares",
+              "kc": "memory-layout",
+              "spec": "`as_numpy(A)` shares memory with `A` (a write through it changes `A`) and NumPy reports it as Fortran-ordered (`a.flags.f_contiguous`).",
+              "test_hints": [
+                "Write through the view and read the matrix."
+              ]
+            },
+            {
+              "hints": [
+                "Arrays made by NumPy are row-major; reading their flat buffer column by column scrambles a non-square matrix."
+              ],
+              "id": "matrix-copy",
+              "kc": "memory-layout",
+              "spec": "`from_numpy` on a C-ordered (row-major) 2-D array returns a `Matrix{Float64}` with `M[i, j] == a[i-1, j-1]`.",
+              "test_hints": [
+                "Make the array on the NumPy side, so it is row-major."
+              ]
+            }
+          ],
+          "goal": "Matrices: Julia stores a matrix column by column, NumPy defaults to row by\nrow. The bytes can be shared if NumPy is told how to read them (its strides).\nMake indices mean the same thing on both sides, in both directions.",
+          "id": 2,
+          "min_score": 1.0,
+          "must_cover": [
+            "matrix-layout",
+            "matrix-shares",
+            "matrix-copy"
+          ],
+          "mutants": 3,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "`a.flags.f_contiguous` is true: the same bytes, read column by column",
+                "`a.flags.c_contiguous` is true: NumPy copied it into row-major order",
+                "`a.shape` is (3, 2): NumPy reads Julia's column-major bytes as rows instead"
+              ],
+              "code": "",
+              "explain": "Julia exposes the matrix's memory with its strides (8 bytes down a column, 16 across a row). NumPy keeps those strides, so the view is Fortran-ordered, shape (2, 3), and no data moved.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "`np.asarray` copies only when it must; a Julia matrix already describes its layout, so NumPy uses it as it is.",
+                "The shape comes with the strides: NumPy reads the bytes in Julia's order, so `a[i-1, j-1]` is `A[i, j]` and the shape is (2, 3)."
+              ],
+              "prompt": "A 2 × 3 Julia matrix `A` goes to NumPy as `a = np.asarray(A)`. What does NumPy report?"
+            }
+          ],
+          "title": "Layout"
+        },
+        {
+          "api": [
+            {
+              "doc": "Via `numpy.convolve` on the valid part only.",
+              "signature": "moving_average_np(v, k) -> Vector{Float64}"
+            },
+            {
+              "doc": "In Julia: a running sum, one result vector, nothing allocated per window.",
+              "signature": "moving_average(v, k) -> Vector{Float64}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Work out a window of 2 over four values by hand and compare."
+              ],
+              "id": "ma-values",
+              "kc": "floating-point",
+              "spec": "`moving_average(v, k)` has length n - k + 1 and entry i equal to the mean of `v[i:i+k-1]`.",
+              "test_hints": [
+                "Compare with means you work out by hand."
+              ]
+            },
+            {
+              "hints": [
+                "A convolution with a kernel of k equal weights is a moving average, if the weights are right and only full windows are kept."
+              ],
+              "id": "ma-numpy",
+              "kc": "python-interop",
+              "spec": "`moving_average_np(v, k)` gives the same n - k + 1 means, computed by `numpy.convolve`.",
+              "test_hints": [
+                "Check the length as well as the values."
+              ]
+            },
+            {
+              "hints": [
+                "The two add in different orders, so they round differently; the question is by how much."
+              ],
+              "id": "ma-agree",
+              "kc": "floating-point",
+              "spec": "On 10^5 random values both return `Vector{Float64}` and agree within (n + k) · eps · max|v|: the running sum makes n updates, each rounding by at most eps times a partial sum of size k · max|v|, and the result is divided by k.",
+              "test_hints": [
+                "Test on large random data, not only on small exact cases."
+              ]
+            },
+            {
+              "hints": [
+                "A window of 0 values has no mean."
+              ],
+              "id": "ma-window",
+              "kc": "errors",
+              "spec": "Both throw an `ArgumentError` when k is not in 1:n.",
+              "test_hints": [
+                "Test the calls that should fail."
+              ]
+            }
+          ],
+          "goal": "A moving average with window k: the mean of each of the n - k + 1 full\nwindows. Write it twice, in NumPy (`np.convolve`) and in Julia with a running\nsum (add the value entering the window, subtract the one leaving), and test\nthat they agree to a tolerance you derive.\n\nThe Julia version is also graded for performance against the reference: same\nspeed class, no allocation per window, linear growth in n, type-stable.",
+          "id": 3,
+          "min_score": 1.0,
+          "must_cover": [
+            "ma-values",
+            "ma-numpy",
+            "ma-agree",
+            "ma-window"
+          ],
+          "mutants": 6,
+          "perf_entry": "moving_average",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Nothing is wrong: summing in another order rounds differently, well within the bound",
+                "The running sum has a bug: exact arithmetic gives equal results, so floating point must too",
+                "NumPy computes in single precision unless the dtype is passed explicitly"
+              ],
+              "code": "",
+              "explain": "The bound (n + k) · eps · max|v| is about 2e-9 here. Each method rounds at different points, so a difference of 1e-12 is expected and far inside it.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "Floating-point addition is not associative: the same sum in another order gives another rounding, so equal results are not expected.",
+                "`np.ones(k)` and an array from a `Vector{Float64}` are float64, so the convolution is in double precision."
+              ],
+              "prompt": "On 10^5 values near 100 with k = 50, the running sum and `np.convolve` differ by about 1e-12. What does that tell you?"
+            }
+          ],
+          "title": "Two implementations"
+        },
+        {
+          "api": [
+            {
+              "doc": "`@allocated` of `as_numpy` (view) and of `from_numpy` (copy) on a vector of length n, after a warm-up call of each.",
+              "signature": "boundary_bytes(n) -> NamedTuple{(:view, :copy)}"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A view is a small Python object pointing at memory that already exists."
+              ],
+              "id": "view-cost",
+              "kc": "performance",
+              "spec": "`boundary_bytes(n).view` is under 10 KiB for n = 10 and for n = 10^6 (it does not grow with n).",
+              "test_hints": [
+                "Measure at two very different sizes."
+              ]
+            },
+            {
+              "hints": [
+                "A copy of n Float64 values needs 8n bytes for the data alone."
+              ],
+              "id": "copy-cost",
+              "kc": "performance",
+              "spec": "`boundary_bytes(n).copy` is at least 8n bytes at n = 10^6, and doubling n adds about 8n bytes (within 1%).",
+              "test_hints": [
+                "Check the size, and how it grows."
+              ]
+            }
+          ],
+          "goal": "Measure, do not assume: how many bytes does each conversion allocate? A view\nshould cost a small constant (the Python object), a copy 8 bytes per element\nplus a constant. Measure the second call of each: the first one compiles.",
+          "id": 4,
+          "min_score": 1.0,
+          "must_cover": [
+            "view-cost",
+            "copy-cost"
+          ],
+          "mutants": 2,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "The first call also counts memory used to compile the method",
+                "The garbage collector frees the first call's memory late",
+                "PythonCall caches the NumPy array after the first call"
+              ],
+              "code": "",
+              "explain": "`@allocated` counts every allocation during the call, including the compiler's work the first time a method runs for these argument types. The second call shows what the conversion itself costs.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "`@allocated` counts bytes allocated, not bytes still alive, so when the collector runs does not change it.",
+                "Each call makes a new NumPy array object; nothing is cached between calls, which is why the second call still allocates."
+              ],
+              "prompt": "`@allocated as_numpy(v)` reports 1416 bytes on its first call and 744 on its second. Why does the spec measure the second?"
+            }
+          ],
+          "title": "What the boundary costs"
+        }
+      ],
+      "name": "pybridge",
+      "package": "PyBridge",
+      "packages": [
+        "PythonCall"
+      ],
+      "reading": "Prerequisites: course unit 28 (Python interop) and unit 14 (performance).\nThe course's Python has NumPy. Runs on the host and in the container.\n\nLoad NumPy once per session, not at precompile time: a Python object cannot\nbe stored in a precompiled module. PythonCall's pattern is an empty handle\nfilled when the module loads:\n\n```julia\nconst np = PythonCall.pynew()\n__init__() = PythonCall.pycopy!(np, pyimport(\"numpy\"))\n```\n\nPython indexes from 0: `a[0]` on the NumPy side is `v[1]` on the Julia side.\nIn tests, compare floats with `isequal` (exact, for values you wrote\nyourself) or `≈` with a stated tolerance; the checker warns on `==`.",
+      "status": "ready",
+      "summary": "Build a small package that hands Julia arrays to NumPy and back through PythonCall.jl: conversions that copy and views that share memory (tested by writing through one side and reading the other), the row-major and column-major layouts, a moving average computed by NumPy and by Julia that agree to a derived tolerance, and measurements of what crossing the boundary costs. The Julia moving average is also graded for speed and allocations against the reference.",
+      "title": "PyBridge: a NumPy-backed routine from Julia"
+    },
+    {
+      "env": "data",
+      "host_ok": true,
+      "kcs": [
+        "packages",
+        "testing",
+        "csv",
+        "dataframes",
+        "missing-values",
+        "split-apply-combine"
+      ],
+      "milestones": [
+        {
+          "api": [
+            {
+              "doc": "Defined in src/Tidy.jl.",
+              "signature": "module Tidy"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "A package is a module whose name matches its file name under src/."
+              ],
+              "id": "package-layout",
+              "kc": "packages",
+              "spec": "`src/Tidy.jl` defines a module named `Tidy` that loads without errors.",
+              "test_hints": [
+                "Any check that runs counts here."
+              ]
+            }
+          ],
+          "goal": "Create the package by hand once, so you know what each file is for.\n\n1. In this folder start Julia and run `using Pkg; Pkg.generate(\"Tidy\")`.\n   It creates `Tidy/Project.toml` (the package's name, a UUID that\n   identifies it, and later its dependencies) and `Tidy/src/Tidy.jl`.\n   Move both up into this folder (`Project.toml` and `src/` next to\n   `data/`), and delete the empty `Tidy/` folder.\n2. `src/Tidy.jl` must define `module Tidy ... end`. Everything the package\n   offers lives inside it.\n3. From the julia-tutor folder, run `./tutor guided deps <this folder>` to\n   add CSV and DataFrames to `[deps]` (on a machine with network access,\n   `Pkg.add([\"CSV\", \"DataFrames\"])` with this folder active does the same).\n4. Create `test/runtests.jl`. It starts with `using Tidy, Test` and holds\n   `@testset` blocks with `@test` checks. Put one check in it now, for\n   example that `Tidy` is a module.\n5. Run `./tutor guided check <this folder>`. The check loads your package\n   and runs your tests in the sandbox.",
+          "id": 0,
+          "min_score": 1.0,
+          "must_cover": [],
+          "mutants": 0,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Two packages may share a name; Pkg tells them apart by UUID",
+                "Julia uses it as a cache key to compile the module faster on later loads",
+                "It is a licence key that the General registry checks"
+              ],
+              "code": "",
+              "explain": "Names are not unique across registries and private code, so Pkg identifies every package by its UUID; the name is what you type in `using`.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "Compilation does not use the UUID; precompile caches are keyed by it only to keep two same-named packages apart.",
+                "There is no licence check: the UUID is generated at random by `Pkg.generate` and identifies the package."
+              ],
+              "prompt": "Why does the package's `Project.toml` carry a UUID as well as the name?"
+            }
+          ],
+          "title": "A package with a test suite"
+        },
+        {
+          "api": [
+            {
+              "doc": "Columns site, time, temp, unit, humidity, in that order.",
+              "signature": "read_readings(io::IO) -> DataFrame"
+            },
+            {
+              "doc": "The same for a file name: one method per argument type.",
+              "signature": "read_readings(path::AbstractString) -> DataFrame"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "CSV.jl guesses each column's type from the values it sees; a guess is not always the type you want."
+              ],
+              "id": "column-types",
+              "kc": "csv",
+              "spec": "`site` and `unit` are `String` columns; `temp` and `humidity` are `Float64` (or `Union{Missing, Float64}`) even when every value in the file is a whole number.",
+              "test_hints": [
+                "Check the element type of each column, not only its values."
+              ]
+            },
+            {
+              "hints": [
+                "Times in this file are not in the format CSV.jl tries by default."
+              ],
+              "id": "time-parsed",
+              "kc": "csv",
+              "spec": "`time` is a `DateTime` column parsed from `yyyy-mm-dd HH:MM`.",
+              "test_hints": [
+                "Check one parsed time against the value you expect."
+              ]
+            },
+            {
+              "hints": [
+                "The file has more than one way of saying \"no value\"."
+              ],
+              "id": "missing-markers",
+              "kc": "missing-values",
+              "spec": "`NA`, an empty field and `-` all become `missing`, and reading the file logs no parse warnings.",
+              "test_hints": [
+                "Write a small CSV in the test that uses each marker."
+              ]
+            },
+            {
+              "hints": [
+                "The two methods should share one implementation."
+              ],
+              "id": "path-or-io",
+              "kc": "multiple-dispatch",
+              "spec": "Given a file name, `read_readings` returns the same table as for an `IO` with the same contents.",
+              "test_hints": [
+                "Test the path method, not only the IO one."
+              ]
+            }
+          ],
+          "goal": "Write a reader that turns the CSV text into a table with the right column\ntypes. Look at `data/readings.csv`: some temperatures are written as whole\nnumbers, three different markers mean \"no value\", and times have a space\nbetween the date and the clock time.",
+          "id": 1,
+          "min_score": 0.8,
+          "must_cover": [
+            "column-types",
+            "time-parsed",
+            "missing-markers",
+            "path-or-io"
+          ],
+          "mutants": 6,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Others can add a method for a new source without editing yours",
+                "An `if` on argument types is a syntax error inside a Julia function",
+                "Julia runs the two methods in parallel and keeps the first result"
+              ],
+              "code": "",
+              "explain": "Methods keyed on argument types are how Julia code is extended: each source type gets its own small method, and the shared work lives in one place.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "`isa` checks work and are sometimes the right tool; methods are preferred because they are open for extension and keep each case small.",
+                "Methods are alternatives chosen per call, not concurrent tasks."
+              ],
+              "prompt": "Why is `read_readings(path::AbstractString)` a second method rather than an `if x isa IO` branch inside one function?"
+            }
+          ],
+          "title": "Reading the file"
+        },
+        {
+          "api": [
+            {
+              "doc": "A new table with the columns of `df` plus a Bool column `valid`; `df` itself is not changed.",
+              "signature": "clean(df::DataFrame) -> DataFrame"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "Two spellings of one site would become two groups in milestone 3."
+              ],
+              "id": "normalize-site",
+              "kc": "dataframes",
+              "spec": "Site names have surrounding spaces removed and are lower-case (`\" North \"` becomes `\"north\"`).",
+              "test_hints": [
+                "Give `clean` a site name that differs from the cleaned one in more than one way."
+              ]
+            },
+            {
+              "hints": [
+                "Every temperature in the result should be in the same unit, and the `unit` column should say so."
+              ],
+              "id": "fahrenheit",
+              "kc": "dataframes",
+              "spec": "Rows with unit `F` have their temperature converted to Celsius and their unit set to `C`; Celsius rows and missing temperatures are unchanged.",
+              "test_hints": [
+                "Test a Fahrenheit value whose Celsius value you know exactly."
+              ]
+            },
+            {
+              "hints": [
+                "Look at rows 3 and 4 of data/readings.csv."
+              ],
+              "id": "duplicates",
+              "kc": "dataframes",
+              "spec": "Rows that are equal after the cleaning above are removed, keeping the first one, in the original order.",
+              "test_hints": [
+                "Put an exact duplicate in your test table and count the rows after cleaning."
+              ]
+            },
+            {
+              "hints": [
+                "The rule has three parts; check each against the spec separately."
+              ],
+              "id": "range-flag",
+              "kc": "missing-values",
+              "spec": "`valid` is false when the temperature is missing or outside -50 to 60 °C, or the humidity is outside 0 to 100 %; a missing humidity alone does not make a row invalid. The bounds themselves are valid. No row is dropped.",
+              "test_hints": [
+                "Test a valid row, an invalid row, and a row on each bound."
+              ]
+            },
+            {
+              "hints": [
+                "A function without `!` in its name should leave its arguments alone."
+              ],
+              "id": "no-mutation",
+              "kc": "mutation",
+              "spec": "The `DataFrame` passed in is the same after the call as before it.",
+              "test_hints": [
+                "Keep a copy of the input, call `clean`, and compare."
+              ]
+            }
+          ],
+          "goal": "Turn the table from milestone 1 into one you can trust: one spelling per\nsite, one temperature unit, no repeated rows, and a flag for readings\nthat cannot be right. Flag them, do not drop them: someone may want to\nknow how many readings each sensor got wrong.",
+          "id": 2,
+          "min_score": 0.8,
+          "must_cover": [
+            "normalize-site",
+            "fahrenheit",
+            "duplicates",
+            "range-flag",
+            "no-mutation"
+          ],
+          "mutants": 10,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Bad rows are evidence about the sensors, which a later step may need",
+                "Deleting rows from a DataFrame copies every column, which is slow for big files",
+                "A DataFrame cannot have rows removed once it has been created"
+              ],
+              "code": "",
+              "explain": "Cleaning should not destroy information that a later step may need; `summarize` filters on `valid`, and anyone can still ask which sensor misbehaved.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "Filtering is a single pass over the columns; speed is not the reason.",
+                "`deleteat!`, `filter!` and indexing remove rows; the choice here is about keeping information."
+              ],
+              "prompt": "Why flag invalid readings in a `valid` column instead of deleting those rows in `clean`?"
+            }
+          ],
+          "title": "Cleaning without losing information"
+        },
+        {
+          "api": [
+            {
+              "doc": "Input: the output of `clean`. Output columns: site, date (a `Date`), n, mean_temp, max_temp, mean_humidity.",
+              "signature": "summarize(df::DataFrame) -> DataFrame"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "The summary should not see readings the cleaning step flagged."
+              ],
+              "id": "valid-only",
+              "kc": "split-apply-combine",
+              "spec": "Only rows with `valid == true` are counted and averaged.",
+              "test_hints": [
+                "Include an invalid row with an extreme temperature in your test table."
+              ]
+            },
+            {
+              "hints": [
+                "`time` holds a date and a clock time; the summary is per day."
+              ],
+              "id": "group-by-day",
+              "kc": "split-apply-combine",
+              "spec": "Groups are (site, calendar day); `date` is a `Date` column.",
+              "test_hints": [
+                "Use two days for one site in your test."
+              ]
+            },
+            {
+              "hints": [
+                "`mean` of a vector that contains `missing` is `missing`."
+              ],
+              "id": "humidity-skipmissing",
+              "kc": "missing-values",
+              "spec": "`mean_humidity` is the mean of the humidity values present in the group, and `missing` when the group has none.",
+              "test_hints": [
+                "Put one missing humidity in a group that has other humidity values."
+              ]
+            },
+            {
+              "hints": [
+                "The order of groups follows the order they appear in unless you ask for another."
+              ],
+              "id": "sorted",
+              "kc": "dataframes",
+              "spec": "Rows are sorted by site, then by date.",
+              "test_hints": [
+                "Put the sites in your test table out of alphabetical order."
+              ]
+            }
+          ],
+          "goal": "Summarise a cleaned table: one row per site and calendar day, over the\nvalid readings only.",
+          "id": 3,
+          "min_score": 0.8,
+          "must_cover": [
+            "valid-only",
+            "group-by-day",
+            "humidity-skipmissing",
+            "sorted"
+          ],
+          "mutants": 5,
+          "perf_entry": "",
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "`mean` propagates `missing`: one missing value makes the sum missing",
+                "`groupby` drops missing values before `combine` sees them",
+                "`combine` converts missing values to zero"
+              ],
+              "code": "",
+              "explain": "Missing values propagate through arithmetic by design, so a mean is never silently computed over fewer values than you think; `skipmissing` makes skipping them explicit.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "`groupby` keeps every row; the groups are made from the key columns, not the values.",
+                "Nothing in DataFrames turns missing into zero for you; that would bias the mean."
+              ],
+              "prompt": "`combine(groupby(v, [:site, :date]), :humidity => mean => :mean_humidity)` gives `missing` for a day where one humidity reading is missing. Why?"
+            }
+          ],
+          "title": "Split, apply, combine"
+        },
+        {
+          "api": [
+            {
+              "doc": "A header line; dates as yyyy-mm-dd; mean_temp, max_temp and mean_humidity rounded to 2 decimals; NA for missing.",
+              "signature": "write_summary(io::IO, s::DataFrame) -> nothing"
+            },
+            {
+              "doc": "Read what write_summary wrote: site::String, date::Date, n::Int, the three numbers as Float64 (or with missing).",
+              "signature": "read_summary(io::IO) -> DataFrame"
+            }
+          ],
+          "behaviours": [
+            {
+              "hints": [
+                "By default CSV.jl writes nothing at all for a missing value."
+              ],
+              "id": "missing-as-NA",
+              "kc": "csv",
+              "spec": "A missing value is written as `NA`.",
+              "test_hints": [
+                "Write a summary with a missing humidity and look at the text."
+              ]
+            },
+            {
+              "hints": [
+                "A mean like 20.333333333333332 is noise in a report."
+              ],
+              "id": "rounding",
+              "kc": "csv",
+              "spec": "The three numeric summary columns are rounded to 2 decimals in the file (the table passed in is not changed).",
+              "test_hints": [
+                "Use a value with more than two decimals in your test summary."
+              ]
+            },
+            {
+              "hints": [
+                "Reading has the same pitfalls as milestone 1."
+              ],
+              "id": "round-trip",
+              "kc": "csv",
+              "spec": "`read_summary(io)` of what `write_summary` wrote gives the same column names, `String` sites, `Date` dates and the rounded numbers, with `missing` where `NA` was written.",
+              "test_hints": [
+                "Write, read back, and compare the tables."
+              ]
+            }
+          ],
+          "goal": "Write a summary as CSV for people and other programs, and read such a file\nback into a table with the same columns and types.",
+          "id": 4,
+          "min_score": 1.0,
+          "must_cover": [
+            "missing-as-NA",
+            "rounding",
+            "round-trip"
+          ],
+          "mutants": 3,
+          "perf_entry": "",
+          "questions": [],
+          "title": "Writing it back"
+        }
+      ],
+      "name": "tidy",
+      "package": "Tidy",
+      "packages": [
+        "CSV",
+        "DataFrames"
+      ],
+      "reading": "Prerequisites: course unit 21 (DataFrames and CSV) and unit 12 (modules).\n`data/readings.csv` is the file this project is about; open it and look at\nit before you start. Every function you write takes and returns plain\nvalues (an `IO`, a `DataFrame`), so you can test it with small tables you\nbuild in the test itself.",
+      "status": "ready",
+      "summary": "Build a small package that reads a CSV of temperature and humidity readings with three kinds of missing marker, mixed units and inconsistent site names, cleans it without losing information, summarises it per site and day with split-apply-combine, and writes the summary back out so it reads in again unchanged. You write the code and the tests.",
+      "title": "Tidy: clean and summarise a messy sensor CSV"
+    }
+  ]
+}

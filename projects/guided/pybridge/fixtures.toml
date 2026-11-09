@@ -1,0 +1,32 @@
+# Student-like folders under fixtures/, checked by `tutor guided verify pybridge`
+# through the same path as `tutor guided check`; each must get these verdicts.
+
+[[fixture]]
+name = "m1-good"
+milestone = 1
+expect = ["passed"]
+
+[[fixture]]
+name = "m1-copy-view"
+milestone = 1
+expect = ["acceptance-fail"]
+
+[[fixture]]
+name = "m1-disagree"
+milestone = 1
+expect = ["tests-fail-reference"]
+
+[[fixture]]
+name = "m2-float-eq"
+milestone = 2
+expect = ["checker-warn"]
+
+[[fixture]]
+name = "m3-weak-tests"
+milestone = 3
+expect = ["weak-tests"]
+
+[[fixture]]
+name = "m3-allocating"
+milestone = 3
+expect = ["perf-fail"]

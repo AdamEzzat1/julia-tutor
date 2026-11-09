@@ -1,0 +1,175 @@
+# Seeded faults in reference/src (one exact snippet replaced each); see tidy/mutants.toml.
+# `tutor guided verify classify` requires each to load, to fail the acceptance
+# test set of its behaviour and to be caught by the exemplary tests.
+
+# ---- milestone 1 ----
+
+[[mutant]]
+id = "parsed-as-float64"
+milestone = 1
+behaviour = "load-columns"
+file = "Classify.jl"
+find = "parse(Float32, r[i])"
+replace = "parse(Float64, r[i])"
+
+[[mutant]]
+id = "samples-as-rows"
+milestone = 1
+behaviour = "load-columns"
+file = "Classify.jl"
+find = "for i in 1:nf, r in rows]"
+replace = "for r in rows, i in 1:nf]"
+
+[[mutant]]
+id = "not-stratified"
+milestone = 1
+behaviour = "stratified-split"
+file = "Classify.jl"
+find = '''
+    for c in sort(unique(y))
+        idx = shuffle(rng, findall(==(c), y))
+        k = round(Int, test_fraction * length(idx))
+        append!(test, idx[1:k])
+        append!(train, idx[k+1:end])
+    end
+'''
+replace = '''
+    idx = shuffle(rng, collect(eachindex(y)))
+    k = round(Int, test_fraction * length(idx))
+    append!(test, idx[1:k])
+    append!(train, idx[k+1:end])
+'''
+
+[[mutant]]
+id = "boundary-in-both"
+milestone = 1
+behaviour = "stratified-split"
+file = "Classify.jl"
+find = "append!(train, idx[k+1:end])"
+replace = "append!(train, idx[k:end])"
+
+[[mutant]]
+id = "fraction-ignored"
+milestone = 1
+behaviour = "stratified-split"
+file = "Classify.jl"
+find = "k = round(Int, test_fraction * length(idx))"
+replace = "k = round(Int, 0.3 * length(idx))"
+
+[[mutant]]
+id = "global-rng"
+milestone = 1
+behaviour = "rng-reproducible"
+file = "Classify.jl"
+find = "idx = shuffle(rng, findall(==(c), y))"
+replace = "idx = shuffle(findall(==(c), y))"
+
+[[mutant]]
+id = "fixed-seed"
+milestone = 1
+behaviour = "rng-reproducible"
+file = "Classify.jl"
+find = "idx = shuffle(rng, findall(==(c), y))"
+replace = "idx = shuffle(Xoshiro(42), findall(==(c), y))"
+
+# ---- milestone 2 ----
+
+[[mutant]]
+id = "three-outputs"
+milestone = 2
+behaviour = "flux-shapes"
+file = "Classify.jl"
+find = "Flux.Dense(HIDDEN => length(classes); init = init)"
+replace = "Flux.Dense(HIDDEN => 3; init = init)"
+
+[[mutant]]
+id = "classes-unsorted"
+milestone = 2
+behaviour = "flux-shapes"
+file = "Classify.jl"
+find = "classes = sort(unique(String.(y)))"
+replace = "classes = unique(String.(y))"
+
+[[mutant]]
+id = "trained-unscaled"
+milestone = 2
+behaviour = "flux-learns"
+file = "Classify.jl"
+find = "Xs = (X .- model.mu) ./ model.sigma"
+replace = "Xs = X"
+
+[[mutant]]
+id = "no-update"
+milestone = 2
+behaviour = "flux-learns"
+file = "Classify.jl"
+find = "        Flux.update!(opt, chain, grads[1])\n"
+replace = ""
+
+[[mutant]]
+id = "init-unseeded"
+milestone = 2
+behaviour = "flux-seeded"
+file = "Classify.jl"
+find = "init = Flux.glorot_uniform(rng)"
+replace = "init = Flux.glorot_uniform"
+
+# ---- milestone 3 ----
+
+[[mutant]]
+id = "table-not-transposed"
+milestone = 3
+behaviour = "mlj-pipeline"
+file = "Classify.jl"
+find = "MLJ.table(permutedims(Float64.(X)))"
+replace = "MLJ.table(Float64.(X))"
+
+[[mutant]]
+id = "no-standardizer"
+milestone = 3
+behaviour = "mlj-pipeline"
+file = "Classify.jl"
+find = "pipe = MLJ.Standardizer() |> DecisionTreeClassifier(rng = rng)"
+replace = "pipe = DecisionTreeClassifier(rng = rng)"
+
+[[mutant]]
+id = "mlj-distributions"
+milestone = 3
+behaviour = "mlj-pipeline"
+file = "Classify.jl"
+find = "MLJ.predict_mode(mach, rows_table(X))"
+replace = "MLJ.predict(mach, rows_table(X))"
+
+[[mutant]]
+id = "forest-unseeded"
+milestone = 3
+behaviour = "betaml-model"
+file = "Classify.jl"
+find = "n_trees = N_TREES, rng = rng, verbosity"
+replace = "n_trees = N_TREES, verbosity"
+
+[[mutant]]
+id = "forest-dicts"
+milestone = 3
+behaviour = "betaml-model"
+file = "Classify.jl"
+find = "String.(BetaML.mode(BetaML.predict(model, permutedims(Float64.(X)))))"
+replace = "String.(BetaML.predict(model, permutedims(Float64.(X))))"
+
+# ---- milestone 4 ----
+
+[[mutant]]
+id = "sorted-ascending"
+milestone = 4
+behaviour = "compare-table"
+file = "Classify.jl"
+find = "by = r -> (-r.accuracy, r.library)"
+replace = "by = r -> (r.accuracy, r.library)"
+
+[[mutant]]
+id = "scored-on-train"
+milestone = 4
+behaviour = "compare-table"
+file = "Classify.jl"
+find = "accuracy(predict(model, d.Xtest), d.ytest)"
+replace = "accuracy(predict(model, d.Xtrain), d.ytrain)"

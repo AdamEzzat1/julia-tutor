@@ -1,0 +1,509 @@
+id = "20-stdlib-tour"
+title = "A tour of the standard library"
+track = "ecosystem"
+env = "base"
+summary = "What ships with Julia: LinearAlgebra, Statistics, Random, Dates, Printf, Test and SparseArrays. Solving systems, summary statistics, reproducible random numbers, calendar arithmetic and unit tests."
+kcs = ["linear-algebra", "statistics", "random-numbers", "dates", "printf", "unit-testing", "sparse-arrays"]
+prerequisites = ["19-under-the-hood"]
+
+[[section]]
+title = "LinearAlgebra: matrices and solving systems"
+body = '''
+The **standard library** is a set of packages that come with Julia: you load
+them with `using` but never install them. `LinearAlgebra` adds `norm`, `dot`,
+`det`, `eigen`, factorizations, and `I`, the identity of whatever size is
+needed. Matrix literals separate columns with spaces and rows with `;`, and
+`*` on matrices is the matrix product (`.*` is element by element).
+
+To solve `A x = b`, write `A \ b`. It picks a suitable factorization (LU for
+a square matrix, QR for a tall one, which gives the least-squares solution)
+and is both faster and more accurate than `inv(A) * b`.
+
+Floating-point results from the underlying BLAS/LAPACK libraries can differ
+in the last digits between machines, so the examples round them with
+`round.(x; digits = 6)`.
+'''
+
+  [[section.example]]
+  code = '''
+using LinearAlgebra
+A = [4.0 1.0; 1.0 3.0]
+b = [1.0, 2.0]
+x = A \ b
+println(round.(x; digits = 6))
+println(A * x ≈ b)                        # ≈ compares with a tolerance
+println(round(det(A); digits = 6), " ", round(norm([3.0, 4.0]); digits = 6), " ", dot([1, 2, 3], [4, 5, 6]))
+'''
+
+  [[section.example]]
+  caption = "`I` adapts its size to the matrix it is added to."
+  code = '''
+using LinearAlgebra
+A = [4.0 1.0; 1.0 3.0]
+A + 2I
+'''
+
+  [[section.example]]
+  caption = "Eigenvalues of a symmetric matrix (wrapping it in `Symmetric` selects the symmetric solver; the values come out sorted)."
+  code = '''
+using LinearAlgebra
+S = Symmetric([2.0 1.0; 1.0 2.0])
+E = eigen(S)
+λ = round.(E.values; digits = 6)
+v = E.vectors[:, 2]
+println(λ)
+println(round(norm(S * v - E.values[2] * v); digits = 12))
+'''
+
+  [[section.example]]
+  caption = "`SparseArrays` stores only the non-zero entries (shown as `⋅`): useful for large matrices that are mostly zeros."
+  code = '''
+using SparseArrays
+S = sparse([1, 2, 3, 3], [1, 2, 3, 1], [10.0, 20.0, 30.0, 5.0])
+println(nnz(S), " stored entries")
+S
+'''
+
+[[section]]
+title = "Statistics"
+body = '''
+`Statistics` provides `mean`, `median`, `var`, `std`, `quantile` and `cor`.
+Two defaults to know:
+
+* `var` and `std` are the **sample** versions (divide by n − 1), like R and
+  unlike NumPy's default; pass `corrected = false` to divide by n.
+* `quantile` uses the same default definition as R (type 7, linear
+  interpolation between order statistics).
+'''
+
+  [[section.example]]
+  code = '''
+using Statistics
+x = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+println(mean(x), " ", median(x))
+println(round(var(x); digits = 6), " ", round(std(x); digits = 6))
+println(var(x; corrected = false), " ", std(x; corrected = false))
+println(quantile(x, [0.25, 0.75]))
+'''
+
+  [[section.example]]
+  caption = "Pearson correlation; `mean` over the columns of a matrix with `dims`."
+  code = '''
+using Statistics
+println(round(cor([1, 2, 3, 4], [2, 4, 5, 9]); digits = 6))
+M = [1 2; 3 4; 5 6]
+mean(M; dims = 1)
+'''
+
+[[section]]
+title = "Random: reproducible random numbers"
+body = '''
+For reproducible results, create a random number generator with a seed and
+pass it as the first argument: `rand(rng, ...)`, `randn(rng, ...)`,
+`shuffle(rng, v)`, `randperm(rng, n)`. The same seed gives the same
+sequence. `Xoshiro` is Julia's default generator.
+
+Be aware that the numbers a given seed produces may change between Julia
+versions (they are only guaranteed within a release). For data that must stay
+the same forever, such as test fixtures, use a package like StableRNGs.jl.
+Functions that need randomness should take the generator as an argument, so
+callers (and tests) can control it.
+'''
+
+  [[section.example]]
+  code = '''
+using Random
+rng = Xoshiro(1234)
+println(rand(rng, 1:6, 5))      # five dice rolls
+println(rand(rng, 1:6, 5))      # the generator moved on: different rolls
+println(rand(Xoshiro(1234), 1:6, 5) == rand(Xoshiro(1234), 1:6, 5))
+'''
+
+  [[section.example]]
+  code = '''
+using Random
+rng = Xoshiro(7)
+println(shuffle(rng, 1:6))
+println(randperm(rng, 6))
+println(round.(randn(rng, 3); digits = 4))
+'''
+
+[[section]]
+title = "Dates: calendar arithmetic"
+body = '''
+`Date` is a calendar day, `DateTime` a day plus a time to the millisecond.
+Arithmetic uses *periods* such as `Day(1)`, `Month(1)`, `Hour(12)`;
+subtracting two dates gives a number of days. `dayofweek` numbers days from
+Monday = 1 to Sunday = 7. A range of dates, `d1:Day(1):d2`, iterates over
+every day in between.
+
+`Date("2024-12-25")` parses ISO dates; for other layouts give a format,
+written with the `dateformat"..."` string macro so it is parsed only once:
+`y` year, `m` month number, `u` abbreviated month name, `d` day, `H` hours,
+`M` minutes.
+'''
+
+  [[section.example]]
+  code = '''
+using Dates
+d = Date(2024, 2, 28)
+println(d + Day(1), " ", d + Day(2))     # 2024 is a leap year
+println(Date(2024, 3, 1) - d)
+println(dayofweek(d), " ", dayname(d))
+println(d + Month(1))
+'''
+
+  [[section.example]]
+  code = '''
+using Dates
+dt = DateTime(2024, 3, 10, 14, 30)
+println(dt + Hour(12))
+println(Dates.format(dt, dateformat"dd u yyyy, HH:MM"))
+println(Date("25/12/2024", dateformat"dd/mm/yyyy"))
+'''
+
+  [[section.example]]
+  caption = "Count the Saturdays in March 2024 with a range of dates."
+  code = '''
+using Dates
+march = Date(2024, 3, 1):Day(1):Date(2024, 3, 31)
+count(d -> dayofweek(d) == Saturday, march)
+'''
+
+[[section]]
+title = "Printf and Test"
+body = '''
+`@printf` and `@sprintf` (from `Printf`) format numbers C-style: `%.3f`
+three decimals, `%5d` an integer padded to width 5, `%-6s` a left-aligned
+string, `%e` scientific notation, `%08.2f` zero padding. The format is
+checked when the macro expands.
+
+`Test` is how Julia packages are tested. `@test expr` passes when `expr` is
+`true`; `@test a ≈ b` compares floats with a tolerance (never use `==` on
+computed floats); `@test_throws T expr` passes when `expr` throws a `T`.
+`@testset` groups tests and prints a summary. The summary normally has a
+`Time` column; `showtiming = false` removes it, which we need here so the
+output is the same on every run. A failing `@test` outside a testset is an
+error that shows the expression and its evaluated value.
+'''
+
+  [[section.example]]
+  code = '''
+using Printf
+@printf("%.3f|%5d|%-6s|%e\n", pi, 42, "ab", 12345.678)
+s = @sprintf("%08.2f", 3.14159)
+s
+'''
+
+  [[section.example]]
+  code = '''
+using Test
+@testset "arithmetic" showtiming = false begin
+    @test 1 + 1 == 2
+    @test 0.1 + 0.2 ≈ 0.3
+    @test_throws DomainError sqrt(-1.0)
+end;
+'''
+
+  [[section.example]]
+  code = '''
+using Test
+@test 0.1 + 0.2 == 0.3
+'''
+
+[[problem]]
+id = "lsq-line-fit"
+title = "Least-squares line fit"
+difficulty = "core"
+kcs = ["linear-algebra", "statistics"]
+entry = "fit_line"
+prompt = '''
+Write `fit_line(x, y)` that fits the straight line `y ≈ slope * x + intercept`
+to the points `(x[i], y[i])` by least squares and returns the vector
+`[slope, intercept]` (a `Vector{Float64}`). Assume at least two distinct `x`
+values.
+
+```julia
+fit_line([0.0, 1.0, 2.0], [1.0, 3.0, 5.0])   # [2.0, 1.0]
+```
+
+Results are compared with a relative tolerance of `1e-8`, so any accurate
+method is accepted: the linear-algebra way (`A \ y`) or the statistics way
+(means and sums). (A vector rather than a tuple: `isapprox` compares vectors
+but has no method for tuples.) The grader also measures memory.
+'''
+starter = '''
+using LinearAlgebra, Statistics
+
+function fit_line(x, y)
+    # your code here
+end
+'''
+reference = '''
+using Statistics
+
+function fit_line(x, y)
+    mx, my = mean(x), mean(y)
+    sxy = sum((xi - mx) * (yi - my) for (xi, yi) in zip(x, y))
+    sxx = sum((xi - mx)^2 for xi in x)
+    slope = sxy / sxx
+    return [slope, my - slope * mx]
+end
+'''
+cases = ["[0.0, 1.0, 2.0], [1.0, 3.0, 5.0]", "[1.0, 2.0, 3.0, 4.0], [2.0, 1.0, 4.0, 3.0]", "[1, 2, 3], [10, 20, 30]"]
+gen = "rng -> [(x = randn(rng, rand(rng, 3:40)); (x, 2.5 .* x .+ 1 .+ 0.1 .* randn(rng, length(x)))) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-8
+hints = [
+  "The least-squares line passes through `(mean(x), mean(y))`, and its slope is the covariance of `x` and `y` divided by the variance of `x`.",
+  'As a linear system: `A = [x ones(length(x))]` and `A \ y`, which solves the tall system by QR. It works, at the cost of building `A`.',
+]
+
+  [problem.perf]
+  args = "randn(rng, n), randn(rng, n)"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "returns [intercept, slope]"
+  code = '''
+fit_line(x, y) = [ones(length(x)) x] \ y
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "forces the line through the origin"
+  code = '''
+fit_line(x, y) = [x \ y, 0.0]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = 'A \ y: idiomatic and accurate, but builds an n×2 matrix'
+  code = '''
+using LinearAlgebra
+fit_line(x, y) = [x ones(length(x))] \ y
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "normal equations with inv: accurate enough for these well-conditioned data"
+  code = '''
+using LinearAlgebra
+function fit_line(x, y)
+    A = [x ones(length(x))]
+    return inv(A' * A) * (A' * y)
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "one explicit loop over the points"
+  code = '''
+using Statistics
+function fit_line(x, y)
+    mx, my = mean(x), mean(y)
+    sxy = sxx = 0.0
+    for i in eachindex(x, y)
+        dx = x[i] - mx
+        sxy += dx * (y[i] - my)
+        sxx += dx^2
+    end
+    slope = sxy / sxx
+    return [slope, my - slope * mx]
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "zscore-normalize"
+title = "Standardize a vector"
+difficulty = "core"
+kcs = ["statistics"]
+entry = "zscore"
+prompt = '''
+Write `zscore(v)` that returns a new vector holding the z-score of every
+element of the `Vector{Float64}` `v`: `(v[i] - mean(v)) / std(v)`, with the
+sample standard deviation as `std` computes it. Do not change `v`. Assume
+`length(v) ≥ 2`.
+
+```julia
+zscore([1.0, 2.0, 3.0])   # [-1.0, 0.0, 1.0]
+```
+
+The grader checks the result *and* that `v` is unchanged after the call, and
+it measures time and memory: the result vector should be the only array you
+allocate.
+'''
+starter = '''
+using Statistics
+
+function zscore(v)
+    # your code here
+end
+'''
+reference = '''
+using Statistics
+
+function zscore(v)
+    m = mean(v)
+    s = std(v; mean = m)
+    return (v .- m) ./ s
+end
+'''
+cases = ["[1.0, 2.0, 3.0]", "[5.0, 5.0, 6.0, 8.0]", "[-1.0, 1.0]"]
+gen = "rng -> [(randn(rng, rand(rng, 2:50)) .* 10 .+ 3,) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+compare_args = true
+hints = [
+  "Compute the mean and the standard deviation once, before the element-wise step.",
+  "A single dotted expression such as `(v .- m) ./ s` fuses into one loop that fills one new array.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n)"
+  sizes = [1000, 16000]
+
+  [[problem.variant]]
+  label = "population standard deviation (divides by n)"
+  code = '''
+using Statistics
+zscore(v) = (v .- mean(v)) ./ std(v; corrected = false)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "overwrites the caller's vector"
+  code = '''
+using Statistics
+function zscore(v)
+    m, s = mean(v), std(v)
+    v .= (v .- m) ./ s
+    return v
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "two separate steps: an intermediate array"
+  code = '''
+using Statistics
+function zscore(v)
+    centered = v .- mean(v)
+    return centered ./ std(v)
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "recomputes mean and std for every element"
+  code = '''
+using Statistics
+zscore(v) = [(x - mean(v)) / std(v) for x in v]
+'''
+  expect = ["correct", "scaling"]
+
+  [[problem.variant]]
+  label = "map with m and s computed once"
+  code = '''
+using Statistics
+function zscore(v)
+    m = mean(v)
+    s = std(v; mean = m)
+    return map(x -> (x - m) / s, v)
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "business-days"
+title = "Count the business days"
+difficulty = "warm-up"
+kcs = ["dates"]
+entry = "business_days"
+prompt = '''
+Write `business_days(from, to)` where `from` and `to` are ISO date strings
+such as `"2024-03-01"`. Return the number of weekdays (Monday to Friday)
+from `from` to `to`, **both included**; return `0` when `to` is before `from`.
+Ignore public holidays.
+
+```julia
+business_days("2024-03-01", "2024-03-04")   # 2 (Friday and Monday)
+business_days("2024-03-02", "2024-03-03")   # 0 (a weekend)
+```
+
+The grader measures memory over a span of decades: no need to collect the
+days into an array.
+'''
+starter = '''
+using Dates
+
+function business_days(from, to)
+    # your code here
+end
+'''
+reference = '''
+using Dates
+
+function business_days(from, to)
+    a, b = Date(from), Date(to)
+    return count(d -> dayofweek(d) <= 5, a:Day(1):b)
+end
+'''
+cases = [
+  "\"2024-03-01\", \"2024-03-04\"",
+  "\"2024-03-02\", \"2024-03-03\"",
+  "\"2024-03-04\", \"2024-03-04\"",
+  "\"2024-03-10\", \"2024-03-01\"",
+  "\"2024-01-01\", \"2024-12-31\"",
+]
+gen = "rng -> [(string(2020 + rand(rng, 0:3), \"-\", lpad(rand(rng, 1:12), 2, '0'), \"-\", lpad(rand(rng, 1:28), 2, '0')), string(2021 + rand(rng, 0:3), \"-\", lpad(rand(rng, 1:12), 2, '0'), \"-\", lpad(rand(rng, 1:28), 2, '0'))) for _ in 1:20]"
+hints = [
+  "`Date(\"2024-03-01\")` parses the string; `a:Day(1):b` is every day from `a` to `b`, and empty when `b < a`.",
+  "`dayofweek(d)` is 1 for Monday and 7 for Sunday; count the days where it is at most 5.",
+]
+
+  [problem.perf]
+  args = "\"2000-01-01\", string(2000 + n, \"-12-31\")"
+  sizes = [60]
+
+  [[problem.variant]]
+  label = "excludes Fridays (< 5 instead of <= 5)"
+  code = '''
+using Dates
+business_days(from, to) = count(d -> dayofweek(d) < 5, Date(from):Day(1):Date(to))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "leaves out the last day"
+  code = '''
+using Dates
+business_days(from, to) = count(d -> dayofweek(d) <= 5, Date(from):Day(1):Date(to)-Day(1))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "collects and filters the days first"
+  code = '''
+using Dates
+function business_days(from, to)
+    days = collect(Date(from):Day(1):Date(to))
+    return length(filter(d -> !(dayname(d) in ("Saturday", "Sunday")), days))
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "a plain loop over the days"
+  code = '''
+using Dates
+function business_days(from, to)
+    n = 0
+    for d in Date(from):Day(1):Date(to)
+        n += dayofweek(d) in (Saturday, Sunday) ? 0 : 1
+    end
+    return n
+end
+'''
+  expect = ["correct", "fast"]

@@ -341,4 +341,7 @@ if !FAST
     end
 end
 
+include("course_tests.jl")
+include("guided_tests.jl")
+
 end # JuliaTutor

@@ -1,0 +1,391 @@
+name = "classify"
+package = "Classify"
+env = "ml"
+status = "ready"
+title = "Classify: one classifier, three libraries"
+summary = "Build the same classification task three times (a small neural network in Flux.jl, a pipeline with a decision tree in MLJ.jl, and a BetaML.jl random forest), on one seeded, stratified train/test split, and compare them in one table. You write the data handling, the training functions and the tests, including tests that do not flake."
+kcs = ["packages", "testing", "data-splitting", "neural-networks", "model-evaluation", "reproducibility"]
+reading = '''
+Prerequisites: course unit 26 (machine learning).
+
+`data/flowers.csv` is the file this project is about: 90 flowers of three
+species (40 alba, 30 rosea, 20 viola) with four measurements each. It is
+synthetic (drawn from seeded normal distributions), and one measurement,
+`stem_mm`, is in millimetres while the others are in centimetres. Open it
+before you start. The `ml` environment has no CSV.jl and no DataFrames.jl,
+so you read the file line by line with `eachline` and `split`, and the
+comparison table is a vector of named tuples.
+
+Knet.jl is another deep-learning library for Julia, older than Flux, with
+its own GPU array type and a define-by-run style close to PyTorch's. It is
+not installed in this course's environments (the course covers it in text
+only); the Flux part of this project is what a Knet version would replace.
+
+Two of these libraries export functions with the same names (`fit!`,
+`predict`), so load them with `import Flux`, `import MLJ`, `import BetaML`
+and write qualified names (`MLJ.machine`, `BetaML.fit!`).
+
+Randomness: every function that shuffles, initialises or samples takes an
+`rng` argument, and tests pass `Xoshiro(seed)`. Julia's default stream is
+stable on the pinned 1.10.13, but code that reads the global RNG cannot be
+tested reproducibly. Accuracy thresholds in the acceptance tests are
+calibrated on the pinned packages over a stated set of seeds, not derived;
+write the same kind of comment next to every threshold in your own tests.
+This project runs in the container only on Windows hosts.
+'''
+
+[[milestone]]
+id = 0
+title = "A package with a test suite"
+min_score = 1.0
+goal = '''
+Create the package as in the tidy project's milestone 0 (`tutor guided show
+tidy 0` has the full steps): `Pkg.generate("Classify")`, move
+`Project.toml` and `src/` into this folder (next to `data/`), run
+`./tutor guided deps <this folder>` from the julia-tutor folder (Flux, MLJ,
+BetaML, DecisionTree, MLJDecisionTreeInterface and the others of the `ml`
+environment), and write `test/runtests.jl` with `using Classify, Test` and
+one check. Random and Statistics are standard libraries, always available.
+'''
+
+  [[milestone.api]]
+  signature = "module Classify"
+  doc = "Defined in src/Classify.jl."
+
+  [[milestone.behaviour]]
+  id = "package-layout"
+  kc = "packages"
+  spec = "`src/Classify.jl` defines a module named `Classify` that loads without errors."
+  hints = [
+    "A package is a module whose name matches its file name under src/.",
+    "Open src/Classify.jl: its first code line should be `module Classify` and its last `end`.",
+    "If loading fails, the error above names the line; a `using` of a package missing from the environment is the usual cause.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Any check that runs counts here.",
+    "`@test Classify isa Module` is enough for milestone 0.",
+    "Put it inside a `@testset` so the report names it.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why does this project load the libraries with `import MLJ` and `import BetaML` and write `MLJ.fit!`, instead of `using MLJ, BetaML`?"
+  choices = [
+    "Both export `fit!` and `predict`; with `using` both, an unqualified `fit!` is ambiguous and Julia refuses to call it",
+    "`import` loads a package faster than `using` does",
+    "`using` copies the package's code into your module, `import` does not",
+  ]
+  answer = 1
+  explain = "When two modules brought in by `using` export the same name, Julia binds neither and asks you to qualify it. Qualified names also tell a reader which library each call belongs to."
+  misconceptions = [
+    "",
+    "Both load the package the same way and take the same time; they differ only in which names become visible.",
+    "Neither copies code: both make the package's module available, `using` also brings its exported names into scope.",
+  ]
+
+[[milestone]]
+id = 1
+title = "Data and a reproducible split"
+min_score = 1.0
+must_cover = ["load-columns", "stratified-split", "rng-reproducible"]
+goal = '''
+Read `data/flowers.csv` (a header line, then four measurements and a
+species per line) and split it into train and test sets that keep the class
+proportions. Use `eachline` and `split`; there is no CSV package here.
+'''
+
+  [[milestone.api]]
+  signature = "load_split(rng, path; test_fraction = 0.3) -> NamedTuple{(:Xtrain, :ytrain, :Xtest, :ytest)}"
+  doc = "X as a Matrix{Float32} with one column per sample and one row per measurement (Flux's layout); y as a Vector{String} of species, in the same order as X's columns. Of a class with n samples, round(Int, test_fraction * n) go to the test set."
+
+  [[milestone.behaviour]]
+  id = "load-columns"
+  kc = "data-splitting"
+  spec = "`Xtrain` and `Xtest` are `Matrix{Float32}` with 4 rows and one column per sample; `ytrain` and `ytest` are `Vector{String}`; every line of the file appears exactly once, as a column with its own label."
+  hints = [
+    "Check the element type and the shape of what you return: Flux wants one column per sample.",
+    "The first line of the file holds the column names, not numbers; every other line is one sample.",
+    "Where you turn a field into a number, ask for 32-bit floats explicitly, and build the matrix so that the measurement index runs down the rows and the sample index across the columns.",
+  ]
+  answer_tokens = ["parse(Float32", "Iterators.drop", "permutedims"]
+  test_hints = [
+    "Check the types and the sizes, not only that the call works.",
+    "`eltype(d.Xtrain) == Float32` and `size(d.Xtrain, 1) == 4`.",
+    "The two sides together hold all 90 samples.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "stratified-split"
+  kc = "data-splitting"
+  spec = "Each class's share of the test set is within one sample of `test_fraction` times its size; the two sets are disjoint and together hold every sample; `test_fraction` is used."
+  hints = [
+    "A random split of a small data set can leave a rare class almost out of the test set.",
+    "Split each class separately, then combine the pieces.",
+    "Inside a loop over the class labels: collect the positions of that class, shuffle them, put the first share into the test set and the rest (starting right after it) into the training set.",
+  ]
+  answer_tokens = ["findall(==", "round(Int", "k+1"]
+  test_hints = [
+    "Count each class in the test set.",
+    "With 40, 30 and 20 samples and 30%, a stratified split has exactly 12, 9 and 6; check several seeds, and also another `test_fraction`.",
+    "Also check that no column of `Xtest` appears in `Xtrain` and that the sizes add up to 90.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "rng-reproducible"
+  kc = "reproducibility"
+  spec = "The same seed gives the same split; a different seed gives a different one."
+  hints = [
+    "Code that uses the global random number generator cannot be repeated in a test.",
+    "Pass the rng you were given to every function that draws random numbers, and do not make a new one inside.",
+    "Look at your shuffle call: its first argument should be the generator that came in as the first argument of `load_split`.",
+  ]
+  answer_tokens = ["shuffle(rng"]
+  test_hints = [
+    "Call it twice with the same seed and once with another.",
+    "`isequal(load_split(Xoshiro(7), p), load_split(Xoshiro(7), p))` compares the whole named tuple.",
+    "Different seeds must differ too, or a hard-coded seed inside would pass.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why does `load_split` take an `rng` argument instead of calling `shuffle(v)`?"
+  choices = [
+    "So a test can pass `Xoshiro(seed)` and get the same split on every run",
+    "`shuffle(v)` without a generator returns the same order every time, so every split would be identical",
+    "Shuffling with the global generator is not uniformly random",
+  ]
+  answer = 1
+  explain = "With an explicit generator the caller decides the stream: a fixed `Xoshiro(seed)` in a test gives the same split every run, and a different seed gives another one. Code that reads the global generator depends on whatever drew from it before."
+  misconceptions = [
+    "",
+    "The global generator moves on with every draw, so `shuffle(v)` gives a different order each call; that is what makes it hard to test.",
+    "The global generator is as uniform as any other; the problem is that a test cannot control its state.",
+  ]
+
+[[milestone]]
+id = 2
+title = "A Flux network"
+min_score = 1.0
+must_cover = ["flux-shapes", "flux-learns", "flux-seeded"]
+goal = '''
+A two-layer network, `Dense(features => 16, relu)` then `Dense(16 =>
+classes)`, initialised from `rng`, trained full-batch with Adam (learning
+rate 0.01) on the cross-entropy of its outputs. The inputs are standardised
+with the training set's mean and standard deviation, and the model keeps
+them so that prediction applies the same transformation.
+'''
+
+  [[milestone.api]]
+  signature = "struct FluxModel (fields chain, classes, mu, sigma)"
+  doc = "classes::Vector{String} is the sorted class list (output row i is classes[i]); mu and sigma are 4 x 1 Matrix{Float32}. A FluxModel is callable: m(X) gives the network's raw outputs, one column per sample."
+
+  [[milestone.api]]
+  signature = "train_flux(rng, X, y; epochs = 200) -> FluxModel"
+  doc = "X as returned by load_split, y the matching labels."
+
+  [[milestone.api]]
+  signature = "predict_flux(model, X) -> Vector{String}"
+  doc = "The most likely class of each column of X."
+
+  [[milestone.behaviour]]
+  id = "flux-shapes"
+  kc = "neural-networks"
+  spec = "The output layer has one unit per class (any number of classes, not only 3), `model.classes` is the sorted class list, and `predict_flux` returns one label per column."
+  hints = [
+    "Check the shape of the model's output on a few samples, for a data set with two classes as well as three.",
+    "Cross-entropy needs one output per class and a target with one row per class in the same order.",
+    "Build the class list once, in sorted order, and use its size for the last layer and the same list for the one-hot targets and for turning outputs back into labels.",
+  ]
+  answer_tokens = ["onehotbatch", "length(classes)", "sort(unique"]
+  test_hints = [
+    "Train on a tiny data set whose labels first appear in unsorted order.",
+    "Check `m.classes` and `size(m(X))` for two classes.",
+    "Eight points in two clusters and `epochs = 50` are enough for a shape test.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "flux-learns"
+  kc = "model-evaluation"
+  spec = "Test accuracy is at least 0.85 for each seed in the acceptance set (calibrated threshold: the reference's lowest over 12 seeds was 0.926)."
+  hints = [
+    "Make sure the loss goes down during training before looking at accuracy.",
+    "Unscaled inputs (`stem_mm` is in the hundreds) and parameters that never change are the usual causes of a network that does not learn here.",
+    "In the training loop, check that each step applies the gradient to the parameters through the optimiser state; and check that the inputs the loss sees are standardised the same way prediction standardises them.",
+  ]
+  answer_tokens = ["mean(X", "std(X", "update!"]
+  test_hints = [
+    "Measure test accuracy on the real data.",
+    "Use two or three split seeds and state the threshold's origin in a comment (calibrated, with the seeds and the lowest value you saw).",
+    "`count(predict_flux(m, d.Xtest) .== d.ytest) / length(d.ytest) >= 0.85`.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "flux-seeded"
+  kc = "reproducibility"
+  spec = "The same seed gives bit-identical outputs; a different seed gives different ones."
+  hints = [
+    "Initial weights are random numbers too.",
+    "Flux's layers draw their initial weights from the global generator unless you say otherwise.",
+    "Give each `Dense` layer an initialiser built from the generator passed to `train_flux` (Flux's initialiser functions accept a generator as their first argument).",
+  ]
+  answer_tokens = ["glorot_uniform(rng)"]
+  test_hints = [
+    "Train twice with the same seed and compare the outputs.",
+    "`isequal(a(X), b(X))`: on one CPU thread the same seed gives the same bits, so no tolerance is needed.",
+    "A few epochs are enough for this test.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "After 200 epochs the network's accuracy is 0.40 on three classes and the loss has barely moved from its first value. What do you check first?"
+  choices = [
+    "Whether the parameters change at all between steps",
+    "Whether the test set is stratified by class",
+    "Whether 200 epochs is so many that the network overfits",
+  ]
+  answer = 1
+  explain = "A loss that does not move means training is not changing the model: an update that is never applied, a learning rate of zero, or gradients that do not reach the parameters. Compare the weights before and after one step."
+  misconceptions = [
+    "",
+    "The split affects how accuracy is measured, but the training loss would still fall on any training set.",
+    "Overfitting drives the training loss down, not flat; a flat loss means the parameters are not being updated.",
+  ]
+
+[[milestone]]
+id = 3
+title = "MLJ and BetaML"
+min_score = 1.0
+must_cover = ["mlj-pipeline", "betaml-model"]
+goal = '''
+The same task with an MLJ pipeline (a standardiser and a decision tree) and
+with a BetaML random forest of 30 trees. Both libraries want one row per
+sample; you get Flux's layout (one column per sample) and convert.
+'''
+
+  [[milestone.api]]
+  signature = "train_mlj(rng, X, y) -> MLJ.Machine"
+  doc = "A machine for MLJ.Standardizer() |> DecisionTreeClassifier(rng = rng) (from MLJDecisionTreeInterface), fitted on X (one column per sample) and y."
+
+  [[milestone.api]]
+  signature = "predict_mlj(mach, X) -> Vector{String}"
+  doc = "The most likely class of each column of X."
+
+  [[milestone.api]]
+  signature = "train_betaml(rng, X, y) -> BetaML.RandomForestEstimator"
+  doc = "A fitted forest of 30 trees that draws from rng."
+
+  [[milestone.api]]
+  signature = "predict_betaml(model, X) -> Vector{String}"
+  doc = "The most likely class of each column of X."
+
+  [[milestone.behaviour]]
+  id = "mlj-pipeline"
+  kc = "model-evaluation"
+  spec = "`train_mlj` returns a fitted `MLJ.Machine` whose model is a pipeline holding a `Standardizer` and a `DecisionTreeClassifier`; `predict_mlj` returns plain `String` labels; test accuracy reaches the calibrated threshold (0.85; lowest seen 0.889)."
+  hints = [
+    "MLJ wants a table with one row per sample; Flux wanted columns.",
+    "A probabilistic classifier's plain prediction is a distribution per sample, not a label.",
+    "Turn the matrix around before wrapping it as a table, for fitting and for prediction alike; chain the standardiser into the tree with the pipe operator; and ask MLJ for the most probable class rather than the distribution.",
+  ]
+  answer_tokens = ["predict_mode", "permutedims", "Standardizer() |>"]
+  test_hints = [
+    "Check what `predict_mlj` returns, and the accuracy on the real split.",
+    "The model's steps are its properties: `[getproperty(mach.model, n) for n in propertynames(mach.model)]`.",
+    "`@test p isa Vector{String}` and an accuracy threshold with a comment saying where it comes from.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "betaml-model"
+  kc = "reproducibility"
+  spec = "Same seed, same predictions; `predict_betaml` returns plain `String` labels; accuracy at the calibrated threshold (0.85; lowest seen 0.889)."
+  hints = [
+    "BetaML models take their generator as a constructor keyword.",
+    "BetaML's `predict` for a classifier gives, for each sample, a dictionary from class to probability.",
+    "Pass the generator you were given to the forest's constructor, not a new one; after predicting, reduce each dictionary to its most probable class with BetaML's helper for that.",
+  ]
+  answer_tokens = ["rng = rng", "mode("]
+  test_hints = [
+    "Train twice with the same seed and compare the predictions.",
+    "On easy data two different forests predict the same labels anyway; random labels make the forest's own randomness visible.",
+    "`y = rand(Xoshiro(6), [\"p\", \"q\"], 40)` with random `X`, then predict on other random points.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "A decision tree splits on a threshold of one feature at a time. What does putting a `Standardizer` in front of it do to its test accuracy?"
+  choices = [
+    "Nothing: rescaling a feature moves each threshold but not which samples fall on each side",
+    "It raises it, because a tree compares features with each other and needs them on one scale",
+    "It lowers it, since the standardiser's mean and spread come from all the data, test rows included",
+  ]
+  answer = 1
+  explain = "Standardising is increasing and applied per feature, so every split the tree could make before it can still make, on the same samples. The pipeline step matters for distance- or gradient-based models (like the Flux network), not for trees."
+  misconceptions = [
+    "",
+    "A tree never compares two features; each split looks at one feature against a threshold, so the scale of the others is irrelevant.",
+    "Fitted on the training rows only (as `train_mlj` is), the standardiser never sees the test rows; and a monotone rescaling does not change a tree's splits anyway.",
+  ]
+
+[[milestone]]
+id = 4
+title = "Comparison"
+min_score = 1.0
+must_cover = ["compare-table"]
+goal = '''
+One table, one row per library: test accuracy, training time and size.
+There is no DataFrames in the `ml` environment, so the table is a vector of
+named tuples.
+'''
+
+  [[milestone.api]]
+  signature = "compare(rng, path) -> Vector{NamedTuple{(:library, :accuracy, :seconds, :size)}}"
+  doc = "Splits path with rng (default test_fraction), then trains Flux, MLJ and BetaML in that order, each with rng as the previous step left it. library is \"flux\", \"mlj\" or \"betaml\"; size is the number of trainable parameters (Flux), of leaves of the tree (MLJ) or of trees (BetaML). Sorted by accuracy, highest first, then by library name."
+
+  [[milestone.behaviour]]
+  id = "compare-table"
+  kc = "model-evaluation"
+  spec = "Three rows with those field names, sorted as stated; each accuracy equals the test accuracy of the individual functions under the same protocol; the sizes are right (131 parameters for the network)."
+  hints = [
+    "All three models must see the same split, and accuracy is measured on the samples they did not train on.",
+    "Write down the order of the random draws: split first, then Flux, MLJ, BetaML, all on the one generator.",
+    "Check the scoring line (it must use the held-out columns and labels) and the sort key (accuracy descending, ties broken by name ascending).",
+  ]
+  answer_tokens = ["-r.accuracy", "d.Xtest"]
+  test_hints = [
+    "Repeat the protocol by hand in the test and compare.",
+    "`issorted(rows; by = r -> (-r.accuracy, r.library))`.",
+    "Accuracies are k/27 computed the same way on both sides, so `isapprox(...; atol = 1e-9)` is far below the 1/27 step between two counts.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "compare-timing"
+  kc = "model-evaluation"
+  spec = "`seconds` is the time of one training call after an untimed warm-up call, so it holds no compilation (calibrated bound in the acceptance test: under 1 s per library)."
+  hints = [
+    "The first call of a Julia function includes compiling it.",
+    "Run each training once before timing it, and time only the second call.",
+    "The warm-up call must not draw from the generator that the timed call uses, or the accuracies change: give it a fresh generator of its own.",
+  ]
+  answer_tokens = ["Xoshiro(0)", "time_ns"]
+  test_hints = [
+    "Check that every time is positive.",
+    "A bound on the time depends on the machine; if you add one, make it generous and say where it comes from.",
+    "`all(r -> r.seconds > 0, rows)`.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why does `compare` call each training function once before it starts the clock?"
+  choices = [
+    "The first call compiles the methods it runs, and that time is not training",
+    "To warm up the CPU cache so that the timing is stable",
+    "So each model is trained twice and the better one is kept",
+  ]
+  answer = 1
+  explain = "Julia compiles a method the first time it is called with given argument types. For Flux and MLJ that takes seconds, far longer than training on 63 samples, so a first-call time would measure the compiler."
+  misconceptions = [
+    "",
+    "Cache effects are microseconds here; compilation is seconds.",
+    "The warm-up model is thrown away; the timed call's model is the one scored.",
+  ]

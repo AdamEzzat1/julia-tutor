@@ -1,0 +1,519 @@
+id = "18-concurrency"
+title = "Concurrency: tasks, channels and threads"
+track = "advanced"
+env = "base"
+summary = "Tasks let one Julia process juggle several jobs; channels pass values between them; threads run tasks in parallel. How to get results back in a deterministic order, and how to avoid data races."
+kcs = ["tasks", "channels", "threads", "data-races", "atomics-and-locks"]
+prerequisites = ["17-interfaces"]
+
+[[section]]
+title = "Tasks: start now, collect the result later"
+body = '''
+A **task** (also called a coroutine or green thread) is a piece of work that
+can be paused and resumed. `@async expr` wraps `expr` in a `Task`, schedules
+it, and returns the task immediately, without waiting. `fetch(t)` waits for
+the task to finish and returns its value; `wait(t)` waits without returning the
+value; `istaskdone(t)` asks whether it has finished.
+
+A task only runs when the current one *yields*: when it waits (`fetch`,
+`wait`, `sleep`, I/O, `take!` on an empty channel) or calls `yield()`. Notice
+in the first example that the task is not done when we first ask: it has not
+even had a chance to start yet.
+'''
+
+  [[section.example]]
+  code = '''
+t = @async begin
+    sleep(0.01)
+    21 * 2
+end
+println(istaskdone(t))
+println(fetch(t))
+println(istaskdone(t))
+'''
+
+  [[section.example]]
+  caption = "`@async` is shorthand for creating a `Task` and calling `schedule` on it."
+  code = '''
+t = Task(() -> println("hello from inside the task"))
+println(istaskstarted(t))   # created, but not scheduled yet
+schedule(t)
+wait(t)
+println(istaskdone(t))
+'''
+
+  [[section.example]]
+  caption = "Tasks finish in any order, but `fetch` in a fixed order gives a deterministic result. Here the last task finishes first."
+  code = '''
+tasks = [@async (sleep(0.01 * (4 - i)); i^2) for i in 1:3]
+fetch.(tasks)
+'''
+
+  [[section.example]]
+  caption = "An error inside a task surfaces when you `fetch` it, wrapped in a `TaskFailedException`."
+  code = '''
+t = @async error("boom")
+try
+    fetch(t)
+catch e
+    println(typeof(e))
+    println(e.task.exception)
+end
+'''
+
+[[section]]
+title = "Channels: passing values between tasks"
+body = '''
+A `Channel{T}(n)` is a first-in first-out queue that tasks share: `put!(ch, x)`
+adds a value, `take!(ch)` removes the oldest one. The number `n` is the buffer
+size: `put!` waits when the buffer is full and `take!` waits when it is empty,
+which is what lets a fast producer and a slow consumer cooperate. Give the
+channel an element type, as with arrays: `Channel(n)` alone is a
+`Channel{Any}`, and every value taken out of it has the abstract type `Any`.
+
+`Channel{T}(f, n)` (usually written with `do`) starts a task running `f(ch)`
+and **closes** the channel when `f` returns. A `for` loop over a channel takes
+values until the channel is closed and empty, so producer/consumer code needs
+no explicit end-of-data marker.
+'''
+
+  [[section.example]]
+  code = '''
+ch = Channel{Int}(3)
+put!(ch, 10)
+put!(ch, 20)
+println(take!(ch))
+println(isready(ch))   # is there a value waiting?
+println(take!(ch))
+println(isready(ch))
+'''
+
+  [[section.example]]
+  caption = "A producer task; the consumer is the `collect` (or any `for` loop)."
+  code = '''
+squares = Channel{Int}(4) do ch
+    for i in 1:5
+        put!(ch, i^2)
+    end
+end   # the channel closes when the do-block returns
+collect(squares)
+'''
+
+  [[section.example]]
+  caption = "A two-stage pipeline: each stage is a task reading one channel and writing the next. Values keep their order."
+  code = '''
+numbers = Channel{Int}(8) do ch
+    foreach(i -> put!(ch, i), 1:6)
+end
+doubled = Channel{Int}(8) do ch
+    for x in numbers
+        put!(ch, 2x)
+    end
+end
+total = 0
+for y in doubled
+    global total += y
+end
+total
+'''
+
+  [[section.example]]
+  caption = "Writing to a closed channel is an error."
+  code = '''
+ch = Channel{Int}(1)
+close(ch)
+put!(ch, 1)
+'''
+
+[[section]]
+title = "Concurrency is not parallelism: threads"
+body = '''
+Everything so far ran on **one** CPU core: the tasks took turns. That is
+*concurrency*, and it is what you want for waiting on many things at once
+(downloads, files, user input). *Parallelism* means running at the same
+moment on several cores, which speeds up computation.
+
+`Threads.@spawn expr` is like `@async` but lets the scheduler run the task on
+any of Julia's threads. How many threads there are is fixed when Julia
+starts: `julia -t auto` uses one per CPU core, `julia -t 4` uses four (or set
+the environment variable `JULIA_NUM_THREADS`). This site runs your code with
+**one thread**, so the spawned tasks below take turns, but the same code runs
+in parallel when you start Julia with `-t auto` on your own machine, and it
+gives the same answer because results are combined only through `fetch`.
+(The practice problem at the end of this unit is graded on four threads.)
+'''
+
+  [[section.example]]
+  code = '''
+Threads.nthreads()
+'''
+
+  [[section.example]]
+  caption = "Split the work into chunks, spawn a task per chunk, add up the partial results."
+  code = '''
+function chunked_sum(xs; ntasks = 4)
+    len = cld(length(xs), ntasks)
+    tasks = [Threads.@spawn sum(chunk) for chunk in Iterators.partition(xs, len)]
+    return sum(fetch, tasks)
+end
+chunked_sum(1:1_000_000)
+'''
+
+[[section]]
+title = "Data races and how to avoid them"
+body = '''
+A **data race** happens when tasks update shared state with a read, then a
+write, and another task gets in between. `total[] += 1` is exactly that: read
+`total[]`, add 1, write it back. With several threads, two tasks can read the
+same old value and one increment is lost, so the result changes from run to
+run.
+
+On one thread the tasks only switch at yield points, so the race stays hidden.
+The example below makes it visible anyway by yielding between the read and
+the write: four tasks each add 1 a thousand times, and the total is 1000, not
+4000. (With real threads the lost updates happen without any `yield`.)
+
+Three race-free fixes, from best to worst for speed:
+
+* **Per-task partial results**, combined at the end with `fetch` (the
+  `chunked_sum` above). No shared state at all.
+* **`Threads.Atomic{Int}`** with `Threads.atomic_add!`: the read-modify-write
+  becomes one indivisible hardware operation. Works for plain numbers only.
+* **A lock** (`ReentrantLock`), held during the whole read-modify-write with
+  `lock(l) do ... end`. Works for anything (a `Dict`, a `push!`), but tasks
+  queue up to take turns.
+'''
+
+  [[section.example]]
+  caption = "A race made visible on one thread: lost updates."
+  code = '''
+total = Ref(0)
+@sync for i in 1:4
+    Threads.@spawn for _ in 1:1000
+        t = total[]
+        yield()            # another task runs between the read and the write
+        total[] = t + 1
+    end
+end
+total[]
+'''
+
+  [[section.example]]
+  caption = "The same loop with the read-modify-write inside a lock."
+  code = '''
+total = Ref(0)
+l = ReentrantLock()
+@sync for i in 1:4
+    Threads.@spawn for _ in 1:1000
+        lock(l) do
+            t = total[]
+            yield()
+            total[] = t + 1
+        end
+    end
+end
+total[]
+'''
+
+  [[section.example]]
+  caption = "An atomic counter: `atomic_add!` returns the old value and adds in one step."
+  code = '''
+total = Threads.Atomic{Int}(0)
+@sync for i in 1:4
+    Threads.@spawn for _ in 1:1000
+        Threads.atomic_add!(total, 1)
+    end
+end
+total[]
+'''
+
+[[section]]
+title = "Beyond one process: Distributed and GPUs"
+body = '''
+Threads share memory inside one Julia process. Two other kinds of parallelism
+are worth knowing about (they are not available in this sandbox):
+
+* **Distributed** (a standard library): `addprocs(4)` starts worker
+  *processes*, possibly on other machines; `@everywhere` defines code on all of
+  them, and `pmap(f, xs)` or `@distributed` share out the work. Workers do not
+  share memory, so data is copied to them: worth it for large independent jobs.
+* **GPUs**: packages such as CUDA.jl (NVIDIA), AMDGPU.jl and Metal.jl (Apple)
+  provide array types that live on the graphics card. Broadcasting and many
+  array functions on them run as GPU kernels, and you can write your own
+  kernels in Julia.
+
+Whatever the hardware, the rules from this unit carry over: split the work so
+that each worker owns its piece, and combine the results at the end.
+'''
+
+[[problem]]
+id = "channel-square-sum"
+title = "Sum of squares through a channel"
+difficulty = "core"
+kcs = ["channels", "tasks"]
+entry = "channel_square_sum"
+prompt = '''
+Write `channel_square_sum(xs)` for a `Vector{Int}` `xs`. Start a producer task
+that `put!`s every element of `xs` into a channel, then consume the channel in
+the calling function, adding up the squares of the values. Return the total
+(an `Int`, `0` for an empty vector).
+
+```julia
+channel_square_sum([1, 2, 3])   # 14
+```
+
+The grader compares results and measures speed: look at what it says about
+the channel's element type and buffer size.
+'''
+starter = '''
+function channel_square_sum(xs)
+    # your code here
+end
+'''
+reference = '''
+function channel_square_sum(xs)
+    ch = Channel{Int}(64) do ch
+        for x in xs
+            put!(ch, x)
+        end
+    end
+    s = 0
+    for x in ch
+        s += x^2
+    end
+    return s
+end
+'''
+cases = ["[1, 2, 3]", "Int[]", "[-4]", "collect(1:100)"]
+gen = "rng -> [(rand(rng, -1000:1000, rand(rng, 0:200)),) for _ in 1:15]"
+hints = [
+  "`Channel{Int}(n) do ch ... end` runs the do-block as a producer task and closes the channel when it returns.",
+  "A `for x in ch` loop in the consumer stops by itself once the producer is done; keep a running total of `x^2`.",
+]
+
+  [problem.perf]
+  args = "rand(rng, 10^6:10^7, n)"
+  sizes = [20000]
+
+  [[problem.variant]]
+  label = "sums the values instead of their squares"
+  code = '''
+function channel_square_sum(xs)
+    ch = Channel{Int}(64) do ch
+        foreach(x -> put!(ch, x), xs)
+    end
+    return sum(ch; init = 0)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "drops the last element"
+  code = '''
+function channel_square_sum(xs)
+    ch = Channel{Int}(64) do ch
+        for i in 1:length(xs)-1
+            put!(ch, xs[i])
+        end
+    end
+    s = 0
+    for x in ch
+        s += x^2
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "untyped Channel(64) is a Channel{Any}: every value is boxed"
+  code = '''
+function channel_square_sum(xs)
+    ch = Channel(64) do ch
+        for x in xs
+            put!(ch, x)
+        end
+    end
+    s = 0
+    for x in ch
+        s += x^2
+    end
+    return s
+end
+'''
+  expect = ["correct", "allocates", "unstable"]
+
+  [[problem.variant]]
+  label = "unbuffered channel: a task switch for every value"
+  code = '''
+function channel_square_sum(xs)
+    ch = Channel{Int}() do ch
+        for x in xs
+            put!(ch, x)
+        end
+    end
+    s = 0
+    for x in ch
+        s += x^2
+    end
+    return s
+end
+'''
+  expect = ["correct", "slow"]
+
+  [[problem.variant]]
+  label = "no channel at all (the grader can only check results)"
+  code = '''
+channel_square_sum(xs) = sum(abs2, xs; init = 0)
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "parallel-chunk-sum"
+title = "A race-free parallel sum"
+difficulty = "stretch"
+kcs = ["threads", "data-races"]
+entry = "parallel_sum"
+prompt = '''
+Write `parallel_sum(xs, ntasks)` for a `Vector{Int}` `xs` and a positive
+`ntasks`. Split the indices of `xs` into (at most) `ntasks` contiguous chunks,
+start one `Threads.@spawn` task per chunk that sums its chunk, and add up the
+partial sums. Return an `Int`; an empty vector sums to `0`.
+
+```julia
+parallel_sum([1, 2, 3, 4, 5], 2)   # 15
+parallel_sum(Int[], 4)             # 0
+```
+
+This problem is graded on **4 threads**, and every test case runs 10 times:
+a shared counter updated by every task gives a different, wrong total from
+run to run, and the grader reports it as a data race. Use per-task partial
+results. It also measures speed, so see what it says about atomics, locks and
+slices.
+'''
+starter = '''
+function parallel_sum(xs, ntasks)
+    # your code here
+end
+'''
+reference = '''
+function parallel_sum(xs, ntasks)
+    len = max(1, cld(length(xs), ntasks))
+    tasks = Task[]
+    for r in Iterators.partition(eachindex(xs), len)
+        push!(tasks, Threads.@spawn sum(view(xs, r)))
+    end
+    s = 0
+    for t in tasks
+        s += fetch(t)::Int
+    end
+    return s
+end
+'''
+cases = ["[1, 2, 3, 4, 5], 2", "Int[], 4", "[7], 3", "collect(1:10), 3", "collect(1:10), 20", "collect(1:1_000_000), 8"]
+gen = "rng -> [(rand(rng, -100:100, rand(rng, 0:300)), rand(rng, 1:8)) for _ in 1:20]"
+threads = 4      # graded in parallel, so a race can actually happen
+repeats = 10     # every case 10 times: a result that changes between runs is a race
+hints = [
+  "`Iterators.partition(eachindex(xs), len)` gives ranges of indices; `cld(a, b)` is division rounded up.",
+  "Collect the tasks in a vector and `fetch` each one; make sure `len` is never 0 when `xs` is empty.",
+]
+
+  [problem.perf]
+  args = "rand(rng, 1:1000, n), 4"
+  sizes = [1000000]
+
+  [[problem.variant]]
+  label = "loses the last, shorter chunk"
+  code = '''
+function parallel_sum(xs, ntasks)
+    len = length(xs) ÷ ntasks
+    tasks = [Threads.@spawn sum(view(xs, (k-1)*len+1:k*len); init = 0) for k in 1:ntasks]
+    return sum(fetch(t)::Int for t in tasks)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "fails on an empty vector (partition length 0)"
+  code = '''
+function parallel_sum(xs, ntasks)
+    len = cld(length(xs), ntasks)
+    tasks = [Threads.@spawn sum(view(xs, r)) for r in Iterators.partition(eachindex(xs), len)]
+    return sum(fetch(t)::Int for t in tasks; init = 0)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "shared atomic counter, one atomic_add! per element"
+  code = '''
+function parallel_sum(xs, ntasks)
+    acc = Threads.Atomic{Int}(0)
+    len = max(1, cld(length(xs), ntasks))
+    @sync for r in Iterators.partition(eachindex(xs), len)
+        Threads.@spawn for i in r
+            Threads.atomic_add!(acc, xs[i])
+        end
+    end
+    return acc[]
+end
+'''
+  expect = ["correct", "slow"]
+
+  [[problem.variant]]
+  label = "shared total behind a lock, one lock per element"
+  code = '''
+function parallel_sum(xs, ntasks)
+    total = Ref(0)
+    l = ReentrantLock()
+    len = max(1, cld(length(xs), ntasks))
+    @sync for r in Iterators.partition(eachindex(xs), len)
+        Threads.@spawn for i in r
+            lock(l) do
+                total[] += xs[i]
+            end
+        end
+    end
+    return total[]
+end
+'''
+  expect = ["correct", "slow"]
+
+  [[problem.variant]]
+  label = "copies each chunk with xs[r]"
+  code = '''
+function parallel_sum(xs, ntasks)
+    len = max(1, cld(length(xs), ntasks))
+    tasks = [Threads.@spawn sum(xs[r]) for r in Iterators.partition(eachindex(xs), len)]
+    return sum(fetch(t)::Int for t in tasks; init = 0)
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "racy shared counter: loses updates on 4 threads"
+  code = '''
+function parallel_sum(xs, ntasks)
+    total = Ref(0)
+    len = max(1, cld(length(xs), ntasks))
+    @sync for r in Iterators.partition(eachindex(xs), len)
+        Threads.@spawn for i in r
+            total[] += xs[i]
+        end
+    end
+    return total[]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the same chunks with a comprehension and fetch"
+  code = '''
+function parallel_sum(xs, ntasks)
+    len = max(1, cld(length(xs), ntasks))
+    tasks = [Threads.@spawn sum(view(xs, r)) for r in Iterators.partition(eachindex(xs), len)]
+    return sum(t -> fetch(t)::Int, tasks; init = 0)
+end
+'''
+  expect = ["correct", "fast"]

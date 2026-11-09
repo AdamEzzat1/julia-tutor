@@ -1,0 +1,132 @@
+# Seeded faults in reference/src (one exact snippet replaced each).
+# `tutor guided verify production` requires each to fail the acceptance test
+# set of its behaviour and to be caught by the exemplary tests (reference/test).
+# Students see only the behaviour a surviving mutant breaks, never the edit.
+
+[[mutant]]
+id = "minimises"
+milestone = 1
+behaviour = "plan-optimal"
+file = "Production.jl"
+find = "@objective(model, Max,"
+replace = "@objective(model, Min,"
+
+[[mutant]]
+id = "profit-is-units"
+milestone = 1
+behaviour = "plan-optimal"
+file = "Production.jl"
+find = "profit = objective_value(model)"
+replace = "profit = sum(value.(x))"
+
+[[mutant]]
+id = "no-lower-bound"
+milestone = 1
+behaviour = "plan-feasible"
+file = "Production.jl"
+find = "@variable(model, x[1:np] >= 0)"
+replace = "@variable(model, x[1:np])"
+
+[[mutant]]
+id = "use-transposed"
+milestone = 1
+behaviour = "plan-feasible"
+file = "Production.jl"
+find = "sum(use[r, p] * x[p] for p in 1:np)"
+replace = "sum(use[p, r] * x[p] for p in 1:np)"
+
+[[mutant]]
+id = "no-status-check"
+milestone = 1
+behaviour = "plan-status"
+file = "Production.jl"
+find = "    st == MOI.OPTIMAL || error(\"the plan has no optimum: the solver reports $st\")\n"
+replace = ""
+
+[[mutant]]
+id = "raw-dual"
+milestone = 2
+behaviour = "shadow-prices"
+file = "Production.jl"
+find = "[shadow_price(c) for c in cons]"
+replace = "[dual(c) for c in cons]"
+
+[[mutant]]
+id = "reduced-costs"
+milestone = 2
+behaviour = "shadow-prices"
+file = "Production.jl"
+find = "    _, _, cons = plan_model(margin, use, capacity)\n    return [shadow_price(c) for c in cons]"
+replace = "    _, x, _ = plan_model(margin, use, capacity)\n    return [reduced_cost(v) for v in x]"
+
+[[mutant]]
+id = "product-ignored"
+milestone = 3
+behaviour = "break-even"
+file = "Production.jl"
+find = "solve_plan(mg, use, capacity).units[product] - MADE"
+replace = "solve_plan(mg, use, capacity).units[1] - MADE"
+
+[[mutant]]
+id = "no-threshold"
+milestone = 3
+behaviour = "break-even"
+file = "Production.jl"
+find = "solve_plan(mg, use, capacity).units[product] - MADE"
+replace = "solve_plan(mg, use, capacity).units[product]"
+
+[[mutant]]
+id = "fixed-bracket"
+milestone = 3
+behaviour = "break-even-bracket"
+file = "Production.jl"
+find = '''
+    hi = 1.0
+    while excess(hi) <= 0
+        hi > MAX_MARGIN && return Inf
+        hi *= 2
+    end
+'''
+replace = '''
+    hi = 10.0
+'''
+
+[[mutant]]
+id = "returns-cap"
+milestone = 3
+behaviour = "never-made"
+file = "Production.jl"
+find = "hi > MAX_MARGIN && return Inf"
+replace = "hi > MAX_MARGIN && return hi"
+
+[[mutant]]
+id = "minimum-not-minimizer"
+milestone = 4
+behaviour = "price-optimum"
+file = "Production.jl"
+find = "return Optim.minimizer(res)[1]"
+replace = "return Optim.minimum(res)"
+
+[[mutant]]
+id = "profit-not-negated"
+milestone = 4
+behaviour = "price-optimum"
+file = "Production.jl"
+find = "negprofit(v) = -(v[1] - cost) * q(v[1])"
+replace = "negprofit(v) = (v[1] - cost) * q(v[1])"
+
+[[mutant]]
+id = "cost-dropped"
+milestone = 4
+behaviour = "price-general"
+file = "Production.jl"
+find = "negprofit(v) = -(v[1] - cost) * q(v[1])"
+replace = "negprofit(v) = -v[1] * q(v[1])"
+
+[[mutant]]
+id = "finite-differences"
+milestone = 4
+behaviour = "gradient-ad"
+file = "Production.jl"
+find = "LBFGS(); autodiff = Optim.ADTypes.AutoForwardDiff())"
+replace = "LBFGS())"
