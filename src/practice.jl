@@ -402,7 +402,10 @@ end
 function samples(p::Course.Problem, env)
     calls = join(["println(\"<<<case>>>\"); try show(stdout, MIME\"text/plain\"(), $(p.entry)($a)) catch e; print(\"throws \", typeof(e)) end; println()"
                   for a in p.cases], "\n")
-    r = run_code(p.reference * "\n" * calls * "\nnothing"; env, mode = "file", timeout = 120)
+    # Cases see what the grader's Cases module loads (Random and the problem's
+    # packages, else the env's), not only what the reference happens to load.
+    usings = join(["using " * x for x in ["Random"; isempty(p.packages) ? env_deps(env) : p.packages]], "\n")
+    r = run_code(usings * "\n" * p.reference * "\n" * calls * "\nnothing"; env, mode = "file", timeout = 120)
     r.ok || error("reference for $(p.id) failed:\n$(r.output)")
     parts = split(r.output, "<<<case>>>\n")[2:end]
     length(parts) == length(p.cases) || error("$(p.id): sample output has $(length(parts)) parts for $(length(p.cases)) cases")
@@ -506,11 +509,17 @@ function question_key_problems(u::Course.Unit, rec)
         got = rstrip(r["output"])
         comparable(q.choices[q.answer]) == comparable(got) ||
             push!(out, "$(u.id) question $i: the answer is not the code's output\n--- answer\n$(q.choices[q.answer])\n--- output\n$got")
-        count(c -> comparable(c) == comparable(got), q.choices) == 1 ||
+        # (no matching choice at all is the message above: the answer is not the output)
+        count(c -> comparable(c) == comparable(got), q.choices) > 1 &&
             push!(out, "$(u.id) question $i: more than one choice equals the output")
     end
     return out
 end
+
+# Verdicts that come from timing (allocations and type stability are counted,
+# not timed, so they are deterministic and never re-measured).
+const PERF_VERDICTS = ("slow", "fast", "scaling")
+const PERF_RETRIES = 2
 
 """
 Check a unit against its recorded outputs and run the grader's own tests.
@@ -552,6 +561,17 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
         for (label, code, expect) in jobs
             r = grade(p, code; env = u.env)
             println(log, "  ", rpad(p.id * "/" * label, 46), "  ", r["status"], "  ", join(r["verdicts"], ","))
+            # Speed verdicts are measurements; on a shared machine one can miss
+            # its threshold by noise. Re-measure up to PERF_RETRIES times before
+            # reporting; correctness verdicts are never retried.
+            for attempt in 1:PERF_RETRIES
+                missing_perf = [x for x in expect if x in PERF_VERDICTS && !(x in r["verdicts"])]
+                isempty(missing_perf) && break
+                "correct" in r["verdicts"] || break   # wrong or crashed: nothing was timed
+                r = grade(p, code; env = u.env)
+                println(log, "  ", rpad(p.id * "/" * label, 46), "  ", r["status"], "  ", join(r["verdicts"], ","),
+                        "  (re-measured: '", join(missing_perf, "', '"), "' was missing)")
+            end
             label == "starter" && r["status"] == "passed" &&
                 push!(problems, "$(p.id): the starter already passes (the problem is trivial)")
             r["status"] == "internal-error" && push!(problems, "$(p.id): $(r["feedback"][1]["detail"])")

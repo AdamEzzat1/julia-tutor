@@ -24,10 +24,11 @@ export Unit, Section, Example, Question, Problem, Perf, Variant, load_course, va
        example_key, outputs_path, load_outputs, env_dir, TRACKS, TRACK_REQUIRES, find_problem
 
 const COURSE_DIR = normpath(joinpath(@__DIR__, "..", "course"))
-const TRACKS = ["foundations", "core", "advanced", "ecosystem", "sciml"]
+const TRACKS = ["foundations", "core", "advanced", "ecosystem", "scicomp", "sciml"]
 # A track that assumes whole earlier tracks: every unit of those comes first in
 # the syllabus, and each of its units names the earlier units it builds on.
-const TRACK_REQUIRES = Dict("sciml" => ["foundations", "core", "advanced", "ecosystem"])
+const TRACK_REQUIRES = Dict("scicomp" => ["foundations", "core", "advanced", "ecosystem"],
+                            "sciml" => ["foundations", "core", "advanced", "ecosystem", "scicomp"])
 const DIFFICULTIES = ["warm-up", "core", "stretch"]
 const VARIANT_EXPECT = ["correct", "incorrect", "load-error", "slow", "allocates", "unstable", "scaling", "fast"]
 

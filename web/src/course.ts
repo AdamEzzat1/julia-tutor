@@ -59,7 +59,7 @@ export interface Problem {
   perf: { sizes: number[]; mutates: boolean } | null;
 }
 
-export type Track = "foundations" | "core" | "advanced" | "ecosystem" | "sciml";
+export type Track = "foundations" | "core" | "advanced" | "ecosystem" | "scicomp" | "sciml";
 
 export interface Unit {
   id: string;
@@ -93,6 +93,7 @@ export const TRACK_LABEL: Record<Track, string> = {
   core: "Core language",
   advanced: "Advanced",
   ecosystem: "Ecosystem",
+  scicomp: "Scientific computing",
   sciml: "Scientific ML",
 };
 
@@ -101,6 +102,7 @@ export const TRACK_BLURB: Record<Track, string> = {
   core: "Types, dispatch, errors, iteration, modules and I/O: how Julia programs are built.",
   advanced: "Performance, generic code, metaprogramming, interfaces, concurrency and the compiler.",
   ecosystem: "The standard library and the packages Julia is used for, in pinned environments.",
+  scicomp: "Numerical methods you can trust: conditioning, error control, linear solvers, DAEs, stochastic models, constrained optimization and parallel limits.",
   sciml: "Differential equations with learned parts: sensitivities, adjoints, neural and universal ODEs, SINDy and PINNs.",
 };
 

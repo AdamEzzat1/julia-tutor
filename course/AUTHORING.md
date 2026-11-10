@@ -63,7 +63,12 @@ Manifest.toml. Current ones: `base` (stdlib), `data` (DataFrames, CSV),
 DecisionTree, MLJDecisionTreeInterface, MLJLinearModels), `turing` (Turing),
 `python` (PythonCall, with the system Python and NumPy; no CondaPkg),
 `sciml` (OrdinaryDiffEq, SciMLSensitivity, Lux, ComponentArrays, Optimization,
-OptimizationOptimisers, OptimizationOptimJL, ForwardDiff, Zygote, StableRNGs).
+OptimizationOptimisers, OptimizationOptimJL, ForwardDiff, Zygote, StableRNGs),
+`scicomp` (LinearSolve, Krylov, IncompleteLU, SparseArrays, OrdinaryDiffEq 7,
+StochasticDiffEq, DelayDiffEq, ForwardDiff, JuMP, HiGHS, Ipopt, OhMyThreads,
+KernelAbstractions, BenchmarkTools, StableRNGs), `mtk` (ModelingToolkitBase,
+ModelingToolkitStandardLibrary, OrdinaryDiffEq; MIT-licensed parts only: full
+ModelingToolkit's index reduction is AGPL, see docs/SCICOMP_PLAN.md).
 Adding a package is a change to the Manifest: it rebuilds the sandbox image
 (`tutor sandbox build`) and must be justified in the PR.
 

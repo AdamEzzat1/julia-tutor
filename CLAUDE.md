@@ -340,6 +340,15 @@ every role above has had the chance to object (recorded in the PR).
   MCMC digits in units 26/27 moved between CPUs. A sample that moves more is
   printed with its old and new value. Whether the Turing samples stay inside
   1e-4 on every CPU is not known; a diverging chain would exceed it.
+* Timed verdicts (`slow`, `fast`, `scaling`) are re-measured up to twice in
+  `verify` before a missing one is reported (`Practice.PERF_RETRIES`); each
+  retry is logged. On the shared CI runner two different timed verdicts missed
+  in each of two runs (2026-11-10), each passing locally. A verdict that only
+  appears on a retry is near its threshold; `allocates` and `unstable` are
+  counted, not timed, and are never retried.
+* The `mtk` env holds ModelingToolkitBase (MIT) only: full ModelingToolkit's
+  index reduction and tearing are AGPL since v11, a licensing decision for the
+  project owner. Unit 36 teaches index reduction by hand.
 
 ## Required end-of-session report
 
