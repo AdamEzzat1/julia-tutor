@@ -12,6 +12,9 @@ step "tutor test suite"
 julia_pinned --project=. --check-bounds=yes test/runtests.jl
 for p in projects/*/; do
   name=$(basename "$p")
+  # projects/guided/ holds the guided build projects (their own format and
+  # self-test, run below), not a scaffolded project with reference/ and holes.
+  [ "$name" = guided ] && continue
   step "$name: reference tests"
   (cd "$p/reference" && julia_pinned --project=. --check-bounds=yes test/runtests.jl)
   step "$name: checker on reference"
@@ -27,6 +30,8 @@ for p in projects/*/; do
 done
 step "course: example outputs, problem samples, grader self-tests (variants)"
 ./tutor course verify
+step "guided projects: reference, mutants, exemplary tests, fixtures (docs/GUIDED.md)"
+./tutor guided verify --sandbox=docker
 step "website data is generated from verified sources"
 ./tutor site-data --check
 step "lesson answer keys"
