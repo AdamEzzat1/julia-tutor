@@ -29,7 +29,9 @@ for p in projects/*/; do
   ./tutor fixtures "$name" --check
 done
 step "course: example outputs, problem samples, grader self-tests (variants)"
-./tutor course verify
+# The recorded outputs come from the container (the python env's NumPy, the
+# stdlib paths in error messages and the log order all differ on a plain host).
+./tutor course verify --sandbox=docker
 step "guided projects: reference, mutants, exemplary tests, fixtures (docs/GUIDED.md)"
 ./tutor guided verify --sandbox=docker
 step "website data is generated from verified sources"

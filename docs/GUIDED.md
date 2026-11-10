@@ -325,7 +325,30 @@ milestone 3; the course's choice-question length rule in `validate` (at most
 as the unique longest choice, and 40% as the unique shortest), which also
 made three tidy questions rebalance.
 
-VERIFY_TABLE
+`tutor guided verify` results. Host rows were measured on 2026-11-09 with
+`--sandbox=none` after the last change to `src/guided.jl`. Container rows
+come from each project's own `--sandbox=docker` run while it was built
+(the same day, before the final `src/guided.jl` edits); a full container
+re-run on the final code is still owed (see below).
+
+| project | env | mode | result | mutants | fixtures (verdicts all as expected) | time |
+|---|---|---|---|---|---|---|
+| tidy | data | host | verified | 24 | 7: no-tests, passed, weak-tests, tests-fail-reference, checker-warn, load-error, acceptance-fail+weak-tests | 6m19s |
+| derivcheck | calculus | host | verified | 15 | 4: passed, acceptance-fail, weak-tests, acceptance-fail+weak-tests+checker-warn | 5m25s |
+| pybridge | python | host | verified; reference perf `correct,fast` | 14 | 6: passed, acceptance-fail, tests-fail-reference, checker-warn, weak-tests, perf-fail | 3m31s |
+| pybridge | python | container | verified; reference perf `correct,fast` | 14 | 6, same verdicts | 4m07s |
+| classify | ml | container | verified (build run) | 19 | 5: passed, weak-tests, tests-fail-reference, weak-tests+checker-warn, acceptance-fail+weak-tests | 2m41s |
+| figures | plots | container | verified (build run) | 23 | 5: m1-good, m1-weak-tests, m1-float-eq, m1-disagree, m2-wrong-code | 5m09s |
+| epidemic | diffeq | container | verified (build run) | 22 | 4: passed, acceptance-fail+weak-tests, checker-warn, weak-tests | 7m54s |
+| bayesreg | turing | container | verified (build run) | 15 | 4: weak-tests, tests-fail-reference+checker-warn, acceptance-fail+tests-fail-reference, passed | 16m06s |
+| production | optim | container | verified (build run) | 15 | 4: passed, acceptance-fail+tests-fail-reference, acceptance-fail+weak-tests, weak-tests+checker-warn | 11m54s |
+
+Owed: the container re-run of all eight on the final code. The local Docker
+VM failed to start, and CI run 42733280616 stopped at `tutor course verify`
+before reaching the guided step: `scripts/verify_all.sh` ran the course
+check as plain processes on the runner instead of in the container the
+outputs were recorded in (49 problems, mostly `No module named 'numpy'`).
+The script now passes `--sandbox=docker` there too.
 
 Spec changes from the planned versions, each forced by the env or by
 making a behaviour testable:
