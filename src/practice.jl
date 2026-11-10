@@ -178,7 +178,8 @@ function grade(p::Course.Problem, code::AbstractString; env::AbstractString = "b
     open(io -> TOML.print(io, job_dict(p, code; env)), jobpath, "w")
     t = time()
     rc, to, log = child(["grade", jobpath, outpath], dir; env, timeout, threads = p.threads)
-    raw = isfile(outpath) ? TOML.parsefile(outpath) : nothing
+    raw = isfile(outpath) ? TOML.tryparsefile(outpath) : nothing
+    raw isa Dict && haskey(raw, "status") || (raw = nothing)   # unreadable or partial: a crash
     rm(dir; recursive = true, force = true)
     log = out_of_memory(rc, to) ? OOM_MESSAGE * "\n" * log : log
     r = assess(p, raw; timed_out = to, log = clip(log, 4000), findings = static_findings(code))

@@ -1,0 +1,869 @@
+id = "39-integer-modelling"
+title = "Modelling discipline in JuMP: integer programs"
+track = "scicomp"
+env = "scicomp"
+status = "ready"
+summary = "How the way you write a mixed-integer model decides whether the solver can solve it, and whether its answer is right: the LP relaxation bound and why a tighter formulation helps, sizing big-M from variable bounds, a big M that lets the integrality tolerance open a facility by a millionth, a small M that silently cuts off the optimum, indicator constraints and how HiGHS reformulates them, and linearizing products of binaries, all on a facility-location model with deterministic relaxation bounds."
+kcs = ["lp-relaxation", "big-m", "indicator-constraints", "linearization", "mip-tolerances"]
+prerequisites = ["25-optimization", "38-constrained-optimization"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+Unit 25 solved a knapsack with binary variables; this unit is about
+writing such models so that the solver's answer is fast and correct. It
+relies on four facts:
+
+* **Branch and bound** solves LP relaxations (integrality dropped), and
+  prunes a branch when its relaxation bound cannot beat the best integer
+  solution so far (unit 25, section "Integer variables: a knapsack").
+* **HiGHS stops at a relative gap** `mip_rel_gap` (default `1e-4`); set it
+  to 0 for an exact optimum, and read integers with `round(Int, value(y))`
+  because they come back within a tolerance (same section).
+* **The LP relaxation is a bound**: for a minimization, the relaxation's
+  optimum is at most the integer optimum (the knapsack's LP bound 240
+  against the integer 220 in unit 25, for a maximization).
+* **A solver's status certifies its own test, within its tolerances**, not
+  that the model says what you meant (unit 38, section "Checking the KKT
+  conditions at a solver's answer").
+
+Every facility-location example uses the same data from `StableRNG(2024)`.
+Relaxation bounds and optimal values are deterministic (an LP's optimal
+value is unique even when its solution is not); node counts and times are
+not, so no example shows them.
+'''
+
+[[section]]
+title = "The LP relaxation, and why formulations differ"
+body = '''
+**Uncapacitated facility location**: open some of 8 facilities (binary
+`y_j`, fixed cost `f_j`) and serve each of 30 customers from open ones
+(`x_ij ≥ 0`, the fraction of customer `i` served by `j`, cost `c_ij`):
+
+    min  Σ f_j y_j + Σ c_ij x_ij
+    s.t. Σ_j x_ij = 1               every customer is served
+         x_ij can be > 0 only if y_j = 1
+
+The last line must become linear constraints, and there are two classic
+ways, with **the same integer solutions**:
+
+* **aggregated**: `Σ_i x_ij ≤ 30 y_j` (one constraint per facility);
+* **disaggregated**: `x_ij ≤ y_j` (one per pair).
+
+Their LP relaxations differ. A fractional `y_j = 0.1` lets a facility serve
+three whole customers in the aggregated form but only a tenth of each in
+the disaggregated one. The relaxation of the disaggregated form is
+**tighter** (its feasible set is smaller), so its bound is higher, closer
+to the integer optimum, and branch and bound prunes more. On this instance
+its bound equals the integer optimum, so there is no gap left for branch
+and bound to close.
+'''
+
+  [[section.example]]
+  caption = "Facility location (8 facilities, 30 customers, `StableRNG(2024)`) in the two formulations: the LP relaxation bound (`relax_integrality`) and the integer optimum, rounded to 4 digits."
+  notice = "Notice that both formulations reach the same integer optimum, 81.1509, with the same open facilities, while their relaxation bounds are 65.05 and 81.15: the aggregated form leaves a gap of 20% for branch and bound to close, the disaggregated form none."
+  code = '''
+using JuMP, HiGHS, StableRNGs
+rng = StableRNG(2024)
+nf, nc = 8, 30
+fx, fy, cx, cy = rand(rng, nf), rand(rng, nf), rand(rng, nc), rand(rng, nc)
+cost = [10 * hypot(cx[i] - fx[j], cy[i] - fy[j]) for i in 1:nc, j in 1:nf]
+fixed = 3.0 .+ rand(rng, nf)
+function facility(form; relax = false)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    @variable(model, y[1:nf], Bin)
+    @variable(model, 0 <= x[1:nc, 1:nf] <= 1)
+    @constraint(model, [i in 1:nc], sum(x[i, :]) == 1)
+    if form == :aggregated
+        @constraint(model, [j in 1:nf], sum(x[:, j]) <= nc * y[j])
+    else
+        @constraint(model, [i in 1:nc, j in 1:nf], x[i, j] <= y[j])
+    end
+    @objective(model, Min, sum(fixed .* y) + sum(cost .* x))
+    relax && relax_integrality(model)
+    optimize!(model)
+    return model
+end
+for form in (:aggregated, :disaggregated)
+    lp, mip = facility(form; relax = true), facility(form)
+    println(rpad(form, 14), " LP bound ", rpad(round(objective_value(lp); digits = 4), 8), " integer optimum ",
+            round(objective_value(mip); digits = 4), "  open ", findall(round.(Int, value.(mip[:y])) .== 1))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Two formulations of the same minimization problem have the same integer solutions. One has LP relaxation bound 65, the other 81, and the integer optimum is 81. Which do you expect branch and bound to solve with fewer nodes?"
+  choices = [
+    "The one with bound 65, since its relaxation is easier to solve",
+    "The one with bound 81, since it prunes branches sooner",
+    "Neither: the same integer solutions give the same search tree",
+  ]
+  answer = 2
+  explain = "A node is pruned when its bound reaches the best known integer value. With the tighter formulation the root bound already equals the optimum, so every branch is pruned as soon as an optimal solution is found; with bound 65, the solver must branch until it has raised the bound by 16."
+  misconceptions = [
+    "Each relaxation is an LP of similar size; what costs time in branch and bound is the number of nodes, which the bound controls.",
+    "",
+    "The search depends on the relaxations at each node, and those differ between formulations even when the integer points are the same.",
+  ]
+
+[[section]]
+title = "Sizing big-M from bounds"
+body = '''
+A **big-M** constraint switches a constraint off with a binary: for
+`x_ij ≤ M y_j`, `y_j = 1` gives `x_ij ≤ M`, which must not cut off any
+feasible `x_ij`, and `y_j = 0` gives `x_ij ≤ 0`. So `M` must be at least
+the largest value `x_ij` can take; here the bounds `0 ≤ x_ij ≤ 1` make
+`M = 1` valid and also the **tightest** valid value.
+
+The general rule: to make `a'x ≤ b` hold only when `z = 1`, write
+`a'x ≤ b + M (1 - z)` with
+
+    M = max over the domain of (a'x - b)
+
+which for box bounds `lo ≤ x ≤ hi` is `Σ_i max(a_i lo_i, a_i hi_i) - b`
+(each term takes the bound that makes `a_i x_i` largest). A larger `M` is
+still valid but weakens the relaxation: with `y_j = x_ij / M` the
+relaxation pays only a fraction `1/M` of the fixed cost. Big-M with the
+tightest `M = 1` is the disaggregated formulation of the last section.
+
+The [JuMP tips and tricks](https://jump.dev/JuMP.jl/stable/tutorials/linear/tips_and_tricks/)
+page gives the advice in one line: "Try to use domain knowledge to choose
+an `M` that is just right", and warns about both directions, which the next
+two sections show.
+'''
+
+  [[section.example]]
+  caption = "The disaggregated model written as `x[i, j] <= M * y[j]` with `M = 1e6`, `100` and `1`: LP bound and integer optimum (rounded to 4 digits)."
+  notice = "Notice that with the default presolve all three return the right optimum, 81.1509, but the bound with `M = 1e6` or `100` is 61.65 or 61.90, close to the last line, the cost of serving every customer from its nearest facility with no fixed cost at all: a loose `M` makes the relaxation ignore the fixed costs."
+  code = '''
+using JuMP, HiGHS, StableRNGs
+rng = StableRNG(2024)
+nf, nc = 8, 30
+fx, fy, cx, cy = rand(rng, nf), rand(rng, nf), rand(rng, nc), rand(rng, nc)
+cost = [10 * hypot(cx[i] - fx[j], cy[i] - fy[j]) for i in 1:nc, j in 1:nf]
+fixed = 3.0 .+ rand(rng, nf)
+function facility(M; relax = false)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    @variable(model, y[1:nf], Bin)
+    @variable(model, x[1:nc, 1:nf] >= 0)
+    @constraint(model, [i in 1:nc], sum(x[i, :]) == 1)
+    @constraint(model, [i in 1:nc, j in 1:nf], x[i, j] <= M * y[j])
+    @objective(model, Min, sum(fixed .* y) + sum(cost .* x))
+    relax && relax_integrality(model)
+    optimize!(model)
+    return model
+end
+for M in (1e6, 100.0, 1.0)
+    println("M = ", rpad(M, 6), " LP bound ", rpad(round(objective_value(facility(M; relax = true)); digits = 4), 8),
+            " integer optimum ", round(objective_value(facility(M)); digits = 4))
+end
+println("nearest facility for everyone, no fixed cost: ", round(sum(minimum(cost; dims = 2)); digits = 4))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "To enforce `3x₁ - 2x₂ ≤ 4` only when `z = 1`, with `0 ≤ x₁ ≤ 5` and `0 ≤ x₂ ≤ 10`, you write `3x₁ - 2x₂ ≤ 4 + M(1 - z)`. What is the smallest valid `M`?"
+  choices = [
+    "11, the largest value of `3x₁ - 2x₂ - 4` on the box",
+    "31, from the largest `x₁` and the largest `x₂`",
+    "1e6, since any large number is safe",
+    "15, from the largest value of `3x₁`",
+  ]
+  answer = 1
+  explain = "With `z = 0` the constraint must allow every point of the box, so `M ≥ max(3x₁ - 2x₂) - 4 = 3·5 - 2·0 - 4 = 11`. Each term takes the bound that makes it largest: `x₁ = 5` for the positive coefficient, `x₂ = 0` for the negative one."
+  misconceptions = [
+    "",
+    "`x₂` has a negative coefficient, so its upper bound makes `3x₁ - 2x₂` smaller, not larger; adding `2 · 10` to the bound double counts in the wrong direction.",
+    "A huge `M` is valid but weakens the relaxation and, with the integrality tolerance, can produce wrong answers (next section).",
+    "That forgets to subtract the right-hand side 4: the constraint already allows `3x₁ - 2x₂` up to 4 without any `M`.",
+  ]
+
+[[section]]
+title = "Too big: the integrality tolerance opens a facility by a millionth"
+body = '''
+A MIP solver accepts a value as integer when it is within a tolerance:
+HiGHS's `mip_feasibility_tolerance` ("MIP integrality tolerance") defaults
+to `1e-6` according to its [options
+list](https://ergo-code.github.io/HiGHS/dev/options/definitions/). With
+`M = 1e6`, the value `y_j = 1e-6` counts as 0, yet `x_ij ≤ M y_j` then
+allows `x_ij ≤ 1`: a facility that is "closed" serves customers in full,
+and its fixed cost is paid only a millionth. The solver has found a
+solution that is feasible **by its tolerances** and wrong for the model.
+
+In the previous section HiGHS's presolve protected us (presolve can tighten
+the coefficients of such rows). With presolve switched off the problem
+shows. The JuMP tips page warns: "If `M` is too big, the solver may
+encounter numerical issues."
+
+The check is the one from unit 38: take the solver's answer, round the
+integer variables, and evaluate the model's constraints yourself.
+'''
+
+  [[section.example]]
+  caption = "The `M = 1e6` model with `presolve = \"off\"`: status, objective, the largest `y_j` that rounds to 0 and how many of those are above 0, and the worst violation of `x[i, j] <= y[j]` after rounding the `y` (rounded to 4 digits)."
+  notice = "Notice that HiGHS reports `OPTIMAL` with objective 61.6512, the relaxation bound, with every facility closed: seven of the eight `y_j` are `1e-6`, exactly the integrality tolerance (the eighth facility serves no one and is 0), and after rounding customers are served by closed facilities in full (violation 1.0). The same model with `M = 1` gives 81.1509 with presolve off too."
+  code = '''
+using JuMP, HiGHS, StableRNGs
+rng = StableRNG(2024)
+nf, nc = 8, 30
+fx, fy, cx, cy = rand(rng, nf), rand(rng, nf), rand(rng, nc), rand(rng, nc)
+cost = [10 * hypot(cx[i] - fx[j], cy[i] - fy[j]) for i in 1:nc, j in 1:nf]
+fixed = 3.0 .+ rand(rng, nf)
+for M in (1e6, 1.0)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    set_attribute(model, "presolve", "off")
+    @variable(model, y[1:nf], Bin)
+    @variable(model, x[1:nc, 1:nf] >= 0)
+    @constraint(model, [i in 1:nc], sum(x[i, :]) == 1)
+    @constraint(model, [i in 1:nc, j in 1:nf], x[i, j] <= M * y[j])
+    @objective(model, Min, sum(fixed .* y) + sum(cost .* x))
+    optimize!(model)
+    yv, xv = value.(y), value.(x)
+    yr = round.(Int, yv)
+    closed = [yv[j] for j in 1:nf if yr[j] == 0]
+    println("M = ", rpad(M, 6), termination_status(model), ", objective ", round(objective_value(model); digits = 4),
+            ", open ", count(==(1), yr), ", largest y rounded to 0: ", isempty(closed) ? "none" : maximum(closed),
+            " (", count(>(0), closed), " of them above 0)",
+            ", violation after rounding ", round(maximum(xv[i, j] - yr[j] for i in 1:nc, j in 1:nf); digits = 4) + 0.0)
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A model has `x ≤ 1e7 · z` with `z` binary and HiGHS's integrality tolerance `1e-6`. The solver reports `z = 0` (after rounding) and `x = 10`. Is that a solution of your model?"
+  choices = [
+    "Yes: the solver returned `OPTIMAL`, so the constraints hold",
+    "No: `z` can be about `1e-6`, which allows `x` up to 10",
+    "Yes, since rounding `z` to 0 is how integers are read",
+  ]
+  answer = 2
+  explain = "`z = 1e-6` passes the integrality test, and `1e7 · 1e-6 = 10`. The solver's model is satisfied within tolerance; yours, with `z` exactly 0, is not. Use the smallest valid `M` and check the rounded solution against the constraints."
+  misconceptions = [
+    "`OPTIMAL` means optimal within HiGHS's tolerances; with `M` this large, a tolerance on `z` becomes a large slack on `x`.",
+    "",
+    "Rounding is how to read the answer, but the rounded `z = 0` with `x = 10` violates `x ≤ 1e7 · z`; the solver never had to satisfy that.",
+  ]
+
+[[section]]
+title = "Too small: a cut-off optimum, reported as optimal"
+body = '''
+An `M` below the tightest valid value is a different model: it forbids
+feasible points. With `x_ij ≤ 0.5 y_j`, no facility can serve a customer
+alone, so every customer must be split between two open facilities. The
+solver solves this model correctly and reports `OPTIMAL`; nothing in its
+output says the model is not the one you meant. The JuMP tips page: "If
+`M` is too small, the solution may be suboptimal."
+
+Two checks catch it:
+
+* **Bounds**: compute the tightest `M` from the variables' bounds, as in
+  the previous section, and compare.
+* **Tight big-M rows**: in the answer, a big-M row `x ≤ M y` that holds
+  with equality while `y = 1` means `M` itself is limiting the solution.
+  With a valid `M`, such a row is tight only because `x` reached its own
+  bound.
+'''
+
+  [[section.example]]
+  caption = "The model with `M = 0.5` against `M = 1`: objective, open facilities, and how many rows `x[i, j] <= M y[j]` are tight with `y[j] = 1` (to `1e-6`)."
+  notice = "Notice that `M = 0.5` gives a solution 24% more expensive, with six facilities instead of five, reported as `OPTIMAL`, and that 60 big-M rows are tight: every customer is split in halves, pushed against the artificial limit."
+  code = '''
+using JuMP, HiGHS, StableRNGs
+rng = StableRNG(2024)
+nf, nc = 8, 30
+fx, fy, cx, cy = rand(rng, nf), rand(rng, nf), rand(rng, nc), rand(rng, nc)
+cost = [10 * hypot(cx[i] - fx[j], cy[i] - fy[j]) for i in 1:nc, j in 1:nf]
+fixed = 3.0 .+ rand(rng, nf)
+for M in (0.5, 1.0)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    @variable(model, y[1:nf], Bin)
+    @variable(model, x[1:nc, 1:nf] >= 0)
+    @constraint(model, [i in 1:nc], sum(x[i, :]) == 1)
+    @constraint(model, [i in 1:nc, j in 1:nf], x[i, j] <= M * y[j])
+    @objective(model, Min, sum(fixed .* y) + sum(cost .* x))
+    optimize!(model)
+    yr = round.(Int, value.(y))
+    tight = count(yr[j] == 1 && abs(value(x[i, j]) - M) < 1e-6 for i in 1:nc, j in 1:nf)
+    println("M = ", M, ": ", termination_status(model), ", objective ", round(objective_value(model); digits = 4),
+            ", open ", count(==(1), yr), ", tight big-M rows ", tight)
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Your MIP returns `OPTIMAL`, and in the solution many big-M rows `x ≤ M y` with `y = 1` hold with equality, at values of `x` below `x`'s own upper bound. What should you suspect?"
+  choices = [
+    "The solution is degenerate, which is common and harmless in LPs",
+    "`M` is smaller than the tightest valid value and is cutting off solutions",
+    "The integrality tolerance is too loose for the size of `M`",
+  ]
+  answer = 2
+  explain = "With a valid `M`, `x ≤ M y` can only be tight at `y = 1` if `x` has reached a bound it would have anyway. Equality below `x`'s own bound means `M` is the binding limit: the model is more restrictive than the problem."
+  misconceptions = [
+    "Degeneracy is about several active constraints at a vertex; it does not explain why the binding limit is `M` rather than `x`'s bound.",
+    "",
+    "That problem comes from a large `M` and shows up as `y` slightly above 0; here `y = 1` and the limit is `M` itself.",
+  ]
+
+[[section]]
+title = "Indicator constraints"
+body = '''
+An **indicator constraint** states the logic directly: "if `y_j = 0` then
+`x_ij ≤ 0`". JuMP writes it with `-->` (from the tips page):
+`@constraint(model, !y[j] --> {x[i, j] <= 0})`, and `y[j] --> {...}`
+for "if `y_j = 1`". Some solvers handle indicators natively. HiGHS does
+not, so MathOptInterface's `IndicatorToMILPBridge` rewrites each one as a
+big-M constraint, computing `M` from the **bounds of the variables**: its
+source reads the bounds of the constrained expression and throws
+`BridgeRequiresFiniteDomainError` when they are infinite.
+
+So an indicator constraint is not a way around big-M with HiGHS; it is
+big-M with `M` computed for you from the bounds you declared. Declare the
+tightest bounds you know, and an indicator gives the tightest `M` without
+the arithmetic.
+'''
+
+  [[section.example]]
+  caption = "The facility model with indicator constraints `!y[j] --> {x[i, j] <= 0}`, first with the bound `x <= 1` declared, then without it."
+  notice = "Notice that with the bound the indicator model reaches the optimum 81.1509, the same as the tight big-M model, and that without an upper bound on `x` the bridge cannot compute an `M` and refuses the model."
+  code = '''
+using JuMP, HiGHS, StableRNGs
+rng = StableRNG(2024)
+nf, nc = 8, 30
+fx, fy, cx, cy = rand(rng, nf), rand(rng, nf), rand(rng, nc), rand(rng, nc)
+cost = [10 * hypot(cx[i] - fx[j], cy[i] - fy[j]) for i in 1:nc, j in 1:nf]
+fixed = 3.0 .+ rand(rng, nf)
+for bounded in (true, false)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    @variable(model, y[1:nf], Bin)
+    @variable(model, x[1:nc, 1:nf] >= 0)
+    bounded && set_upper_bound.(x, 1.0)
+    @constraint(model, [i in 1:nc], sum(x[i, :]) == 1)
+    @constraint(model, [i in 1:nc, j in 1:nf], !y[j] --> {x[i, j] <= 0})
+    @objective(model, Min, sum(fixed .* y) + sum(cost .* x))
+    try
+        optimize!(model)
+        println("x <= 1 declared: ", termination_status(model), ", objective ", round(objective_value(model); digits = 4))
+    catch e
+        println("no upper bound: ", e isa MOI.Bridges.BridgeRequiresFiniteDomainError ? "BridgeRequiresFiniteDomainError" : typeof(e))
+    end
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You replace `x ≤ 1e6 · y` by `!y --> {x <= 0}` and solve with HiGHS, with `0 ≤ x ≤ 1e6` declared. What `M` does the reformulation use?"
+  choices = [
+    "None: HiGHS enforces the logic exactly in its search",
+    "1, the smallest value that is always safe",
+    "1e6, from the declared upper bound of `x`",
+  ]
+  answer = 3
+  explain = "HiGHS has no native indicator support, so the bridge builds a big-M row from the bounds it can see, here `x ≤ 1e6`. The indicator saves you the arithmetic, not the modelling: a loose declared bound gives the same loose `M`."
+  misconceptions = [
+    "That is what a solver with native indicator support may do; with HiGHS the bridge turns the indicator into a big-M row.",
+    "The bridge cannot know the problem allows only `x ≤ 1`; it uses the declared bound, which is 1e6.",
+    "",
+  ]
+
+[[section]]
+title = "Linearizing products"
+body = '''
+A product of variables is not linear, but a product with a **binary**
+factor can be written exactly with linear constraints.
+
+* **Two binaries**, `z = y₁ y₂`: `z ≤ y₁`, `z ≤ y₂`, `z ≥ y₁ + y₂ - 1`,
+  `0 ≤ z ≤ 1`. For binary `y`, these force `z` to the product (the "And"
+  rule on the JuMP tips page; `z` itself need not be declared binary).
+* **A binary and a bounded continuous variable**, `z = y x` with
+  `0 ≤ x ≤ U`: `z ≤ U y`, `z ≤ x`, `z ≥ x - U (1 - y)`, `z ≥ 0`. This is
+  big-M again, with `M = U` from the bound.
+
+Only the constraints that can bind are needed: in a maximization where
+`z` has a positive coefficient, the solver wants `z` large, so `z ≤ y₁`
+and `z ≤ y₂` matter and `z ≥ y₁ + y₂ - 1` never binds; with a negative
+coefficient it is the other way round. Writing all of them is safe.
+
+The example selects at most 3 of 6 projects with values `w_i` and pairwise
+synergies `P_ij` (some negative, for conflicts), maximizing
+`Σ w_i y_i + Σ_{i<j} P_ij y_i y_j`, and checks the linearized model against
+enumerating all 64 subsets.
+'''
+
+  [[section.example]]
+  caption = "Project selection with pairwise terms, linearized with one `z` per pair, against brute-force enumeration; then the same model without the `z ≥ y_i + y_j - 1` rows."
+  notice = "Notice that the full linearization matches enumeration exactly, and that dropping the lower-bound rows lets the solver set `z = 0` for the conflicting pairs, ignoring their penalty: it picks a set containing the conflict between projects 3 and 5 and reports a higher value, which that set does not achieve."
+  code = '''
+using JuMP, HiGHS
+w = [4.0, 3.0, 6.0, 2.0, 4.5, 3.5]
+P = [0 2 -3 0 1 0; 2 0 0 1 0 -2; -3 0 0 2 -4 0; 0 1 2 0 0 1; 1 0 -4 0 0 2; 0 -2 0 1 2 0.0]
+n, k = 6, 3
+pairs = [(i, j) for i in 1:n for j in i+1:n]
+value_of(S) = sum(w[S]; init = 0.0) + sum((P[i, j] for (i, j) in pairs if i in S && j in S); init = 0.0)
+best = maximum(value_of(findall(d -> d == '1', reverse(string(m; base = 2, pad = n)))) for m in 0:2^n - 1 if count_ones(m) <= k)
+function linearized(full)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    @variable(model, y[1:n], Bin)
+    @variable(model, 0 <= z[pairs] <= 1)
+    @constraint(model, sum(y) <= k)
+    for (i, j) in pairs
+        @constraint(model, z[(i, j)] <= y[i])
+        @constraint(model, z[(i, j)] <= y[j])
+        full && @constraint(model, z[(i, j)] >= y[i] + y[j] - 1)
+    end
+    @objective(model, Max, sum(w .* y) + sum(P[i, j] * z[(i, j)] for (i, j) in pairs))
+    optimize!(model)
+    return round(objective_value(model); digits = 4), findall(round.(Int, value.(y)) .== 1)
+end
+println("enumeration: ", best)
+println("linearized:  ", linearized(true))
+println("without z ≥ y_i + y_j - 1: ", linearized(false))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "For binary `y₁ = 1`, `y₂ = 1`, the three And constraints give the interval of allowed `z`. What does this print?"
+  code = '''
+y1, y2 = 1, 1
+lo = max(0, y1 + y2 - 1)
+hi = min(y1, y2, 1)
+(lo, hi)
+'''
+  choices = ["(1, 1)", "(0, 1)", "(1, 2)", "(0, 0)"]
+  answer = 1
+  explain = "`z ≥ y₁ + y₂ - 1 = 1` and `z ≤ min(y₁, y₂) = 1`: the interval collapses to `z = 1 = y₁ y₂`. For the other three binary combinations it collapses to 0. That is why `z` can be continuous."
+  misconceptions = [
+    "",
+    "That drops the lower bound `z ≥ y₁ + y₂ - 1`; without it the product is not enforced from below, which is the bug in the last example.",
+    "The upper bound is `min(y₁, y₂)`, not `y₁ + y₂`; `z` represents a product of binaries, which is at most 1.",
+    "Zero is the product when either factor is 0; here both are 1.",
+  ]
+
+[[problem]]
+id = "mip-tightest-bigm"
+title = "The tightest valid big-M from bounds"
+difficulty = "warm-up"
+kcs = ["big-m"]
+entry = "tightest_bigm"
+packages = ["StableRNGs"]
+prompt = '''
+A constraint `a'x ≤ b` must hold only when a binary `z` is 1, written as
+`a'x ≤ b + M (1 - z)`, with box bounds `lo ≤ x ≤ hi` (finite). Write
+`tightest_bigm(a, b, lo, hi)` that returns the smallest `M ≥ 0` for which
+`z = 0` cuts off no point of the box, as a `Float64`.
+
+```julia
+tightest_bigm([3.0, -2.0], 4.0, [0.0, 0.0], [5.0, 10.0])   # 11.0
+tightest_bigm([1.0, 1.0], 10.0, [0.0, 0.0], [2.0, 3.0])    # 0.0: never violated on the box
+```
+
+Results are compared with `rtol = 1e-10`: a sum of a few products, in any
+order, agrees to a few `eps()`.
+'''
+starter = '''
+function tightest_bigm(a, b, lo, hi)
+    return 1e6
+end
+'''
+reference = '''
+function tightest_bigm(a, b, lo, hi)
+    # largest a'x on the box: each term takes the bound that makes a_i x_i largest
+    m = sum(max(a[i] * lo[i], a[i] * hi[i]) for i in eachindex(a))
+    return max(0.0, m - b)
+end
+'''
+cases = [
+  "[3.0, -2.0], 4.0, [0.0, 0.0], [5.0, 10.0]",
+  "[1.0, 1.0], 10.0, [0.0, 0.0], [2.0, 3.0]",
+  "[-1.0, 2.0, 0.5], -3.0, [-2.0, -1.0, 0.0], [4.0, 1.0, 6.0]",
+  "[1.0], 0.0, [-5.0], [-1.0]",
+  "[2.0, -3.0, 1.0, 0.0], 1.0, [-1.0, -2.0, 0.0, -9.0], [1.0, 2.0, 1.0, 9.0]",
+]
+gen = "rng -> [(n = rand(rng, 1:6); lo = randn(rng, n) .* 3; (randn(rng, n), randn(rng) * 5, lo, lo .+ 5rand(rng, n))) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "With `z = 0` the constraint becomes `a'x ≤ b + M`, which must hold at every point of the box: `M` is the largest amount by which `a'x` can exceed `b` there.",
+  "Maximize `a'x` over a box term by term: a positive `a_i` takes `hi_i`, a negative one `lo_i`. If even the maximum is below `b`, no `M` is needed.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n), 1.0, -rand(rng, n), rand(rng, n)"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "every variable at its upper bound"
+  code = '''
+tightest_bigm(a, b, lo, hi) = max(0.0, sum(a .* hi) - b)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "no clipping at zero"
+  code = '''
+tightest_bigm(a, b, lo, hi) = sum(max.(a .* lo, a .* hi)) - b
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "uses absolute values of the bounds"
+  code = '''
+tightest_bigm(a, b, lo, hi) = max(0.0, sum(abs.(a) .* max.(abs.(lo), abs.(hi))) - b)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "split by the sign of the coefficient"
+  code = '''
+function tightest_bigm(a, b, lo, hi)
+    s = 0.0
+    for i in eachindex(a)
+        s += a[i] >= 0 ? a[i] * hi[i] : a[i] * lo[i]
+    end
+    return max(0.0, s - b)
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "mip-pair-selection"
+title = "Linearize a product of binaries"
+difficulty = "core"
+kcs = ["linearization"]
+entry = "best_selection_value"
+packages = ["JuMP", "HiGHS"]
+prompt = '''
+Choose at most `k` of `n` items (binary `y_i`) to maximize
+
+    Σ_i w_i y_i + Σ_{i<j} P[i, j] y_i y_j
+
+where `P` is symmetric and its entries may be negative (conflicts). Write
+`best_selection_value(w, P, k)` that returns the optimal value as a
+`Float64`. Build a JuMP model with HiGHS, replace each product
+`y_i y_j` (for `i < j`) by a variable `z_ij` with the linear constraints
+that make it equal the product, and set `mip_rel_gap` to 0 and the model
+silent.
+
+```julia
+best_selection_value([1.0, 1.0], [0.0 3.0; 3.0 0.0], 2)    # 5.0
+best_selection_value([1.0, 1.0], [0.0 -3.0; -3.0 0.0], 2)  # 1.0
+```
+
+Results are compared with `rtol = 1e-6`: HiGHS's solutions satisfy the
+integrality and feasibility tolerances (`1e-6` and `1e-7` by default), so
+the objective of an exact optimum is reproduced to about that relative
+accuracy. (Enumerating all subsets also gives the right value for these
+small `n`.)
+'''
+starter = '''
+using JuMP, HiGHS
+
+function best_selection_value(w, P, k)
+    return sum(sort(w; rev = true)[1:min(k, length(w))])   # ignores the pairs
+end
+'''
+reference = '''
+using JuMP, HiGHS
+
+function best_selection_value(w, P, k)
+    n = length(w)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    @variable(model, y[1:n], Bin)
+    @variable(model, 0 <= z[i = 1:n, j = i+1:n] <= 1)
+    @constraint(model, sum(y) <= k)
+    for i in 1:n, j in i+1:n
+        @constraint(model, z[i, j] <= y[i])
+        @constraint(model, z[i, j] <= y[j])
+        @constraint(model, z[i, j] >= y[i] + y[j] - 1)
+    end
+    @objective(model, Max, sum(w[i] * y[i] for i in 1:n) + sum(P[i, j] * z[i, j] for i in 1:n for j in i+1:n; init = 0.0))
+    optimize!(model)
+    return objective_value(model)
+end
+'''
+cases = [
+  "[1.0, 1.0], [0.0 3.0; 3.0 0.0], 2",
+  "[1.0, 1.0], [0.0 -3.0; -3.0 0.0], 2",
+  "[4.0, 3.0, 6.0, 2.0, 4.5, 3.5], [0 2 -3 0 1 0; 2 0 0 1 0 -2; -3 0 0 2 -4 0; 0 1 2 0 0 1; 1 0 -4 0 0 2; 0 -2 0 1 2 0.0], 3",
+  "[2.0, -1.0, 3.0, 1.0], [0 4 0 -1; 4 0 1 0; 0 1 0 -5; -1 0 -5 0.0], 4",
+  "[1.0, 2.0, 3.0], zeros(3, 3), 1",
+]
+gen = "rng -> [(n = rand(rng, 2:7); A = round.(4 .* randn(rng, n, n)); S = A + A'; for i in 1:n; S[i, i] = 0.0; end; (round.(5 .* rand(rng, n); digits = 1), S, rand(rng, 1:n))) for _ in 1:10]"
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "A product of two binaries is 1 exactly when both are 1. Three linear inequalities on a variable `z` between 0 and 1 express that: two say `z` cannot exceed either factor, one says `z` must be 1 when both are.",
+  "`z ≤ y_i`, `z ≤ y_j` and `z ≥ y_i + y_j - 1`, one `z` per pair `i < j`. Without the last one, a negative `P[i, j]` lets the solver set `z = 0` and skip the penalty.",
+]
+
+  [problem.perf]
+  args = "[4.0, 3.0, 5.0, 2.0, 4.5, 3.5], [0 2 -3 0 1 0; 2 0 0 1 0 -2; -3 0 0 2 -4 0; 0 1 2 0 0 1; 1 0 -4 0 0 2; 0 -2 0 1 2 0.0], 3"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "only the upper bounds z ≤ y_i, z ≤ y_j"
+  code = '''
+using JuMP, HiGHS
+function best_selection_value(w, P, k)
+    n = length(w)
+    model = Model(HiGHS.Optimizer); set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    @variable(model, y[1:n], Bin)
+    @variable(model, 0 <= z[i = 1:n, j = i+1:n] <= 1)
+    @constraint(model, sum(y) <= k)
+    for i in 1:n, j in i+1:n
+        @constraint(model, z[i, j] <= y[i])
+        @constraint(model, z[i, j] <= y[j])
+    end
+    @objective(model, Max, sum(w[i] * y[i] for i in 1:n) + sum(P[i, j] * z[i, j] for i in 1:n for j in i+1:n; init = 0.0))
+    optimize!(model)
+    return objective_value(model)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "counts each pair twice (sums over all i ≠ j)"
+  code = '''
+using JuMP, HiGHS
+function best_selection_value(w, P, k)
+    n = length(w)
+    model = Model(HiGHS.Optimizer); set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    @variable(model, y[1:n], Bin)
+    @variable(model, 0 <= z[1:n, 1:n] <= 1)
+    @constraint(model, sum(y) <= k)
+    for i in 1:n, j in 1:n
+        @constraint(model, z[i, j] <= y[i])
+        @constraint(model, z[i, j] <= y[j])
+        @constraint(model, z[i, j] >= y[i] + y[j] - 1)
+    end
+    @objective(model, Max, sum(w .* y) + sum(P[i, j] * z[i, j] for i in 1:n for j in 1:n if i != j))
+    optimize!(model)
+    return objective_value(model)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "enumerates every subset of at most k items"
+  code = '''
+function best_selection_value(w, P, k)
+    n = length(w)
+    best = -Inf
+    for m in 0:2^n - 1
+        count_ones(m) <= k || continue
+        S = [i for i in 1:n if (m >> (i - 1)) & 1 == 1]
+        v = sum(w[S]; init = 0.0) + sum((P[i, j] for i in S for j in S if i < j); init = 0.0)
+        best = max(best, v)
+    end
+    return best
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "mip-either-or"
+title = "An either-or constraint"
+difficulty = "stretch"
+kcs = ["big-m", "indicator-constraints"]
+entry = "either_or_max"
+packages = ["JuMP", "HiGHS"]
+prompt = '''
+Maximize `c'x` over the box `lo ≤ x ≤ hi` subject to **at least one** of
+two linear constraints:
+
+    a1'x ≤ b1    or    a2'x ≤ b2
+
+Write `either_or_max(c, a1, b1, a2, b2, lo, hi)` that returns the optimal
+value as a `Float64`. Model it with a binary that selects which constraint
+must hold and a big-M (or indicator) for each, with `M` sized from the box
+bounds (see the first problem), in JuMP with HiGHS (`mip_rel_gap = 0`,
+silent). Every case has at least one feasible point.
+
+```julia
+either_or_max([1.0, 1.0], [1.0, 0.0], 1.0, [0.0, 1.0], 1.0, [0.0, 0.0], [4.0, 4.0])   # 5.0
+```
+
+(Either `x₁ ≤ 1` or `x₂ ≤ 1`: the best is `(1, 4)` or `(4, 1)`.)
+
+The grader checks only the value, and the value is also the larger of two
+LPs, one with each constraint; that route passes too, and it is the way to
+check your big-M model in the sandbox. The point of the exercise is the
+big-M model.
+
+Results are compared with `rtol = 1e-5`. HiGHS accepts a binary within
+`1e-6` of 0 or 1, which loosens the enforced constraint by up to `M · 1e-6`
+(here `M ≤ 34`, so about `3e-5`), and the optimum moves by a small
+multiple of that, below `1e-5` relative on these cases: on case 4 a big-M
+model returns `18.000001` for the exact 18. The reference removes that
+leak by fixing the binary at its rounded value and solving once more.
+'''
+starter = '''
+using JuMP, HiGHS
+
+function either_or_max(c, a1, b1, a2, b2, lo, hi)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    @variable(model, lo[i] <= x[i = 1:length(c)] <= hi[i])
+    @constraint(model, a1' * x <= b1)
+    @constraint(model, a2' * x <= b2)
+    @objective(model, Max, c' * x)
+    optimize!(model)
+    return objective_value(model)
+end
+'''
+reference = '''
+using JuMP, HiGHS
+
+bigm(a, b, lo, hi) = max(0.0, sum(max(a[i] * lo[i], a[i] * hi[i]) for i in eachindex(a)) - b)
+
+function either_or_max(c, a1, b1, a2, b2, lo, hi)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    n = length(c)
+    @variable(model, lo[i] <= x[i = 1:n] <= hi[i])
+    @variable(model, z, Bin)                       # z = 1: the first must hold; z = 0: the second
+    @constraint(model, sum(a1[i] * x[i] for i in 1:n) <= b1 + bigm(a1, b1, lo, hi) * (1 - z))
+    @constraint(model, sum(a2[i] * x[i] for i in 1:n) <= b2 + bigm(a2, b2, lo, hi) * z)
+    @objective(model, Max, sum(c[i] * x[i] for i in 1:n))
+    optimize!(model)
+    # z may come back as 1e-6, which loosens the enforced row by M * 1e-6: fix it exactly and solve again
+    fix(z, round(value(z)); force = true)
+    optimize!(model)
+    return objective_value(model)
+end
+'''
+cases = [
+  "[1.0, 1.0], [1.0, 0.0], 1.0, [0.0, 1.0], 1.0, [0.0, 0.0], [4.0, 4.0]",
+  "[2.0, 1.0], [1.0, 1.0], 3.0, [1.0, -1.0], -1.0, [0.0, 0.0], [5.0, 5.0]",
+  "[1.0, -1.0, 2.0], [1.0, 1.0, 1.0], 2.0, [0.0, 0.0, 1.0], 0.5, [-1.0, -1.0, 0.0], [3.0, 3.0, 3.0]",
+  "[-1.0, 3.0], [-1.0, 2.0], 4.0, [3.0, 1.0], 6.0, [0.0, 0.0], [10.0, 10.0]",
+]
+compare = "isapprox"
+rtol = 1e-5
+hints = [
+  "One binary chooses which constraint is enforced; the other constraint must then be switched off, which is a big-M term with the binary (or `1 -` the binary).",
+  "Size each `M` as the largest value of `a'x - b` on the box, so that the switched-off constraint never cuts the box. An `M` that is too small silently removes part of the feasible set.",
+]
+
+  [problem.perf]
+  args = "[2.0, 1.0], [1.0, 1.0], 3.0, [1.0, -1.0], -1.0, [0.0, 0.0], [5.0, 5.0]"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "M = 1 for both constraints: too small for these boxes"
+  code = '''
+using JuMP, HiGHS
+function either_or_max(c, a1, b1, a2, b2, lo, hi)
+    model = Model(HiGHS.Optimizer); set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    n = length(c)
+    @variable(model, lo[i] <= x[i = 1:n] <= hi[i])
+    @variable(model, z, Bin)
+    @constraint(model, sum(a1[i] * x[i] for i in 1:n) <= b1 + 1.0 * (1 - z))
+    @constraint(model, sum(a2[i] * x[i] for i in 1:n) <= b2 + 1.0 * z)
+    @objective(model, Max, sum(c[i] * x[i] for i in 1:n))
+    optimize!(model)
+    return objective_value(model)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "two binaries that may both be 0 (neither enforced)"
+  code = '''
+using JuMP, HiGHS
+function either_or_max(c, a1, b1, a2, b2, lo, hi)
+    model = Model(HiGHS.Optimizer); set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    n = length(c)
+    @variable(model, lo[i] <= x[i = 1:n] <= hi[i])
+    @variable(model, z[1:2], Bin)
+    @constraint(model, sum(a1[i] * x[i] for i in 1:n) <= b1 + 1e3 * (1 - z[1]))
+    @constraint(model, sum(a2[i] * x[i] for i in 1:n) <= b2 + 1e3 * (1 - z[2]))
+    @objective(model, Max, sum(c[i] * x[i] for i in 1:n))
+    optimize!(model)
+    return objective_value(model)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "indicator constraints with an exactly-one choice"
+  code = '''
+using JuMP, HiGHS
+function either_or_max(c, a1, b1, a2, b2, lo, hi)
+    model = Model(HiGHS.Optimizer); set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    n = length(c)
+    @variable(model, lo[i] <= x[i = 1:n] <= hi[i])
+    @variable(model, z[1:2], Bin)
+    @constraint(model, sum(z) == 1)
+    @constraint(model, z[1] --> {sum(a1[i] * x[i] for i in 1:n) <= b1})
+    @constraint(model, z[2] --> {sum(a2[i] * x[i] for i in 1:n) <= b2})
+    @objective(model, Max, sum(c[i] * x[i] for i in 1:n))
+    optimize!(model)
+    return objective_value(model)
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "big-M without fixing the binary afterwards"
+  code = '''
+using JuMP, HiGHS
+bigm(a, b, lo, hi) = max(0.0, sum(max(a[i] * lo[i], a[i] * hi[i]) for i in eachindex(a)) - b)
+function either_or_max(c, a1, b1, a2, b2, lo, hi)
+    model = Model(HiGHS.Optimizer); set_silent(model)
+    set_attribute(model, "mip_rel_gap", 0.0)
+    n = length(c)
+    @variable(model, lo[i] <= x[i = 1:n] <= hi[i])
+    @variable(model, z, Bin)
+    @constraint(model, sum(a1[i] * x[i] for i in 1:n) <= b1 + bigm(a1, b1, lo, hi) * (1 - z))
+    @constraint(model, sum(a2[i] * x[i] for i in 1:n) <= b2 + bigm(a2, b2, lo, hi) * z)
+    @objective(model, Max, sum(c[i] * x[i] for i in 1:n))
+    optimize!(model)
+    return objective_value(model)
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "the larger of two LPs"
+  code = '''
+using JuMP, HiGHS
+
+function either_or_max(c, a1, b1, a2, b2, lo, hi)
+    # exact: the feasible set is the union of two polytopes, so the optimum is the better of two LPs
+    best = -Inf
+    for (a, b) in ((a1, b1), (a2, b2))
+        model = Model(HiGHS.Optimizer)
+        set_silent(model)
+        n = length(c)
+        @variable(model, lo[i] <= x[i = 1:n] <= hi[i])
+        @constraint(model, sum(a[i] * x[i] for i in 1:n) <= b)
+        @objective(model, Max, sum(c[i] * x[i] for i in 1:n))
+        optimize!(model)
+        is_solved_and_feasible(model) && (best = max(best, objective_value(model)))
+    end
+    return best
+end
+'''
+  expect = ["correct"]

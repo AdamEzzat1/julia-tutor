@@ -1,0 +1,923 @@
+id = "33-sparse-iterative"
+title = "Sparse matrices and iterative solvers"
+track = "scicomp"
+env = "scicomp"
+status = "ready"
+summary = "Large matrices from grids are mostly zeros. Compressed sparse column storage and how to build it, the 2D Poisson matrix from `kron`, why a sparse direct solve fills in and how reordering limits it, conjugate gradients and a convergence rate set by the condition number (so iteration counts grow with the grid), preconditioners that fix some problems and not others, and LinearSolve.jl as one interface to direct and Krylov solvers."
+kcs = ["sparse-storage", "fill-in", "conjugate-gradients", "preconditioning"]
+prerequisites = ["30-floating-point", "32-dense-linear-algebra"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit moves from dense matrices to the large sparse ones that grids and
+networks produce. It relies on four facts:
+
+* **`SparseArrays` stores only the nonzero entries** of a matrix, shown as
+  `⋅` when printed, and `nnz(S)` counts them (unit 20, section
+  "LinearAlgebra: matrices and solving systems").
+* **A factorization costs `O(n³)` for a dense `n × n` matrix and each solve
+  with it `O(n²)`**, and `\` picks the factorization from the type (unit 32,
+  sections "What `\` does, matrix type by matrix type" and "Factor once,
+  solve many").
+* **The condition number** `κ(A)` is the ratio of the extreme singular
+  values; for a symmetric positive definite matrix, of the extreme
+  eigenvalues (unit 30, section "Conditioning: how much the problem
+  amplifies errors").
+* **`mul!(y, A, x)`** writes a product into an existing vector, so a loop
+  that multiplies many times allocates nothing (unit 14, section
+  "Allocations: slices, views, fusion and in-place updates").
+
+Unit 34 discretizes PDEs on grids and unit 35 solves the resulting stiff
+systems implicitly; both produce the kind of matrix this unit is about.
+'''
+
+[[section]]
+title = "Compressed sparse column storage"
+body = '''
+A `SparseMatrixCSC` keeps three arrays
+([SparseArrays docs](https://raw.githubusercontent.com/JuliaSparse/SparseArrays.jl/release-1.10/docs/src/index.md)):
+
+* `nzval`: the stored values, column after column;
+* `rowval`: the row index of each stored value;
+* `colptr`: where each column starts, so column `j` is
+  `colptr[j]:(colptr[j+1] - 1)` in the other two.
+
+Memory is about `16 nnz + 8n` bytes (a `Float64` value and an `Int64` row index per entry) instead of `8n²`: a 10,000 × 10,000
+matrix with 50,000 nonzeros takes under 1 MB instead of 800 MB. Reading a
+column is a contiguous slice, so `A * x` (which walks columns) and column
+operations are fast; reading a row means searching every column.
+
+The layout also decides how to **build** a matrix. Assigning `A[i, j] = v`
+to a position that is not yet stored shifts every later entry of `rowval`
+and `nzval`, so filling a matrix one new entry at a time is slow (the docs
+warn about exactly this). Collect triplets instead: vectors `I`, `J`, `V`
+with `A[I[k], J[k]] = V[k]`, then `sparse(I, J, V, m, n)` sorts them into
+CSC once, **adding** values at repeated positions, which is what assembling
+a finite-element or graph matrix needs.
+'''
+
+  [[section.example]]
+  caption = "The three arrays of a small sparse matrix, and `sparse` adding two triplets at the same position."
+  notice = "Notice that `colptr = [1, 3, 4, 5]` says column 1 holds entries 1 and 2 (rows 1 and 3), column 2 entry 3, column 3 entry 4; and that the two triplets at (1, 1) were added to 3.0."
+  code = '''
+using SparseArrays
+S = sparse([1, 2, 3, 3], [1, 2, 3, 1], [10.0, 20.0, 30.0, 5.0])
+println("colptr = ", S.colptr, "   rowval = ", S.rowval, "   nzval = ", S.nzval)
+T = sparse([1, 1, 2], [1, 1, 2], [1.0, 2.0, 7.0])
+println("T[1, 1] = ", T[1, 1], ", stored entries: ", nnz(T))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You assemble a 100,000 × 100,000 matrix with 500,000 nonzeros by looping over elements and writing `A[i, j] += v` into `spzeros(n, n)`. Why is it slow?"
+  choices = [
+    "`+=` on a sparse matrix copies the whole matrix each time",
+    "Each new entry shifts all later stored entries",
+    "Sparse matrices are stored by rows, so writing a column is slow",
+  ]
+  answer = 2
+  explain = "CSC keeps all values in one array ordered by column; inserting an entry that is not yet stored moves everything after it. Collecting `(I, J, V)` and calling `sparse(I, J, V, n, n)` sorts once and sums duplicates as assembly requires."
+  misconceptions = [
+    "`A[i, j] += v` reads and writes one position; the cost comes from inserting into the compressed arrays, not from copying the matrix.",
+    "",
+    "Julia's `SparseMatrixCSC` is compressed sparse **column**: columns are contiguous, rows are not.",
+  ]
+
+[[section]]
+title = "The 2D Poisson matrix from `kron`"
+body = '''
+The Poisson equation `-Δu = f` on the unit square with `u = 0` on the
+boundary, discretized with `N × N` interior points and the five-point
+stencil, gives (after multiplying by `h²`, `h = 1/(N + 1)`) the equations
+
+    4u[i, j] - u[i-1, j] - u[i+1, j] - u[i, j-1] - u[i, j+1] = h² f[i, j]
+
+with neighbours outside the grid equal to zero. Number the unknowns
+column-major, `k = i + (j - 1) N`, as Julia's `vec(U)` does. The 1D matrix
+`T = tridiag(-1, 2, -1)` (size `N`) acts on one grid line; `kron(I, T)`
+applies it along `i` within every column of the grid, and `kron(T, I)`
+along `j`. So
+
+    A = kron(I, T) + kron(T, I)          (size N² × N², 5 nonzeros per row)
+
+The eigenvalues are sums of the 1D ones: with `s_k = 4 sin²(kπ / (2(N + 1)))`,
+`λ = s_j + s_k` for all pairs. The smallest is `2 s_1 ≈ 2(π/(N + 1))²` and the
+largest is below 8, so
+
+    κ(A) = cos²(π / (2(N + 1))) / sin²(π / (2(N + 1))) ≈ (2(N + 1) / π)²
+
+grows like `N²`: refining the grid makes the system worse conditioned. The
+next sections show that this sets the cost of iterative solvers.
+'''
+
+  [[section.example]]
+  caption = "The matrix from `kron` for N = 3, checked against the five-point stencil applied to a grid of values, and its eigenvalues against the formula for N = 10."
+  notice = "Notice the block structure (each 3×3 diagonal block is `T + 2I`, the off-diagonal blocks are `-I`), and that the matrix and the stencil agree to rounding (`≈`): they are the same equations in two notations."
+  code = '''
+using SparseArrays, LinearAlgebra
+function poisson2d(N)
+    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    Id = sparse(1.0I, N, N)
+    return kron(Id, T) + kron(T, Id)
+end
+display(Matrix(poisson2d(3)))
+N = 10
+U = [sin(i) + j^2 for i in 1:N, j in 1:N]
+pad = zeros(N + 2, N + 2); pad[2:end-1, 2:end-1] = U
+stencil = [4pad[i, j] - pad[i-1, j] - pad[i+1, j] - pad[i, j-1] - pad[i, j+1] for i in 2:N+1, j in 2:N+1]
+println("A * vec(U) ≈ vec(stencil): ", poisson2d(N) * vec(U) ≈ vec(stencil))
+s = [4sin(k * pi / (2(N + 1)))^2 for k in 1:N]
+println("eigenvalues match s_j + s_k: ", sort(eigvals(Matrix(poisson2d(N)))) ≈ sort(vec(s .+ s')))
+'''
+
+  [[section.example]]
+  caption = "Size, stored entries and condition number (from the formula) of the 2D Poisson matrix as the grid is refined."
+  notice = "Notice that the stored entries grow like `N²`, about 5 per unknown, while the condition number grows like `N²` too: doubling `N` multiplies it by about 4."
+  code = '''
+for N in (16, 32, 64, 128)
+    n = N^2
+    κ = cot(pi / (2(N + 1)))^2
+    println("N = ", rpad(N, 4), " unknowns ", rpad(n, 6), " stored entries ", rpad(5n - 4N, 6),
+            " dense bytes ", rpad(round(8.0 * n^2; sigdigits = 2), 8), " κ ≈ ", round(κ; sigdigits = 3))
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "How many stored entries does the Poisson matrix for `N = 4` have? (Count: 5 per row, minus the neighbours that fall outside the grid.) What does this print?"
+  code = '''
+using SparseArrays, LinearAlgebra
+T = spdiagm(-1 => fill(-1.0, 3), 0 => fill(2.0, 4), 1 => fill(-1.0, 3))
+nnz(kron(sparse(1.0I, 4, 4), T) + kron(T, sparse(1.0I, 4, 4)))
+'''
+  choices = ["80", "64", "256", "16"]
+  answer = 2
+  explain = "16 unknowns, each with a diagonal entry and up to four neighbours. Points on an edge of the grid miss one neighbour per side they touch: each of the 4 sides cuts 4 connections, so `5 * 16 - 4 * 4 = 64`."
+  misconceptions = [
+    "That counts 5 entries for every row; the edge points have only 3 or 4 neighbours inside the grid.",
+    "",
+    "256 is the dense size `16²`; the sparse matrix stores only the stencil's entries.",
+    "16 is the number of unknowns, the diagonal alone; each row also stores its neighbours.",
+  ]
+
+[[section]]
+title = "Direct sparse solves and fill-in"
+body = '''
+`A \ b` with a sparse `A` still factors the matrix. A Cholesky factor `L` of
+a sparse matrix has nonzeros wherever `A` has them **and** wherever
+elimination creates them: eliminating unknown `k` connects all of its
+remaining neighbours to each other. These new entries are **fill-in**.
+
+With the natural ordering of the Poisson matrix (the column-major numbering `k = i + (j - 1) N` above), each row of
+`L` fills its whole band of width `N`, so `L` holds about `N³ = n^1.5`
+entries. **Reordering** the unknowns before factoring changes the fill
+without changing the solution: minimum-degree orderings (AMD, which
+eliminates first the unknowns with fewest connections) and nested
+dissection (which splits the grid with separators) do much better. Julia's
+sparse `cholesky` calls the CHOLMOD library, which picks an ordering
+itself; `perm = 1:n` forces the natural one.
+
+A direct solve needs memory for the factor, and the factor grows faster
+than `A` as the grid is refined (the example measures how much). When it no
+longer fits, methods that store only a few vectors take over.
+'''
+
+  [[section.example]]
+  caption = "Stored entries of `A` and of its Cholesky factor `L`, natural ordering against CHOLMOD's own. Recorded, not checked: the chosen ordering depends on the CHOLMOD version."
+  check = false
+  notice = "Notice that with the natural ordering `L` grows 8 to 9 times per doubling of `N` (4 times the unknowns; `N³` predicts 8), while the reordered factor grows by about 5 to 6 and is 4 times smaller at `N = 64`."
+  code = '''
+using SparseArrays, LinearAlgebra
+function poisson2d(N)
+    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    Id = sparse(1.0I, N, N)
+    return kron(Id, T) + kron(T, Id)
+end
+for N in (16, 32, 64)
+    A = poisson2d(N)
+    natural = nnz(sparse(cholesky(A; perm = 1:N^2).L))
+    ordered = nnz(sparse(cholesky(A).L))
+    println("N = ", rpad(N, 3), " nnz(A) = ", rpad(nnz(A), 6), " nnz(L) natural = ", rpad(natural, 7), " reordered = ", ordered)
+end
+'''
+
+  [[section.example]]
+  caption = "The same facts as checks, and the solution of the reordered solve against the natural one."
+  notice = "Notice that the solutions agree to rounding: the ordering changes the work and the memory, not the answer."
+  code = '''
+using SparseArrays, LinearAlgebra
+function poisson2d(N)
+    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    Id = sparse(1.0I, N, N)
+    return kron(Id, T) + kron(T, Id)
+end
+A = poisson2d(64); b = ones(64^2)
+Fn = cholesky(A; perm = 1:64^2); F = cholesky(A)
+println("factor type: ", nameof(typeof(F)))
+println("reordering cuts nnz(L) by more than 3x: ", nnz(sparse(Fn.L)) > 3nnz(sparse(F.L)))
+println("same solution: ", Fn \ b ≈ F \ b, ",  residual below 1e-12: ", norm(A * (F \ b) - b) / norm(b) < 1e-12)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why can reordering the unknowns before a sparse Cholesky factorization reduce memory without changing the solution?"
+  choices = [
+    "Reordering removes small entries of `L` below a threshold",
+    "Eliminating in a new order creates less fill in `L`",
+    "It turns the matrix into a banded one, which needs no factor",
+  ]
+  answer = 2
+  explain = "Solving `PAPᵀ (P x) = P b` is the same system with unknowns renumbered. The fill depends on the order of elimination (which neighbours get connected), so a good order creates far fewer new entries, and the factorization stays exact."
+  misconceptions = [
+    "Dropping small entries is what an incomplete factorization does (a preconditioner); a reordered Cholesky is complete and exact.",
+    "",
+    "A banded matrix still needs a factorization, and its band fills completely: that is the natural ordering's problem.",
+  ]
+
+[[section]]
+title = "Conjugate gradients: convergence set by the spectrum"
+body = '''
+An **iterative** solver never factors `A`. It only multiplies by it, so its
+memory is a few vectors and each iteration costs about `nnz(A)` operations.
+For a symmetric positive definite `A`, the **conjugate gradient** method
+(CG) builds `x_k` from `x_0 = 0` by
+
+    α = (r·r) / (p·Ap),   x += α p,   r -= α Ap,
+    β = (r_new·r_new) / (r_old·r_old),   p = r + β p
+
+([Conjugate gradient method](https://en.wikipedia.org/wiki/Conjugate_gradient_method)),
+with one product `A p` per iteration. `x_k` minimizes the error in the
+`A`-norm over the Krylov space spanned by `b, Ab, ..., A^(k-1) b`, and that
+gives the bound
+
+    ‖e_k‖_A <= 2 ((√κ - 1) / (√κ + 1))^k ‖e_0‖_A
+
+so the number of iterations for a fixed reduction grows like `√κ`. For
+the Poisson matrix `√κ ≈ 2(N + 1)/π`: **doubling the grid doubles the
+iterations**, and each iteration also costs four times as much. Exact
+arithmetic would finish in at most `n` iterations; in practice CG is
+stopped when `‖r‖ <= rtol ‖b‖`, long before.
+
+For matrices that are not symmetric, GMRES plays the same role.
+[Krylov.jl](https://raw.githubusercontent.com/JuliaSmoothOptimizers/Krylov.jl/main/docs/src/preconditioners.md)
+provides both: `x, stats = cg(A, b; atol, rtol)` and `gmres(A, b; ...)`,
+with `stats.solved` and `stats.niter`.
+'''
+
+  [[section.example]]
+  caption = "Krylov.jl's `cg` on the Poisson matrix for three grids, to `rtol = 1e-8`: iterations and `√κ` from the formula. Recorded, not checked: iteration counts can change with rounding and package versions."
+  check = false
+  notice = "Notice that the iteration count doubles with each doubling of `N`, tracking `√κ` at about 2.9 times it: proportional, as the bound predicts, and well below the bound's own count, `½ √κ ln(2 / 1e-8) ≈ 9.6 √κ`."
+  code = '''
+using SparseArrays, LinearAlgebra, Krylov
+function poisson2d(N)
+    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    Id = sparse(1.0I, N, N)
+    return kron(Id, T) + kron(T, Id)
+end
+for N in (16, 32, 64, 128)
+    A = poisson2d(N); b = ones(N^2)
+    x, stats = cg(A, b; atol = 0.0, rtol = 1e-8)
+    println("N = ", rpad(N, 4), " iterations ", rpad(stats.niter, 4), " √κ ≈ ", round(cot(pi / (2(N + 1))); digits = 1))
+end
+'''
+
+  [[section.example]]
+  caption = "The checked facts: every solve converged to the requested residual, and iterations grow with the grid."
+  notice = "Notice that the residual is measured afresh as `b - A x`, not taken from the solver's report."
+  code = '''
+using SparseArrays, LinearAlgebra, Krylov
+function poisson2d(N)
+    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    Id = sparse(1.0I, N, N)
+    return kron(Id, T) + kron(T, Id)
+end
+iters = Int[]
+for N in (16, 32, 64)
+    A = poisson2d(N); b = ones(N^2)
+    x, stats = cg(A, b; atol = 0.0, rtol = 1e-8)
+    push!(iters, stats.niter)
+    println("N = ", rpad(N, 3), " solved: ", stats.solved, ",  ‖b - Ax‖ / ‖b‖ below 2e-8: ", norm(b - A * x) / norm(b) < 2e-8)
+end
+println("iterations grow with N: ", issorted(iters) && iters[end] > 2iters[1])
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "CG needs 120 iterations on the Poisson matrix with `N = 64`. About how many do you expect at `N = 256`?"
+  choices = [
+    "About 120, the same as before",
+    "About 480, four times as many",
+    "About 1920, like the unknowns",
+  ]
+  answer = 2
+  explain = "Iterations grow like `√κ`, and `√κ ≈ 2(N + 1)/π` is proportional to `N`: four times `N`, four times the iterations. Each iteration also costs 16 times as much (16 times the unknowns), so the solve costs about 64 times more."
+  misconceptions = [
+    "CG's rate depends on `κ`, and the Poisson matrix's `κ` grows like `N²` as the grid is refined.",
+    "",
+    "That would be iterations proportional to the number of unknowns `N²`; they follow `√κ`, which is proportional to `N`.",
+  ]
+
+[[section]]
+title = "Preconditioning"
+body = '''
+A **preconditioner** `M` is an approximation of `A` that is cheap to apply
+as `M⁻¹ r`. Preconditioned CG runs CG on a system whose spectrum is that of
+`M⁻¹ A`; if that has a much smaller condition number than `A`, the
+iterations drop. For CG, `M` must be symmetric positive definite too, and
+Krylov.jl takes it as the keyword `M` (an operator applying `M⁻¹`, or `M`
+itself with `ldiv = true`), per its
+[preconditioners page](https://raw.githubusercontent.com/JuliaSmoothOptimizers/Krylov.jl/main/docs/src/preconditioners.md).
+With `M`, Krylov.jl's `cg` also changes its **stopping test**: it measures
+the residual in the preconditioned norm, `sqrt(r·z)` with `z = M⁻¹ r`, and
+not `‖r‖`. So CG and CG with Jacobi at the same `rtol` stop on different
+quantities, and the true residual `b - A x` of the preconditioned solve
+must be checked separately (the second example below does).
+
+Two common choices, with different reach:
+
+* **Jacobi**, `M = Diagonal(A)`. It removes bad **scaling**: if the
+  unknowns have wildly different units, the diagonal varies over orders of
+  magnitude and Jacobi undoes that. On the Poisson matrix the diagonal is
+  constant (all 4), so Jacobi only multiplies by `1/4` and changes nothing.
+* **Incomplete factorizations**, such as ILU from IncompleteLU.jl:
+  factor `A` but drop entries of the factors below a threshold `τ`, so
+  `L U ≈ A` with little fill. On the Poisson problem it cuts the
+  iterations several times over, but it lowers the constant, not the
+  growth: the count still rises with the grid, because the `h⁻²` spread
+  of the spectrum is only partly removed. ILU of a symmetric matrix is not
+  guaranteed to be symmetric, so the example uses it with GMRES.
+
+Which preconditioner works is a property of the problem: the Krylov.jl page
+says their design is "highly dependent on the origin of the problem". Try
+the cheap ones, measure the iterations and the time, and expect to tune.
+'''
+
+  [[section.example]]
+  caption = "Iterations to `rtol = 1e-8` on the Poisson matrix: CG, CG with Jacobi, GMRES, GMRES with ILU (`τ = 0.01`). Recorded, not checked: iteration counts can change with rounding and package versions."
+  check = false
+  notice = "Notice that Jacobi gives exactly CG's count (multiplying by a constant changes nothing), and that ILU divides GMRES's iterations several times over while they still grow with `N`."
+  code = '''
+using SparseArrays, LinearAlgebra, Krylov, IncompleteLU
+function poisson2d(N)
+    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    Id = sparse(1.0I, N, N)
+    return kron(Id, T) + kron(T, Id)
+end
+for N in (16, 32, 64)
+    A = poisson2d(N); b = ones(N^2)
+    plain = cg(A, b; atol = 0.0, rtol = 1e-8)[2].niter
+    jacobi = cg(A, b; M = Diagonal(1 ./ diag(A)), atol = 0.0, rtol = 1e-8)[2].niter
+    gm = gmres(A, b; atol = 0.0, rtol = 1e-8, memory = 500)[2].niter
+    gm_ilu = gmres(A, b; M = ilu(A; τ = 0.01), ldiv = true, atol = 0.0, rtol = 1e-8)[2].niter
+    println("N = ", rpad(N, 3), " CG ", rpad(plain, 4), " CG+Jacobi ", rpad(jacobi, 4), " GMRES ", rpad(gm, 4), " GMRES+ILU ", gm_ilu)
+end
+'''
+
+  [[section.example]]
+  caption = "Where Jacobi helps: the Poisson matrix (N = 32) with its unknowns rescaled by factors between 1 and about 32, `D A D`, so that its diagonal spans a factor of 1000. The checked facts from both measurements."
+  notice = "Notice the contrast: on the rescaled matrix Jacobi cuts CG's iterations by more than 5 times, on the original it changes nothing, and ILU helps GMRES on the original. The Jacobi count stops on the preconditioned norm, so its true residual is checked on its own line; the stretch problem stops on `‖r‖` and still sees the large gain."
+  code = '''
+using SparseArrays, LinearAlgebra, Krylov, IncompleteLU, StableRNGs
+function poisson2d(N)
+    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    Id = sparse(1.0I, N, N)
+    return kron(Id, T) + kron(T, Id)
+end
+A = poisson2d(32); b = ones(32^2)
+D = Diagonal(sqrt.(10 .^ (3 .* rand(StableRNG(1), 32^2))))
+As = D * A * D
+it(r) = r[2].niter
+scaled_plain = it(cg(As, b; atol = 0.0, rtol = 1e-8, itmax = 20_000))
+scaled_jacobi = it(cg(As, b; M = Diagonal(1 ./ diag(As)), atol = 0.0, rtol = 1e-8))
+println("rescaled: Jacobi needs fewer than 1/5 of the iterations: ", scaled_jacobi < scaled_plain / 5)
+xj = cg(As, b; M = Diagonal(1 ./ diag(As)), atol = 0.0, rtol = 1e-8)[1]
+println("rescaled: Jacobi solve's true residual ‖b - A x‖ / ‖b‖ below 1e-6: ", norm(b - As * xj) / norm(b) < 1e-6)
+println("original: Jacobi needs the same iterations: ",
+        it(cg(A, b; atol = 0.0, rtol = 1e-8)) == it(cg(A, b; M = Diagonal(1 ./ diag(A)), atol = 0.0, rtol = 1e-8)))
+println("original: ILU-preconditioned GMRES needs fewer iterations: ",
+        it(gmres(A, b; M = ilu(A; τ = 0.01), ldiv = true, atol = 0.0, rtol = 1e-8)) < it(gmres(A, b; atol = 0.0, rtol = 1e-8, memory = 500)))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "On the 2D Poisson matrix, a Jacobi preconditioner leaves CG's iteration count exactly unchanged. Why?"
+  choices = [
+    "Jacobi only works for nonsymmetric matrices",
+    "The diagonal is constant: `M⁻¹ A` is just `A / 4`",
+    "CG ignores the preconditioner unless `ldiv = true`",
+    "The Poisson matrix is already perfectly conditioned",
+  ]
+  answer = 2
+  explain = "Scaling a matrix by a constant leaves its condition number and its Krylov spaces unchanged, so CG takes the same steps (here, scaled by exactly 1/4, a power of 2, so even the rounding is identical). Jacobi helps when the diagonal varies, as in the rescaled example."
+  misconceptions = [
+    "Jacobi is symmetric positive definite whenever the diagonal is positive, which makes it a valid CG preconditioner; it just does nothing for a constant diagonal.",
+    "",
+    "`ldiv = true` says that `M` is given as the matrix to divide by instead of its inverse; without it `M` is applied by multiplication, which is what the example does with `Diagonal(1 ./ diag(A))`.",
+    "Its condition number grows like `N²` (about 1700 at `N = 64`); that is why CG needs more iterations on finer grids.",
+  ]
+
+[[section]]
+title = "LinearSolve.jl: one interface to many solvers"
+body = '''
+Choosing a solver should not mean rewriting the code that calls it.
+LinearSolve.jl wraps direct and iterative solvers behind one interface:
+
+    prob = LinearProblem(A, b)
+    sol = solve(prob)                     # a default chosen from the type of A
+    sol = solve(prob, KrylovJL_CG())      # Krylov.jl's CG
+    sol.u                                 # the solution
+
+Passing `reltol` (and `abstol`) to `solve` sets the iterative solvers'
+stopping test; set them explicitly for any result you report, instead of
+relying on the package's defaults.
+The other half of the interface is reuse: `cache = init(prob, alg)`
+followed by `solve!(cache)` keeps the factorization (or the solver's
+workspace), so changing `cache.b` and calling `solve!` again solves for a
+new right-hand side without refactoring, the sparse version of unit 32's
+"factor once, solve many".
+
+Whichever solver runs, check what you get: the residual `b - A x` costs
+one product and is the backward error of unit 30.
+'''
+
+  [[section.example]]
+  caption = "The same Poisson system (N = 32) through LinearSolve: the default algorithm, CG with a tolerance, and a cached factorization reused for a second right-hand side."
+  notice = "Notice that all three answers have small residuals, the CG one at the level its `reltol` asked for, and that the cached solve answers the second right-hand side without building a new problem."
+  code = '''
+using SparseArrays, LinearAlgebra, LinearSolve
+function poisson2d(N)
+    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    Id = sparse(1.0I, N, N)
+    return kron(Id, T) + kron(T, Id)
+end
+A = poisson2d(32); b = ones(32^2)
+relres(x, b) = norm(b - A * x) / norm(b)
+prob = LinearProblem(A, b)
+println("default: residual below 1e-12: ", relres(solve(prob).u, b) < 1e-12)
+println("KrylovJL_CG, reltol = 1e-10: residual below 1e-9: ", relres(solve(prob, KrylovJL_CG(); reltol = 1e-10).u, b) < 1e-9)
+cache = init(prob)
+solve!(cache)
+b2 = collect(range(0, 1; length = 32^2))
+cache.b = b2
+println("cached, new b: residual below 1e-12: ", relres(solve!(cache).u, b2) < 1e-12)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You solve 1,000 systems with the same sparse `A` and different `b` in a time-stepping loop. Which LinearSolve pattern fits?"
+  choices = [
+    "`solve(LinearProblem(A, b))` inside the loop, which picks the best method",
+    "`init` once, then set `cache.b` and call `solve!` each step",
+    "Convert `A` to a dense matrix once, then use `inv(A) * b`",
+  ]
+  answer = 2
+  explain = "The cache holds the factorization (or the Krylov workspace), so every later `solve!` only does the cheap part. A new `LinearProblem` per step refactors each time, and a dense inverse of a large sparse matrix is both enormous and inaccurate (unit 32)."
+  misconceptions = [
+    "A fresh problem has no memory of the last factorization, so each call pays for it again: 1,000 factorizations instead of one.",
+    "",
+    "The inverse of a sparse matrix is dense: for `n = 1e6` that is `8e12` bytes, and `inv(A) * b` has a large backward error.",
+  ]
+
+[[problem]]
+id = "sparse-laplacian-2d"
+title = "Assembling the 2D Laplacian from triplets"
+difficulty = "warm-up"
+kcs = ["sparse-storage"]
+entry = "laplacian_2d"
+packages = ["SparseArrays"]
+prompt = '''
+Write `laplacian_2d(Nx, Ny)` that returns the five-point Poisson matrix of
+this unit for a **rectangular** grid of `Nx × Ny` interior points, as a
+`SparseMatrixCSC{Float64, Int64}` of size `Nx Ny × Nx Ny`: `4` on the
+diagonal and `-1` for each grid neighbour, with unknowns numbered
+`k = i + (j - 1) Nx` for `i` in `1:Nx`, `j` in `1:Ny` (column-major, as
+`vec` of an `Nx × Ny` array), and no neighbours across the edges of the grid.
+
+Build it the way the section on storage recommends: loop over the grid
+points, collect triplets `(row, column, value)` for each point's diagonal
+entry and its neighbours inside the grid, and call `sparse` once.
+
+```julia
+A = laplacian_2d(3, 2)
+size(A), nnz(A)       # ((6, 6), 20)
+A[1, 2], A[3, 4]      # (-1.0, 0.0): unknown 3 ends a grid column
+A[1, 4]               # -1.0: the neighbour in the next column, Nx = 3 further on
+```
+
+Results are compared exactly (`isequal`): the entries are small integers,
+exact in `Float64`. The result must be sparse; the grader also measures
+time and memory at a grid of about 100 × 100.
+'''
+starter = '''
+using SparseArrays
+
+function laplacian_2d(Nx, Ny)
+    n = Nx * Ny
+    I, J, V = Int[], Int[], Float64[]
+    # collect the triplets here
+    return sparse(I, J, V, n, n)
+end
+'''
+reference = '''
+using SparseArrays
+
+function laplacian_2d(Nx, Ny)
+    n = Nx * Ny
+    I = sizehint!(Int[], 5n)
+    J = sizehint!(Int[], 5n)
+    V = sizehint!(Float64[], 5n)
+    for j in 1:Ny, i in 1:Nx
+        k = i + (j - 1) * Nx
+        push!(I, k); push!(J, k); push!(V, 4.0)
+        for (m, inside) in ((k - 1, i > 1), (k + 1, i < Nx), (k - Nx, j > 1), (k + Nx, j < Ny))
+            if inside
+                push!(I, k); push!(J, m); push!(V, -1.0)
+            end
+        end
+    end
+    return sparse(I, J, V, n, n)
+end
+'''
+cases = ["1, 1", "3, 2", "2, 3", "4, 4", "5, 1"]
+gen = "rng -> [(rand(rng, 1:12), rand(rng, 1:12)) for _ in 1:12]"
+compare = "isequal"
+hints = [
+  "Each grid point `(i, j)` gives one row `k` of the matrix: a diagonal entry and one entry per neighbour that lies inside the grid. Work out the index of each neighbour from the numbering.",
+  "Moving one step in `i` changes `k` by 1; moving one step in `j` changes it by `Nx`. A point with `i == 1` has no neighbour at `i - 1`, and likewise for the other three edges.",
+]
+
+  [problem.perf]
+  args = "n, n + 7"
+  sizes = [100]
+
+  [[problem.variant]]
+  label = "neighbours wrap around the end of each grid column"
+  code = '''
+using SparseArrays
+function laplacian_2d(Nx, Ny)
+    n = Nx * Ny
+    A = spdiagm(0 => fill(4.0, n), -1 => fill(-1.0, n - 1), 1 => fill(-1.0, n - 1))
+    if Ny > 1
+        A = A + spdiagm(-Nx => fill(-1.0, n - Nx), Nx => fill(-1.0, n - Nx))
+    end
+    return A
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "kron with the two grid sizes swapped (right only for square grids)"
+  code = '''
+using SparseArrays, LinearAlgebra
+function laplacian_2d(Nx, Ny)
+    T(N) = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    return kron(sparse(1.0I, Nx, Nx), T(Ny)) + kron(T(Nx), sparse(1.0I, Ny, Ny))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "dense matrix"
+  code = '''
+using LinearAlgebra
+function laplacian_2d(Nx, Ny)
+    T(N) = diagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    return kron(Matrix(1.0I, Ny, Ny), T(Nx)) + kron(T(Ny), Matrix(1.0I, Nx, Nx))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "kron of the 1D matrices, as in the unit's examples"
+  code = '''
+using SparseArrays, LinearAlgebra
+function laplacian_2d(Nx, Ny)
+    T(N) = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    return kron(sparse(1.0I, Ny, Ny), T(Nx)) + kron(T(Ny), sparse(1.0I, Nx, Nx))
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "fills spzeros entry by entry"
+  code = '''
+using SparseArrays
+function laplacian_2d(Nx, Ny)
+    n = Nx * Ny
+    A = spzeros(n, n)
+    for j in 1:Ny, i in 1:Nx
+        k = i + (j - 1) * Nx
+        A[k, k] = 4.0
+        i > 1 && (A[k, k - 1] = -1.0)
+        i < Nx && (A[k, k + 1] = -1.0)
+        j > 1 && (A[k, k - Nx] = -1.0)
+        j < Ny && (A[k, k + Nx] = -1.0)
+    end
+    return A
+end
+'''
+  expect = ["correct", "slow"]
+
+[[problem]]
+id = "sparse-conjugate-gradient"
+title = "Conjugate gradients by hand"
+difficulty = "core"
+kcs = ["conjugate-gradients"]
+entry = "conjugate_gradient"
+packages = ["SparseArrays"]
+prompt = '''
+Write `conjugate_gradient(A, b, tol)` for a symmetric positive definite `A`
+(dense or sparse) that runs CG from `x = 0`:
+
+    r = b,  p = r
+    repeat:  Ap = A p
+             α = (r·r) / (p·Ap)
+             x += α p,   r -= α Ap
+             stop if norm(r) <= tol * norm(b)
+             β = (r·r)_new / (r·r)_old,   p = r + β p
+
+with at most `10 * length(b)` iterations, and return `x` (a
+`Vector{Float64}`). Use only products with `A`: no factorization.
+
+```julia
+conjugate_gradient([4.0 1.0; 1.0 3.0], [1.0, 2.0], 1e-10)    # [1/11, 7/11]
+```
+
+Grading is on the solution, with `rtol = 1e-6`. Every case has `tol = 1e-10`
+and `κ(A) <= 500`, and a residual `‖r‖ <= tol ‖b‖` puts `x` within
+`κ tol <= 5e-8` (relative) of the exact solution, so any two converged
+solvers agree to `1e-7`. The grader times a 2500-unknown sparse Poisson
+system and measures memory: one product per iteration, written in place
+with `mul!`, keeps the loop free of allocations.
+'''
+starter = '''
+using LinearAlgebra
+
+function conjugate_gradient(A, b, tol)
+    x = zeros(length(b))
+    r = copy(b)
+    # CG iterations
+    return x
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function conjugate_gradient(A, b, tol)
+    n = length(b)
+    x = zeros(n)
+    r = copy(b)
+    p = copy(r)
+    Ap = similar(r)
+    rr = dot(r, r)
+    target = tol * norm(b)
+    for _ in 1:10n
+        mul!(Ap, A, p)
+        α = rr / dot(p, Ap)
+        x .+= α .* p
+        r .-= α .* Ap
+        rr_new = dot(r, r)
+        sqrt(rr_new) <= target && break
+        p .= r .+ (rr_new / rr) .* p
+        rr = rr_new
+    end
+    return x
+end
+'''
+cases = [
+  "[4.0 1.0; 1.0 3.0], [1.0, 2.0], 1e-10",
+  "(T = spdiagm(-1 => fill(-1.0, 9), 0 => fill(2.0, 10), 1 => fill(-1.0, 9)); kron(spdiagm(0 => ones(10)), T) + kron(T, spdiagm(0 => ones(10)))), ones(100), 1e-10",
+  "spdiagm(0 => collect(1.0:50.0)), collect(1.0:50.0), 1e-10",
+  "[2.0 -1.0 0.0; -1.0 2.0 -1.0; 0.0 -1.0 2.0], [1.0, 0.0, 1.0], 1e-10",
+]
+gen = "rng -> [(n = rand(rng, 2:30); B = randn(rng, n, n); (B * B' .+ n .* (1:n .== (1:n)'), randn(rng, n), 1e-10)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "Keep four vectors: the iterate `x`, the residual `r`, the search direction `p`, and the product `A p`. Only `A p` needs a matrix product, once per iteration.",
+  "The new direction mixes the new residual with the old direction, with weight `β = rr_new / rr_old`; keep `rr_old` from the previous iteration. `mul!(Ap, A, p)` and dotted updates avoid allocating in the loop.",
+]
+
+  [problem.perf]
+  args = "(T = spdiagm(-1 => fill(-1.0, n - 1), 0 => fill(2.0, n), 1 => fill(-1.0, n - 1)); kron(spdiagm(0 => ones(n)), T) + kron(T, spdiagm(0 => ones(n)))), ones(n^2), 1e-8"
+  sizes = [50]
+
+  [[problem.variant]]
+  label = "stops after a fixed 10 iterations"
+  code = '''
+using LinearAlgebra
+function conjugate_gradient(A, b, tol)
+    x = zeros(length(b)); r = copy(b); p = copy(r); rr = dot(r, r)
+    for _ in 1:10
+        Ap = A * p
+        α = rr / dot(p, Ap)
+        x .+= α .* p; r .-= α .* Ap
+        rr_new = dot(r, r)
+        sqrt(rr_new) <= tol * norm(b) && break
+        p = r .+ (rr_new / rr) .* p; rr = rr_new
+    end
+    return x
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a new vector for A * p every iteration"
+  code = '''
+using LinearAlgebra
+function conjugate_gradient(A, b, tol)
+    x = zeros(length(b)); r = copy(b); p = copy(r); rr = dot(r, r)
+    for _ in 1:10 * length(b)
+        Ap = A * p
+        α = rr / dot(p, Ap)
+        x = x + α * p; r = r - α * Ap
+        rr_new = dot(r, r)
+        sqrt(rr_new) <= tol * norm(b) && break
+        p = r + (rr_new / rr) * p; rr = rr_new
+    end
+    return x
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "a direct solve instead (not CG, but the same answer)"
+  code = '''
+conjugate_gradient(A, b, tol) = collect(A \ b)
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "sparse-jacobi-pcg"
+title = "CG with a Jacobi preconditioner"
+difficulty = "stretch"
+kcs = ["preconditioning", "conjugate-gradients"]
+entry = "pcg_jacobi"
+packages = ["SparseArrays", "StableRNGs"]
+prompt = '''
+Write `pcg_jacobi(A, b, tol)`: preconditioned CG with `M = Diagonal(A)`,
+from `x = 0`. With `d = diag(A)`:
+
+    r = b,  z = r ./ d,  p = z
+    repeat:  Ap = A p
+             α = (r·z) / (p·Ap)
+             x += α p,   r -= α Ap
+             stop if norm(r) <= tol * norm(b)
+             z = r ./ d
+             β = (r·z)_new / (r·z)_old,   p = z + β p
+
+with at most `10 * length(b)` iterations; return `x` (a `Vector{Float64}`).
+The stopping test is on the true residual `r`, not on `z` (Krylov.jl's
+preconditioned `cg` stops on `sqrt(r·z)` instead, a different quantity).
+
+```julia
+A = [100.0 1.0; 1.0 1.0]
+pcg_jacobi(A, [1.0, 1.0], 1e-10)    # A \ [1, 1] = [0.0, 1.0], to rounding
+```
+
+Grading is on the solution with `rtol = 1e-6`: the cases have
+`tol = 1e-10` and `κ(A) <= 1e3` (the scaled ones are generated to keep it
+there), so converged solvers agree to about `2e-7`. Speed is graded on a
+Poisson matrix whose unknowns are rescaled by factors up to about 32 (a
+diagonal spanning a factor of 1000), where
+plain CG needs many times more iterations than Jacobi-preconditioned CG.
+'''
+starter = '''
+using LinearAlgebra
+
+function pcg_jacobi(A, b, tol)
+    x = zeros(length(b))
+    d = Vector(diag(A))
+    # preconditioned CG iterations
+    return x
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function pcg_jacobi(A, b, tol)
+    n = length(b)
+    d = Vector(diag(A))              # diag of a sparse matrix is a SparseVector
+    x = zeros(n)
+    r = copy(b)
+    z = r ./ d
+    p = copy(z)
+    Ap = similar(r)
+    rz = dot(r, z)
+    target = tol * norm(b)
+    for _ in 1:10n
+        mul!(Ap, A, p)
+        α = rz / dot(p, Ap)
+        x .+= α .* p
+        r .-= α .* Ap
+        norm(r) <= target && break
+        z .= r ./ d
+        rz_new = dot(r, z)
+        p .= z .+ (rz_new / rz) .* p
+        rz = rz_new
+    end
+    return x
+end
+'''
+cases = [
+  "[100.0 1.0; 1.0 1.0], [1.0, 1.0], 1e-10",
+  "(D = spdiagm(0 => [1.0, 2.0, 4.0, 8.0]); D * [2.0 -1.0 0.0 0.0; -1.0 2.0 -1.0 0.0; 0.0 -1.0 2.0 -1.0; 0.0 0.0 -1.0 2.0] * D), ones(4), 1e-10",
+  "(T = spdiagm(-1 => fill(-1.0, 9), 0 => fill(2.0, 10), 1 => fill(-1.0, 9)); A = kron(spdiagm(0 => ones(10)), T) + kron(T, spdiagm(0 => ones(10))); D = spdiagm(0 => sqrt.(10 .^ rand(StableRNG(2), 100))); D * A * D), ones(100), 1e-10",
+  "spdiagm(0 => collect(1.0:50.0)), collect(1.0:50.0), 1e-10",
+]
+gen = "rng -> [(n = rand(rng, 2:20); B = randn(rng, n, n); D = spdiagm(0 => 10 .^ (rand(rng, n) ./ 2)); (Matrix(D * (B * B' .+ n .* (1:n .== (1:n)')) * D), randn(rng, n), 1e-10)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "It is the CG of the previous problem with one change: every place that used the residual `r` as a direction now uses `z = M⁻¹ r = r ./ d`, and the dot products `r·r` become `r·z`.",
+  "Compute `d` once. For a sparse `A`, `diag(A)` is a sparse vector, slow to divide by in a loop: convert it with `Vector`. The stopping test still measures `norm(r)`; only the directions and `β` use `z`.",
+]
+
+  [problem.perf]
+  args = "(T = spdiagm(-1 => fill(-1.0, n - 1), 0 => fill(2.0, n), 1 => fill(-1.0, n - 1)); A = kron(spdiagm(0 => ones(n)), T) + kron(T, spdiagm(0 => ones(n))); D = spdiagm(0 => sqrt.(10 .^ (3 .* rand(rng, n^2)))); D * A * D), ones(n^2), 1e-8"
+  sizes = [60]
+
+  [[problem.variant]]
+  label = "stops after length(b) ÷ 2 iterations"
+  code = '''
+using LinearAlgebra
+function pcg_jacobi(A, b, tol)
+    n = length(b); d = diag(A)
+    x = zeros(n); r = copy(b); z = r ./ d; p = copy(z); rz = dot(r, z)
+    for _ in 1:max(1, n ÷ 2)
+        Ap = A * p
+        α = rz / dot(p, Ap)
+        x .+= α .* p; r .-= α .* Ap
+        norm(r) <= tol * norm(b) && break
+        z = r ./ d
+        rz_new = dot(r, z)
+        p = z .+ (rz_new / rz) .* p; rz = rz_new
+    end
+    return x
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "multiplies by the diagonal instead of dividing"
+  code = '''
+using LinearAlgebra
+function pcg_jacobi(A, b, tol)
+    n = length(b); d = diag(A)
+    x = zeros(n); r = copy(b); z = r .* d; p = copy(z); rz = dot(r, z)
+    for _ in 1:10n
+        Ap = A * p
+        α = rz / dot(p, Ap)
+        x .+= α .* p; r .-= α .* Ap
+        norm(r) <= tol * norm(b) && break
+        z = r .* d
+        rz_new = dot(r, z)
+        p = z .+ (rz_new / rz) .* p; rz = rz_new
+    end
+    return x
+end
+'''
+  expect = ["correct", "slow"]
+
+  [[problem.variant]]
+  label = "the right algorithm with d = diag(A) left as a SparseVector"
+  code = '''
+using LinearAlgebra
+function pcg_jacobi(A, b, tol)
+    n = length(b); d = diag(A)
+    x = zeros(n); r = copy(b); z = r ./ d; p = copy(z); Ap = similar(r); rz = dot(r, z)
+    for _ in 1:10n
+        mul!(Ap, A, p)
+        α = rz / dot(p, Ap)
+        x .+= α .* p; r .-= α .* Ap
+        norm(r) <= tol * norm(b) && break
+        z .= r ./ d
+        rz_new = dot(r, z)
+        p .= z .+ (rz_new / rz) .* p; rz = rz_new
+    end
+    return x
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "plain CG, no preconditioner"
+  code = '''
+using LinearAlgebra
+function pcg_jacobi(A, b, tol)
+    n = length(b)
+    x = zeros(n); r = copy(b); p = copy(r); Ap = similar(r); rr = dot(r, r)
+    for _ in 1:10n
+        mul!(Ap, A, p)
+        α = rr / dot(p, Ap)
+        x .+= α .* p; r .-= α .* Ap
+        rr_new = dot(r, r)
+        sqrt(rr_new) <= tol * norm(b) && break
+        p .= r .+ (rr_new / rr) .* p; rr = rr_new
+    end
+    return x
+end
+'''
+  expect = ["correct", "slow"]

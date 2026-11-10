@@ -1,0 +1,874 @@
+id = "35-stiffness"
+title = "Stiffness and stability"
+track = "scicomp"
+env = "scicomp"
+status = "ready"
+summary = "Why explicit solvers crawl on stiff problems: forward Euler on the test equation and its stability limit, the Jacobian's eigenvalues and the stiffness ratio, the largest stable step for a discretized PDE (set by the grid, not by the tolerance), backward Euler written by hand with Newton's method and checked against OrdinaryDiffEq, what implicit methods do to fast modes, and the work counts that make Rodas5P win."
+kcs = ["stiffness", "stability", "implicit-methods", "jacobian"]
+prerequisites = ["23-derivatives", "24-differential-equations", "31-convergence", "32-dense-linear-algebra", "33-sparse-iterative", "34-pde-discretization"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+Unit 24 showed *that* an explicit solver stalls on a stiff problem and an
+implicit one does not; this unit shows *why*. It relies on these facts:
+
+* **Stiff problems stall explicit solvers**: `Tsit5` on Robertson's
+  reactions stopped at its step limit while `Rodas5P` and `FBDF` finished in
+  a few hundred steps (unit 24, section "Stiffness and choosing a solver").
+* **`sol.stats`** counts accepted and rejected steps, right-hand-side calls
+  and Jacobians (same section); we compare methods by these counts.
+* **`ForwardDiff.jacobian(f, u)`** returns the matrix of partial derivatives
+  `∂f_i/∂u_j`, exactly, for a generic `f` (unit 23, section "ForwardDiff:
+  derivative, gradient, jacobian, hessian").
+* **The discrete Laplacian's eigenvalues** run from about `-π²` to about
+  `-4 / dx^2` (unit 34, section "The discrete Laplacian is a matrix"), and
+  its right-hand side `heat!` from unit 34, section "The method of lines:
+  the heat equation as an ODE system" is reused here.
+* **The step-size controller** accepts a step when the scaled error
+  estimate is at most 1 and otherwise shrinks `h` (unit 31, section "What
+  an adaptive solver's error estimate is").
+* **Factor once, solve many**: a stored factorization `F` makes each later
+  solve cheap (unit 32, section "Factor once, solve many").
+* **Sparse matrices** store only the nonzeros, and a sparse direct solve
+  costs far less than a dense one on a grid matrix (unit 33, sections
+  "Compressed sparse column storage" and "Direct sparse solves and
+  fill-in").
+'''
+
+[[section]]
+title = "Forward Euler on the test equation"
+body = '''
+Everything about stability can be seen on one scalar equation, the **test
+equation** `u' = λu` with `λ < 0`, whose solution `exp(λt)` decays. Forward
+Euler, `u_{n+1} = u_n + h f(u_n)`, gives
+
+    u_{n+1} = (1 + hλ) u_n,    so    u_n = (1 + hλ)^n u_0
+
+The numerical solution decays only if `|1 + hλ| <= 1`, that is, if
+`h <= 2 / |λ|`. Above that step it grows like a geometric series, whatever
+the accuracy you wanted. This is a **stability limit**: it depends on `λ`
+only, not on the tolerance or on how smooth the solution looks.
+
+Between `1 / |λ|` and `2 / |λ|` the factor `1 + hλ` is negative, so the
+numbers flip sign every step while shrinking: stable, but qualitatively
+wrong for a decay.
+'''
+
+  [[section.example]]
+  caption = "Forward Euler for `u' = -100u`, 100 steps of four sizes. The stability limit is `h = 2/100 = 0.02` (results rounded to 3 digits)."
+  notice = "Notice the jump between `h = 0.019` and `h = 0.021`: a 10% longer step turns a decay into growth by a factor of 13,800. Notice also that `h = 0.019` gives the same size as `h = 0.001`, because `(-0.9)^100 = 0.9^100`: stable, with the sign flipping each step."
+  code = '''
+euler(λ, h, nsteps) = (u = 1.0; for _ in 1:nsteps; u += h * λ * u; end; u)
+λ = -100.0
+for h in (0.001, 0.019, 0.021, 0.03)
+    println("h = ", rpad(h, 6), "  1 + hλ = ", rpad(round(1 + h * λ; digits = 3), 6),
+            "  u after 100 steps = ", round(euler(λ, h, 100); sigdigits = 3))
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "Forward Euler for `u' = -12u` from `u = 1` with `h = 0.25`, three steps. What does this print?"
+  code = '''
+euler(λ, h, nsteps) = (u = 1.0; for _ in 1:nsteps; u += h * λ * u; end; u)
+euler(-12.0, 0.25, 3)
+'''
+  choices = ["0.00012340980408667956", "-8.0", "0.0", "-0.008000000000000021"]
+  answer = 2
+  explain = "Each step multiplies by `1 + hλ = 1 - 3 = -2`, so three steps give `(-2)^3 = -8`. The step `0.25` is above the limit `2 / 12 ≈ 0.167`, and the numbers grow and flip sign although the true solution decays."
+  misconceptions = [
+    "That is the exact solution `exp(-12 * 0.75)`; forward Euler only matches it when `h` is well below `1 / |λ|`.",
+    "",
+    "The solution would reach zero only if `1 + hλ` were exactly 0, which needs `h = 1/12`.",
+    "That is what `h = 0.1` gives (factor `-0.2`); at `h = 0.25` the factor is `-2`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You run forward Euler on `u' = -1000u` with `h` ten percent above `2 / 1000`. What happens to the result as you take more steps?"
+  choices = [
+    "It decays, with an error of about ten percent",
+    "It grows by about 1.2 times per step, without bound",
+    "It decays more slowly than the exact solution",
+  ]
+  answer = 2
+  explain = "The factor is `1 + hλ = 1 - 2.2 = -1.2`: each step multiplies the magnitude by 1.2. An explicit method on a stiff problem is not merely inaccurate when its step is too long; it is unstable, which is why adaptive solvers keep the step under the limit and so take many steps."
+  misconceptions = [
+    "Above the limit the error does not stay proportional to the step excess: it is multiplied by `|1 + hλ| > 1` at every step.",
+    "",
+    "A slower decay would need `0 < 1 + hλ < 1`; here `1 + hλ` is `-1.2`, so the magnitude grows.",
+  ]
+
+[[section]]
+title = "Stability is set by the Jacobian's eigenvalues"
+body = '''
+A system `u' = f(u)` behaves near a state `u*` like its linearization
+`u' ≈ J (u - u*)`, with `J = ∂f/∂u` the Jacobian. If `J` has eigenvalues
+`λ_1, ..., λ_n`, each eigenvector direction is its own test equation, and
+forward Euler is stable only if `|1 + hλ_k| <= 1` for **every** `k`. For a
+complex `λ = a + bi` that is a disk: `(1 + ha)^2 + (hb)^2 <= 1`.
+
+So the most negative eigenvalue (the fastest mode) sets the step, even after
+that mode has decayed and is invisible in the solution, while the
+eigenvalue nearest zero (the slowest mode) sets how long you must integrate.
+Their ratio,
+
+    stiffness ratio = max |Re λ| / min |Re λ|
+
+is roughly the number of explicit steps per characteristic time of the
+solution. A ratio near 1 means no stiffness; thousands and up means an
+implicit method will pay off. It is a property of the state too: for a
+nonlinear `f`, `J` changes along the solution.
+
+Robertson's reactions conserve total mass, `A + B + C = 1`, so their
+Jacobian always has an eigenvalue 0 (exactly, up to rounding): that
+direction neither grows nor decays and is left out of the ratio.
+'''
+
+  [[section.example]]
+  caption = "The eigenvalues of Robertson's Jacobian (from ForwardDiff) at the start and at two later states, rounded to 3 digits. Eigenvalues below `1e-12` in size are zero up to rounding (they come out near `1e-16`, with digits that vary), so they are counted, not printed."
+  notice = "Notice that at the start only one eigenvalue is nonzero, so nothing is stiff yet, but as soon as some B exists an eigenvalue in the thousands appears beside one below 1 in size, and the ratio exceeds 10,000. One zero eigenvalue remains at every state: the conserved total."
+  code = '''
+using ForwardDiff, LinearAlgebra
+robertson(u) = [-0.04u[1] + 1e4 * u[2] * u[3],
+                0.04u[1] - 3e7 * u[2]^2 - 1e4 * u[2] * u[3],
+                3e7 * u[2]^2]
+for u in ([1.0, 0.0, 0.0], [0.9, 3.4e-5, 0.1], [0.5, 6e-6, 0.5])
+    λ = sort(real.(eigvals(ForwardDiff.jacobian(robertson, u))))
+    nonzero = filter(l -> abs(l) > 1e-12, λ)
+    println("u = ", u, ":  nonzero eigenvalues ", round.(nonzero; sigdigits = 3), ", zero ones: ",
+            count(l -> abs(l) <= 1e-12, λ), ", ratio ", round(maximum(abs, nonzero) / minimum(abs, nonzero); sigdigits = 2))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A linear system has Jacobian eigenvalues `-0.1` and `-5000`. After `t = 0.01` the fast mode has decayed to nothing. Which eigenvalue limits forward Euler's step for the rest of the solve?"
+  choices = [
+    "`-5000`, since every mode must stay stable",
+    "`-0.1`, since it is the only mode left in the solution",
+    "Neither: once the fast mode is gone, accuracy sets the step",
+  ]
+  answer = 1
+  explain = "The fast mode is never exactly zero: rounding and the step's own errors put a little of it back every step, and forward Euler multiplies it by `1 + hλ`. With `h` above `2 / 5000 = 4e-4` that tiny amount grows geometrically and takes over. That is stiffness: a mode you cannot see dictates the step."
+  misconceptions = [
+    "",
+    "The slow mode is what you see, but the stability condition must hold for all eigenvalues, including the fast one that has decayed.",
+    "Accuracy would allow long steps, but rounding errors excite the fast mode again, and above `2 / 5000` it grows.",
+  ]
+
+[[section]]
+title = "The largest stable step, and why the tolerance does not help"
+body = '''
+For a real negative spectrum the forward-Euler limit is
+`h_max = 2 / max |λ|`. For the heat equation of unit 34, `max |λ| ≈ 4κ / dx^2`, so
+
+    h_max ≈ dx^2 / (2κ)
+
+Halving `dx` divides the allowed step by 4: refining a grid by 10 makes an
+explicit solve 100 times longer in steps (and 10 times wider per step).
+
+Adaptive explicit methods such as `Tsit5` obey the same kind of limit with
+a somewhat larger constant (their stability region is a bigger, but still
+bounded, set around the origin). Their error controller (unit 31) finds the
+limit by trial: a step that is too long makes the fast mode grow, the error
+estimate exceeds 1, the step is rejected, and `h` shrinks. So on a stiff problem the step
+count hardly changes with the tolerance, and it grows with the grid. Both
+are visible in `sol.stats`.
+'''
+
+  [[section.example]]
+  caption = "Forward Euler by hand on the heat equation (49 interior points, κ = 1, up to t = 0.1, starting from `x(1 - x)`), at multiples of `h_max = dx^2 / 2`; the largest value at the end is printed (rounded to 3 digits)."
+  notice = "Notice that 0.9 and 0.99 of the limit give the right answer (about 0.096), while 1.05 and 1.1 of it blow up: the zig-zag mode, tiny in the initial data, is multiplied by more than 1 at every step."
+  code = '''
+function heat!(du, u, p, t)
+    κ, dx = p
+    n = length(u)
+    for i in 1:n
+        left = i > 1 ? u[i-1] : zero(eltype(u))
+        right = i < n ? u[i+1] : zero(eltype(u))
+        du[i] = κ * (left - 2u[i] + right) / dx^2
+    end
+    return nothing
+end
+function euler_heat(n, h, T)
+    dx = 1 / (n + 1)
+    x = dx .* (1:n)
+    u = x .* (1 .- x)
+    du = similar(u)
+    for _ in 1:round(Int, T / h)
+        heat!(du, u, (1.0, dx), 0.0)
+        u .+= h .* du
+    end
+    return maximum(abs, u)
+end
+n = 49
+hmax = (1 / (n + 1))^2 / 2
+for factor in (0.9, 0.99, 1.05, 1.1)
+    println("h = ", rpad(factor, 5), "h_max:  max |u(0.1)| = ", round(euler_heat(n, factor * hmax, 0.1); sigdigits = 3))
+end
+'''
+
+  [[section.example]]
+  caption = "`Tsit5` on the same heat equation at two tolerances and three grids (κ = 1, t up to 0.1, from `sin(πx)`): accepted steps. Recorded, not checked: step counts depend on the CPU's rounding (fused multiply-add) and on the package version, as unit 31 noted."
+  notice = "Notice that on the finer grids a thousand times tighter tolerance adds only a few percent to the step count, while doubling the grid multiplies it by about 4: the step is set by `dx^2`, which is stability, not accuracy. On the coarsest grid accuracy still matters (the count grows by about half)."
+  check = false
+  code = '''
+using OrdinaryDiffEq
+function heat!(du, u, p, t)
+    κ, dx = p
+    n = length(u)
+    for i in 1:n
+        left = i > 1 ? u[i-1] : zero(eltype(u))
+        right = i < n ? u[i+1] : zero(eltype(u))
+        du[i] = κ * (left - 2u[i] + right) / dx^2
+    end
+    return nothing
+end
+for n in (49, 99, 199)
+    dx = 1 / (n + 1)
+    prob = ODEProblem(heat!, sin.(pi .* dx .* (1:n)), (0.0, 0.1), (1.0, dx))
+    steps = [solve(prob, Tsit5(); abstol = tol, reltol = tol, save_everystep = false).stats.naccept for tol in (1e-3, 1e-6)]
+    println(n, " points:  accepted steps at tol 1e-3: ", steps[1], ", at 1e-6: ", steps[2])
+end
+'''
+
+  [[section.example]]
+  caption = "The same runs reduced to the two ratios that carry the argument, each tested with a wide margin, so the result holds when individual counts move."
+  notice = "Notice the two claims: the tolerance barely moves the count once the grid is fine (under 1.5 times for 1000 times tighter), and every doubling of the grid more than triples it (the `dx^2` scaling predicts 4)."
+  code = '''
+using OrdinaryDiffEq
+function heat!(du, u, p, t)
+    κ, dx = p
+    n = length(u)
+    for i in 1:n
+        left = i > 1 ? u[i-1] : zero(eltype(u))
+        right = i < n ? u[i+1] : zero(eltype(u))
+        du[i] = κ * (left - 2u[i] + right) / dx^2
+    end
+    return nothing
+end
+steps = Dict{Tuple{Int, Float64}, Int}()
+for n in (49, 99, 199), tol in (1e-3, 1e-6)
+    dx = 1 / (n + 1)
+    prob = ODEProblem(heat!, sin.(pi .* dx .* (1:n)), (0.0, 0.1), (1.0, dx))
+    steps[(n, tol)] = solve(prob, Tsit5(); abstol = tol, reltol = tol, save_everystep = false).stats.naccept
+end
+println("1000x tighter tolerance, fewer than 1.5x the steps (99 and 199 points): ",
+        all(steps[(n, 1e-6)] < 1.5 * steps[(n, 1e-3)] for n in (99, 199)))
+println("each grid doubling, more than 3x the steps (both tolerances): ",
+        all(steps[(m, tol)] > 3 * steps[(n, tol)] for (n, m) in ((49, 99), (99, 199)), tol in (1e-3, 1e-6)))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "An explicit solve of a discretized diffusion problem takes 4,000 steps. You refine the grid from 100 to 1,000 points. About how many steps will it take?"
+  choices = [
+    "About 40,000, ten times as many",
+    "About 4,000: the solution is just as smooth",
+    "About 400,000, a hundred times as many",
+  ]
+  answer = 3
+  explain = "The stable step scales like `dx^2`, so a grid ten times finer allows steps a hundred times shorter. The solution does not need them; stability does."
+  misconceptions = [
+    "That would hold if the step scaled like `dx`, as for an advection problem; the diffusion stencil divides by `dx^2`.",
+    "The smoothness of the solution sets the step only for a non-stiff problem; here the finer grid adds faster modes that the explicit method must keep stable.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`Tsit5` takes 1,000 steps on a stiff problem at `reltol = 1e-3`. You loosen it to `1e-1` to save time. What do you expect?"
+  choices = [
+    "About 1,000 steps again: stability sets the step",
+    "About 100 steps, since the error per step can be larger",
+    "Fewer steps and a solution that blows up",
+  ]
+  answer = 1
+  explain = "On a stiff problem the steps are already at the stability limit; a looser tolerance lets the controller try longer steps, which the error estimate rejects as soon as the fast mode starts to grow. The count stays near the limit, and the solution stays bounded."
+  misconceptions = [
+    "",
+    "That scaling (fewer steps for a looser tolerance) holds when accuracy limits the step, which is the non-stiff case.",
+    "The error controller rejects the growing steps, so the solution stays stable; the savings do not appear.",
+  ]
+
+[[section]]
+title = "Backward Euler: an implicit step by hand"
+body = '''
+**Backward Euler** evaluates `f` at the end of the step instead of the
+start:
+
+    u_{n+1} = u_n + h f(u_{n+1})
+
+On the test equation that gives `u_{n+1} = u_n / (1 - hλ)`, and
+`|1 / (1 - hλ)| < 1` for **every** `h > 0` when `Re λ < 0`: no stability
+limit. The price is an equation to solve at each step. For a linear system
+`f(u) = A u` it is the linear system `(I - hA) u_{n+1} = u_n`, whose
+matrix is the same at every step of fixed size, so it is factored once and
+each step is one cheap solve (unit 32, "Factor once, solve many"). For a
+nonlinear `f`, solve `G(v) = v - u_n - h f(v) = 0` by **Newton's method**:
+
+    v ← v - (I - h J(v)) \ G(v),     J = ∂f/∂u (ForwardDiff.jacobian)
+
+starting from `v = u_n`, until the update is at the level of rounding.
+Newton converges quadratically near the root; for a linear `f` it lands on
+it in one iteration.
+
+The library's version of this method, `ImplicitEuler()`, lives in the
+OrdinaryDiffEqSDIRK sub-package, which `using OrdinaryDiffEq` (version 7
+here) does not load; this environment exports `Tsit5`, the Verner methods,
+`Rosenbrock23`, `Rodas5P` and `FBDF`. So the hand-written steps are checked
+against a tight `Rodas5P` solve instead, and the check is the method's
+order: halving `h` should halve the error.
+
+Stability is not accuracy: backward Euler is first order, so its error is
+proportional to `h`. Long steps are stable, and they still cost accuracy in
+the modes that matter.
+'''
+
+  [[section.example]]
+  caption = "Backward Euler with Newton's method on a stiff nonlinear system (Van der Pol, μ = 1000), up to t = 0.1 with three fixed step sizes, against `Rodas5P` at `abstol = reltol = 1e-12`. The errors themselves (near `1e-10`) are printed only through their ratio `err(h) / err(h/2)`, rounded to one digit: their last digits depend on the reference solve."
+  notice = "Notice that every step size is 4 to 15 times forward Euler's limit for this Jacobian (`2 / 3000 ≈ 0.00067`) and the solution stays bounded, that each step solves its equation to rounding, and that halving `h` halves the error: an observed order of 1 (unit 31), as the method promises."
+  code = '''
+using OrdinaryDiffEq, ForwardDiff, LinearAlgebra
+vdp(u) = [u[2], 1000.0 * (1 - u[1]^2) * u[2] - u[1]]     # Van der Pol oscillator, μ = 1000
+function backward_euler_step(f, u, h)
+    v = copy(u)
+    for _ in 1:50
+        G = v .- u .- h .* f(v)
+        δ = (I - h .* ForwardDiff.jacobian(f, v)) \ G
+        v .-= δ
+        norm(δ) <= 1e-12 * (1 + norm(v)) && break
+    end
+    return v
+end
+v = backward_euler_step(vdp, [2.0, 0.0], 0.01)
+println("residual of one step below 1e-12: ", norm(v .- [2.0, 0.0] .- 0.01 .* vdp(v)) < 1e-12)
+ref = solve(ODEProblem((u, p, t) -> vdp(u), [2.0, 0.0], (0.0, 0.1)), Rodas5P(); abstol = 1e-12, reltol = 1e-12).u[end]
+function be_error(h)
+    u = [2.0, 0.0]
+    for _ in 1:round(Int, 0.1 / h)
+        u = backward_euler_step(vdp, u, h)
+    end
+    return norm(u .- ref)
+end
+errs = [be_error(h) for h in (0.01, 0.005, 0.0025)]
+println("all errors below 1e-8: ", all(<(1e-8), errs))
+println("err(0.01) / err(0.005)   = ", round(errs[1] / errs[2]; sigdigits = 1))
+println("err(0.005) / err(0.0025) = ", round(errs[2] / errs[3]; sigdigits = 1))
+'''
+
+  [[section.example]]
+  caption = "What each method does to one mode with `hλ` given: the factor that multiplies it per step (rounded to 4 digits). The trapezoidal rule (Crank-Nicolson, `(1 + hλ/2) / (1 - hλ/2)`) is the second-order implicit method."
+  notice = "Notice that for `hλ = -1000` backward Euler multiplies the fast mode by 0.001, so it vanishes, while the trapezoidal rule multiplies it by -0.996: stable, yet the mode survives and flips sign every step."
+  code = '''
+for z in (-0.5, -1.9, -2.1, -10.0, -1000.0)
+    fe = 1 + z
+    be = 1 / (1 - z)
+    tr = (1 + z / 2) / (1 - z / 2)
+    println("hλ = ", rpad(z, 8), "forward Euler ", rpad(round(fe; digits = 4), 9),
+            "backward Euler ", rpad(round(be; digits = 4), 8), "trapezoid ", round(tr; digits = 4))
+end
+'''
+
+  [[section.example]]
+  caption = "The heat equation (99 points) from a block of heat, five long steps `h = 0.01` (about 200 times forward Euler's limit) with backward Euler and with the trapezoidal rule, against the exact solution of the ODE system (from the eigenvectors). The matrices `I - hA` and `I - (h/2)A` are the same at every step, so each is factored once, as in unit 32's problem \"Implicit Euler with one factorization\"."
+  notice = "Notice that the trapezoidal rule, the more accurate method for small steps, here produces negative temperatures and a large error: the fast modes of the sharp block are multiplied by nearly -1 each step. Backward Euler damps them and stays close."
+  code = '''
+using LinearAlgebra
+n = 99
+dx = 1 / (n + 1)
+x = dx .* (1:n)
+A = SymTridiagonal(fill(-2.0, n), ones(n - 1)) / dx^2
+u0 = [abs(xi - 0.5) < 0.1 ? 1.0 : 0.0 for xi in x]
+h = 0.01
+Fbe = factorize(I - h * A)              # SymTridiagonal: an LDLt factorization, O(n)
+Fcn = factorize(I - (h / 2) * A)
+B = I + (h / 2) * A
+ube, ucn = copy(u0), copy(u0)
+for _ in 1:5
+    global ube = Fbe \ ube
+    global ucn = Fcn \ (B * ucn)
+end
+λ, V = eigen(A)
+exact = V * (exp.(λ .* 5h) .* (V' * u0))
+println("backward Euler: min = ", round(minimum(ube); digits = 3), ", max error = ", round(maximum(abs.(ube .- exact)); digits = 3))
+println("trapezoidal:    min = ", round(minimum(ucn); digits = 3), ", max error = ", round(maximum(abs.(ucn .- exact)); digits = 3))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The trapezoidal rule's factor `(1 + z/2) / (1 - z/2)` for a very fast mode, `z = hλ = -1e6`. What does this print?"
+  code = '''
+z = -1e6
+round((1 + z / 2) / (1 - z / 2); digits = 3)
+'''
+  choices = ["0.0", "-1.0", "1.0", "-0.5"]
+  answer = 2
+  explain = "As `z → -∞` the factor tends to `-1`: the trapezoidal rule is stable (A-stable), but it does not damp infinitely fast modes. Backward Euler's `1 / (1 - z)` tends to 0, a property called L-stability, which is what you want for very stiff problems."
+  misconceptions = [
+    "That is backward Euler's limit, `1 / (1 - z) → 0`; the trapezoidal rule keeps a factor of magnitude 1.",
+    "",
+    "The numerator and denominator have opposite signs for large negative `z`, so the factor is negative.",
+    "The two halves of the factor both scale like `z / 2`, so their ratio tends to `-1`, not to `-1/2`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Backward Euler is stable for any step on `u' = λu` with `λ < 0`. Why not always take one huge step to the end time?"
+  choices = [
+    "Its error grows in proportion to `h`, so a huge step is stable but inaccurate",
+    "Newton's method stops converging once `h` exceeds `2 / |λ|`",
+    "One step would allocate a Jacobian too large to store",
+  ]
+  answer = 1
+  explain = "Stability only says that errors do not blow up. Backward Euler is first order: its error in the slow modes, the ones you care about, is proportional to `h`. Adaptive implicit solvers choose `h` from the error estimate of those modes, which is why their steps are long but not arbitrary."
+  misconceptions = [
+    "",
+    "For a linear problem Newton converges in one iteration for any `h`; `2 / |λ|` is forward Euler's limit, which does not apply to implicit methods.",
+    "The Jacobian has the size of the system whatever the step; the step size does not change the storage.",
+  ]
+
+[[section]]
+title = "Why Rodas5P wins: counting the work"
+body = '''
+An implicit step is more expensive than an explicit one: it needs the
+Jacobian (here from ForwardDiff) and one or more linear solves with
+`I - hγJ`. It wins when the problem allows steps far longer than the
+explicit stability limit, so that a few expensive steps replace many cheap
+ones.
+
+`Rodas5P` is a Rosenbrock method: instead of iterating Newton to
+convergence, it builds the linearization into the method, with fifth-order
+accuracy and an error estimate. Each step computes one Jacobian, factors
+`W = I - hγJ` once and solves with that factorization for all of its
+stages: unit 32's "factor once, solve many" inside one step. `FBDF` takes
+the idea further and reuses a Jacobian and its factorization across many
+steps, refactoring only when the step size changes enough or Newton
+converges slowly. `sol.stats` counts both: `njacs` Jacobians and `nw`
+factorizations of `W`, beside `naccept` steps and `nf` right-hand-side
+calls.
+
+The Jacobian's **sparsity pattern** decides what each of those costs. For
+the heat equation `J` is the constant tridiagonal matrix of unit 34. Without
+being told, the solver treats it as dense: ForwardDiff needs one pass per
+column, and the LU of an `n × n` dense matrix costs `O(n^3)`. Passing
+`ODEFunction(heat!; jac_prototype = Tridiagonal(...))` gives it the
+pattern: columns that share no row are perturbed in the same ForwardDiff
+pass (3 passes for a tridiagonal matrix, whatever `n` is), and the
+factorization is a tridiagonal one in `O(n)` (unit 32's matrix types; for
+the 2D grid of unit 34 the pattern is a sparse matrix, and the solve a
+sparse LU as in unit 33). Only the positions of the nonzeros matter, not
+their values. The heat equation is linear and its Jacobian is known, so the
+examples below also pass it as `jac = heat_jac!`, a function that fills the
+tridiagonal matrix in place; that skips ForwardDiff and its compilation. An
+implicit method's step is then set by the accuracy of the slow modes,
+independent of the grid.
+
+The other side of the trade: on a problem that is **not** stiff, the
+explicit method's steps are already set by accuracy, and the Jacobian and
+linear solves are pure overhead. Pick the method from the problem, which
+`sol.stats` and the eigenvalues tell you.
+'''
+
+  [[section.example]]
+  caption = "The heat equation on 199 points (κ = 1, t up to 0.1, `abstol = reltol = 1e-6`), with the tridiagonal pattern passed as `jac_prototype` and the Jacobian as `jac`: the work counts of three solvers and each one's error against the exact PDE solution. Recorded, not checked: counts depend on the CPU's rounding and on the package version."
+  notice = "Notice the three ways to spend the work: `Tsit5` takes thousands of cheap steps and no Jacobian; `Rodas5P` takes a handful of steps with one Jacobian and one factorization each; `FBDF` takes more steps than `Rodas5P` but computes a single Jacobian and refactors only when its step changes. All three errors are about the same size: they come from the grid (unit 34), so the extra explicit steps buy no accuracy."
+  check = false
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+function heat!(du, u, p, t)
+    κ, dx = p
+    n = length(u)
+    for i in 1:n
+        left = i > 1 ? u[i-1] : zero(eltype(u))
+        right = i < n ? u[i+1] : zero(eltype(u))
+        du[i] = κ * (left - 2u[i] + right) / dx^2
+    end
+    return nothing
+end
+function heat_jac!(J, u, p, t)            # the constant Jacobian, written into the pattern
+    κ, dx = p
+    J.dl .= κ / dx^2; J.d .= -2κ / dx^2; J.du .= κ / dx^2
+    return nothing
+end
+n = 199
+dx = 1 / (n + 1)
+x = dx .* (1:n)
+pattern = Tridiagonal(ones(n - 1), ones(n), ones(n - 1))   # only the nonzero positions matter
+prob = ODEProblem(ODEFunction(heat!; jac = heat_jac!, jac_prototype = pattern), sin.(pi .* x), (0.0, 0.1), (1.0, dx))
+exact = exp(-pi^2 * 0.1) .* sin.(pi .* x)
+for alg in (Tsit5(), Rodas5P(), FBDF())
+    sol = solve(prob, alg; abstol = 1e-6, reltol = 1e-6, save_everystep = false)
+    st = sol.stats
+    println(rpad(nameof(typeof(alg)), 8), " naccept ", rpad(st.naccept, 5), " njacs ", rpad(st.njacs, 3),
+            " nw ", rpad(st.nw, 3), " nf ", rpad(st.nf, 6), " error ", round(maximum(abs.(sol.u[end] .- exact)); sigdigits = 1))
+end
+'''
+
+  [[section.example]]
+  caption = "The claims about `Tsit5` and `Rodas5P` as tests with wide margins, at three grid sizes: `Rodas5P`'s step count stays small, `Tsit5` needs many times more steps, and the two errors agree. (`FBDF` is left out only to keep the run short: each solver compiles once per run.)"
+  notice = "Notice that these hold at every grid size although the individual counts may move: `Rodas5P` stays under 20 steps while `Tsit5`'s count grows with the grid, and the implicit solve is as accurate as the explicit one."
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+function heat!(du, u, p, t)
+    κ, dx = p
+    n = length(u)
+    for i in 1:n
+        left = i > 1 ? u[i-1] : zero(eltype(u))
+        right = i < n ? u[i+1] : zero(eltype(u))
+        du[i] = κ * (left - 2u[i] + right) / dx^2
+    end
+    return nothing
+end
+function heat_jac!(J, u, p, t)            # the constant Jacobian, written into the pattern
+    κ, dx = p
+    J.dl .= κ / dx^2; J.d .= -2κ / dx^2; J.du .= κ / dx^2
+    return nothing
+end
+few_steps = true; many_more = true; same_error = true
+for n in (49, 99, 199)
+    dx = 1 / (n + 1)
+    x = dx .* (1:n)
+    pattern = Tridiagonal(ones(n - 1), ones(n), ones(n - 1))
+    prob = ODEProblem(ODEFunction(heat!; jac = heat_jac!, jac_prototype = pattern), sin.(pi .* x), (0.0, 0.1), (1.0, dx))
+    exact = exp(-pi^2 * 0.1) .* sin.(pi .* x)
+    err(sol) = maximum(abs.(sol.u[end] .- exact))
+    explicit = solve(prob, Tsit5(); abstol = 1e-6, reltol = 1e-6, save_everystep = false)
+    rosenbrock = solve(prob, Rodas5P(); abstol = 1e-6, reltol = 1e-6, save_everystep = false)
+    global few_steps &= rosenbrock.stats.naccept < 20
+    global many_more &= explicit.stats.naccept > 10 * rosenbrock.stats.naccept
+    global same_error &= 0.5 < err(rosenbrock) / err(explicit) < 2
+end
+println("Rodas5P under 20 steps on every grid:       ", few_steps)
+println("Tsit5 more than 10 times Rodas5P's steps:   ", many_more)
+println("Rodas5P error within a factor 2 of Tsit5's: ", same_error)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "For the Lotka-Volterra predator-prey model (eigenvalues of moderate, similar size), which solver do you expect to be fastest at `reltol = 1e-6`?"
+  choices = [
+    "`Rodas5P`, since implicit methods are always more stable",
+    "`ImplicitEuler`, since it has no stability limit",
+    "`Tsit5`, since the problem is not stiff",
+  ]
+  answer = 3
+  explain = "Without widely separated time scales, accuracy already limits the step, so an explicit method takes about as few steps as an implicit one, and each of its steps costs only right-hand-side calls, with no Jacobian or linear solve."
+  misconceptions = [
+    "Extra stability is worth paying for only when stability limits the step; here each Jacobian and LU factorization is overhead.",
+    "No stability limit is no help when accuracy sets the step, and a first-order method needs many more steps for the same accuracy than `Tsit5`.",
+    "",
+  ]
+
+[[problem]]
+id = "stiff-ratio"
+title = "Stiffness ratio from the Jacobian"
+difficulty = "warm-up"
+kcs = ["stiffness", "jacobian"]
+entry = "stiffness_ratio"
+packages = ["ForwardDiff"]
+prompt = '''
+Write `stiffness_ratio(f, u)` for an out-of-place right-hand side `f(u)`
+(returning a vector) and a state `u`. Compute the Jacobian `∂f/∂u` at `u`
+with `ForwardDiff.jacobian`, its eigenvalues, and return the stiffness ratio
+
+    max_k |Re λ_k| / min_k |Re λ_k|
+
+as a `Float64`. In every case all eigenvalues have negative real parts (no
+zero eigenvalue); some come in complex pairs.
+
+```julia
+stiffness_ratio(u -> [-1000.0 * u[1], -u[2]], [1.0, 1.0])     # 1000.0
+stiffness_ratio(u -> [-2u[1] + 50u[2], -50u[1] - 2u[2], -0.1u[3]], ones(3))   # 20.0
+```
+
+Results are compared with `rtol = 1e-6`: an eigenvalue of a nonsymmetric
+matrix carries a rounding error of about `eps()` times its condition, and
+the Van der Pol case (ratio about `9e6`) has a small eigenvalue that loses
+up to 7 digits that way; reordered but exact computations stay far inside.
+'''
+starter = '''
+using ForwardDiff, LinearAlgebra
+
+function stiffness_ratio(f, u)
+    # Jacobian, eigenvalues, ratio of real parts
+end
+'''
+reference = '''
+using ForwardDiff, LinearAlgebra
+
+function stiffness_ratio(f, u)
+    J = ForwardDiff.jacobian(f, u)
+    re = abs.(real.(eigvals(J)))
+    return maximum(re) / minimum(re)
+end
+'''
+cases = [
+  "u -> [-1000.0 * u[1], -u[2]], [1.0, 1.0]",
+  "u -> [-2u[1] + 50u[2], -50u[1] - 2u[2], -0.1u[3]], ones(3)",
+  "u -> [u[2], 1000.0 * (1 - u[1]^2) * u[2] - u[1]], [2.0, 0.0]",
+  "u -> [-u[1]^3 - u[2], u[1] - 3u[2]], [1.0, 1.0]",
+]
+gen = "rng -> [(n = rand(rng, 2:6); d = -10.0 .^ (3 .* rand(rng, n)); (let d = d; u -> d .* u .+ 0.01 .* sum(u) end, randn(rng, n))) for _ in 1:10]"
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "The eigenvalues come from `eigvals` (LinearAlgebra) applied to the Jacobian; they may be complex, and the ratio is about their real parts.",
+  "Take `real` of each eigenvalue, then its absolute value, before the maximum and minimum. `abs` of a complex eigenvalue is its modulus, which also counts the oscillation.",
+]
+
+  [problem.perf]
+  args = "let M = [i == j ? -1.0 - i : 0.1 / n for i in 1:n, j in 1:n]; u -> M * u end, ones(n)"
+  sizes = [20]
+
+  [[problem.variant]]
+  label = "uses the modulus |λ| instead of |Re λ|"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function stiffness_ratio(f, u)
+    m = abs.(eigvals(ForwardDiff.jacobian(f, u)))
+    return maximum(m) / minimum(m)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "maximum over minimum of the signed real parts"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function stiffness_ratio(f, u)
+    re = real.(eigvals(ForwardDiff.jacobian(f, u)))
+    return maximum(re) / minimum(re)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "extrema in one pass"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function stiffness_ratio(f, u)
+    lo, hi = extrema(λ -> abs(real(λ)), eigvals(ForwardDiff.jacobian(f, u)))
+    return hi / lo
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "stiff-max-euler-step"
+title = "The largest stable forward-Euler step"
+difficulty = "core"
+kcs = ["stability", "stiffness"]
+entry = "max_stable_dt"
+# packages: an empty list would load the whole scicomp env (JuMP, Ipopt, ...) for every grading
+# run; these cases need only Base, so name one light stdlib from the env instead.
+packages = ["SparseArrays"]
+prompt = '''
+Forward Euler on `u' = J u` multiplies each eigenvector component by
+`1 + hλ` per step, so it is stable when `|1 + hλ| <= 1` for every
+eigenvalue `λ` of `J`. Write `max_stable_dt(J)` that returns the largest such
+`h` (a `Float64`) for a matrix `J` whose eigenvalues all have negative real
+parts.
+
+For a complex eigenvalue `λ = a + bi` the condition `(1 + ha)^2 + (hb)^2 <= 1`
+gives a bound on `h` for that eigenvalue; the answer is the smallest bound.
+Work it out (it reduces to `2 / |λ|` only when `λ` is real).
+
+```julia
+max_stable_dt([-1.0 0.0; 0.0 -100.0])      # 0.02
+max_stable_dt([-1.0 10.0; -10.0 -1.0])     # λ = -1 ± 10i: much less than 2 / 10
+```
+
+Results are compared with `rtol = 1e-8` (the eigenvalues of these matrices
+carry rounding errors far below that).
+'''
+starter = '''
+using LinearAlgebra
+
+function max_stable_dt(J)
+    # one bound per eigenvalue
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function max_stable_dt(J)
+    # (1 + ha)^2 + (hb)^2 <= 1  <=>  h (h |λ|^2 + 2a) <= 0  <=>  h <= -2a / |λ|^2
+    return minimum(λ -> -2real(λ) / abs2(λ), eigvals(J))
+end
+'''
+cases = [
+  "[-1.0 0.0; 0.0 -100.0]",
+  "[-1.0 10.0; -10.0 -1.0]",
+  "[-2.0 1.0 0.0; 1.0 -2.0 1.0; 0.0 1.0 -2.0] .* 16",
+  "[-0.5 3.0 0.0; -3.0 -0.5 0.0; 0.0 0.0 -40.0]",
+]
+gen = "rng -> [(n = rand(rng, 2:8); A = randn(rng, n, n); S = randn(rng, n, n); (-(A * A' .+ 0.1 .* one(A)) .+ (S .- S'),)) for _ in 1:15]"
+compare = "isapprox"
+rtol = 1e-8
+hints = [
+  "Expand `(1 + ha)^2 + (hb)^2 <= 1` and divide by `h > 0`: you get a linear condition on `h` involving `a` and `a^2 + b^2`.",
+  "Each eigenvalue gives `h <= (something) / abs2(λ)`; take the minimum over `eigvals(J)`. Check it reduces to `2 / |λ|` for a real `λ`.",
+]
+
+  [problem.perf]
+  args = "(A = randn(rng, n, n); -(A * A' .+ one(A)))"
+  sizes = [60]
+
+  [[problem.variant]]
+  label = "2 / max |λ|: right for real eigenvalues only"
+  code = '''
+using LinearAlgebra
+max_stable_dt(J) = 2 / maximum(abs, eigvals(J))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "2 / max |Re λ|: ignores the imaginary parts"
+  code = '''
+using LinearAlgebra
+max_stable_dt(J) = 2 / maximum(λ -> abs(real(λ)), eigvals(J))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a loop over the eigenvalues"
+  code = '''
+using LinearAlgebra
+function max_stable_dt(J)
+    best = Inf
+    for λ in eigvals(J)
+        a, b = reim(λ)
+        best = min(best, -2a / (a^2 + b^2))
+    end
+    return best
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "stiff-backward-euler-step"
+title = "One backward-Euler step with Newton's method"
+difficulty = "stretch"
+kcs = ["implicit-methods", "jacobian"]
+entry = "backward_euler_step"
+packages = ["ForwardDiff"]
+prompt = '''
+Write `backward_euler_step(f, u, h)` that returns `v`, the solution of
+
+    v = u + h f(v)
+
+for an out-of-place `f(u)` (returning a vector), a state `u` and a step `h`.
+Use Newton's method on `G(v) = v - u - h f(v)`, starting from `v = u`, with
+the Jacobian of `f` from `ForwardDiff.jacobian`, and stop when the Newton
+update is below `1e-12 * (1 + norm(v))` (or after 50 iterations). Return a
+`Vector{Float64}`; do not change `u`.
+
+```julia
+backward_euler_step(u -> [-1000.0 * u[1], -u[2]], [1.0, 1.0], 0.1)    # [1/101, 1/1.1]
+backward_euler_step(u -> [-50.0 * (u[1] - u[2]^2), -u[2]], [0.0, 2.0], 0.5)
+```
+
+The steps in the cases are far above forward Euler's stability limit.
+Results are compared with `rtol = 1e-8`: Newton's stopping test puts the
+result within about `1e-12` of the root, so any converged solver passes,
+while one Newton iteration on a nonlinear case is off by more than `1e-3`.
+'''
+starter = '''
+using ForwardDiff, LinearAlgebra
+
+function backward_euler_step(f, u, h)
+    v = copy(u)
+    # Newton iterations on G(v) = v - u - h f(v)
+    return v
+end
+'''
+reference = '''
+using ForwardDiff, LinearAlgebra
+
+function backward_euler_step(f, u, h)
+    v = copy(u)
+    for _ in 1:50
+        G = v .- u .- h .* f(v)
+        δ = (I - h .* ForwardDiff.jacobian(f, v)) \ G
+        v .-= δ
+        norm(δ) <= 1e-12 * (1 + norm(v)) && break
+    end
+    return v
+end
+'''
+cases = [
+  "u -> [-1000.0 * u[1], -u[2]], [1.0, 1.0], 0.1",
+  "u -> [-50.0 * (u[1] - u[2]^2), -u[2]], [0.0, 2.0], 0.5",
+  "u -> [u[2], 1000.0 * (1 - u[1]^2) * u[2] - u[1]], [2.0, 0.0], 0.01",
+  "u -> [-0.04u[1] + 1e4 * u[2] * u[3], 0.04u[1] - 3e7 * u[2]^2 - 1e4 * u[2] * u[3], 3e7 * u[2]^2], [1.0, 0.0, 0.0], 1.0",
+]
+gen = "rng -> [(n = rand(rng, 1:5); k = 10.0 .^ (3 .* rand(rng, n)); (let k = k; u -> -k .* (u .- 0.1 .* u .^ 3) end, rand(rng, n), 0.01 + rand(rng))) for _ in 1:10]"
+compare = "isapprox"
+rtol = 1e-8
+hints = [
+  "Each Newton iteration solves a linear system with the matrix `I - h J(v)`, where `J` is the Jacobian of `f` at the current `v`, and the right-hand side `G(v)`.",
+  "Update with `v -= (I - h * J) \\ G` and recompute `G` and `J` at the new `v` every iteration; stop when the update is tiny. A single iteration is exact only for a linear `f`.",
+]
+
+  [problem.perf]
+  args = "u -> -u .* (1:length(u)), ones(n), 0.1"
+  sizes = [20]
+
+  [[problem.variant]]
+  label = "a forward-Euler step instead"
+  code = '''
+backward_euler_step(f, u, h) = u .+ h .* f(u)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "only one Newton iteration"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function backward_euler_step(f, u, h)
+    G = -h .* f(u)
+    return u .- (I - h .* ForwardDiff.jacobian(f, u)) \ G
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "fixed-point iteration v = u + h f(v): diverges on stiff steps"
+  code = '''
+function backward_euler_step(f, u, h)
+    v = copy(u)
+    for _ in 1:50
+        v = u .+ h .* f(v)
+    end
+    return v
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Newton with a finite-difference Jacobian: same root, found more slowly"
+  code = '''
+using LinearAlgebra
+function fd_jacobian(f, v)
+    f0 = f(v)
+    J = zeros(length(f0), length(v))
+    for j in eachindex(v)
+        e = zeros(length(v)); e[j] = sqrt(eps()) * max(1.0, abs(v[j]))
+        J[:, j] = (f(v .+ e) .- f0) ./ e[j]
+    end
+    return J
+end
+function backward_euler_step(f, u, h)
+    v = copy(u)
+    for _ in 1:50
+        δ = (I - h .* fd_jacobian(f, v)) \ (v .- u .- h .* f(v))
+        v .-= δ
+        norm(δ) <= 1e-12 * (1 + norm(v)) && break
+    end
+    return v
+end
+'''
+  expect = ["correct"]

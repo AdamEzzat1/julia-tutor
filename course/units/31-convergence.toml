@@ -1,0 +1,784 @@
+id = "31-convergence"
+title = "Convergence order and error control"
+track = "scicomp"
+env = "scicomp"
+status = "ready"
+summary = "How fast an approximation improves as the step shrinks, and what an adaptive ODE solver actually controls. Observed order from a log-log slope, Richardson extrapolation for a better answer and an error estimate, local against global error, the embedded-pair estimate scaled by `abstol + reltol * |u|` and the step-size controller, and a work-precision measurement with OrdinaryDiffEq in which the global error is compared with `reltol`."
+kcs = ["convergence-order", "richardson-extrapolation", "local-global-error", "adaptive-step-control"]
+prerequisites = ["24-differential-equations", "30-floating-point"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+Unit 24 said that a tolerance bounds each step's error and not the final
+error; this unit shows what that means and measures the gap. It relies on
+four facts:
+
+* **The step acceptance test** `|error| <= abstol + reltol * |u|`, the
+  defaults `abstol = 1e-6`, `reltol = 1e-3`, and the advice to check against
+  an exact solution or a tighter solve (unit 24, section "Tolerances, and
+  checking against an exact answer").
+* **`sol.stats`** counts accepted steps (`naccept`) and right-hand-side
+  calls (`nf`), and `save_everystep = false` keeps only the end point
+  (unit 24, sections "The solution object: steps, interpolation and saveat"
+  and "Stiffness and choosing a solver").
+* **Truncation and round-off error** pull in opposite directions as a step
+  `h` shrinks (unit 23, section "Three ways to get a derivative").
+* **Rounding sets a floor**: no computation in `Float64` gets below a
+  relative error of about `u = 1.1e-16` per operation (unit 30, section
+  "Every operation rounds, and the errors add up").
+
+This unit's `Euler`, `Heun` and `RK4` steps are written by hand, so they
+can be checked line by line; the library is used where it is the subject.
+'''
+
+[[section]]
+title = "Order of accuracy, read from a log-log slope"
+body = '''
+A method has **order** `p` if its error behaves like
+
+    E(h) ≈ C h^p
+
+for small steps `h`, with `C` independent of `h`. Taking logarithms,
+`log E = log C + p log h`: on a log-log plot the errors lie on a line of
+slope `p`. Two runs at `h` and `h/2` give the **observed order**
+
+    p ≈ log2(E(h) / E(h/2))
+
+and with more runs a least-squares fit of `log E` against `log h` gives a
+slope that averages out irregularities.
+
+The observed order is the test that a method is implemented correctly: a
+fourth-order method with a typo in one coefficient usually still converges,
+but at order 1 or 2. Two cautions, both visible below. The relation holds
+**asymptotically**: at large `h` the higher terms of the error matter, so
+the observed order approaches `p` from below or above as `h` shrinks. And
+at small `h` the error reaches the rounding floor (unit 30), where it stops
+decreasing and the slope means nothing.
+'''
+
+  [[section.example]]
+  caption = "Three fixed-step methods on `u' = -u + sin(t)`, `u(0) = 1`, up to `t = 2`, against the exact solution; errors (2 digits) and the observed order between consecutive halvings."
+  notice = "Notice the orders: Euler sits at 1, Heun approaches 2, and RK4 climbs towards 4 only as `h` shrinks (2.8 at the coarsest pair): the `C h^p` model is a statement about small `h`."
+  code = '''
+f(t, u) = -u + sin(t)
+exact(t) = 1.5exp(-t) + (sin(t) - cos(t)) / 2
+euler(f, t, u, h) = u + h * f(t, u)
+heun(f, t, u, h) = (k1 = f(t, u); k2 = f(t + h, u + h * k1); u + h / 2 * (k1 + k2))
+function rk4(f, t, u, h)
+    k1 = f(t, u); k2 = f(t + h / 2, u + h / 2 * k1)
+    k3 = f(t + h / 2, u + h / 2 * k2); k4 = f(t + h, u + h * k3)
+    return u + h / 6 * (k1 + 2k2 + 2k3 + k4)
+end
+function integrate(step, n; T = 2.0)
+    h = T / n; u = 1.0
+    for i in 0:n-1
+        u = step(f, i * h, u, h)
+    end
+    return u
+end
+for (name, step) in (("Euler", euler), ("Heun", heun), ("RK4", rk4))
+    errs = [abs(integrate(step, n) - exact(2.0)) for n in (10, 20, 40, 80, 160)]
+    println(rpad(name, 6), "errors ", round.(errs; sigdigits = 2))
+    println("      orders ", round.(log2.(errs[1:end-1] ./ errs[2:end]); digits = 2))
+end
+'''
+
+  [[section.example]]
+  caption = "RK4 with a thousand times more steps: the error at 100 steps, and the error at 100,000 steps against what `C h^4` predicts from it (a ratio, since the digits near the rounding floor depend on the CPU)."
+  notice = "Notice that `h^4` predicts an error near `6e-23` at 100,000 steps, far below the rounding of a single operation, and the measured error is more than 1000 times the prediction: each step adds rounding at the level of `u`, so once the truncation error falls below that, more steps only add rounding."
+  code = '''
+f(t, u) = -u + sin(t)
+exact(t) = 1.5exp(-t) + (sin(t) - cos(t)) / 2
+function rk4(f, t, u, h)
+    k1 = f(t, u); k2 = f(t + h / 2, u + h / 2 * k1)
+    k3 = f(t + h / 2, u + h / 2 * k2); k4 = f(t + h, u + h * k3)
+    return u + h / 6 * (k1 + 2k2 + 2k3 + k4)
+end
+function integrate(n; T = 2.0)
+    h = T / n; u = 1.0
+    for i in 0:n-1
+        u = rk4(f, i * h, u, h)
+    end
+    return u
+end
+e100 = abs(integrate(100) - exact(2.0))
+e100k = abs(integrate(100_000) - exact(2.0))
+predicted = e100 * (100 / 100_000)^4                 # C h^4 scaled from 100 steps
+println("100 steps:     error ", round(e100; sigdigits = 2))
+println("100000 steps:  error more than 1000 times the h^4 prediction: ", e100k > 1000 * predicted)
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "Halving the step divided the error from `1.6e-3` to `1.0e-4`. What does this print?"
+  code = '''
+log2(1.6e-3 / 1.0e-4)
+'''
+  choices = ["16.0", "2.0", "4.0"]
+  answer = 3
+  explain = "The error ratio is 16 = 2^4, and the observed order is its base-2 logarithm, 4: the error behaves like `C h^4`."
+  misconceptions = [
+    "16 is the ratio of the errors; the order is the exponent `p` in `2^p = 16`.",
+    "An order of 2 would divide the error by 4 per halving, as the Heun method does.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Your fourth-order solver shows an observed order of 1.0 on a smooth problem, at small steps well above the rounding floor. What is the likely cause?"
+  choices = [
+    "The steps are too small for the asymptotic regime",
+    "The problem is too smooth for high order to show",
+    "A coefficient or stage is wrong, leaving a first-order error",
+  ]
+  answer = 3
+  explain = "A consistent but mistyped Runge-Kutta method usually still converges, at the lowest order whose conditions it satisfies. An observed order is the cheapest check of an implementation."
+  misconceptions = [
+    "Small steps are where the asymptotic order shows; at large steps the observed order is unreliable, and above the rounding floor small is good.",
+    "Smoothness helps a method reach its order; a rough solution can lower the observed order, but this one is smooth.",
+    "",
+  ]
+
+[[section]]
+title = "Richardson extrapolation: two steps make a better answer"
+body = '''
+If an approximation `A(h)` of a value `A` has the error expansion
+
+    A(h) = A + C h^p + O(h^(p+1))
+
+then `A(h/2) = A + C h^p / 2^p + ...`, and the combination
+
+    R(h) = (2^p A(h/2) - A(h)) / (2^p - 1)
+
+cancels the `C h^p` term, so `R(h)` has a higher order. This is
+**Richardson extrapolation**. For the central difference
+`D(h) = (f(x + h) - f(x - h)) / 2h`, whose error is `f^(3)(x) h² / 6` plus
+terms in `h^4` (only even powers, by symmetry), `p = 2` and
+`R(h) = (4 D(h/2) - D(h)) / 3` is fourth order.
+
+The same two values also give an **error estimate** without knowing `A`:
+
+    A(h) - A(h/2) ≈ C h^p (1 - 2^(-p))   so   err(h/2) ≈ (A(h) - A(h/2)) / (2^p - 1)
+
+The idea, comparing two approximations of different accuracy to estimate
+the error of one, is what adaptive solvers do at every step (section after
+next). Richardson needs the expansion to hold: the order `p` must be known,
+and `h` small enough that the next term is negligible.
+'''
+
+  [[section.example]]
+  caption = "`D(h)` and its Richardson extrapolation `R(h)` for `sin'(1)`, and the error estimate `|D(h) - D(h/2)| / 3` against the true error of `D(h/2)` (all rounded to 2 digits)."
+  notice = "Notice that `D`'s error falls by 4 per halving and `R`'s by 16 (fourth order), and that the estimate agrees with the true error of `D(h/2)` within 1% at every `h` (the rounded values can differ in the last digit): it is computed from `D` alone, without `cos(1)`."
+  code = '''
+D(f, x, h) = (f(x + h) - f(x - h)) / 2h
+R(f, x, h) = (4D(f, x, h / 2) - D(f, x, h)) / 3
+for h in (0.4, 0.2, 0.1, 0.05)
+    eD = abs(D(sin, 1.0, h) - cos(1.0))
+    eR = abs(R(sin, 1.0, h) - cos(1.0))
+    estimate = abs(D(sin, 1.0, h) - D(sin, 1.0, h / 2)) / 3
+    truth = abs(D(sin, 1.0, h / 2) - cos(1.0))
+    println("h = ", rpad(h, 5), " D error ", rpad(round(eD; sigdigits = 2), 9), " R error ", rpad(round(eR; sigdigits = 2), 9),
+            " estimate ", rpad(round(estimate; sigdigits = 2), 9), " true error of D(h/2) ", round(truth; sigdigits = 2))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "An approximation is first order (`p = 1`). Which combination of `A(h)` and `A(h/2)` cancels its leading error?"
+  choices = [
+    "`(4A(h/2) - A(h)) / 3`",
+    "`(A(h/2) + A(h)) / 2`",
+    "`2A(h/2) - A(h)`",
+    "`A(h/2) - A(h)`",
+  ]
+  answer = 3
+  explain = "With `p = 1`, `2^p = 2`, so `R = (2A(h/2) - A(h)) / (2 - 1)`. The weights depend on the order: using the `p = 2` weights on a first-order method removes only part of the error."
+  misconceptions = [
+    "Those are the weights for `p = 2` (the central difference); for a first-order error they leave `C h / 3` behind.",
+    "The average has error `3C h / 4`: averaging moves halfway between the two errors instead of cancelling them.",
+    "",
+    "The difference estimates the error (`≈ C h / 2`), it does not approximate the value.",
+  ]
+
+[[section]]
+title = "Local error and global error"
+body = '''
+An ODE solver takes steps. The error made in **one** step, starting from
+the exact solution, is the **local error**. For a method of order `p` it is
+`O(h^(p+1))`: Euler's local error is about `h² |u''| / 2`.
+
+The **global error** is the difference from the exact solution at the end,
+after `N = T / h` steps. Each step adds a local error, and every earlier
+error is carried along by the ODE itself. Roughly, `N` local errors of size
+`h^(p+1)` add up to `T h^p`, one power of `h` less: that is why a method of
+order `p` has local error of order `p + 1`. How errors are carried depends on
+the problem: where nearby solutions converge (as for `u' = -u`), old errors
+shrink; where they separate (a chaotic system, or a phase drift on a
+periodic orbit), old errors grow, and the global error can be far larger
+than the sum of local errors.
+
+An adaptive solver can only measure local errors. Nothing in a step knows
+how the problem will amplify the error later, which is why unit 24 said the
+tolerance bounds each step and not the result.
+'''
+
+  [[section.example]]
+  caption = "One Euler step from the exact value (local error) and the whole integration to `t = 2` (global error), for three step sizes (errors rounded to 2 digits)."
+  notice = "Notice that each halving divides the local error by about 4 (order 2 = p + 1) and the global error by about 2 (order 1 = p). At `h = 0.1` the global error is even smaller than one local error: `u' = -u + ...` damps an error made at time `t` by about `e^(-(2 - t))` by the end, so the early steps' errors have mostly decayed by `t = 2`."
+  code = '''
+f(t, u) = -u + sin(t)
+exact(t) = 1.5exp(-t) + (sin(t) - cos(t)) / 2
+euler(t, u, h) = u + h * f(t, u)
+function global_error(h; T = 2.0)
+    u = 1.0
+    for i in 0:round(Int, T / h)-1
+        u = euler(i * h, u, h)
+    end
+    return abs(u - exact(T))
+end
+for h in (0.1, 0.05, 0.025)
+    loc = abs(euler(0.0, 1.0, h) - exact(h))
+    println("h = ", rpad(h, 6), " local error ", rpad(round(loc; sigdigits = 2), 9), " global error ", round(global_error(h); sigdigits = 2))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A method's local error is `O(h^5)`. What global error do you expect over a fixed interval?"
+  choices = [
+    "`O(h^5)`: the global error is the local error of the last step",
+    "`O(h^4)`: about `T/h` local errors accumulate",
+    "`O(h^6)`: errors from earlier steps partly cancel",
+  ]
+  answer = 2
+  explain = "Covering a fixed interval takes `T/h` steps, each adding an error of size `h^5` (and the problem carries them forward), so the total is of order `h^4`. A local error of order `p + 1` belongs to a method of order `p`."
+  misconceptions = [
+    "Every step contributes, not just the last one; the earlier errors are carried along by the solution.",
+    "",
+    "Local errors need not cancel: nothing in the method makes their signs alternate, so the bound has to count all `T/h` of them, which costs one power of `h`.",
+  ]
+
+[[section]]
+title = "What an adaptive solver's error estimate is"
+body = '''
+An adaptive Runge-Kutta solver runs **two methods at once** that share
+their stages (the evaluations of `f`), one of order `q + 1` and one of order
+`q`: an **embedded pair**. `Tsit5` is a 5(4) pair; the smallest pair is
+Heun (order 2) with Euler (order 1), which share the stage `k1 = f(t, u)`:
+
+    k1 = f(t, u),   k2 = f(t + h, u + h k1)
+    low  = u + h k1                  (Euler)
+    high = u + h (k1 + k2) / 2       (Heun)
+
+`high - low` costs nothing extra and estimates the **local error of the
+lower-order method**, because the higher-order one is far more accurate. The
+solver then continues from `high` anyway (local extrapolation), so the
+estimate is pessimistic for the solution it keeps.
+
+The estimate is scaled component by component, as in DiffEqBase's
+[`calculate_residuals`](https://raw.githubusercontent.com/SciML/DiffEqBase.jl/master/src/calculate_residuals.jl):
+
+    e_i = (high_i - low_i) / (abstol + reltol * max(|u_i|, |high_i|))
+
+and combined with the root-mean-square norm `sqrt(mean(e.^2))`, the default
+`internalnorm`. The step is **accepted** if `err <= 1`, else rejected and
+retried with a smaller `h`. Since the estimate behaves like `C h^(q+1)`, the
+step that would make `err = 1` is `h * err^(-1/(q+1))`; the controller
+multiplies by a safety factor (0.9) and limits how fast `h` may change.
+OrdinaryDiffEq's default is a PI controller, which also uses the previous
+step's error, with safety `9/10` and the change factor kept between `1/5`
+and `10` ([alg_utils.jl](https://raw.githubusercontent.com/SciML/OrdinaryDiffEq.jl/master/lib/OrdinaryDiffEqCore/src/alg_utils.jl)).
+
+Everything here is local: `err <= 1` says the step's estimated error is
+within tolerance. It says nothing about the error already in `u`.
+'''
+
+  [[section.example]]
+  caption = "One Heun-Euler step from `u(0) = 1` for `u' = -u + sin(t)`: the estimate `|high - low|` against the true local errors of both methods (rounded to 2 digits)."
+  notice = "Notice that the estimate matches Euler's local error within a few percent and shrinks like `h²`, while Heun's actual error, the solution kept, is 30 to 120 times smaller than the estimate."
+  code = '''
+f(t, u) = -u + sin(t)
+exact(t) = 1.5exp(-t) + (sin(t) - cos(t)) / 2
+for h in (0.1, 0.05, 0.025)
+    k1 = f(0.0, 1.0)
+    k2 = f(h, 1.0 + h * k1)
+    low, high = 1.0 + h * k1, 1.0 + h / 2 * (k1 + k2)
+    println("h = ", rpad(h, 6), " estimate ", rpad(round(abs(high - low); sigdigits = 2), 9),
+            " Euler's error ", rpad(round(abs(low - exact(h)); sigdigits = 2), 9), " Heun's error ", round(abs(high - exact(h)); sigdigits = 2))
+end
+'''
+
+  [[section.example]]
+  caption = "A complete adaptive Heun-Euler solver in a dozen lines, on the same problem up to `t = 10`, at three tolerances (`abstol = reltol = tol`); global error at the end rounded to 1 digit."
+  notice = "Notice that the global error falls with the tolerance and stays below it here (about 0.4 times `tol`), on a problem whose nearby solutions converge (`u' = -u + ...` damps old errors)."
+  code = '''
+f(t, u) = -u + sin(t)
+exact(t) = 1.5exp(-t) + (sin(t) - cos(t)) / 2
+function heun_euler_solve(f, u, tspan, tol)
+    t, T = tspan
+    h = 0.01
+    while t < T
+        h = min(h, T - t)
+        k1 = f(t, u); k2 = f(t + h, u + h * k1)
+        low, high = u + h * k1, u + h / 2 * (k1 + k2)
+        err = abs(high - low) / (tol + tol * max(abs(u), abs(high)))
+        if err <= 1
+            t, u = t + h, high                 # accept, keep the higher-order value
+        end
+        h *= min(5.0, max(0.2, 0.9 * err^(-1 / 2)))   # q = 1: exponent 1 / (q + 1)
+    end
+    return u
+end
+for tol in (1e-3, 1e-5, 1e-7)
+    println("tol = ", rpad(tol, 7), " global error at t = 10: ", round(abs(heun_euler_solve(f, 1.0, (0.0, 10.0), tol) - exact(10.0)); sigdigits = 1))
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "One component of a step: `high - low = 2e-4`, `u = 0.5`, `high = 0.4`, `abstol = 1e-6`, `reltol = 1e-3`. What does the scaled error print?"
+  code = '''
+round(2e-4 / (1e-6 + 1e-3 * max(abs(0.5), abs(0.4))); digits = 2)
+'''
+  choices = ["200.0", "0.4", "0.5", "0.2"]
+  answer = 2
+  explain = "The scale is `1e-6 + 1e-3 * 0.5 = 5.01e-4`, and `2e-4 / 5.01e-4 ≈ 0.40`. That is below 1, so this component allows the step: its error is 40% of what the tolerance permits."
+  misconceptions = [
+    "That divides by `abstol` alone; for a component of size 0.5 the `reltol * |u|` term dominates the scale.",
+    "",
+    "That would divide by `reltol * |high| = 4e-4`; the scale uses the larger of the old and new magnitude.",
+    "That is the error divided by `reltol`, without the factor `|u| = 0.5`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The embedded estimate `high - low` most directly measures which error?"
+  choices = [
+    "The global error of the solution so far",
+    "The local error of the higher-order method",
+    "The local error of the lower-order method",
+    "The rounding error of the stage evaluations",
+  ]
+  answer = 3
+  explain = "`high` is far more accurate than `low`, so `high - low ≈ (exact step) - low`: the lower-order method's local error. The solver then keeps `high`, whose own error is smaller still, as the example shows."
+  misconceptions = [
+    "The estimate compares two results of one step from the same `u`; it cannot see the error already in `u`.",
+    "The higher-order method's error is much smaller than the difference; the difference is dominated by the less accurate method.",
+    "",
+    "Rounding is at the level of `u` per operation; the estimate is many orders larger at normal tolerances and shrinks like `h^(q+1)`.",
+  ]
+
+[[section]]
+title = "Work-precision: what a tolerance buys"
+body = '''
+A **work-precision** measurement solves one problem at a series of
+tolerances and plots the **global** error against the work (steps,
+right-hand-side calls or time). It answers the questions a tolerance cannot:
+how large the actual error is, and which method reaches it most cheaply.
+
+The problem below is a limit cycle, `x' = x(1 - r²) - y`, `y' = y(1 - r²) + x`
+with `r² = x² + y²`, whose exact solution is known (in polar coordinates
+`θ = t` and `r(t) = 1 / sqrt(1 + (1/r0² - 1) e^(-2t))`). The orbit is
+neutral in phase: an error in `θ` is never damped, so phase errors from
+every step add up along the whole run.
+
+Three things to read off the results:
+
+* **Error falls at least as fast as the tolerance**, so tightening by 10
+  gains at least a digit. The ratio of error to tolerance drifts: for
+  `Tsit5` at `t = 200` it falls from about 60 to about 5 over six decades.
+  That the error follows the tolerance down, not its size, is what the
+  tolerance controls.
+* **The ratio of error to `reltol` depends on the method and the length of
+  the run.** Over `t = 200`, `Tsit5`'s error is 5 to 60 times `reltol`, one
+  to two digits worse than the tolerance suggests; `Vern9`, which keeps a
+  9th-order solution while its estimate measures a lower-order one, stays
+  below `reltol`.
+  Nothing guarantees either, so measure on your problem.
+* **Work grows slowly** as tolerances tighten for a high-order method
+  (about `tol^(-1/p)` steps), which is why unit 24 recommends Verner
+  methods for tight tolerances.
+'''
+
+  [[section.example]]
+  caption = "`Tsit5` and `Vern9` on the limit cycle (`r0 = 0.5`) to `t = 20` and `t = 200`, `abstol = reltol / 100`: global error, error over `reltol`, and right-hand-side calls. Recorded, not checked: the last digits of an adaptive solve depend on fused multiply-adds, which differ between CPUs, and step counts are not compared between runs."
+  check = false
+  notice = "Notice that at `t = 200` every `Tsit5` error is above its `reltol` (by 5 to 60 times), while at `t = 20` the same solver lands near `reltol`; the ten times longer run has about ten times the error. In this run, `Vern9` at `t = 20` reached `5e-12` with fewer `f` calls than `Tsit5` spent for `5e-11`."
+  code = '''
+using OrdinaryDiffEq
+function cycle!(du, u, p, t)
+    x, y = u
+    s = 1 - x^2 - y^2
+    du[1] = x * s - y
+    du[2] = y * s + x
+    return nothing
+end
+exact(t; r0 = 0.5) = (r = 1 / sqrt(1 + (1 / r0^2 - 1) * exp(-2t)); [r * cos(t), r * sin(t)])
+for T in (20.0, 200.0), alg in (Tsit5(), Vern9())
+    prob = ODEProblem(cycle!, [0.5, 0.0], (0.0, T))
+    println("t = ", T, ", ", nameof(typeof(alg)))
+    for tol in (1e-4, 1e-6, 1e-8, 1e-10)
+        sol = solve(prob, alg; reltol = tol, abstol = tol / 100, save_everystep = false)
+        err = maximum(abs.(sol.u[end] .- exact(T)))
+        println("   reltol ", rpad(tol, 7), " error ", rpad(round(err; sigdigits = 2), 9),
+                " error/reltol ", rpad(round(err / tol; sigdigits = 2), 7), " f calls ", sol.stats.nf)
+    end
+end
+'''
+
+  [[section.example]]
+  caption = "The coarse facts from that measurement, checked: they hold far from any boundary."
+  notice = "Notice the three conclusions: the error falls with every tightening of the tolerance, the long run exceeds `reltol` with `Tsit5` at every setting, and the error grows with the length of the run."
+  code = '''
+using OrdinaryDiffEq
+function cycle!(du, u, p, t)
+    x, y = u
+    s = 1 - x^2 - y^2
+    du[1] = x * s - y
+    du[2] = y * s + x
+    return nothing
+end
+exact(t; r0 = 0.5) = (r = 1 / sqrt(1 + (1 / r0^2 - 1) * exp(-2t)); [r * cos(t), r * sin(t)])
+tols = (1e-4, 1e-6, 1e-8, 1e-10)
+function errors(T)
+    prob = ODEProblem(cycle!, [0.5, 0.0], (0.0, T))
+    return [maximum(abs.(solve(prob, Tsit5(); reltol = tol, abstol = tol / 100, save_everystep = false).u[end] .- exact(T)))
+            for tol in tols]
+end
+e20, e200 = errors(20.0), errors(200.0)
+println("error falls as reltol falls: ", issorted(e200; rev = true) && issorted(e20; rev = true))
+println("t = 200: error > reltol at every tolerance: ", all(e200 .> collect(tols)))
+println("t = 200 error > t = 20 error at every tolerance: ", all(e200 .> e20))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You need the end state of a long orbit simulation to 6 digits. What setting do you choose?"
+  choices = [
+    "`reltol = 1e-6`, since the tolerance is the accuracy you get",
+    "The setting at which tighter tolerances stop changing the 6 digits",
+    "`reltol = 1e-12`, since only a large margin is safe",
+  ]
+  answer = 2
+  explain = "The tolerance controls local errors; the global error depends on the method and on how the problem carries errors (the long run above was 5 to 60 times `reltol`). Solving at a sequence of tolerances, or against an exact solution, shows when the digits you need have converged."
+  misconceptions = [
+    "At `t = 200` `Tsit5` at `reltol = 1e-6` had an error of `1.7e-5`, only 4 to 5 correct digits.",
+    "",
+    "A margin may happen to be enough or may be far more work than needed; without a measurement you know neither, and near `1e-12` rounding starts to matter.",
+  ]
+
+[[problem]]
+id = "conv-observed-order"
+title = "Observed order from (h, error) pairs"
+difficulty = "warm-up"
+kcs = ["convergence-order"]
+entry = "observed_order"
+packages = ["StableRNGs"]   # nothing needed; [] would load the whole scicomp env
+prompt = '''
+Write `observed_order(h, err)` that takes vectors of step sizes and errors
+(same length, at least 2, all positive) and returns the least-squares slope
+of `log(err)` against `log(h)` (a `Float64`): with `a = log.(h)` and
+`b = log.(err)`,
+
+    slope = sum((a .- mean(a)) .* (b .- mean(b))) / sum((a .- mean(a)) .^ 2)
+
+```julia
+observed_order([0.1, 0.05, 0.025], [1e-2, 2.5e-3, 6.25e-4])    # 2.0
+observed_order([0.4, 0.2, 0.1, 0.05], [3e-2, 2e-3, 1.4e-4, 9e-6])   # about 3.9
+```
+
+Results are compared with `rtol = 1e-10` (the same slope computed in a
+different order or with `log10` differs only by rounding). Speed and memory
+are graded against the reference.
+'''
+starter = '''
+function observed_order(h, err)
+    return log2(err[1] / err[2])
+end
+'''
+reference = '''
+function observed_order(h, err)
+    n = length(h)
+    ma = sum(log, h) / n
+    mb = sum(log, err) / n
+    num = 0.0
+    den = 0.0
+    for i in eachindex(h, err)
+        da = log(h[i]) - ma
+        num += da * (log(err[i]) - mb)
+        den += da^2
+    end
+    return num / den
+end
+'''
+cases = [
+  "[0.1, 0.05, 0.025], [1e-2, 2.5e-3, 6.25e-4]",
+  "[0.4, 0.2, 0.1, 0.05], [3e-2, 2e-3, 1.4e-4, 9e-6]",
+  "[1.0, 0.5], [0.3, 0.1]",
+  "[0.2, 0.1, 0.05, 0.025, 0.0125], [5e-3, 2.4e-3, 1.3e-3, 6e-4, 3.1e-4]",
+]
+gen = "rng -> [(m = rand(rng, 2:8); h = 0.5 .^ (1:m); (h, (0.5 + rand(rng)) .* h .^ (1 + 4rand(rng)) .* exp.(0.2 .* randn(rng, m)))) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "The starter uses only the first two points, and treats them as one halving. Every pair `(h, err)` should count, and the step ratios need not be 2.",
+  "Take logarithms of both vectors first; the order is the slope of a straight-line fit through the points `(log h, log err)`.",
+]
+
+  [problem.perf]
+  args = "1 ./ (1:n), (1 ./ (1:n)) .^ 2"
+  sizes = [1000]
+
+  [[problem.variant]]
+  label = "slope through the first and last point only"
+  code = '''
+observed_order(h, err) = log(err[end] / err[1]) / log(h[end] / h[1])
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "fits log(err) against h, not log(h)"
+  code = '''
+function observed_order(h, err)
+    a = h; b = log.(err)
+    ma, mb = sum(a) / length(a), sum(b) / length(b)
+    return sum((a .- ma) .* (b .- mb)) / sum((a .- ma) .^ 2)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "log10 instead of log: the same slope"
+  code = '''
+function observed_order(h, err)
+    a = log10.(h); b = log10.(err)
+    ma, mb = sum(a) / length(a), sum(b) / length(b)
+    return sum((a .- ma) .* (b .- mb)) / sum((a .- ma) .^ 2)
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "least squares with a design matrix and backslash"
+  code = '''
+observed_order(h, err) = ([ones(length(h)) log.(h)] \ log.(err))[2]
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "conv-richardson-derivative"
+title = "Two levels of Richardson extrapolation"
+difficulty = "core"
+kcs = ["richardson-extrapolation", "convergence-order"]
+entry = "richardson_derivative"
+packages = ["StableRNGs"]   # nothing needed; [] would load the whole scicomp env
+prompt = '''
+The section's `R(h) = (4D(h/2) - D(h)) / 3` cancels the `h²` term of the
+central difference `D(h) = (f(x + h) - f(x - h)) / (2h)`. Because `D`'s
+error has only even powers of `h`, the error of `R(h)` is itself an
+expansion `C₄ h⁴ + C₆ h⁶ + ...`, so Richardson extrapolation can be applied
+again, to `R(h)` and `R(h/2)`, with the right `p` for what is left
+(this repeated scheme is called Romberg's method).
+
+Write `richardson_derivative(f, x, h)` that returns this second level,
+built from `D(h)`, `D(h/2)` and `D(h/4)`; it is sixth order (a `Float64`).
+
+```julia
+richardson_derivative(sin, 1.0, 0.1)      # within about 2e-12 of cos(1.0)
+richardson_derivative(x -> x^3, 2.0, 0.5) # 12.0: exact for a cubic
+```
+
+Results are compared with `rtol = 1e-10`. Steps in the cases are at least
+`0.05`, so rounding (about `eps() |f| / h` per difference) stays near
+`1e-14`, while stopping after the first level is off by `2e-7` or more on
+the first case.
+'''
+starter = '''
+function richardson_derivative(f, x, h)
+    return (f(x + h) - f(x - h)) / (2h)
+end
+'''
+reference = '''
+function richardson_derivative(f, x, h)
+    D(s) = (f(x + s) - f(x - s)) / (2s)
+    R(s) = (4D(s / 2) - D(s)) / 3            # cancels h²
+    return (16R(h / 2) - R(h)) / 15          # cancels h⁴
+end
+'''
+cases = ["sin, 1.0, 0.1", "x -> x^3, 2.0, 0.5", "exp, 0.0, 0.2", "x -> 1 / (1 + x^2), 0.5, 0.05", "exp, 0.0, 0.5"]
+gen = "rng -> [(let a = 2rand(rng) - 1, b = 1 + rand(rng), c = 3 + rand(rng); x -> a * sin(b * x) + c * x end, randn(rng), 0.05 + 0.45rand(rng)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "After the first level the leading error is of order `h⁴`, not `h²`. The weights of an extrapolation depend on the order of the error being cancelled.",
+  "Compute the first-level value at `h` and at `h/2`, then combine them with the section's formula for `p = 4`: `2^p = 16`.",
+]
+
+  [problem.perf]
+  args = "sin, rand(rng), 0.1"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "stops after the first level"
+  code = '''
+function richardson_derivative(f, x, h)
+    D(s) = (f(x + s) - f(x - s)) / (2s)
+    return (4D(h / 2) - D(h)) / 3
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "second level with the p = 2 weights again"
+  code = '''
+function richardson_derivative(f, x, h)
+    D(s) = (f(x + s) - f(x - s)) / (2s)
+    R(s) = (4D(s / 2) - D(s)) / 3
+    return (4R(h / 2) - R(h)) / 3
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the combined weights (64 D(h/4) - 20 D(h/2) + D(h)) / 45"
+  code = '''
+function richardson_derivative(f, x, h)
+    D(s) = (f(x + s) - f(x - s)) / (2s)
+    return (64D(h / 4) - 20D(h / 2) + D(h)) / 45
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "conv-heun-euler-step"
+title = "An embedded Heun-Euler step with accept and reject"
+difficulty = "stretch"
+kcs = ["adaptive-step-control", "local-global-error"]
+entry = "heun_euler_step"
+packages = ["StableRNGs"]   # nothing needed; [] would load the whole scicomp env
+prompt = '''
+Write one step of an adaptive Heun-Euler solver:
+
+    heun_euler_step(f, t, u, h, abstol, reltol) -> (accepted, unew, hnew)
+
+for an out-of-place right-hand side `f(t, u)` returning a vector, the state
+`u` (a `Vector{Float64}`), the trial step `h` and the tolerances.
+
+1. `k1 = f(t, u)`, `k2 = f(t + h, u + h * k1)`;
+   `low = u + h * k1`, `high = u + h / 2 * (k1 + k2)`.
+2. Scaled error, component by component:
+   `e_i = (high_i - low_i) / (abstol + reltol * max(|u_i|, |high_i|))`,
+   and `err = sqrt(sum(e_i^2) / length(u))` (root mean square).
+3. `accepted = err <= 1`. Then `unew = high` if accepted, otherwise `u`
+   (unchanged values).
+4. `hnew = h * min(5.0, max(0.2, 0.9 * err^(-1/2)))` in both cases (the
+   lower method has order 1, so the exponent is `1/(1 + 1)`; `err = 0`
+   gives the factor 5).
+
+Return the tuple `(accepted::Bool, unew::Vector{Float64}, hnew::Float64)`.
+
+```julia
+heun_euler_step((t, u) -> -u, 0.0, [1.0], 0.1, 1e-6, 1e-3)    # (false, [1.0], h about 0.04)
+heun_euler_step((t, u) -> -u, 0.0, [1.0], 0.01, 1e-3, 1e-3)   # accepted, unew = [0.99005]
+```
+
+Results are compared with `rtol = 1e-8`. Rounding alone does not explain
+that tolerance: an estimate computed as `(h / 2) * (k2 - k1)` instead of
+`high - low` is the same in exact arithmetic but cancels differently, and
+moves `hnew` by up to about `1e-10` relative on these cases. A wrong norm,
+exponent or kept solution is off by far more.
+'''
+starter = '''
+function heun_euler_step(f, t, u, h, abstol, reltol)
+    k1 = f(t, u)
+    unew = u + h * k1          # Euler step, always accepted
+    return (true, unew, h)
+end
+'''
+reference = '''
+function heun_euler_step(f, t, u, h, abstol, reltol)
+    k1 = f(t, u)
+    k2 = f(t + h, u .+ h .* k1)
+    high = u .+ (h / 2) .* (k1 .+ k2)
+    s = 0.0
+    for i in eachindex(u)
+        sc = abstol + reltol * max(abs(u[i]), abs(high[i]))
+        s += ((high[i] - (u[i] + h * k1[i])) / sc)^2
+    end
+    err = sqrt(s / length(u))
+    accepted = err <= 1
+    hnew = h * min(5.0, max(0.2, 0.9 * err^(-1 / 2)))
+    return (accepted, accepted ? high : copy(u), hnew)
+end
+'''
+cases = [
+  "(t, u) -> -u, 0.0, [1.0], 0.1, 1e-6, 1e-3",
+  "(t, u) -> -u, 0.0, [1.0], 0.01, 1e-3, 1e-3",
+  "(t, u) -> [u[2], -u[1]], 0.0, [1.0, 0.0], 0.05, 1e-6, 1e-4",
+  "(t, u) -> [-1000.0 * u[1], -u[2] + sin(t)], 1.0, [1e-3, 2.0], 0.001, 1e-8, 1e-6",
+  "(t, u) -> zero(u), 0.0, [3.0, 4.0], 0.1, 1e-6, 1e-6",
+]
+gen = "rng -> [(n = rand(rng, 1:6); λ = -10 .^ (2 .* rand(rng, n)); (let λ = λ; (t, u) -> λ .* u .+ cos(t) end, rand(rng), randn(rng, n), 10.0^(-3rand(rng)), 1e-6, 10.0^(-1 - 4rand(rng)))) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-8
+hints = [
+  "Both methods use the same `k1`; only Heun needs `k2`. The difference `high - low` is the error estimate, divided component by component by its scale.",
+  "The norm is a root mean square, not a maximum, and the scale uses the larger of `|u_i|` and `|high_i|`. A rejected step returns the old state with a smaller `h`; check the factor limits 0.2 and 5.",
+]
+
+  [problem.perf]
+  args = "(t, u) -> -u, 0.0, ones(n), 0.01, 1e-6, 1e-3"
+  sizes = [1000]
+
+  [[problem.variant]]
+  label = "keeps the Euler value instead of Heun's"
+  code = '''
+function heun_euler_step(f, t, u, h, abstol, reltol)
+    k1 = f(t, u); k2 = f(t + h, u .+ h .* k1)
+    low = u .+ h .* k1; high = u .+ (h / 2) .* (k1 .+ k2)
+    err = sqrt(sum(((high .- low) ./ (abstol .+ reltol .* max.(abs.(u), abs.(high)))) .^ 2) / length(u))
+    acc = err <= 1
+    return (acc, acc ? low : copy(u), h * min(5.0, max(0.2, 0.9 * err^(-1 / 2))))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "maximum norm instead of root mean square"
+  code = '''
+function heun_euler_step(f, t, u, h, abstol, reltol)
+    k1 = f(t, u); k2 = f(t + h, u .+ h .* k1)
+    low = u .+ h .* k1; high = u .+ (h / 2) .* (k1 .+ k2)
+    err = maximum(abs.((high .- low) ./ (abstol .+ reltol .* max.(abs.(u), abs.(high)))))
+    acc = err <= 1
+    return (acc, acc ? high : copy(u), h * min(5.0, max(0.2, 0.9 * err^(-1 / 2))))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "exponent 1/3 (as if the lower method were second order)"
+  code = '''
+function heun_euler_step(f, t, u, h, abstol, reltol)
+    k1 = f(t, u); k2 = f(t + h, u .+ h .* k1)
+    low = u .+ h .* k1; high = u .+ (h / 2) .* (k1 .+ k2)
+    err = sqrt(sum(((high .- low) ./ (abstol .+ reltol .* max.(abs.(u), abs.(high)))) .^ 2) / length(u))
+    acc = err <= 1
+    return (acc, acc ? high : copy(u), h * min(5.0, max(0.2, 0.9 * err^(-1 / 3))))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "vectorized: the same formulas with broadcasting"
+  code = '''
+function heun_euler_step(f, t, u, h, abstol, reltol)
+    k1 = f(t, u); k2 = f(t + h, u .+ h .* k1)
+    low = u .+ h .* k1; high = u .+ (h / 2) .* (k1 .+ k2)
+    err = sqrt(sum(((high .- low) ./ (abstol .+ reltol .* max.(abs.(u), abs.(high)))) .^ 2) / length(u))
+    acc = err <= 1
+    return (acc, acc ? high : copy(u), h * min(5.0, max(0.2, 0.9 * err^(-1 / 2))))
+end
+'''
+  expect = ["correct", "allocates"]

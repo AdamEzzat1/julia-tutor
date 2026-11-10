@@ -1,0 +1,846 @@
+id = "46-sindy"
+title = "Discovering equations: sparse regression (SINDy)"
+track = "sciml"
+env = "sciml"
+status = "ready"
+summary = "Sparse identification of nonlinear dynamics written by hand: a library of candidate terms, sequential thresholded least squares with LinearAlgebra, how noise in finite-difference derivatives and the threshold decide what is found, and how a UDE's learned term becomes a readable equation once the library is small enough for the data."
+kcs = ["sparse-regression", "equation-discovery", "finite-differences", "universal-ode"]
+prerequisites = ["30-floating-point", "31-convergence", "32-dense-linear-algebra", "45-universal-odes"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit turns data, or a trained network, into an equation with a few
+terms. It relies on:
+
+* **Least squares with `\`** (unit 32, "Least squares: QR, not the normal
+  equations"): for a tall matrix `A`, `A \ b` returns the least-squares
+  solution through a column-pivoted QR factorization.
+* **Conditioning** (unit 30, "Conditioning: how much the problem amplifies
+  errors", and unit 32, "The SVD and numerical rank"): `cond(A)` bounds how
+  much a relative error in the data can grow in the solution, and nearly
+  dependent columns make it large.
+* **Finite differences and their two errors** (unit 31, "Order of
+  accuracy, read from a log-log slope", and unit 30, "Cancellation is
+  exact, and exposes earlier errors"): the central difference has a
+  truncation error of order `h²`, and dividing a difference of nearby
+  values by `h` amplifies any error those values carry.
+* **The learned term of a UDE** (unit 45, "Training the UDE"): after
+  training, the network approximates the missing interaction terms on the
+  states the data visit, and nowhere else.
+* **Simulated Lotka-Volterra data** (unit 45, "Known physics plus a learned
+  term"): `α = 1.3, β = 0.9, δ = 0.8, γ = 1.8` from `u0 = [3, 1]`, so the
+  right answer is known: `dx/dt = 1.3 x - 0.9 x y`, `dy/dt = -1.8 y + 0.8 x y`.
+'''
+
+[[section]]
+title = "A library of candidate terms"
+body = '''
+Brunton, Proctor and Kutz ("Discovering governing equations from data by
+sparse identification of nonlinear dynamical systems", PNAS 113(15),
+3932-3937, 2016, [open access](https://pmc.ncbi.nlm.nih.gov/articles/PMC4839439/))
+start from the observation that most models have few terms. Write the data
+as a matrix and guess a set of candidate functions:
+
+* `X`: the states at `N` times, here one row per time, `[x y]`;
+* `Θ(X)`: the **library**, one column per candidate term evaluated at every
+  time; with polynomials up to degree two in two variables that is
+  `[1  x  y  x²  xy  y²]`, an `N × 6` matrix (the paper's library "may
+  consist of constant, polynomial, and trigonometric terms");
+* `Ẋ`: the time derivatives at the same times.
+
+The model is then linear in unknown coefficients: `Ẋ = Θ(X) Ξ`, with one
+column of `Ξ` per equation. For Lotka-Volterra the true `Ξ` has two
+nonzero entries per column, and finding it is a regression problem with a
+twist: we want the answer with **few** nonzero coefficients, which plain
+least squares does not give (next section).
+
+The library is a modelling choice. A term that is not in it cannot be
+found, and every term in it costs data: the next sections show both sides.
+'''
+
+  [[section.example]]
+  caption = "The library for a Lotka-Volterra trajectory, and the true coefficients reproducing the exact derivatives."
+  notice = "Notice that the 6-column library times the sparse true `Ξ` (two nonzeros per column) gives the derivatives to rounding error."
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
+lv(u, p, t) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+ts = 0.0:0.05:6.0
+X = permutedims(Array(solve(ODEProblem(lv, [3.0, 1.0], (0.0, 6.0)), Vern7(); saveat = ts, abstol = 1e-12, reltol = 1e-12)))
+dX = permutedims(reduce(hcat, [lv(r, nothing, 0.0) for r in eachrow(X)]))
+names = ["1", "x", "y", "x^2", "x*y", "y^2"]
+library(X) = hcat(ones(size(X, 1)), X[:, 1], X[:, 2], X[:, 1] .^ 2, X[:, 1] .* X[:, 2], X[:, 2] .^ 2)
+Θ = library(X)
+Ξ = zeros(6, 2)
+Ξ[2, 1], Ξ[5, 1] = α, -β             # dx/dt = α x - β x y
+Ξ[3, 2], Ξ[5, 2] = -γ, δ             # dy/dt = -γ y + δ x y
+println("library: ", size(Θ, 1), " times × ", size(Θ, 2), " terms ", names)
+println("Θ Ξ reproduces the derivatives: ", maximum(abs.(Θ * Ξ .- dX)) < 1e-12)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The true model contains `sin(x)`, and your library holds polynomials up to degree 3. What can sparse regression return?"
+  choices = [
+    "The `sin(x)` term, since sparse regression finds the true terms",
+    "A polynomial fit of `sin(x)` over the data's range, at best",
+    "An error, since the regression detects the missing term",
+  ]
+  answer = 2
+  explain = "Regression can only combine the columns it is given. With polynomials only, the best it can do is a polynomial approximation of `sin(x)` on the states in the data (`x - x³/6` near zero), which is often not sparse and does not extrapolate like `sin`."
+  misconceptions = [
+    "A term outside the library has no column and no coefficient; regression never sees it.",
+    "",
+    "Least squares always returns coefficients; a missing term shows up as a poorer fit or extra terms, not as an error.",
+  ]
+
+[[section]]
+title = "Sequential thresholded least squares"
+body = '''
+Plain least squares, `Θ \ ẋ`, spreads the data's errors over every column:
+all six coefficients come out nonzero, and an equation with six terms of
+which four are noise is not a discovery. **Sequential thresholded least
+squares** (STLSQ), the algorithm of the SINDy paper's supplementary code,
+makes the answer sparse with one parameter, the threshold `λ`:
+
+1. solve the least-squares problem `ξ = Θ \ ẋ`;
+2. set every coefficient with `|ξ_j| < λ` to zero;
+3. solve the least-squares problem again **using only the surviving
+   columns**, and repeat from step 2 until the set of survivors stops
+   changing (a few iterations).
+
+The refit in step 3 matters: once a noise term is removed, the remaining
+coefficients are re-estimated without it. Each pass is one `\` on a
+smaller matrix, which is why the method is fast. A threshold has units:
+it compares coefficients, so columns of very different scale should be
+normalized first (here all states are of order 1, so the raw library is
+used).
+
+The derivatives in this example come from the data: central differences
+of noise-free samples every `h = 0.05` (unit 31), whose truncation error is
+about `1e-3`, as the next section measures.
+'''
+
+  [[section.example]]
+  caption = "Plain least squares and STLSQ (`λ = 0.1`) on central-difference derivatives of noise-free samples. Coefficients rounded to 2 digits."
+  notice = "Notice that least squares keeps tiny nonzero coefficients on every term, while STLSQ keeps exactly the two true terms per equation with coefficients close to 1.3, -0.9, -1.8 and 0.8."
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
+lv(u, p, t) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+h = 0.05
+X = permutedims(Array(solve(ODEProblem(lv, [3.0, 1.0], (0.0, 6.0)), Vern7(); saveat = h, abstol = 1e-12, reltol = 1e-12)))
+dX = (X[3:end, :] .- X[1:end-2, :]) ./ (2h)          # central differences at the interior times
+Xi = X[2:end-1, :]
+names = ["1", "x", "y", "x^2", "x*y", "y^2"]
+library(X) = hcat(ones(size(X, 1)), X[:, 1], X[:, 2], X[:, 1] .^ 2, X[:, 1] .* X[:, 2], X[:, 2] .^ 2)
+function stlsq(Θ, y, λ; iters = 10)
+    ξ = Θ \ y
+    for _ in 1:iters
+        small = abs.(ξ) .< λ
+        ξ[small] .= 0
+        ξ[.!small] = Θ[:, .!small] \ y
+    end
+    return ξ
+end
+equation(ξ) = join([(c < 0 ? "- " : "+ ") * string(round(abs(c); digits = 2)) * " " * n for (c, n) in zip(ξ, names) if c != 0], " ")
+Θ = library(Xi)
+for (k, lhs) in enumerate(("dx/dt", "dy/dt"))
+    ls = Θ \ dX[:, k]
+    println(lhs, ": least squares has ", count(!iszero, ls), " nonzero terms; STLSQ: ", equation(stlsq(Θ, dX[:, k], 0.1)))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does STLSQ solve the least-squares problem again after zeroing the small coefficients?"
+  choices = [
+    "To re-estimate the surviving coefficients without the removed terms",
+    "To check that the removed coefficients are still below the threshold",
+    "To make the residual zero, which the first solve does not achieve",
+  ]
+  answer = 1
+  explain = "The first fit spread part of the signal over the noise columns. Refitting on the survivors alone gives them back that part, and may push other small coefficients below the threshold in the next pass."
+  misconceptions = [
+    "",
+    "Removed coefficients are fixed at zero; the refit solves only for the surviving ones.",
+    "With noisy data the residual is never zero; each refit minimises it over fewer columns.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "One pass of thresholding with `λ = 0.1`. Which coefficients survive?"
+  code = '''
+ξ = [0.03, 1.29, -0.08, 0.002, -0.91, 0.12]
+print(findall(c -> abs(c) >= 0.1, ξ))
+'''
+  choices = ["[2, 5, 6]", "[2, 5]", "[2, 6]", "[1, 2, 3, 4, 5, 6]"]
+  answer = 1
+  explain = "The test is on the magnitude: `|-0.91| ≥ 0.1` keeps term 5, and `0.12 ≥ 0.1` keeps term 6 for this pass (a refit may remove it later)."
+  misconceptions = [
+    "",
+    "Term 6 has `|0.12| ≥ 0.1`, so it survives this pass; whether the refit removes it is decided in the next one.",
+    "Term 5 is negative, but the threshold compares `|ξ_j|`, so `-0.91` survives.",
+    "Thresholding removes the coefficients below `λ`: 0.03, -0.08 and 0.002 go.",
+  ]
+  [[section.question]]
+  kind = "choice"
+  prompt = "Your states are temperatures near 300 K and concentrations near 0.001. What should you do before applying a single threshold to the coefficients?"
+  choices = [
+    "Nothing: STLSQ compares coefficients, which are independent of units",
+    "Normalize the library columns, since coefficient size depends on scale",
+    "Use a larger threshold, since large states make every coefficient larger",
+  ]
+  answer = 2
+  explain = "A term's coefficient scales inversely with its column: a column of values near 1e-3 needs a coefficient 1000 times larger for the same effect. Scaling every column to a common size (and the coefficients back afterwards) makes one threshold mean the same thing for every term."
+  misconceptions = [
+    "Coefficients carry the inverse units of their columns, so their sizes are only comparable after normalization.",
+    "",
+    "Scale affects each column differently: a single larger threshold removes the small-column terms and keeps the large-column ones, whatever their importance.",
+  ]
+
+[[section]]
+title = "Noisy derivatives dominate the error"
+body = '''
+Measured data give states, not derivatives, so `Ẋ` must be estimated, and
+this is where most of the error enters. The error balance of units 30 and 31 applies:
+the central difference `(x(t+h) - x(t-h)) / 2h` has a truncation error of
+order `h²`, and noise of standard deviation `σ` in each sample becomes an
+error of about `σ / (√2 h)` in the derivative. With `h = 0.05`, noise of
+`0.01` (under 1% of the states) gives derivative errors near `0.14`. A
+smaller step makes it worse, not better: at `h = 0.01` the same noise gives
+`0.7`.
+
+STLSQ averages over many rows, so it survives moderate derivative noise,
+but there is a cliff. Once the noise in `Ẋ` is comparable to the terms
+themselves, the first fit spreads the signal over spurious columns. A small
+threshold then keeps every term, which at least looks wrong. A larger one
+can do worse: it removes a true term early, the refit on the survivors
+moves its share onto a spurious one, and the result is a clean, sparse
+model with the wrong terms. Sparsity alone does not certify an answer.
+The SINDy paper
+handles noisy data by denoising the derivative with total-variation
+regularization rather than plain differences; other options are smoothing
+the data first or fitting a smooth curve and differentiating that.
+'''
+
+  [[section.example]]
+  caption = "RMS error of central-difference derivatives against the exact ones, for noise `σ` (from a `StableRNG`) and step `h` (rounded to 2 significant digits)."
+  notice = "Notice that without noise the error falls like `h²`, and with noise it grows as `h` shrinks, close to `σ / (√2 h)`."
+  code = '''
+using OrdinaryDiffEq, StableRNGs, Statistics
+const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
+lv(u, p, t) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+for h in (0.1, 0.05, 0.01)
+    X = Array(solve(ODEProblem(lv, [3.0, 1.0], (0.0, 6.0)), Vern7(); saveat = h, abstol = 1e-12, reltol = 1e-12))
+    exact = reduce(hcat, [lv(X[:, i], nothing, 0.0) for i in 2:size(X, 2)-1])
+    row = String[]
+    for σ in (0.0, 0.001, 0.01)
+        Xn = X .+ σ .* randn(StableRNG(3), size(X))
+        D = (Xn[:, 3:end] .- Xn[:, 1:end-2]) ./ (2h)
+        push!(row, "σ = $σ: " * rpad(string(round(sqrt(mean(abs2, D .- exact)); sigdigits = 2)), 7))
+    end
+    println("h = ", rpad(h, 5), join(row, "  "))
+end
+'''
+
+  [[section.example]]
+  caption = "STLSQ (`h = 0.05`) on derivatives from noisy samples, noise of 0.01 and of 0.03, for three thresholds. Coefficients rounded to 2 digits."
+  notice = "Notice the cliff. At `σ = 0.01` all three thresholds give the true model. At `σ = 0.03` (derivative errors near 0.4) `λ = 0.1` keeps every term, and `λ = 0.3` and `0.7` agree on `dx/dt = 3.0 - 2.08 y`: two terms, stable across thresholds, and wrong, since the true equation is `1.3 x - 0.9 x y`."
+  code = '''
+using OrdinaryDiffEq, StableRNGs, LinearAlgebra
+const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
+lv(u, p, t) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+h = 0.05
+X = Array(solve(ODEProblem(lv, [3.0, 1.0], (0.0, 6.0)), Vern7(); saveat = h, abstol = 1e-12, reltol = 1e-12))
+names = ["1", "x", "y", "x^2", "x*y", "y^2"]
+library(X) = hcat(ones(size(X, 2)), X[1, :], X[2, :], X[1, :] .^ 2, X[1, :] .* X[2, :], X[2, :] .^ 2)
+function stlsq(Θ, y, λ; iters = 10)
+    ξ = Θ \ y
+    for _ in 1:iters
+        small = abs.(ξ) .< λ
+        ξ[small] .= 0
+        ξ[.!small] = Θ[:, .!small] \ y
+    end
+    return ξ
+end
+equation(ξ) = join([(c < 0 ? "- " : "+ ") * string(round(abs(c); digits = 2)) * (n == "1" ? "" : " " * n) for (c, n) in zip(ξ, names) if c != 0], " ")
+for σ in (0.01, 0.03), λ in (0.1, 0.3, 0.7)
+    Xn = X .+ σ .* randn(StableRNG(3), size(X))
+    D = (Xn[:, 3:end] .- Xn[:, 1:end-2]) ./ (2h)
+    Θ = library(Xn[:, 2:end-1])
+    println("σ = ", σ, ", λ = ", λ, ":  dx/dt = ", equation(stlsq(Θ, D[1, :], λ)), ";  dy/dt = ", equation(stlsq(Θ, D[2, :], λ)))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Derivatives from noisy samples are poor, so a colleague halves the sampling interval `h`. What happens to the central-difference error?"
+  choices = [
+    "It shrinks by about 4×, since the error is of order `h²`",
+    "It roughly doubles, since the noise part grows like `σ / h`",
+    "It stays the same, since the noise level `σ` has not changed",
+  ]
+  answer = 2
+  explain = "The `h²` truncation term is already small; the noise term `σ / (√2 h)` dominates and doubles when `h` halves. The table shows it: with `σ = 0.01`, the error goes from about 0.14 at `h = 0.05` to about 0.7 at `h = 0.01`."
+  misconceptions = [
+    "That holds for noise-free samples (the table's first column); with noise, dividing by a smaller `h` amplifies it.",
+    "",
+    "The noise in the samples is the same, but the difference quotient divides it by `2h`, so its effect on the derivative grows.",
+  ]
+
+[[section]]
+title = "Choosing the threshold"
+body = '''
+The threshold `λ` is the one knob of STLSQ, and it has a window. Too small,
+and the noise coefficients survive: every term is kept. Too large, and the
+true terms are removed too. The first fit uses all columns, and columns
+that are correlated along the trajectory share each true coefficient, so
+even a term with a true coefficient of 1.3 can start below the threshold;
+the refit on the few survivors then cannot recover it, and the model can
+collapse to nothing.
+
+Neither edge of the window can be read off the true model. Both are set by
+the coefficients the **first fit and the refits** produce: the lower edge
+by how small the spurious ones become once the refits start removing terms
+(a spurious constant starts at 0.86 in this data and is still removed at
+`λ = 0.1`), the upper edge by how small the correlated fits make a true
+term (`x` starts at 0.84, below its true 1.3). Sweeping `λ` and
+watching where the set of terms stays the same is the practical way to
+find the window; DataDrivenSparse's `STLSQ` accepts a vector of thresholds
+to explore. A plateau is necessary, not sufficient: the previous section's
+wrong model at `σ = 0.03` was stable from 0.3 to 0.7. When no plateau
+exists, the library or the data are the problem, not `λ`.
+'''
+
+  [[section.example]]
+  caption = "The terms STLSQ keeps for a sweep of `λ`, on derivatives from samples with noise `σ = 0.01` (`h = 0.05`)."
+  notice = "Notice the window from 0.1 to 0.7 where the answer is the true model, every term below it, and nothing at all at 1.0. (A finer sweep puts the upper edge between 0.75 and 0.8 for `dy/dt` and between 0.8 and 0.85 for `dx/dt`.)"
+  code = '''
+using OrdinaryDiffEq, StableRNGs, LinearAlgebra
+const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
+lv(u, p, t) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+h = 0.05
+X = Array(solve(ODEProblem(lv, [3.0, 1.0], (0.0, 6.0)), Vern7(); saveat = h, abstol = 1e-12, reltol = 1e-12))
+Xn = X .+ 0.01 .* randn(StableRNG(3), size(X))
+D = (Xn[:, 3:end] .- Xn[:, 1:end-2]) ./ (2h)
+names = ["1", "x", "y", "x^2", "x*y", "y^2"]
+library(X) = hcat(ones(size(X, 2)), X[1, :], X[2, :], X[1, :] .^ 2, X[1, :] .* X[2, :], X[2, :] .^ 2)
+function stlsq(Θ, y, λ; iters = 10)
+    ξ = Θ \ y
+    for _ in 1:iters
+        small = abs.(ξ) .< λ
+        ξ[small] .= 0
+        ξ[.!small] = Θ[:, .!small] \ y
+    end
+    return ξ
+end
+Θ = library(Xn[:, 2:end-1])
+for λ in (0.01, 0.1, 0.3, 0.7, 1.0)
+    terms = [names[stlsq(Θ, D[k, :], λ) .!= 0] for k in 1:2]
+    println("λ = ", rpad(λ, 4), "  dx/dt: ", rpad(join(terms[1], ", "), 22), " dy/dt: ", join(terms[2], ", "))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In the sweep, `λ = 1.0` removes every term, although the true coefficient of `x` in the first equation is 1.3. Why?"
+  choices = [
+    "The threshold is applied to `|ξ|` divided by the largest coefficient",
+    "In the first fit, correlated columns share the 1.3, leaving `x` below 1.0",
+    "STLSQ stops after one pass, before `x` can be re-estimated alone",
+  ]
+  answer = 2
+  explain = "Along one trajectory the six columns are strongly correlated, so the first least-squares fit splits the signal: with this data it gives `x` a coefficient of about 0.84 and the constant about 0.86. In `dx/dt` every coefficient starts below 1.0, the first pass removes them all, and nothing is left to refit. In `dy/dt` the collapse takes one pass longer: `y` starts at -2.31 and survives, but refitted alone it must also stand in for the removed `x y`, comes out at 0.09, and the second pass removes it."
+  misconceptions = [
+    "The hand-written `stlsq` compares raw `|ξ_j|` with `λ`; no relative scaling is involved.",
+    "",
+    "The loop runs ten passes, but once every coefficient is zero there are no columns left to refit.",
+  ]
+
+[[section]]
+title = "From a UDE's learned term to an equation"
+body = '''
+Unit 45 left a trained network that reproduces the missing interaction
+term on the training states, but a network is not an explanation. SINDy
+turns it into one: evaluate the network at the states, and regress its
+outputs on a library. The network gives the missing term directly, so no
+derivative has to be estimated from data, which removes the error source
+of the previous sections. This is the last step of the SciML
+missing-physics tutorial (`docs.sciml.ai/Overview/stable/showcase/missing_physics/`),
+which fits the network outputs with a sparse regression from
+DataDrivenDiffEq.
+
+Two things limit what the regression can find:
+
+* **The network is only right where the data were.** Unit 45 measured it
+  within 10% of the true term on the training states; the regression uses
+  exactly those states.
+* **One trajectory spans little of the library.** The states lie on part of
+  one closed orbit, a curve, and along a curve the six degree-two
+  polynomials are nearly linearly dependent: the library's condition
+  number on these states is about 1700. Part of that is scale (with every
+  column normalized to unit length it is about 800), but most is the
+  near-dependence. By the bound of units 30 and 32, a relative error `ε`
+  in the targets can move the coefficients by up to about `cond · ε`
+  relative to their size; with errors of a few percent the bound allows
+  changes larger than the coefficients themselves, and the first
+  least-squares fit puts coefficients above 1 on terms the true model does
+  not have. A smaller library, `[1, x, y, xy]`, has condition number 85 on
+  the same states, its first fit stays close, and STLSQ recovers `xy`
+  alone over a range of thresholds. Richer data (several initial
+  conditions) is the other remedy.
+
+The production tools are
+[DataDrivenDiffEq.jl and DataDrivenSparse.jl](https://docs.sciml.ai/DataDrivenDiffEq/stable/libs/datadrivensparse/sparse_regression/):
+their `STLSQ` is the algorithm written here (from the SINDy paper), with
+ridge regularization and threshold sweeps, next to `ADMM` (a lasso) and
+`SR3`. They are not installed in this course, on purpose: the hand-written
+version is short, and its every step can be inspected.
+'''
+
+  [[section.example]]
+  caption = "Train the UDE of unit 45 (same data, network, initial weights and two-stage training), then fit its learned term on the training states with two libraries. The condition numbers depend only on the data and are printed; coefficients are compared with bounds, since the trained weights vary between CPUs."
+  notice = "Notice the two condition numbers; that the 6-term first fit puts a coefficient above 1 on a term absent from the true model in both outputs (when recorded: a constant of 3.1 in `NN₁` and of -2.0 in `NN₂`), while the 4-term first fit does not; and that STLSQ on the 4-term library gives `x y` alone for every `λ` from 0.3 to 0.7, with coefficients within 0.05 of the true -0.9 and 0.8 (when recorded the plateau reached down to `λ = 0.2`, and the smallest kept coefficient was 0.80)."
+  code = '''
+using OrdinaryDiffEq, Lux, ComponentArrays, StableRNGs, Optimization, OptimizationOptimisers, OptimizationOptimJL, Statistics, LinearAlgebra
+const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
+truth(u, p, t) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+ts = 0.0:0.25:3.0
+X = Array(solve(ODEProblem(truth, [3.0, 1.0], (0.0, 3.0)), Vern7(); saveat = ts, abstol = 1e-12, reltol = 1e-12))
+data = X .+ 5e-3 .* mean(X; dims = 2) .* randn(StableRNG(1111), size(X))
+rbf(x) = exp(-x^2)
+nn = Chain(Dense(2 => 5, rbf), Dense(5 => 5, rbf), Dense(5 => 2))
+ps, st = Lux.setup(StableRNG(5), nn)
+ps = ComponentArray{Float64}(ps)
+ude(u, p, t) = [α * u[1], -γ * u[2]] + first(nn(u, p, st))
+prob = ODEProblem(ude, data[:, 1], (0.0, 3.0), ps)
+function loss(p, _)
+    sol = solve(remake(prob; p = p), Tsit5(); saveat = ts, abstol = 1e-6, reltol = 1e-6, verbose = DEVerbosity(SciMLLogging.None()))
+    SciMLBase.successful_retcode(sol) || return Inf
+    return mean(abs2, Array(sol) .- data)
+end
+optf = OptimizationFunction(loss, Optimization.AutoForwardDiff())
+p1 = solve(OptimizationProblem(optf, ps), OptimizationOptimisers.Adam(0.05); maxiters = 300).u
+trained = solve(OptimizationProblem(optf, p1), LBFGS(); maxiters = 100).u
+Y = reduce(hcat, [first(nn(data[:, k], trained, st)) for k in axes(data, 2)])     # the learned term at the data states
+function stlsq(Θ, y, λ; iters = 10)
+    ξ = Θ \ y
+    for _ in 1:iters
+        small = abs.(ξ) .< λ
+        ξ[small] .= 0
+        ξ[.!small] = Θ[:, .!small] \ y
+    end
+    return ξ
+end
+x, y = data[1, :], data[2, :]
+libraries = [("1, x, y, x^2, x*y, y^2", ["1", "x", "y", "x^2", "x*y", "y^2"], hcat(one.(x), x, y, x .^ 2, x .* y, y .^ 2)),
+             ("1, x, y, x*y", ["1", "x", "y", "x*y"], hcat(one.(x), x, y, x .* y))]
+for (label, names, Θ) in libraries
+    println("library [", label, "]: condition number ", Int(round(cond(Θ); sigdigits = 2)),
+            " (", Int(round(cond(Θ ./ sqrt.(sum(abs2, Θ; dims = 1))); sigdigits = 2)), " with unit-length columns)")
+    absent = names .!= "x*y"                                  # terms the true missing term does not have
+    println("   first fit puts a coefficient above 1 on an absent term (NN₁, NN₂): ",
+            join([maximum(abs.((Θ \ Y[k, :])[absent])) > 1 for k in 1:2], ", "))
+end
+Θ = libraries[2][3]
+sweep = [[["1", "x", "y", "x*y"][stlsq(Θ, Y[k, :], λ) .!= 0] for k in 1:2] for λ in (0.3, 0.5, 0.7)]
+println("[1, x, y, x*y]: STLSQ keeps x*y alone in both outputs for λ = 0.3, 0.5 and 0.7: ", all(==([["x*y"], ["x*y"]]), sweep))
+ξ1, ξ2 = stlsq(Θ, Y[1, :], 0.3), stlsq(Θ, Y[2, :], 0.3)
+println("   coefficients within 0.05 of -β = -0.9 and δ = 0.8: ", abs(ξ1[4] + 0.9) < 0.05 && abs(ξ2[4] - 0.8) < 0.05)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does fitting the network's outputs avoid the derivative noise of the earlier sections?"
+  choices = [
+    "The network's outputs are the missing term itself, so no finite differences are needed",
+    "The network was trained on noise-free data, so its outputs are exact",
+    "Lux networks compute derivatives of their inputs by automatic differentiation",
+  ]
+  answer = 1
+  explain = "The UDE's network is the missing part of `du/dt`; evaluating it at a state gives the target directly. The derivative information came from training, which fitted solutions of the ODE to the data rather than differencing the data."
+  misconceptions = [
+    "",
+    "The training data were noisy (0.5% of the mean); unit 45 checked the learned term to within 10%, not exactly.",
+    "The regression uses the network's values, not derivatives of the network with respect to its inputs.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "With the degree-two library, the first least-squares fit of the network outputs puts a coefficient of about 3 on the constant term, which the true model does not have. What is the best next step?"
+  choices = [
+    "Train the network longer, until it matches the missing term to rounding",
+    "Use a smaller library, or data from more initial conditions",
+    "Lower the threshold to keep the true terms among the six",
+  ]
+  answer = 2
+  explain = "The failure comes from the library's condition number on states from one trajectory: small target errors can become large coefficient errors. Fewer columns or states that cover more of the plane fix the conditioning; the example's 4-term library recovers `x y`."
+  misconceptions = [
+    "A better fit on the same states helps a little, but with a condition number near 1700 even a 1% target error can move the coefficients by more than their size.",
+    "",
+    "A lower threshold keeps more of the spurious terms; the problem is that the first fit made them large.",
+  ]
+
+[[problem]]
+id = "sindy-library"
+title = "The degree-two polynomial library"
+difficulty = "warm-up"
+kcs = ["sparse-regression"]
+entry = "poly2_library"
+packages = ["StableRNGs"]
+prompt = '''
+Write `poly2_library(X)` that takes states `X` (a `2 × N` matrix, one
+column `[x, y]` per time) and returns the `N × 6` library matrix
+`Θ(X)` with columns, in this order,
+
+    1,  x,  y,  x²,  x y,  y²
+
+as a `Matrix{Float64}`. Results are compared exactly (`isequal`): every
+entry is one product, so there is no rounding to disagree about.
+
+```julia
+poly2_library([1.0 2.0; 3.0 4.0])
+# 2×6 Matrix{Float64}:
+#  1.0  1.0  3.0  1.0  3.0   9.0
+#  1.0  2.0  4.0  4.0  8.0  16.0
+```
+'''
+starter = '''
+function poly2_library(X)
+    # one row per time, one column per term
+end
+'''
+reference = '''
+function poly2_library(X)
+    N = size(X, 2)
+    Θ = Matrix{Float64}(undef, N, 6)
+    for k in 1:N
+        x, y = X[1, k], X[2, k]
+        Θ[k, 1] = 1.0
+        Θ[k, 2] = x
+        Θ[k, 3] = y
+        Θ[k, 4] = x * x
+        Θ[k, 5] = x * y
+        Θ[k, 6] = y * y
+    end
+    return Θ
+end
+'''
+cases = [
+  "[1.0 2.0; 3.0 4.0]",
+  "reshape([0.5, -2.0], 2, 1)",
+  "zeros(2, 0)",
+]
+gen = "rng -> [(randn(rng, 2, rand(rng, 1:40)),) for _ in 1:20]"
+compare = "isequal"
+hints = [
+  "Each row is one time: the six terms evaluated at that column's `x` and `y`.",
+  "The order of the columns is part of the answer, and so is the shape: `N` rows, 6 columns.",
+]
+
+  [problem.perf]
+  args = "randn(rng, 2, n)"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "the transpose: 6 × N"
+  code = '''
+poly2_library(X) = permutedims(hcat(ones(size(X, 2)), X[1, :], X[2, :], X[1, :] .^ 2, X[1, :] .* X[2, :], X[2, :] .^ 2))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "x y and y² swapped"
+  code = '''
+poly2_library(X) = hcat(ones(size(X, 2)), X[1, :], X[2, :], X[1, :] .^ 2, X[2, :] .^ 2, X[1, :] .* X[2, :])
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "no constant column"
+  code = '''
+poly2_library(X) = hcat(X[1, :], X[2, :], X[1, :] .^ 2, X[1, :] .* X[2, :], X[2, :] .^ 2)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "hcat of column vectors"
+  code = '''
+function poly2_library(X)
+    x, y = X[1, :], X[2, :]
+    return hcat(ones(length(x)), x, y, x .* x, x .* y, y .* y)
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "one small vector per row, then stacked: fails with zero columns"
+  code = '''
+poly2_library(X) = permutedims(reduce(hcat, [[1.0, x, y, x * x, x * y, y * y] for (x, y) in eachcol(X)]))
+'''
+  expect = ["incorrect"]
+
+[[problem]]
+id = "sindy-stlsq"
+title = "Sequential thresholded least squares"
+difficulty = "core"
+kcs = ["sparse-regression"]
+entry = "stlsq"
+packages = ["StableRNGs"]
+prompt = '''
+Write `stlsq(Θ, y, λ)` that returns the sparse coefficient vector (a
+`Vector{Float64}` with one entry per column of `Θ`) found by sequential
+thresholded least squares:
+
+1. `ξ = Θ \ y` (least squares);
+2. set every entry with `abs(ξ[j]) < λ` to zero;
+3. refit `ξ` on the surviving columns only (the removed entries stay zero),
+   and go back to step 2;
+
+stopping when a pass removes no further entry, or after 20 passes. If every
+entry is removed, return the zero vector.
+
+Results are compared with `rtol = 1e-8`: the cases are well conditioned
+(condition numbers below 100), so least-squares solutions computed in
+different ways agree far beyond that, while a missing refit or a signed
+threshold changes coefficients in the second digit or removes the wrong
+terms.
+
+```julia
+Θ = [1.0 0.0 1.0; 1.0 1.0 0.0; 1.0 2.0 1.0; 1.0 3.0 0.0]
+stlsq(Θ, [0.05, 2.0, 4.1, 5.95], 0.5)    # ≈ [0.0, 2.0, 0.0]
+```
+'''
+starter = '''
+using LinearAlgebra
+
+function stlsq(Θ, y, λ)
+    # least squares, threshold, refit on the survivors, repeat
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function stlsq(Θ, y, λ)
+    ξ = Θ \ y
+    active = trues(length(ξ))
+    for _ in 1:20
+        small = active .& (abs.(ξ) .< λ)
+        any(small) || break
+        active .&= .!small
+        fill!(ξ, 0.0)
+        any(active) || break
+        ξ[active] = Θ[:, active] \ y
+    end
+    return ξ
+end
+'''
+cases = [
+  "[1.0 0.0 1.0; 1.0 1.0 0.0; 1.0 2.0 1.0; 1.0 3.0 0.0], [0.05, 2.0, 4.1, 5.95], 0.5",
+  "hcat(ones(6), collect(0.0:5.0), collect(0.0:5.0) .^ 2), [1.02, 2.51, 6.03, 11.48, 19.01, 28.53], 0.2",
+  "[1.0 0.0; 0.0 1.0; 1.0 1.0], [0.01, 0.02, 0.03], 0.5",
+]
+gen = "rng -> [(n = rand(rng, 3:6); m = 30; Θ = hcat(ones(m), randn(rng, m, n - 1)); ξ = [rand(rng) < 0.5 ? 0.0 : (1 + rand(rng)) * rand(rng, [-1, 1]) for _ in 1:n]; (Θ, Θ * ξ .+ 0.05 .* randn(rng, m), 0.5)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-8
+hints = [
+  "The threshold compares the magnitude of each coefficient; negative coefficients can be large too.",
+  "After zeroing, solve again with only the columns that survived (`Θ[:, active] \\ y`) and write the result back into those positions; repeat until nothing more is removed.",
+]
+
+  [problem.perf]
+  args = "hcat(ones(n), randn(rng, n, 5)), randn(rng, n), 0.5"
+  sizes = [2000]
+
+  [[problem.variant]]
+  label = "thresholds once, without refitting"
+  code = '''
+function stlsq(Θ, y, λ)
+    ξ = Θ \ y
+    ξ[abs.(ξ) .< λ] .= 0
+    return ξ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "signed threshold: removes every coefficient below +λ, negatives included"
+  code = '''
+function stlsq(Θ, y, λ)
+    ξ = Θ \ y
+    for _ in 1:20
+        small = ξ .< λ
+        ξ[small] .= 0
+        any(.!small) || break
+        ξ[.!small] = Θ[:, .!small] \ y
+    end
+    return ξ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "refits with every column after zeroing (removed terms come back)"
+  code = '''
+function stlsq(Θ, y, λ)
+    ξ = Θ \ y
+    for _ in 1:20
+        ξ[abs.(ξ) .< λ] .= 0
+        ξ = Θ \ y
+    end
+    ξ[abs.(ξ) .< λ] .= 0
+    return ξ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the loop of the unit's examples (ten passes, no early stop)"
+  code = '''
+function stlsq(Θ, y, λ)
+    ξ = Θ \ y
+    for _ in 1:10
+        small = abs.(ξ) .< λ
+        ξ[small] .= 0
+        ξ[.!small] = Θ[:, .!small] \ y
+    end
+    return ξ
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "sindy-recover-terms"
+title = "Name the terms of a learned function"
+difficulty = "stretch"
+kcs = ["equation-discovery", "sparse-regression", "universal-ode"]
+entry = "active_terms"
+packages = ["StableRNGs"]
+prompt = '''
+A trained UDE network was evaluated at states `X` (a `2 × N` matrix, one
+column `[x, y]` per time), giving outputs `Y` (a `2 × N` matrix: row 1 is
+`NN₁`, row 2 is `NN₂`). Write `active_terms(X, Y, λ)` that returns, for each
+output, the names of the terms STLSQ keeps with the library
+`[1, x, y, x*y]` (in that order) and threshold `λ`:
+
+```julia
+active_terms(X, Y, 0.3)    # e.g. [["x*y"], ["x*y"]]
+```
+
+Return a `Vector{Vector{String}}` with two entries, using exactly the names
+`"1"`, `"x"`, `"y"`, `"x*y"`, each list in library order. Run STLSQ as in
+the problem "Sequential thresholded least squares" (threshold on
+`abs(ξ[j]) < λ`, refit on the survivors, stop when nothing more is removed
+or after 20 passes). Results are compared exactly: names, not
+coefficients, so rounding cannot change the answer for the cases given,
+whose surviving coefficients are far from `λ`.
+'''
+starter = '''
+using LinearAlgebra
+
+function active_terms(X, Y, λ)
+    # build the 4-term library, run STLSQ on each row of Y, return the names
+end
+'''
+reference = '''
+using LinearAlgebra, StableRNGs   # StableRNGs for the displayed sample calls
+
+const TERM_NAMES = ["1", "x", "y", "x*y"]
+
+function stlsq_terms(Θ, y, λ)
+    ξ = Θ \ y
+    active = trues(length(ξ))
+    for _ in 1:20
+        small = active .& (abs.(ξ) .< λ)
+        any(small) || break
+        active .&= .!small
+        fill!(ξ, 0.0)
+        any(active) || break
+        ξ[active] = Θ[:, active] \ y
+    end
+    return active
+end
+
+function active_terms(X, Y, λ)
+    x, y = X[1, :], X[2, :]
+    Θ = hcat(ones(length(x)), x, y, x .* y)
+    return [TERM_NAMES[stlsq_terms(Θ, Y[k, :], λ)] for k in 1:2]
+end
+'''
+cases = [
+  "(X = 0.5 .+ 2.5 .* rand(StableRNG(1), 2, 40); (X, vcat((-0.9 .* X[1, :] .* X[2, :])', (0.8 .* X[1, :] .* X[2, :])') .+ 0.01 .* randn(StableRNG(2), 2, 40), 0.3))...",
+  "(X = 0.5 .+ 2.5 .* rand(StableRNG(3), 2, 40); (X, vcat((1.3 .* X[1, :] .- 0.9 .* X[1, :] .* X[2, :])', (-1.8 .* X[2, :] .+ 0.8 .* X[1, :] .* X[2, :])'), 0.3))...",
+  "(X = 0.5 .+ 2.5 .* rand(StableRNG(4), 2, 40); (X, vcat(fill(2.0, 1, 40), 0.01 .* randn(StableRNG(5), 1, 40)), 0.3))...",
+]
+gen = "rng -> [(X = 0.5 .+ 2.5 .* rand(rng, 2, 40); c = [rand(rng) < 0.5 ? 0.0 : (1 + rand(rng)) * rand(rng, [-1, 1]) for _ in 1:8]; Θ = hcat(ones(40), X[1, :], X[2, :], X[1, :] .* X[2, :]); (X, permutedims(hcat(Θ * c[1:4], Θ * c[5:8])) .+ 0.01 .* randn(rng, 2, 40), 0.3)) for _ in 1:20]"
+compare = "isequal"
+hints = [
+  "This is the 4-term library of the last section, one STLSQ fit per output row, and the names of the entries that stay nonzero.",
+  "Keep track of which columns are active with a logical vector; indexing the list of names with it gives the names in library order.",
+]
+
+  [problem.perf]
+  args = "(X = 0.5 .+ 2.5 .* rand(rng, 2, n); (X, vcat((-0.9 .* X[1, :] .* X[2, :])', (0.8 .* X[1, :] .* X[2, :])') .+ 0.01 .* randn(rng, 2, n), 0.3))..."
+  sizes = [2000]
+
+  [[problem.variant]]
+  label = "signed threshold: negative coefficients are removed"
+  code = '''
+using LinearAlgebra
+function active_terms(X, Y, λ)
+    x, y = X[1, :], X[2, :]
+    Θ = hcat(ones(length(x)), x, y, x .* y)
+    names = ["1", "x", "y", "x*y"]
+    out = Vector{String}[]
+    for k in 1:2
+        ξ = Θ \ Y[k, :]
+        for _ in 1:20
+            small = ξ .< λ
+            ξ[small] .= 0
+            any(.!small) || break
+            ξ[.!small] = Θ[:, .!small] \ Y[k, :]
+        end
+        push!(out, names[ξ .!= 0])
+    end
+    return out
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "least squares without thresholding: every term is named"
+  code = '''
+using LinearAlgebra
+function active_terms(X, Y, λ)
+    x, y = X[1, :], X[2, :]
+    Θ = hcat(ones(length(x)), x, y, x .* y)
+    return [["1", "x", "y", "x*y"][(Θ \ Y[k, :]) .!= 0] for k in 1:2]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "STLSQ by zeroing and refitting in place"
+  code = '''
+using LinearAlgebra
+function active_terms(X, Y, λ)
+    x, y = X[1, :], X[2, :]
+    Θ = hcat(ones(length(x)), x, y, x .* y)
+    names = ["1", "x", "y", "x*y"]
+    out = Vector{String}[]
+    for k in 1:2
+        ξ = Θ \ Y[k, :]
+        for _ in 1:20
+            small = abs.(ξ) .< λ
+            ξ[small] .= 0
+            any(.!small) || break
+            ξ[.!small] = Θ[:, .!small] \ Y[k, :]
+        end
+        push!(out, names[ξ .!= 0])
+    end
+    return out
+end
+'''
+  expect = ["correct"]

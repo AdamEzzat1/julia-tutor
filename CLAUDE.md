@@ -349,6 +349,19 @@ every role above has had the chance to object (recorded in the PR).
 * The `mtk` env holds ModelingToolkitBase (MIT) only: full ModelingToolkit's
   index reduction and tearing are AGPL since v11, a licensing decision for the
   project owner. Unit 36 teaches index reduction by hand.
+* Units 30 to 48 were recorded on a Windows host in plain processes (Docker
+  was down, 2026-11-10), not in the container; CI's container verify is
+  their first check there. Unit 40's timings were taken on a saturated host
+  and are `check = false`; whether `addprocs` works in the container is
+  unverified. Training results (units 44 to 48) are seed- and CPU-sensitive;
+  their checked facts avoid run-to-run outcomes.
+* In scicomp/mtk/sciml a problem's `packages = []` loads the whole env for
+  each grading run (about 3 min on a loaded host, over the 120 s limit); list
+  only what the reference needs. A learner who solves dae-divider-rc with
+  Rodas5P pays about 50 to 90 s of loading and compilation and may time out.
+* The grader's result file is written to `result.toml.part` and renamed, and
+  a result without `status` counts as a crash: a child killed mid-write once
+  left a partial file that crashed verify with KeyError "status".
 
 ## Required end-of-session report
 

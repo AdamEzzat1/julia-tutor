@@ -231,7 +231,8 @@ total[]
 title = "Beyond one process: Distributed and GPUs"
 body = '''
 Threads share memory inside one Julia process. Two other kinds of parallelism
-are worth knowing about (they are not available in this sandbox):
+are worth knowing about (Distributed ships with Julia and unit 40 starts a worker
+with it; no GPU package is installed in this sandbox):
 
 * **Distributed** (a standard library): `addprocs(4)` starts worker
   *processes*, possibly on other machines; `@everywhere` defines code on all of

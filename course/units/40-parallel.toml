@@ -1,0 +1,1122 @@
+id = "40-parallel"
+title = "Parallel computing and its limits"
+track = "scicomp"
+env = "scicomp"
+status = "ready"
+summary = "What decides how fast numerical code can run on one core and on several: SIMD and data layout, memory bandwidth and the roofline model, false sharing, threads with OhMyThreads, why a threaded sum changes its last digits, Amdahl's and Gustafson's laws checked against two-thread measurements, worker processes with Distributed, and KernelAbstractions as the CPU model of a GPU kernel."
+kcs = ["simd", "data-layout", "roofline", "false-sharing", "parallel-reductions", "amdahl-gustafson"]
+prerequisites = ["14-performance", "18-concurrency", "30-floating-point"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+Unit 18 started threads and unit 14 made one core fast. This unit asks how
+much faster several cores can make a numerical loop, and what stops them.
+It relies on four facts:
+
+* **`@simd` lets the compiler reorder a reduction** so it can use vector
+  instructions, and arrays are column-major, so the first index should vary
+  fastest (unit 14, section "Loops: memory order, hoisting, @inbounds and
+  @simd").
+* **Measure after a warm-up call and keep the minimum of several runs**;
+  timings vary between runs and machines, so timing examples here are
+  recorded, not checked (unit 14, section "Measuring without fooling
+  yourself").
+* **Tasks that update shared state race**; per-task partial results combined
+  at the end avoid it (unit 18, sections "Concurrency is not parallelism:
+  threads" and "Data races and how to avoid them").
+* **Floating-point addition is not associative**, so a sum in another order
+  has other last digits (unit 30, section "Every operation rounds, and the
+  errors add up").
+
+**How the examples get two threads.** The number of threads is fixed when
+Julia starts, and this site runs each example in a Julia with one thread,
+in a container allowed two CPUs' worth of time. That is a time quota, not
+two cores reserved for it: the operating system may place the two threads on
+two hyperthreads of one physical core, which share its caches and its
+arithmetic units, and another program on the machine can take their time.
+The examples that measure parallel speed write their code to a file and
+start a second Julia with `--threads=2`, the same as running
+`julia -t 2 file.jl` on your machine. `Base.julia_cmd()` passes no
+`--project`, so that second Julia sees only the standard library; a script
+that needs a package (say `using OhMyThreads`) must be started with
+`--project=$(Base.active_project())` added. Every speedup in this unit is
+measured on those two threads; nothing here is extrapolated to more cores
+except by a model that says so.
+'''
+
+[[section]]
+title = "SIMD and data layout"
+body = '''
+A modern core does not add one pair of numbers per instruction. Its vector
+(SIMD, "single instruction, multiple data") registers hold several numbers,
+four `Float64` in a 256-bit AVX2 register and eight with AVX-512, and one
+instruction adds them all. A loop runs on these registers only when the
+compiler can prove the result does not change, or is told it may change:
+
+* `a[i] = b[i] + c[i]` has independent iterations, so the compiler
+  vectorizes it without help (the bounds checks inside the loop can prevent
+  it; `eachindex` or `@inbounds` removes them).
+* `s += x[i]` is a chain: each addition needs the previous `s`. Four lanes
+  would compute four partial sums and add them at the end, which is a
+  different order of additions and so a different rounding. The compiler may
+  not change your floating-point results on its own, so it keeps the chain;
+  `@simd` grants permission to reassociate.
+
+Vector loads read **contiguous** memory. This is where the layout of the
+data matters. An array of structs (AoS), `Vector{Particle}` with fields
+`x, y, z, m`, stores the four fields of each particle next to each other, so
+the `x` values are 32 bytes apart. A loop over all `x` loads a cache line of
+64 bytes to use 16 of them, and the compiler has to gather scattered values
+into a register. A struct of arrays (SoA), one `Vector{Float64}` per field,
+puts the `x` values side by side: every byte loaded is used, and loads are
+plain vector loads. Which layout is better depends on the access pattern: a
+loop that uses all four fields of each particle reads AoS contiguously too.
+'''
+
+  [[section.example]]
+  caption = "The layout of an array of structs: `Particle` is 32 bytes with `x` at offset 0, so consecutive `x` values are 32 bytes apart in memory. The SoA copy holds the same numbers contiguously."
+  notice = "Notice that both layouts sum to the same value (to rounding: `@simd` reorders the sum differently for the two loops), and that the AoS stride is four `Float64`."
+  code = '''
+using Random
+struct Particle
+    x::Float64
+    y::Float64
+    z::Float64
+    m::Float64
+end
+rng = Xoshiro(1)
+aos = [Particle(rand(rng), rand(rng), rand(rng), 1.0) for _ in 1:1000]
+xs = [p.x for p in aos]                       # struct of arrays: the x field alone
+println("sizeof(Particle) = ", sizeof(Particle), " bytes; offset of y = ", fieldoffset(Particle, 2))
+println("stride of x in the AoS: ", sizeof(Particle) ÷ sizeof(Float64), " Float64")
+function sumx(ps::Vector{Particle})
+    s = 0.0
+    @inbounds @simd for i in eachindex(ps)
+        s += ps[i].x
+    end
+    return s
+end
+function sumx(x::Vector{Float64})
+    s = 0.0
+    @inbounds @simd for i in eachindex(x)
+        s += x[i]
+    end
+    return s
+end
+println("same sum to rounding: ", isapprox(sumx(aos), sumx(xs); rtol = 1000 * eps()))
+'''
+
+  [[section.example]]
+  caption = "Time per sum: a plain loop and the `@simd` loop on 4096 `Float64` (32 KB, which stays in the cache), then on 4 million (32 MB, read from memory) together with `sum` of the SoA field and the `@simd` sum of the AoS field. Recorded, not checked: timings vary between runs and CPUs."
+  check = false
+  notice = "Notice what each pair compares. On the cached vector nothing waits for memory, so the plain loop is held back only by its chain of additions, and that is where `@simd` should gain most (several times on a quiet machine). On the 32 MB vector both loops also wait for memory, which shrinks the gap (the next section explains why). The AoS loop loads four times the memory for the same additions, so it should be the slowest. A busy machine adds noise to all of these numbers; rerun to compare."
+  code = '''
+using Random
+struct Particle
+    x::Float64
+    y::Float64
+    z::Float64
+    m::Float64
+end
+function plain_sum(x)
+    s = 0.0
+    for i in eachindex(x)
+        s += x[i]
+    end
+    return s
+end
+function simd_sum(x)
+    s = 0.0
+    @inbounds @simd for i in eachindex(x)
+        s += x[i]
+    end
+    return s
+end
+function simd_sumx(ps)
+    s = 0.0
+    @inbounds @simd for i in eachindex(ps)
+        s += ps[i].x
+    end
+    return s
+end
+const sink = Ref(0.0)                      # results are used, so the compiler cannot drop the calls
+function per_call(f, x, reps)              # best of 10 rounds of `reps` calls, in seconds per call
+    sink[] += f(x)
+    return minimum(@elapsed(for _ in 1:reps; sink[] += f(x); end) for _ in 1:10) / reps
+end
+rng = Xoshiro(1)
+small = rand(rng, 2^12)
+println("4096 elements (cached):  plain loop ", round(per_call(plain_sum, small, 1000) * 1e6; digits = 2),
+        " µs,  @simd ", round(per_call(simd_sum, small, 1000) * 1e6; digits = 2), " µs")
+n = 2^22
+aos = [Particle(rand(rng), rand(rng), rand(rng), 1.0) for _ in 1:n]
+xs = [p.x for p in aos]
+for (name, f, x) in (("plain loop, SoA", plain_sum, xs), ("@simd, SoA     ", simd_sum, xs),
+                     ("sum, SoA       ", sum, xs), ("@simd, AoS     ", simd_sumx, aos))
+    println("4M elements, ", name, "  ", round(per_call(f, x, 1) * 1e3; digits = 2), " ms")
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Without `@simd`, why does the compiler not vectorize `for i in eachindex(x); s += x[i]; end` for a `Vector{Float64}`?"
+  choices = [
+    "Splitting the sum into lanes changes its rounding, which needs permission",
+    "Vector registers cannot hold `Float64` values",
+    "The bounds checks on `x[i]` stay in the loop and block the vector instructions",
+  ]
+  answer = 1
+  explain = "Four lanes compute four partial sums and add them at the end: a different order of additions, so different last digits (floating-point addition is not associative). The compiler preserves your results unless `@simd` (or `@fastmath`) allows reassociation. `eachindex` already lets it drop the bounds checks."
+  misconceptions = [
+    "",
+    "AVX2 registers hold four `Float64` and AVX-512 eight; the `a[i] = b[i] + c[i]` loop is vectorized with them without any annotation.",
+    "`eachindex(x)` produces only valid indices, so the compiler removes the checks by itself; what remains is the dependency of each `s` on the previous one.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A simulation stores particles as a `Vector{Particle}` with 8 `Float64` fields, and its hot loop reads only the `x` field of every particle. What does switching to one vector per field (struct of arrays) change for that loop?"
+  choices = [
+    "Nothing for speed, since both layouts hold the same numbers in the same cache",
+    "It makes the loop safe to run on several threads",
+    "It reads one eighth of the memory, in contiguous vector loads",
+    "It removes the need for `@simd` on the reduction",
+  ]
+  answer = 3
+  explain = "In the AoS, consecutive `x` values are 64 bytes apart, so every cache line loaded carries one useful number. In the SoA each line carries eight `x` values, and the vector unit loads them in one instruction. The reduction still needs `@simd` to be reordered."
+  misconceptions = [
+    "The numbers are the same, but the memory traffic is not: the loop moves whole cache lines, and in the AoS seven eighths of each line is fields it does not use.",
+    "Reading is race-free in either layout; layout changes speed, not thread safety.",
+    "",
+    "Contiguous data makes vector loads possible, but reordering the sum still changes its rounding, so the compiler still needs `@simd`'s permission.",
+  ]
+
+[[section]]
+title = "Memory bandwidth and the roofline"
+body = '''
+A core can do arithmetic much faster than memory can deliver operands. So
+each loop has two possible limits, and the lower one wins. The **roofline
+model** ([Williams, Waterman and Patterson 2009](https://en.wikipedia.org/wiki/Roofline_model))
+states it as
+
+    attainable FLOP/s = min(peak FLOP/s,  I × bandwidth)
+
+where the **arithmetic intensity** `I` is the number of floating-point
+operations per byte moved between memory and the core. Two kernels on
+arrays too large for the caches:
+
+* **The stream triad** `a[i] = b[i] + s * c[i]` does 2 flops and asks for
+  24 bytes (read `b[i]` and `c[i]`, write `a[i]`): `I = 1/12` flop per byte.
+  At a bandwidth of 10 GB/s it cannot exceed about 0.8 GFLOP/s, a small
+  fraction of what one core can compute. It is **bandwidth-bound**. (Most
+  caches read a line before writing into it, "write-allocate", so the
+  hardware moves 32 bytes per element; a GB/s figure computed from 24 bytes
+  is a quarter lower than the real traffic.)
+* **A degree-64 polynomial** evaluated by Horner's rule at each `b[i]` does
+  128 flops (64 multiply-adds) and moves 16 bytes: `I = 8`. Memory is not
+  its limit; the core is. Here it is not even the core's peak: each
+  multiply-add needs the previous one's result, the same chain as
+  `s += x[i]` in the first section, so the loop runs at one multiply-add per
+  latency of that instruction, a small fraction of the peak. It is
+  **latency-bound**, which for threads behaves like compute-bound: each core
+  runs its own chains.
+
+What this predicts for threads: a second core doubles the arithmetic but
+not the memory bandwidth, which the cores share. A kernel limited inside the
+core can nearly double its speed on two threads; a bandwidth-bound one gains
+only as much as one core was failing to use of the memory system. One core
+often draws a large share of the bandwidth on its own, so the triad's
+speedup is below 2 by an amount that depends on the machine, which is why
+the example measures it instead of asserting it.
+'''
+
+  [[section.example]]
+  caption = "Arithmetic intensity of the two kernels from their flop and byte counts, and the bandwidth-bound ceiling each would have at an assumed 10 GB/s (the assumption is only for the arithmetic)."
+  notice = "Notice the factor of 96 between the intensities: the triad's ceiling at 10 GB/s is below 1 GFLOP/s, while the polynomial's is 80 GFLOP/s, more than a chain of dependent multiply-adds can reach, so its limit is in the core."
+  code = '''
+kernels = (("triad    a[i] = b[i] + s*c[i]", 2, 3 * 8), ("Horner-64 a[i] = p(b[i])  ", 128, 2 * 8))
+for (name, flops, bytes) in kernels
+    I = flops / bytes
+    println(name, "  I = ", rpad(round(I; digits = 3), 6), " flop/byte,  ceiling at 10 GB/s: ",
+            round(I * 10; digits = 2), " GFLOP/s")
+end
+'''
+
+  [[section.example]]
+  caption = "The triad on 8 million elements and the polynomial on 1 million, timed with 1 and 2 tasks in a Julia started with 2 threads. Recorded, not checked: the numbers depend on the CPU, its memory and what else the machine is running."
+  check = false
+  notice = "Notice the triad's GB/s (counted at 24 bytes per element, so a quarter below the real traffic): it is the memory system's speed, and the model predicts a speedup below 2 for it, by a machine-dependent amount. For the polynomial it predicts close to 2 on two real cores, since each computes its half independently. Two hyperthreads of one core share its arithmetic, and a busy machine takes time and bandwidth from both kernels, so a measurement can fall short of either prediction; rerun to compare."
+  code = '''
+write("roofline.jl", raw"""
+using Base.Threads
+function triad!(a, b, c, s, r)
+    @inbounds @simd for i in r
+        a[i] = b[i] + s * c[i]
+    end
+end
+function horner!(a, b, r)
+    @inbounds for i in r
+        x = b[i]
+        y = 0.0
+        for k in 1:64
+            y = muladd(y, x, 1.0)
+        end
+        a[i] = y
+    end
+end
+function on_tasks(f, ntasks, n)            # ntasks contiguous chunks, one task each
+    @sync for r in Iterators.partition(1:n, cld(n, ntasks))
+        @spawn f(r)
+    end
+end
+best(f) = (f(); minimum(@elapsed(f()) for _ in 1:5))
+n, m = 2^23, 2^20                         # triad on 8M elements (far beyond the caches), Horner on 1M
+a, b, c = zeros(n), rand(n), rand(n)
+println("threads: ", nthreads())
+for (name, k, flops, bytes, len) in (("triad ", r -> triad!(a, b, c, 3.0, r), 2, 24, n),
+                                     ("Horner", r -> horner!(a, b, r), 128, 16, m))
+    t1 = best(() -> on_tasks(k, 1, len))
+    t2 = best(() -> on_tasks(k, 2, len))
+    println(name, "  1 thread: ", round(bytes * len / t1 / 1e9; digits = 1), " GB/s, ",
+            round(flops * len / t1 / 1e9; digits = 1), " GFLOP/s;  speedup on 2 threads: ", round(t1 / t2; digits = 2))
+end
+""")
+run(`$(Base.julia_cmd()) --threads=2 roofline.jl`);
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A kernel computes `y[i] = a * x[i] + y[i]` (axpy) on vectors of 100 million `Float64`. On two threads instead of one, what does the roofline model predict?"
+  choices = [
+    "A speedup near 2, since the iterations are independent and split evenly in two",
+    "A speedup bounded by how much more memory bandwidth two cores get",
+    "No change at all, since threads cannot share one array",
+  ]
+  answer = 2
+  explain = "Axpy does 2 flops per 24 bytes (read `x[i]` and `y[i]`, write `y[i]`), `I = 1/12`: bandwidth-bound. Two cores share the memory bus, so the speedup is the ratio of the bandwidth two cores draw to what one draws, often well under 2 and machine-dependent."
+  misconceptions = [
+    "Independent iterations make the loop safe to split, but both halves still wait on the same memory system; the arithmetic was never the limit.",
+    "",
+    "Threads share memory, and splitting the index range between them is race-free; the gain is small because memory is the limit, not because sharing fails.",
+  ]
+
+[[section]]
+title = "Threads in practice: OhMyThreads and false sharing"
+body = '''
+Julia offers three levels for splitting a loop over threads:
+
+* **`Threads.@threads for ...`** splits the iteration range into one chunk
+  per thread. Good for a loop whose iterations write to separate places.
+* **`Threads.@spawn`** starts one task per piece of work, which the
+  scheduler places on any thread; you choose the chunks and combine the
+  results yourself (unit 18).
+* **OhMyThreads.jl** packages the per-chunk pattern: `tmap(f, xs)` and
+  `tmapreduce(f, op, xs)` split `xs` into contiguous chunks, one task each
+  (by default as many as threads), reduce each chunk, then combine the
+  partial results in order. Its documentation requires `op` to be
+  associative and says that "each chunk consists of contiguous elements and
+  order is maintained" ([OhMyThreads API](https://juliafolds2.github.io/OhMyThreads.jl/stable/refs/api/)).
+
+One pattern looks race-free and still runs slowly: per-thread accumulators
+in neighbouring slots of one array, `acc[t] += x[i]`. No two tasks write
+the same element, so the result is right. But caches move memory in lines
+of typically 64 bytes, and when one core writes its slot, the line holding
+the other core's slot is invalidated too, so the two cores pass the line
+back and forth on every write. That is **false sharing**
+([Wikipedia](https://en.wikipedia.org/wiki/False_sharing)). Padding the
+slots apart removes it: 128 bytes rather than 64, because many CPUs also
+fetch the neighbouring line of each line they load, so two adjacent lines
+can still interfere. A local variable per task, returned at the end,
+removes the shared array altogether.
+
+A pattern from older code is unsafe: indexing buffers by
+`Threads.threadid()`. The Julia manual says `threadid()` "should not be
+treated as constant within a task" and "Buffers should not be managed
+based on `threadid()`" ([multi-threading manual](https://docs.julialang.org/en/v1.10/manual/multi-threading/)):
+a task can move to another thread, and two tasks on one thread can share the
+buffer.
+'''
+
+  [[section.example]]
+  caption = "`tmapreduce` with 1, 2 and 4 tasks against a serial `mapreduce` (on this site's single thread the tasks take turns, but the chunking is the same as on many threads)."
+  notice = "Notice that the threaded results agree with the serial one to a relative `1e-14`. They are printed to 12 digits because the last digits are not fixed: each number of tasks adds the terms in another order, each chunk is summed with SIMD instructions whose width depends on the CPU, and the next section shows chunkings whose last digits differ."
+  code = '''
+using OhMyThreads, Random
+x = randn(Xoshiro(3), 10^6)
+serial = mapreduce(abs2, +, x)
+for nt in (1, 2, 4)
+    r = tmapreduce(abs2, +, x; ntasks = nt)
+    println("ntasks = ", nt, ": ", round(r; sigdigits = 12), "   ≈ serial (rtol 1e-14): ", isapprox(r, serial; rtol = 1e-14))
+end
+'''
+
+  [[section.example]]
+  caption = "False sharing on 2 threads: each task adds its half of a small vector, 1000 times over, into its own slot of a shared array, with the two slots adjacent (one cache line) or 128 bytes apart, against a local variable per task. Recorded, not checked: timings vary between runs and CPUs."
+  check = false
+  notice = "Notice that all three give the same sum. On two separate cores the adjacent slots should be the slowest, since every write by one core takes the cache line away from the other; padding should help, and the local variable should be fastest because it never touches shared memory inside the loop. If the two threads land on hyperthreads of one core, they share its cache and the effect can vanish; a machine busy with other work can swamp it too. Rerun to compare."
+  code = '''
+write("false_sharing.jl", raw"""
+using Base.Threads
+function slot_sum(x, stride, reps)          # task t accumulates into acc[(t - 1) * stride + 1]
+    acc = zeros(2 * stride)
+    h = length(x) ÷ 2
+    @sync for t in 1:2
+        @spawn begin
+            j = (t - 1) * stride + 1
+            for _ in 1:reps, i in (t - 1) * h + 1:t * h
+                @inbounds acc[j] += x[i]
+            end
+        end
+    end
+    return acc[1] + acc[stride + 1]
+end
+function local_sum(x, reps)
+    h = length(x) ÷ 2
+    tasks = [@spawn begin
+                 s = 0.0
+                 for _ in 1:reps, i in (t - 1) * h + 1:t * h
+                     @inbounds s += x[i]
+                 end
+                 s
+             end for t in 1:2]
+    return fetch(tasks[1]) + fetch(tasks[2])
+end
+x = rand(2^14)                              # 128 KB: stays in cache, so memory speed does not hide the effect
+best(f) = (f(); minimum(@elapsed(f()) for _ in 1:5))
+println("threads: ", nthreads(), "; same sums: ", slot_sum(x, 1, 2) == slot_sum(x, 16, 2) == local_sum(x, 2))
+println("adjacent slots (one cache line): ", round(best(() -> slot_sum(x, 1, 1000)) * 1e3; digits = 1), " ms")
+println("slots 128 bytes apart:           ", round(best(() -> slot_sum(x, 16, 1000)) * 1e3; digits = 1), " ms")
+println("a local variable per task:       ", round(best(() -> local_sum(x, 1000)) * 1e3; digits = 1), " ms")
+""")
+run(`$(Base.julia_cmd()) --threads=2 false_sharing.jl`);
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Two tasks each sum half of a vector into `acc[1]` and `acc[2]` of a shared `Vector{Float64}`. The result is correct but slower than on one thread. Why?"
+  choices = [
+    "The two tasks write the same element, so updates are lost",
+    "`Vector{Float64}` is not thread-safe, so Julia takes a lock around each element write",
+    "Both slots sit on one cache line, which the cores keep taking from each other",
+  ]
+  answer = 3
+  explain = "Each task writes only its own element, so there is no race. But the two elements are 8 bytes apart, inside one 64-byte cache line, and a write by one core invalidates that line in the other core's cache. Padding the slots apart or keeping the sum in a local variable fixes it."
+  misconceptions = [
+    "Lost updates would make the result wrong; here each task owns one element. The cost is in the hardware's cache coherence, not in the program's logic.",
+    "Julia adds no locks to array writes; arrays are not thread-safe, which is why races are the programmer's job. The slowdown comes from the cache line both slots live on.",
+    "",
+  ]
+
+[[section]]
+title = "Why a threaded sum changes its last digits"
+body = '''
+A parallel reduction with `p` chunks computes `p` partial sums and then adds
+them. That is a different parenthesization of the same sum, so by unit 30's
+rule it rounds differently. Three consequences:
+
+* **The result depends on the number of chunks.** With OhMyThreads' default
+  of one chunk per thread, the same program gives different last digits on 2
+  and on 8 threads. For a fixed number of chunks the result is repeatable,
+  because the partial sums are combined in chunk order.
+* **None of the answers is "the" right one.** Each is a different rounding
+  of the true sum, and all obey the same bound: the error of summing `n`
+  terms in any order is at most about `(n - 1) u` times `sum(abs, x)`, with
+  `u = eps() / 2`. With `p` chunks the worst-case bound shrinks to about
+  `(n/p + p - 2) u sum(abs, x)`, since each term passes through a shorter
+  chain of additions. That is a bound, not a prediction: random rounding
+  errors mostly cancel, and in the example below the measured errors do not
+  shrink steadily as the chunks get more numerous.
+* **Tests must compare with a tolerance**, derived from that bound, never
+  with `==` against a serial run. The tolerance is relative to
+  `sum(abs, x)`, not to the sum: with cancellation the sum can be much
+  smaller than the terms.
+
+The example below uses a plain loop for each chunk, so its digits depend
+only on the chunking and are the same on every machine.
+'''
+
+  [[section.example]]
+  caption = "One million `randn` terms summed with 1, 2, 3, 4 and 8 contiguous chunks (a plain loop per chunk, partial sums added in order), against the exact sum computed in `BigFloat`."
+  notice = "Notice that the five chunkings give different floats, every one of them within the bound `(n - 1) u sum(abs, x)`, and that the error is far below the bound (rounding errors of random sign mostly cancel)."
+  code = '''
+using Random
+x = randn(Xoshiro(7), 10^6)
+function chunked_sum(x, nchunks)
+    total = 0.0
+    for r in Iterators.partition(eachindex(x), cld(length(x), nchunks))
+        s = 0.0
+        for i in r
+            s += x[i]
+        end
+        total += s
+    end
+    return total
+end
+exact = sum(big.(x))
+bound = (length(x) - 1) * eps() / 2 * sum(abs, x)
+println("bound on the error: ", round(bound; sigdigits = 2))
+for nc in (1, 2, 3, 4, 8)
+    s = chunked_sum(x, nc)
+    println(rpad(nc, 2), "chunks: ", rpad(s, 22), " error ", rpad(round(Float64(abs(s - exact)); sigdigits = 2), 9),
+            " within bound: ", abs(s - exact) <= bound)
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "Four numbers summed in one chunk and in two. What does this print?"
+  code = '''
+x = [1.0, 1e-16, 1e-16, -1.0]
+one_chunk = ((x[1] + x[2]) + x[3]) + x[4]
+two_chunks = (x[1] + x[2]) + (x[3] + x[4])
+(one_chunk, two_chunks)
+'''
+  choices = ["(0.0, 0.0)", "(0.0, 1.1102230246251565e-16)", "(2.0e-16, 2.0e-16)", "(1.1102230246251565e-16, 0.0)"]
+  answer = 2
+  explain = "In one chunk, `1.0 + 1e-16` rounds to `1.0` (below half the spacing `eps() = 2.2e-16`), twice, and `-1.0` cancels it to `0.0`. In two chunks the second chunk is `1e-16 - 1.0`, which rounds to `-prevfloat(1.0) = -(1 - 1.1e-16)`; adding it to `1.0` gives `1.1e-16`. The true sum is `2e-16`, and neither order gets it."
+  misconceptions = [
+    "The second chunk does not round the same way: `1e-16 - 1.0` lands next to `-1.0`, where floats are spaced `1.1e-16` apart, so it rounds to `-(1 - 1.1e-16)`, not to `-1.0`.",
+    "",
+    "That is the exact sum; both orders lose digits to rounding against the large terms, and they lose different digits.",
+    "The orders are swapped: the single chain rounds both small terms away against `1.0` before the cancellation.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A test checks a threaded `tmapreduce(+, ...)` sum of a million terms against a serial loop. Which check is right?"
+  choices = [
+    "`==`, since both add the same numbers",
+    "`isapprox` with `rtol = eps()`",
+    "`abs(a - b) <= 2(n - 1) * (eps() / 2) * sum(abs, x)`",
+    "Compare only the first 8 printed digits, since the rest is rounding noise",
+  ]
+  answer = 3
+  explain = "Each order's error is at most `(n - 1) u sum(abs, x)`, so two orders differ by at most twice that. The bound is relative to `sum(abs, x)`, which matters when terms cancel: then the sum is small and a relative tolerance on it is far too tight."
+  misconceptions = [
+    "The same numbers in a different order round differently; `==` fails as soon as the chunking changes, for example on a machine with more threads.",
+    "One `eps` is the error of a single operation; a million additions can each contribute one, and with cancellation the sum is small compared with the terms.",
+    "",
+    "A fixed number of digits ignores cancellation: if the terms nearly cancel, the first 8 digits of the sum may already be rounding noise, and the check fails on a correct program.",
+  ]
+
+[[section]]
+title = "Amdahl and Gustafson: two models of speedup"
+body = '''
+**Amdahl's law** ([Amdahl 1967](https://en.wikipedia.org/wiki/Amdahl%27s_law))
+asks: for a **fixed problem**, how much faster is it on `p` processors? If a
+fraction `f` of the one-processor run time parallelizes perfectly and the
+rest `1 - f` does not,
+
+    S_A(p) = 1 / ((1 - f) + f / p),     S_A(∞) = 1 / (1 - f)
+
+A program that is 90% parallel never runs more than 10 times faster, on any
+number of cores. The serial part includes everything that does not split:
+setup, I/O, a reduction's final combine, the time to start tasks.
+
+**Gustafson's law** ([Gustafson 1988](https://en.wikipedia.org/wiki/Gustafson%27s_law))
+asks another question: with `p` processors, **how much more work** can you
+do in the same time? Here `s` is the serial fraction of the run time
+measured **on the `p`-processor run**, and the scaled speedup is
+
+    S_G(p) = s + (1 - s) p
+
+It grows without limit, because the parallel part is assumed to grow with
+`p` (a finer grid, more samples) while the serial part stays the same.
+
+The two laws do not contradict each other: they describe different
+experiments, and their `s` are measured differently. A job with serial
+fraction `s` on `p` processors had serial fraction
+`s / (s + (1 - s) p)` when run on one; put that into Amdahl's formula and it
+gives Gustafson's number. Use Amdahl when the problem size is fixed (a
+given simulation, faster) and Gustafson when the time budget is fixed (a
+bigger simulation, in the same time).
+
+The models also say how to read a measurement. A measured speedup `S` on
+`p` threads implies an effective serial fraction
+`e = (1/S - 1/p) / (1 - 1/p)`, Amdahl's formula solved for the serial
+fraction, known as the **Karp-Flatt metric**
+([Karp and Flatt 1990](https://en.wikipedia.org/wiki/Karp%E2%80%93Flatt_metric)). If `e` grows with
+`p`, the loss is not a fixed serial part but an overhead that grows with
+the threads, such as shared memory bandwidth.
+'''
+
+  [[section.example]]
+  caption = "Amdahl's speedup for three parallel fractions, and Gustafson's for the same numbers read as serial shares of the parallel run."
+  notice = "Notice the ceilings in the last column: a 99%-parallel program is capped at 100x. Gustafson's numbers grow linearly with `p` instead, because they answer a different question (more work in the same time)."
+  code = '''
+amdahl(f, p) = 1 / ((1 - f) + f / p)
+gustafson(s, p) = s + (1 - s) * p
+println("parallel fraction f   p = 2    p = 8    p = 64   p = ∞")
+for f in (0.5, 0.9, 0.99)
+    println(rpad(f, 22), join((rpad(round(amdahl(f, p); digits = 2), 9) for p in (2, 8, 64)), ""),
+            round(1 / (1 - f); digits = 1))
+end
+println("serial share s (Gustafson)")
+for s in (0.5, 0.1, 0.01)
+    println(rpad(s, 22), join((rpad(round(gustafson(s, p); digits = 2), 9) for p in (2, 8, 64)), ""), "∞")
+end
+println("Amdahl with s converted to one processor equals Gustafson: ",
+        all(amdahl(1 - s / (s + (1 - s) * p), p) ≈ gustafson(s, p) for s in (0.5, 0.1, 0.01), p in (2, 8, 64)))
+'''
+
+  [[section.example]]
+  caption = "A program with a serial part (a recurrence, each step of which needs the previous one) and a parallel part (the Horner kernel): Amdahl's prediction for 2 threads from the measured one-thread fraction, against the measured speedup. Recorded, not checked: timings vary."
+  check = false
+  notice = "Notice how the prediction from `f` compares with the measured speedup, and the serial fraction implied by the measurement (the Karp-Flatt metric) with the one measured directly. Where they differ, the gap is the overhead Amdahl's model leaves out: starting tasks, shared caches, hyperthreads, or other programs taking the CPU. Anything beyond 2 threads in the last line is the model, not a measurement."
+  code = '''
+write("amdahl.jl", raw"""
+using Base.Threads, Random
+function horner!(a, b, r)
+    @inbounds for i in r
+        x = b[i]
+        y = 0.0
+        for k in 1:64
+            y = muladd(y, x, 1.0)
+        end
+        a[i] = y
+    end
+end
+function logistic(x, m)                                   # each step needs the previous one: serial
+    for _ in 1:m
+        x = 3.7 * x * (1 - x)
+    end
+    return x
+end
+function job(b, a, ntasks)
+    x = logistic(0.3, 5_000_000)                          # the serial stage
+    @sync for r in Iterators.partition(eachindex(b), cld(length(b), ntasks))
+        @spawn horner!(a, b, r)                           # the parallel stage
+    end
+    return x
+end
+n = 2^20
+a, b = zeros(n), rand(Xoshiro(1), n)
+const sink = Ref(0.0)                                     # results are used, so no call is optimized away
+best(f) = (f(); minimum(@elapsed(sink[] += f()) for _ in 1:5))
+t_serial = best(() -> logistic(0.3, 5_000_000))
+t1 = best(() -> job(b, a, 1))
+t2 = best(() -> job(b, a, 2))
+f = 1 - t_serial / t1
+S = t1 / t2
+amdahl(f, p) = 1 / ((1 - f) + f / p)
+println("threads: ", nthreads(), "; measured parallel fraction f = ", round(f; digits = 3))
+println("Amdahl predicts S(2) = ", round(amdahl(f, 2); digits = 2), "; measured S(2) = ", round(S; digits = 2))
+println("serial fraction implied by S(2): ", round((1 / S - 1 / 2) / (1 - 1 / 2); digits = 3),
+        "; measured directly: ", round(1 - f; digits = 3))
+println("model only, not measured: S(8) = ", round(amdahl(f, 8); digits = 1), ", S(∞) = ", round(1 / (1 - f); digits = 1))
+""")
+run(`$(Base.julia_cmd()) --threads=2 amdahl.jl`);
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A fixed-size simulation spends 5% of its one-core run time in serial setup. Its author buys a 64-core machine. What does Amdahl's law say about the speedup?"
+  choices = [
+    "At most 20 on any number of cores, and about 15 on 64",
+    "About 64, since 95% of the work is parallel",
+    "About 61, from Gustafson's scaled speedup `s + (1 - s) p` with `s = 0.05`",
+  ]
+  answer = 1
+  explain = "`S = 1 / (0.05 + 0.95/64) ≈ 15.4`, and no number of cores passes `1/0.05 = 20`: the serial 5% alone takes 1/20 of the original time. Gustafson's 61 answers how much **bigger** a problem 64 cores can do in the same time, which is not this question."
+  misconceptions = [
+    "",
+    "The serial 5% runs at one core's speed however many cores there are; it alone takes 1/20 of the original time.",
+    "Gustafson's formula assumes the parallel work grows with the cores; for a fixed problem the serial part is a growing share of the run, and Amdahl's law applies.",
+  ]
+
+[[section]]
+title = "Beyond threads: worker processes and GPU-style kernels"
+body = '''
+Unit 18's section "Beyond one process: Distributed and GPUs" introduced
+worker **processes**: `addprocs`, `@everywhere` and `pmap` from the
+Distributed standard library. One more call is used here:
+`remotecall_fetch(f, id, args...)` runs `f` on worker `id` and returns the
+result ([Distributed manual](https://docs.julialang.org/en/v1.10/stdlib/Distributed/)).
+Each worker has its own memory, so arguments are **copied** to it and
+results copied back: a worker that mutates an argument mutates its copy.
+That costs time per call, so processes pay off for large independent jobs
+(a parameter sweep, an ensemble of long simulations), and they are the only
+way to use more than one machine. Starting a worker is a new Julia process,
+which takes seconds; the example starts one on this machine.
+
+**GPUs** run one small function, a **kernel**, for every index of a range,
+in groups of threads (workgroups) that share fast memory. The kernel sees
+only its own index and must not depend on the order in which indices run.
+KernelAbstractions.jl writes such kernels once and runs them on several
+backends: `@kernel` defines it, `@index(Global)` gives the work item's
+index, and `kernel(backend, workgroupsize)(args...; ndrange = n)` launches
+it ([KernelAbstractions quickstart](https://juliagpu.github.io/KernelAbstractions.jl/v0.9/quickstart/)).
+The `CPU()` backend runs the same kernel on the CPU's threads, so a kernel
+can be written and tested without a GPU; CUDA.jl, AMDGPU.jl and Metal.jl
+provide the GPU backends (not installed here). The roofline applies to GPUs
+too: they have far more arithmetic and more bandwidth than a CPU, and a
+bandwidth-bound kernel is still bandwidth-bound there.
+'''
+
+  [[section.example]]
+  caption = "One worker process: its id, a `pmap` over it, and what happens when a worker mutates an argument."
+  notice = "Notice that every element of the `pmap` ran on worker 2, and that the vector `v` in this process is unchanged after the worker set its first element to 100: the worker received a copy."
+  code = '''
+using Distributed
+ENV["JULIA_WORKER_TIMEOUT"] = "200"            # seconds a new worker waits to connect (default 60), for busy machines
+println("new workers: ", addprocs(1))
+@everywhere square_where(x) = (x^2, myid())
+println(pmap(square_where, 1:4))
+v = [1, 2, 3]
+w = remotecall_fetch(u -> (u[1] = 100; u), 2, v)
+println("worker's copy: ", w, "   this process: ", v)
+rmprocs(workers());
+'''
+
+  [[section.example]]
+  caption = "The stream triad as a KernelAbstractions kernel on the `CPU()` backend, checked against the broadcast `b .+ s .* c`."
+  notice = "Notice that the kernel's result equals the broadcast exactly: each work item computes `b[i] + s * c[i]` with the same two roundings, and no reduction is involved, so the order of indices cannot change any digit."
+  code = '''
+using KernelAbstractions, Random
+@kernel function triad_kernel!(a, @Const(b), @Const(c), s)
+    i = @index(Global)
+    @inbounds a[i] = b[i] + s * c[i]
+end
+n = 10^6
+b, c = rand(Xoshiro(1), n), rand(Xoshiro(2), n)
+a = similar(b)
+backend = get_backend(a)                      # CPU() for an ordinary Array
+triad_kernel!(backend, 256)(a, b, c, 3.0; ndrange = n)
+KernelAbstractions.synchronize(backend)
+println("backend: ", typeof(backend), "; equals the broadcast: ", a == b .+ 3.0 .* c)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A function called on a worker with `remotecall_fetch(f, 2, A)` does `A .*= 2` on a large matrix `A`. What happens to `A` in the calling process?"
+  choices = [
+    "It is doubled, since the worker shares the caller's memory",
+    "Julia raises an error, since arguments sent to workers are read-only",
+    "Nothing; the worker doubled its own copy of `A`, which stays there",
+  ]
+  answer = 3
+  explain = "Workers are separate processes: `A` is serialized, sent, and rebuilt in the worker's memory. The worker's `A .*= 2` changes that copy; return the result to get it back. Sending a large matrix each call also costs time, which is why processes suit large, independent jobs."
+  misconceptions = [
+    "Threads share memory; processes do not. Distributed copies the argument to the worker.",
+    "Nothing makes the copy read-only; the worker mutates it freely, and the change stays on the worker.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why may a KernelAbstractions kernel not accumulate into one shared scalar with `total[1] += x[i]`?"
+  choices = [
+    "Work items run concurrently in no fixed order, so the updates race",
+    "Kernels may read their array arguments but never write to any of them",
+    "`@index(Global)` gives each work item the same index",
+  ]
+  answer = 1
+  explain = "A kernel is a function of one index, run for all indices concurrently in groups. Every work item doing a read-modify-write on `total[1]` is the data race of unit 18, on thousands of threads. Reductions on GPUs are written as per-group partial sums combined in a second step, or with atomics."
+  misconceptions = [
+    "",
+    "The triad kernel writes `a[i]`; writes are fine as long as each work item writes its own element.",
+    "Each work item gets its own index, which is what makes `a[i] = ...` race-free; the problem is many items writing one element.",
+  ]
+
+[[problem]]
+id = "par-simd-sqdist"
+title = "A SIMD-friendly squared distance"
+difficulty = "warm-up"
+kcs = ["simd"]
+entry = "sqdist"
+packages = ["StableRNGs"]
+prompt = '''
+Write `sqdist(x, y)` for two `Vector{Float64}` that returns
+`sum((x[i] - y[i])^2)` as a `Float64`, in one pass, without allocating, and
+in a loop the compiler can vectorize. Vectors of different lengths must
+throw a `DimensionMismatch`; empty vectors give `0.0`.
+
+```julia
+sqdist([1.0, 2.0, 3.0], [1.0, 0.0, 1.0])   # 8.0
+sqdist(Float64[], Float64[])               # 0.0
+sqdist([1.0], [1.0, 2.0])                  # DimensionMismatch
+```
+
+Results are compared with `rtol = 1e-12`: every term is non-negative, so
+any order of summation has a relative error of at most about `(n + 2) u`,
+`2.2e-13` for the largest case (`n = 2000`), and two orders agree to
+twice that. Speed and allocations are graded against the reference on a
+vector of 1000 elements, small enough to stay in the cache: there a loop
+the compiler cannot vectorize is several times slower than one it can.
+'''
+starter = '''
+function sqdist(x, y)
+    return sum(x .- y)
+end
+'''
+reference = '''
+function sqdist(x, y)
+    s = 0.0
+    @inbounds @simd for i in eachindex(x, y)
+        s += abs2(x[i] - y[i])
+    end
+    return s
+end
+'''
+cases = [
+  "[1.0, 2.0, 3.0], [1.0, 0.0, 1.0]",
+  "Float64[], Float64[]",
+  "[1.0], [1.0, 2.0]",
+  "[1e8, -1e8], [-1e8, 1e8]",
+  "collect(0.0:0.5:10.0), zeros(21)",
+]
+gen = "rng -> [(n = rand(rng, 0:2000); (randn(rng, n), randn(rng, n))) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "One loop over the indices, a running total that starts as a `Float64`, and the square of each difference. `eachindex(x, y)` checks the lengths for you.",
+  "The loop is a reduction, so the compiler keeps it in order unless you allow reordering: put `@simd` (with `@inbounds`) on it.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n), randn(rng, n)"
+  sizes = [1000]                 # 16 KB of input stays in the cache, so the loop, not memory, sets the speed
+
+  [[problem.variant]]
+  label = "forgets to square the difference"
+  code = '''
+function sqdist(x, y)
+    s = 0.0
+    @inbounds @simd for i in eachindex(x, y)
+        s += x[i] - y[i]
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "1:length(x): no length check, so [1.0], [1.0, 2.0] returns 0.0 instead of throwing"
+  code = '''
+function sqdist(x, y)
+    s = 0.0
+    for i in 1:length(x)
+        s += (x[i] - y[i])^2
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sum(abs2, x - y): correct, allocates the difference"
+  code = '''
+sqdist(x, y) = sum(abs2, x - y)
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "integer accumulator s = 0: changes type in the loop"
+  code = '''
+function sqdist(x, y)
+    s = 0
+    for i in eachindex(x, y)
+        s += abs2(x[i] - y[i])
+    end
+    return s * 1.0
+end
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "plain loop without @simd: correct, the additions stay in one chain"
+  code = '''
+function sqdist(x, y)
+    s = 0.0
+    for i in eachindex(x, y)
+        s += (x[i] - y[i])^2
+    end
+    return s
+end
+'''
+  expect = ["correct", "slow"]
+
+  [[problem.variant]]
+  label = "a zip generator with sum(init = 0.0)"
+  code = '''
+function sqdist(x, y)
+    length(x) == length(y) || throw(DimensionMismatch("lengths differ"))
+    return sum(abs2(a - b) for (a, b) in zip(x, y); init = 0.0)
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "par-threaded-histogram"
+title = "A race-free threaded histogram"
+difficulty = "core"
+kcs = ["parallel-reductions", "false-sharing"]
+entry = "threaded_histogram"
+packages = ["StableRNGs"]
+prompt = '''
+Write `threaded_histogram(xs, nbins, ntasks)` for a `Vector{Float64}` `xs`
+with values in `[0, 1)`, a positive `nbins` and a positive `ntasks`. Value
+`x` falls in bin `min(floor(Int, x * nbins) + 1, nbins)`. Split the
+indices of `xs` into at most `ntasks` contiguous chunks, count each chunk in
+its own task (`Threads.@spawn`), and return the total counts as a
+`Vector{Int}` of length `nbins`.
+
+```julia
+threaded_histogram([0.05, 0.15, 0.17, 0.95], 10, 2)   # [1, 2, 0, 0, 0, 0, 0, 0, 0, 1]
+threaded_histogram(Float64[], 3, 4)                   # [0, 0, 0]
+```
+
+This problem is graded on **2 threads**, and every case runs 10 times. If
+the tasks increment one shared counts vector, increments are lost and the
+totals change from run to run: the grader reports that as a data race. Give
+each task its own counts and add them at the end. Speed is graded against
+the reference.
+'''
+starter = '''
+function threaded_histogram(xs, nbins, ntasks)
+    counts = zeros(Int, nbins)
+    for x in xs
+        counts[floor(Int, x * nbins)] += 1
+    end
+    return counts
+end
+'''
+reference = '''
+function threaded_histogram(xs, nbins, ntasks)
+    len = max(1, cld(length(xs), ntasks))
+    tasks = map(Iterators.partition(eachindex(xs), len)) do r
+        Threads.@spawn begin
+            mine = zeros(Int, nbins)
+            for i in r
+                b = min(floor(Int, xs[i] * nbins) + 1, nbins)
+                mine[b] += 1
+            end
+            mine
+        end
+    end
+    counts = zeros(Int, nbins)
+    for t in tasks
+        counts .+= fetch(t)::Vector{Int}
+    end
+    return counts
+end
+'''
+cases = [
+  "[0.05, 0.15, 0.17, 0.95], 10, 2",
+  "Float64[], 3, 4",
+  "[0.999999], 4, 1",
+  "rand(Xoshiro(1), 1000), 7, 3",
+  "rand(Xoshiro(2), 1_000_000), 8, 4",
+]
+gen = "rng -> [(rand(rng, rand(rng, 0:3000)), rand(rng, 1:20), rand(rng, 1:6)) for _ in 1:20]"
+threads = 2      # graded on two threads, so a race can actually happen
+repeats = 10     # every case 10 times: totals that change between runs are a race
+hints = [
+  "The starter counts serially and misses the `+ 1` (bins are 1-based). Fix the bin, then split the work: `Iterators.partition(eachindex(xs), len)` gives the chunks.",
+  "Inside each task, count into a vector the task created itself, and return it; after `fetch`ing every task, add the vectors.",
+]
+
+  [problem.perf]
+  args = "rand(rng, n), 16, 2"
+  sizes = [1000000]
+
+  [[problem.variant]]
+  label = "shared counts vector: lost increments on 2 threads"
+  code = '''
+function threaded_histogram(xs, nbins, ntasks)
+    counts = zeros(Int, nbins)
+    len = max(1, cld(length(xs), ntasks))
+    @sync for r in Iterators.partition(eachindex(xs), len)
+        Threads.@spawn for i in r
+            counts[min(floor(Int, xs[i] * nbins) + 1, nbins)] += 1
+        end
+    end
+    return counts
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "bin floor(Int, x * nbins) without the + 1"
+  code = '''
+function threaded_histogram(xs, nbins, ntasks)
+    counts = zeros(Int, nbins)
+    for x in xs
+        counts[clamp(floor(Int, x * nbins), 1, nbins)] += 1
+    end
+    return counts
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "one lock around every increment"
+  code = '''
+function threaded_histogram(xs, nbins, ntasks)
+    counts = zeros(Int, nbins)
+    l = ReentrantLock()
+    len = max(1, cld(length(xs), ntasks))
+    @sync for r in Iterators.partition(eachindex(xs), len)
+        Threads.@spawn for i in r
+            b = min(floor(Int, xs[i] * nbins) + 1, nbins)
+            lock(l) do
+                counts[b] += 1
+            end
+        end
+    end
+    return counts
+end
+'''
+  expect = ["correct", "slow"]
+
+  [[problem.variant]]
+  label = "an atomic counter per bin, shared by the tasks (correct; its speed depends on contention)"
+  code = '''
+function threaded_histogram(xs, nbins, ntasks)
+    counts = [Threads.Atomic{Int}(0) for _ in 1:nbins]
+    len = max(1, cld(length(xs), ntasks))
+    @sync for r in Iterators.partition(eachindex(xs), len)
+        Threads.@spawn for i in r
+            Threads.atomic_add!(counts[min(floor(Int, xs[i] * nbins) + 1, nbins)], 1)
+        end
+    end
+    return [c[] for c in counts]
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "one column per task in a shared matrix (race-free; the columns may share cache lines)"
+  code = '''
+function threaded_histogram(xs, nbins, ntasks)
+    len = max(1, cld(length(xs), ntasks))
+    chunks = collect(Iterators.partition(eachindex(xs), len))
+    M = zeros(Int, nbins, length(chunks))
+    @sync for (t, r) in enumerate(chunks)
+        Threads.@spawn for i in r
+            M[min(floor(Int, xs[i] * nbins) + 1, nbins), t] += 1
+        end
+    end
+    return vec(sum(M; dims = 2))
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "OhMyThreads tmapreduce over chunks"
+  code = '''
+using OhMyThreads
+function threaded_histogram(xs, nbins, ntasks)
+    len = max(1, cld(length(xs), ntasks))
+    chunks = collect(Iterators.partition(eachindex(xs), len))
+    isempty(chunks) && return zeros(Int, nbins)
+    return tmapreduce(+, chunks) do r
+        mine = zeros(Int, nbins)
+        for i in r
+            mine[min(floor(Int, xs[i] * nbins) + 1, nbins)] += 1
+        end
+        mine
+    end
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "par-amdahl-gustafson"
+title = "Amdahl and Gustafson from a serial fraction"
+difficulty = "core"
+kcs = ["amdahl-gustafson"]
+entry = "speedup_models"
+packages = ["StableRNGs"]
+prompt = '''
+Write `speedup_models(s, p)` for a serial fraction `s` (a `Float64` in
+`[0, 1]`) and a processor count `p` (an `Int`, at least 1). Return a
+tuple of three `Float64`:
+
+1. Amdahl's speedup on `p` processors when `s` is the serial fraction of
+   the **one-processor** run time: `1 / (s + (1 - s) / p)`;
+2. Gustafson's scaled speedup when `s` is the serial fraction of the
+   **`p`-processor** run time: `s + (1 - s) p`;
+3. the serial fraction that the job of item 2 has when run on **one**
+   processor (its serial time divided by its one-processor time).
+
+Throw an `ArgumentError` when `s` is outside `[0, 1]` or `p < 1`.
+
+```julia
+speedup_models(0.1, 4)    # (3.0769..., 3.7, 0.027027...)
+speedup_models(0.0, 8)    # (8.0, 8.0, 0.0)
+```
+
+A check on your third number: Amdahl's formula with it as the serial
+fraction gives Gustafson's speedup (item 2). Results are compared with
+`rtol = 1e-12`: each item is a few operations, so different correct
+formulas agree to a few roundings, about `1e-15` relative.
+'''
+starter = '''
+function speedup_models(s, p)
+    amdahl = 1 / (s + (1 - s) / p)
+    return (amdahl, amdahl, s)
+end
+'''
+reference = '''
+function speedup_models(s, p)
+    0 <= s <= 1 || throw(ArgumentError("serial fraction must be in [0, 1], got $s"))
+    p >= 1 || throw(ArgumentError("need at least one processor, got $p"))
+    amdahl = 1 / (s + (1 - s) / p)
+    gustafson = s + (1 - s) * p
+    s1 = s / (s + (1 - s) * p)       # serial time over one-processor time of the scaled job
+    return (amdahl, gustafson, s1)
+end
+'''
+cases = ["0.1, 4", "0.0, 8", "1.0, 16", "0.05, 64", "0.5, 1", "1.5, 4", "0.2, 0"]
+gen = "rng -> [(rand(rng), rand(rng, 1:256)) for _ in 1:30]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "The starter returns Amdahl's number twice. Gustafson's formula uses the serial share of the parallel run: the serial part stays `s`, the parallel part was `p` times as much work.",
+  "For item 3, write down the job's time on one processor: the serial part `s` plus the parallel part done by one processor alone, `(1 - s) p`.",
+]
+
+  [problem.perf]
+  args = "rand(rng), n"
+  sizes = [8]
+
+  [[problem.variant]]
+  label = "Gustafson with s and 1 - s swapped"
+  code = '''
+function speedup_models(s, p)
+    (0 <= s <= 1 && p >= 1) || throw(ArgumentError("bad arguments"))
+    return (1 / (s + (1 - s) / p), (1 - s) + s * p, s / (s + (1 - s) * p))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "item 3 returns s unchanged"
+  code = '''
+function speedup_models(s, p)
+    (0 <= s <= 1 && p >= 1) || throw(ArgumentError("bad arguments"))
+    return (1 / (s + (1 - s) / p), s + (1 - s) * p, s)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "no argument checks"
+  code = '''
+speedup_models(s, p) = (1 / (s + (1 - s) / p), s + (1 - s) * p, s / (s + (1 - s) * p))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Gustafson as p - (p - 1) s, item 3 from the Amdahl identity"
+  code = '''
+function speedup_models(s, p)
+    0 <= s <= 1 || throw(ArgumentError("s"))
+    p >= 1 || throw(ArgumentError("p"))
+    g = p - (p - 1) * s
+    return (1 / (s + (1 - s) / p), g, s / g)
+end
+'''
+  expect = ["correct"]

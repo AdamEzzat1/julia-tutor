@@ -1,0 +1,866 @@
+id = "34-pde-discretization"
+title = "PDEs as ODE systems: discretization and residuals"
+track = "scicomp"
+env = "scicomp"
+status = "ready"
+summary = "The method of lines: replace the space derivatives of a partial differential equation by finite differences on a grid, and the PDE becomes a system of ODEs that OrdinaryDiffEq solves. Second differences and their error, the heat equation as an in-place right-hand side, the discrete Laplacian as a matrix and its eigenvalues, the 2D heat equation with a sparse Laplacian, boundary conditions, and residuals that measure how far a candidate is from solving the equation."
+kcs = ["finite-differences", "method-of-lines", "pde-residual", "boundary-conditions"]
+prerequisites = ["07-broadcasting", "14-performance", "23-derivatives", "24-differential-equations", "30-floating-point", "31-convergence", "32-dense-linear-algebra", "33-sparse-iterative"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit turns a partial differential equation into the kind of problem
+unit 24 solved. It relies on four facts; revisit the section named if one is
+not familiar.
+
+* **An in-place right-hand side** `f!(du, u, p, t)` writes the derivative
+  into `du` and returns `nothing`; `du = ...` inside it only rebinds a local
+  name (unit 24, section "In-place right-hand sides, parameters and allocation").
+  Here `u` will have one entry per grid point, so in place matters.
+* **Checking against an exact answer**: the tolerance bounds each step's
+  error, not the final error, so you compare with a known solution or a
+  conserved quantity (unit 24, section "Tolerances, and checking against an exact answer").
+* **Writing into an existing array** with `.=` and indexing, without
+  temporaries (unit 07, section "Writing into an existing array: .= and @.").
+* **Measuring allocations** with `@allocated` after a warm-up call
+  (unit 14, section "Allocations: slices, views, fusion and in-place updates").
+
+The finite-difference errors in the next section are the same truncation and
+round-off errors that unit 23 discussed for first derivatives
+(unit 23, section "Three ways to get a derivative"). Three later units of
+this track supply the rest:
+
+* **Observed order** `log2(E(h) / E(h/2))` tells whether an approximation
+  converges at the rate it should (unit 31, section "Order of accuracy,
+  read from a log-log slope").
+* **Cancellation** removes shared leading digits and leaves the earlier
+  rounding errors, each up to `u = eps() / 2` relative (unit 30, section
+  "Cancellation is exact, and exposes earlier errors").
+* **The 2D Poisson matrix** `kron(I, T) + kron(T, I)`, stored sparse, with
+  condition number growing like `N²` (unit 33, section "The 2D Poisson
+  matrix from `kron`"), and a matrix type that carries its structure, so
+  `\` picks a fast solver for it (unit 32, section "What `\` does, matrix
+  type by matrix type").
+'''
+
+[[section]]
+title = "Second derivatives on a grid"
+body = '''
+Put `n` equally spaced points `x_1, ..., x_n` on an interval, with spacing
+`dx`, and store a function by its values `u_i = u(x_i)`. Adding the Taylor
+expansions of `u(x + dx)` and `u(x - dx)` cancels the odd terms:
+
+    u(x + dx) - 2u(x) + u(x - dx) = dx^2 u''(x) + dx^4 u^(4)(x) / 12 + ...
+
+so the **second difference** `(u[i-1] - 2u[i] + u[i+1]) / dx^2` approximates
+`u''(x_i)` with an error of about `dx^2 |u^(4)| / 12`. The error is
+proportional to `dx^2`: the formula is **second order**, and halving `dx`
+divides the error by 4, an observed order `log2(4) = 2` in unit 31's terms.
+It is defined only at the interior points `2:n-1`, because each one needs a
+neighbour on both sides.
+
+The stencil is the building block of everything below: a PDE contains
+`∂²u/∂x²`, and on a grid that becomes this combination of three neighbours.
+'''
+
+  [[section.example]]
+  caption = "The second difference of `sin(πx)` on [0, 1] against the exact `-π² sin(πx)`, for four grid spacings (errors rounded to 3 digits), with the observed order `log2(E(dx) / E(dx/2))` between consecutive spacings (rounded to one decimal)."
+  notice = "Notice that each halving of `dx` divides the error by about 4, so the observed order is 2.0, and that the first error, 0.0809, is just under the estimate `dx^2 π^4 / 12 = 0.0812` at x = 0.5, where `|u^(4)| = π^4`: that estimate is the leading error term, and the next one, `-dx^4 π^6 / 360 ≈ -0.0003`, makes up the difference."
+  code = '''
+d2(u, dx) = [(u[i-1] - 2u[i] + u[i+1]) / dx^2 for i in 2:length(u)-1]
+previous = NaN
+for n in (11, 21, 41, 81)
+    x = range(0, 1; length = n)
+    dx = step(x)
+    exact = -pi^2 .* sin.(pi .* x[2:end-1])
+    err = maximum(abs.(d2(sin.(pi .* x), dx) .- exact))
+    order = isnan(previous) ? "" : string("   observed order ", round(log2(previous / err); digits = 1))
+    println("dx = ", rpad(round(dx; digits = 5), 8), "max error = ", rpad(round(err; sigdigits = 3), 9), order)
+    global previous = err
+end
+println("dx^2 π^4 / 12 at dx = 0.1: ", round(0.1^2 * pi^4 / 12; sigdigits = 3))
+'''
+
+  [[section.example]]
+  caption = "The other error: at very small `dx` the numerator cancels its leading digits (unit 30's cancellation), and what is left is the rounding of the three values, up to `u = eps() / 2` relative each. Weighted 1, 2, 1, that is about `4u |f| / dx^2`, and it takes over."
+  notice = "Notice that the error falls until `dx = 1e-4` and then grows: below that, rounding in `f(x0 - dx) - 2f(x0) + f(x0 + dx)` is divided by a tiny `dx^2`. Balancing `dx^2 π^4 |f| / 12` against `4u |f| / dx^2` puts the best `dx` near `(24u / π^4)^(1/4) ≈ 7e-5`."
+  code = '''
+f(x) = sin(pi * x)
+x0 = 0.3
+for dx in (1e-2, 1e-3, 1e-4, 1e-5, 1e-6)
+    approx = (f(x0 - dx) - 2f(x0) + f(x0 + dx)) / dx^2
+    println("dx = ", rpad(dx, 7), "error = ", round(abs(approx + pi^2 * f(x0)); sigdigits = 2))
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The error of the second difference at `dx = 0.1` divided by the error at `dx = 0.05`, rounded to one digit. What does this print?"
+  code = '''
+err(dx) = abs((sin(1 - dx) - 2sin(1.0) + sin(1 + dx)) / dx^2 + sin(1.0))
+round(err(0.1) / err(0.05); digits = 1)
+'''
+  choices = ["2.0", "4.0", "8.0", "1.0"]
+  answer = 2
+  explain = "The leading error term is `dx^2 u^(4)(x) / 12`, so halving `dx` divides it by `2^2 = 4`. The second difference is a second-order formula."
+  misconceptions = [
+    "That is the ratio for a first-order formula such as the forward difference `(u(x + dx) - u(x)) / dx`; the symmetric stencil cancels the odd Taylor terms.",
+    "",
+    "A ratio of 8 would mean an error proportional to `dx^3`; the first term that survives the cancellation is the `dx^4` one, divided by `dx^2`.",
+    "The error does depend on `dx`; a ratio of 1 would mean the stencil has a fixed bias, which it does not for a smooth function.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You want a more accurate `u''` from function values and set `dx = 1e-7`. What happens?"
+  choices = [
+    "The error drops by a factor of `1e6` compared with `dx = 1e-4`",
+    "The error grows: rounding in the numerator is divided by `dx^2 = 1e-14`",
+    "Julia raises an error because `dx^2` underflows to zero",
+  ]
+  answer = 2
+  explain = "Each stored value carries a relative rounding error of up to `u = eps() / 2 ≈ 1.1e-16`; the stencil cancels the leading digits, and dividing by `dx^2` turns that rounding into an error of about `4u |f| / dx^2`, a few hundredths of `|f|` at `dx = 1e-7`. The best `dx` balances it against the `dx^2` truncation error: around `1e-4` for this formula."
+  misconceptions = [
+    "That would hold for the truncation error alone; the round-off error grows like `1 / dx^2` and dominates long before `dx = 1e-7`.",
+    "",
+    "`1e-14` is far above the smallest positive `Float64` (about `1e-308`): nothing underflows, the digits are lost in the subtraction.",
+  ]
+
+[[section]]
+title = "The method of lines: the heat equation as an ODE system"
+body = '''
+The heat equation describes temperature `u(x, t)` in a rod:
+
+    ∂u/∂t = κ ∂²u/∂x²        0 < x < 1,  t > 0
+    u(0, t) = u(1, t) = 0    (both ends held at zero: Dirichlet conditions)
+    u(x, 0) = u0(x)
+
+Put `n` interior points `x_i = i dx` with `dx = 1 / (n + 1)`; the ends `x_0`
+and `x_{n+1}` are not unknowns, since their values are given. Keep time
+continuous and replace only `∂²u/∂x²` by the second difference. Each grid
+value then obeys an ODE:
+
+    du_i/dt = κ (u_{i-1} - 2u_i + u_{i+1}) / dx^2,    with u_0 = u_{n+1} = 0
+
+This is the **method of lines**: a PDE becomes a system of `n` ODEs, one per
+grid point (each a "line" in the `x, t` plane), and any ODE solver from
+unit 24 integrates it. The right-hand side is a loop over the grid,
+in place because `n` can be large. Writing the boundary value as
+`zero(eltype(u))` instead of `0.0` keeps the function generic, so that
+automatic differentiation can push dual numbers through it (unit 35 needs
+its Jacobian).
+
+With `u0(x) = sin(πx)` the exact solution is `exp(-κπ²t) sin(πx)`. Solved at
+tight tolerances, the remaining difference from it is the error of the
+**grid**, not of the ODE solver: the semi-discrete system is a different
+equation, whose solution differs from the PDE's by `O(dx^2)`.
+'''
+
+  [[section.example]]
+  caption = "The heat equation with κ = 1 up to t = 0.1, at two grid sizes, solved with `Tsit5` at `abstol = reltol = 1e-10` (errors against the exact solution, rounded to 2 digits)."
+  notice = "Notice that 49 grid points become 49 ODEs, and that doubling the points divides the error by about 4: at this tolerance the solver's own error is far smaller, so what remains is the `dx^2` error of the stencil."
+  code = '''
+using OrdinaryDiffEq
+function heat!(du, u, p, t)
+    κ, dx = p
+    n = length(u)
+    for i in 1:n
+        left = i > 1 ? u[i-1] : zero(eltype(u))      # u(0, t) = 0
+        right = i < n ? u[i+1] : zero(eltype(u))     # u(1, t) = 0
+        du[i] = κ * (left - 2u[i] + right) / dx^2
+    end
+    return nothing
+end
+errors = Float64[]
+for n in (49, 99)
+    dx = 1 / (n + 1)
+    x = dx .* (1:n)
+    prob = ODEProblem(heat!, sin.(pi .* x), (0.0, 0.1), (1.0, dx))
+    sol = solve(prob, Tsit5(); abstol = 1e-10, reltol = 1e-10, save_everystep = false)
+    push!(errors, maximum(abs.(sol.u[end] .- exp(-pi^2 * 0.1) .* sin.(pi .* x))))
+    println(n, " ODEs, dx = ", dx, ", max error at t = 0.1: ", round(errors[end]; sigdigits = 2))
+end
+println("error ratio: ", round(errors[1] / errors[2]; digits = 1))
+'''
+
+  [[section.example]]
+  caption = "The right-hand side allocates nothing (measured after a warm-up call), so a solve does no allocation per right-hand-side call."
+  code = '''
+function heat!(du, u, p, t)
+    κ, dx = p
+    n = length(u)
+    for i in 1:n
+        left = i > 1 ? u[i-1] : zero(eltype(u))
+        right = i < n ? u[i+1] : zero(eltype(u))
+        du[i] = κ * (left - 2u[i] + right) / dx^2
+    end
+    return nothing
+end
+u = rand(1000); du = similar(u); p = (1.0, 1 / 1001)
+heat!(du, u, p, 0.0)
+println("bytes allocated: ", @allocated heat!(du, u, p, 0.0))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You solve the semi-discrete heat equation with `abstol = reltol = 1e-12` and find a max error of `3e-5` against the exact PDE solution. What reduces that error?"
+  choices = [
+    "A finer grid: more points, smaller `dx`",
+    "Tighter tolerances, such as `1e-14`",
+    "A higher-order ODE solver such as `Vern9`",
+  ]
+  answer = 1
+  explain = "At these tolerances the ODE system is solved almost exactly; the `3e-5` is the difference between the ODE system and the PDE, which comes from replacing `∂²u/∂x²` by a stencil with an `O(dx^2)` error. Only a finer grid (or a higher-order stencil) changes that system."
+  misconceptions = [
+    "",
+    "The tolerance controls how well the ODE system is solved, and it is already solved far more accurately than `3e-5`; the system itself differs from the PDE.",
+    "A better time integrator solves the same semi-discrete system more accurately in time, but the error that remains is in space.",
+  ]
+
+[[section]]
+title = "The discrete Laplacian is a matrix"
+body = '''
+The right-hand side `κ (u_{i-1} - 2u_i + u_{i+1}) / dx^2` is linear in `u`,
+so it is a matrix times `u`: `du/dt = κ A u`, where `A` is the `n × n`
+tridiagonal matrix with `-2` on the diagonal and `1` beside it, divided by
+`dx^2`: `A = -T / dx^2`, with unit 33's `T = tridiag(-1, 2, -1)`.
+`LinearAlgebra` stores it as a `SymTridiagonal` (three diagonals, not `n^2`
+entries), and `mul!(du, A, u)` multiplies into an existing vector.
+
+The eigenvalues of `A` follow from unit 33's `s_k = 4 sin²(kπ / (2(n + 1)))`
+for `T`, with `dx = 1 / (n + 1)`:
+
+    λ_k = -s_k / dx^2 = -(4 / dx^2) sin^2(k π dx / 2),    k = 1, ..., n
+
+All are negative (heat flows out through the cold ends, so every mode
+decays). The one nearest zero, `λ_1 ≈ -π^2`, is the slow mode you see in
+the solution; the most negative, `λ_n ≈ -4 / dx^2`, belongs to the fastest,
+zig-zag mode. Their ratio `λ_n / λ_1` is the condition number `κ` of unit 33
+and grows like `1 / dx^2`: refining the grid adds faster and faster modes.
+The same number sets two costs: conjugate gradients on `A` needs about `√κ`
+iterations (unit 33), and an explicit solver's step must shrink like
+`1 / |λ_n|` whatever accuracy you ask for (unit 35).
+'''
+
+  [[section.example]]
+  caption = "The matrix form against the loop, and the eigenvalues against the formula, for 49 interior points."
+  notice = "Notice the extreme eigenvalues: `-9.87` is close to `-π² ≈ -9.8696`, and `-9990` close to `-4 / dx^2 = -10000`. The ratio of the two is about 1000 at this modest grid."
+  code = '''
+using LinearAlgebra
+n = 49
+dx = 1 / (n + 1)
+A = SymTridiagonal(fill(-2.0, n), ones(n - 1)) / dx^2
+u = sin.(pi .* dx .* (1:n)) .+ dx .* (1:n) .^ 2
+loop = [((i > 1 ? u[i-1] : 0.0) - 2u[i] + (i < n ? u[i+1] : 0.0)) / dx^2 for i in 1:n]
+println("A * u equals the loop: ", maximum(abs.(A * u .- loop)) < 1e-9)
+λ = eigvals(A)
+formula = [-(4 / dx^2) * sin(k * pi * dx / 2)^2 for k in 1:n]
+println("eigenvalues match the formula: ", maximum(abs.(sort(λ) .- sort(formula))) < 1e-8)
+println("nearest zero: ", round(maximum(λ); digits = 2), "   most negative: ", round(minimum(λ); digits = 0))
+println("ratio: ", round(minimum(λ) / maximum(λ); sigdigits = 3))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You refine the grid from `dx = 0.02` to `dx = 0.01`. What happens to the most negative eigenvalue of the discrete Laplacian?"
+  choices = [
+    "It stays near `-π²`, the decay rate of the slowest mode",
+    "It doubles in size, from about `-1e4` to about `-2e4`",
+    "It grows four times, from about `-1e4` to about `-4e4`",
+  ]
+  answer = 3
+  explain = "The most negative eigenvalue is about `-4 / dx^2`, so halving `dx` multiplies it by 4. The finer grid can represent a faster zig-zag mode, and that mode decays at a rate proportional to `1 / dx^2`."
+  misconceptions = [
+    "That is the eigenvalue nearest zero, which converges to the PDE's slowest rate; the most negative one belongs to the grid's fastest mode.",
+    "The eigenvalue scales with `1 / dx^2`, not `1 / dx`: the stencil divides by `dx^2`.",
+    "",
+  ]
+
+[[section]]
+title = "Two dimensions: the sparse Laplacian"
+body = '''
+The heat equation on the unit square, `∂u/∂t = ∂²u/∂x² + ∂²u/∂y²` with
+`u = 0` on the boundary, goes through the same steps. Put `N × N` interior
+points with spacing `h = 1 / (N + 1)` and number them column-major, as
+`vec(U)` does. The second difference in `x` acts within each column of the
+grid and the one in `y` across columns, so the matrix is unit 33's Poisson
+matrix with the sign and scale of this unit:
+
+    A = -(kron(I, T) + kron(T, I)) / h^2,     du/dt = A u
+
+It has `N²` rows and at most 5 nonzeros in each. Stored dense it would hold
+`N^4` numbers (6.6 million at `N = 50`, mostly zeros), so it is built and
+kept as a `SparseMatrixCSC`. The right-hand side is one sparse product,
+`mul!(du, A, u)`, which writes into `du` and allocates nothing.
+
+Its eigenvalues are sums of two 1D ones (unit 33), from about `-2π²` to
+about `-8 / h^2`. Their ratio is the same as in 1D at the same spacing, but
+the fastest mode is twice as fast, so an explicit solver's step must be half
+as long (unit 35). The exact solution from `sin(πx) sin(πy)` is that
+mode times `exp(-2π²t)`, and the grid error is again `O(h^2)`.
+'''
+
+  [[section.example]]
+  caption = "The 2D right-hand side as a sparse product: stored entries, and the bytes allocated per call, measured inside a function after a warm-up call (the smallest of five measurements)."
+  notice = "Notice the zero: `mul!` with a `SparseMatrixCSC` loops over the stored entries and writes into `du`. Measuring inside a function matters, since `@allocated` on global variables at the top level can count the boxing of those globals."
+  code = '''
+using SparseArrays, LinearAlgebra
+function laplacian2d(N)
+    h = 1 / (N + 1)
+    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    Id = sparse(1.0I, N, N)
+    return -(kron(Id, T) + kron(T, Id)) / h^2
+end
+heat2d!(du, u, A, t) = mul!(du, A, u)
+function bytes_per_call(f!, du, u, p)
+    f!(du, u, p, 0.0)
+    return minimum(@allocated(f!(du, u, p, 0.0)) for _ in 1:5)
+end
+N = 50
+A = laplacian2d(N)
+println("unknowns: ", size(A, 1), ", stored entries: ", nnz(A), " (dense would hold ", size(A, 1)^2, ")")
+u = rand(N^2); du = similar(u)
+println("bytes allocated per call: ", bytes_per_call(heat2d!, du, u, A))
+'''
+
+  [[section.example]]
+  caption = "The 2D heat equation from `sin(πx) sin(πy)` up to t = 0.1, solved with `Tsit5` at `abstol = reltol = 1e-8`, against the exact solution at two grid sizes (errors rounded to 2 digits)."
+  notice = "Notice that halving `h` (from 19 to 39 points per side) divides the error by about 4: the same second-order grid error as in 1D, now from both second differences."
+  code = '''
+using OrdinaryDiffEq, SparseArrays, LinearAlgebra
+function laplacian2d(N)
+    h = 1 / (N + 1)
+    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+    Id = sparse(1.0I, N, N)
+    return -(kron(Id, T) + kron(T, Id)) / h^2
+end
+heat2d!(du, u, A, t) = mul!(du, A, u)
+errors = Float64[]
+for N in (19, 39)
+    h = 1 / (N + 1)
+    x = h .* (1:N)
+    u0 = vec([sin(pi * xi) * sin(pi * yj) for xi in x, yj in x])
+    sol = solve(ODEProblem(heat2d!, u0, (0.0, 0.1), laplacian2d(N)), Tsit5();
+                abstol = 1e-8, reltol = 1e-8, save_everystep = false)
+    push!(errors, maximum(abs.(sol.u[end] .- exp(-2pi^2 * 0.1) .* u0)))
+    println(N^2, " ODEs, h = ", h, ", max error at t = 0.1: ", round(errors[end]; sigdigits = 2))
+end
+println("error ratio: ", round(errors[1] / errors[2]; digits = 1))
+'''
+
+[[section]]
+title = "Boundary conditions on the grid"
+body = '''
+The boundary condition decides what the stencil uses at the ends.
+
+* **Dirichlet** `u(0) = a`, `u(1) = b`: the end values are known numbers,
+  so they move to the right-hand side as a source. The first equation is
+  `κ (a - 2u_1 + u_2) / dx^2`, that is, row 1 of `κ A u` plus `κ a / dx^2`;
+  the last gets `κ b / dx^2`. In matrix form `du/dt = κ (A u + g)`, with `g`
+  zero except at the two ends.
+* **Neumann** `∂u/∂x = 0` (an insulated end): the end value is an unknown,
+  and a **ghost point** outside the domain, set equal to its mirror image
+  (`u_{-1} = u_1`), makes the derivative zero. The end equation becomes
+  `κ (2u_1 - 2u_0) / dx^2`.
+
+A steady state (`du/dt = 0`) of the Dirichlet problem solves the linear
+system `A u = -g`. Because `A` is a `SymTridiagonal`, `A \ (-g)` uses a
+tridiagonal solver in `O(n)` operations: the type carries the structure
+(unit 32). For the heat equation the steady state is the straight line from
+`a` to `b`, and since the second difference of a linear function is exactly
+zero, the grid reproduces it to rounding error.
+
+With insulated ends, no heat leaves, so the total heat `∫ u dx` is
+conserved. On the grid the trapezoidal sum `dx (u_0/2 + u_1 + ... + u_n/2)`
+is conserved exactly by the semi-discrete system (the differences
+telescope), and Runge-Kutta methods preserve every linear invariant of an
+ODE system, so the solver keeps it to rounding error. Such a conserved
+quantity is a check that needs no exact solution.
+'''
+
+  [[section.example]]
+  caption = "Ends held at `u(0) = 1` and `u(1) = 3`: the steady state from one linear solve, and the time-dependent solve from `u = 0` at t = 2 (κ = 1)."
+  notice = "Notice that the linear solve reproduces the straight line to rounding error, and that the solution of the ODE system approaches it: by t = 2 the slowest mode has decayed by `exp(-2π²) ≈ 3e-9`."
+  code = '''
+using LinearAlgebra, OrdinaryDiffEq
+n = 19
+dx = 1 / (n + 1)
+x = dx .* (1:n)
+a, b = 1.0, 3.0
+A = SymTridiagonal(fill(-2.0, n), ones(n - 1)) / dx^2
+g = zeros(n); g[1] = a / dx^2; g[end] = b / dx^2
+steady = A \ (-g)
+println("steady state is the line a + (b - a) x: ", maximum(abs.(steady .- (a .+ (b - a) .* x))) < 1e-12)
+rhs!(du, u, p, t) = (mul!(du, A, u); du .+= g; nothing)
+sol = solve(ODEProblem(rhs!, zeros(n), (0.0, 2.0)), Tsit5(); abstol = 1e-10, reltol = 1e-10)
+println("at t = 2, within 1e-6 of the line: ", maximum(abs.(sol.u[end] .- steady)) < 1e-6)
+'''
+
+  [[section.example]]
+  caption = "Both ends insulated (ghost points), starting from a bump: the trapezoidal total heat at the start and at t = 0.5."
+  notice = "Notice that the total heat does not change beyond rounding, while the bump has spread almost flat: its maximum fell from 1 to 0.26, the mean value (total heat 0.26 over a rod of length 1)."
+  code = '''
+using OrdinaryDiffEq
+function insulated!(du, u, p, t)
+    κ, dx = p
+    n = length(u)                                  # grid points x_0, ..., x_{n-1}, ends included
+    du[1] = κ * (2u[2] - 2u[1]) / dx^2             # ghost point u_{-1} = u_1
+    for i in 2:n-1
+        du[i] = κ * (u[i-1] - 2u[i] + u[i+1]) / dx^2
+    end
+    du[n] = κ * (2u[n-1] - 2u[n]) / dx^2
+    return nothing
+end
+n = 51
+dx = 1 / (n - 1)
+x = range(0, 1; length = n)
+u0 = [abs(xi - 0.5) < 0.125 ? 1.0 : 0.0 for xi in x]
+total(u) = dx * (sum(u) - (u[1] + u[end]) / 2)
+sol = solve(ODEProblem(insulated!, u0, (0.0, 0.5), (1.0, dx)), Tsit5(); abstol = 1e-10, reltol = 1e-10)
+println("total heat at t = 0: ", total(u0))
+println("change by t = 0.5 below 1e-12: ", abs(total(sol.u[end]) - total(u0)) < 1e-12)
+println("maximum at t = 0.5: ", round(maximum(sol.u[end]); digits = 3))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "With `u(0) = a` and `u(1) = b` (nonzero) and `n` interior unknowns, where do `a` and `b` enter the semi-discrete system?"
+  choices = [
+    "As two extra unknowns, so the system has `n + 2` ODEs",
+    "Nowhere: the stencil only reads interior points",
+    "As a source term in the first and last equations",
+    "As the initial values of the first and last unknowns",
+  ]
+  answer = 3
+  explain = "The stencil at `x_1` reads `u_0 = a`, a known number, so `κ a / dx^2` is added to the first equation (and `κ b / dx^2` to the last). The unknowns stay the `n` interior values."
+  misconceptions = [
+    "Known values are not unknowns: an ODE for `u_0` would have to be `du_0/dt = 0`, and the stencil already uses `a` directly.",
+    "The stencils at `x_1` and `x_n` reach one point beyond the interior, to the boundary values; dropping them silently imposes `a = b = 0`.",
+    "",
+    "An initial value only sets where the solution starts; the condition holds at every time, which only a term in the equations can enforce.",
+  ]
+
+[[section]]
+title = "Residuals: how far a candidate is from solving the PDE"
+body = '''
+Given a candidate `v(x, t)`, from a solver, a formula or a neural network,
+plug it into the equation and measure what is left over. For the heat
+equation the **residual** is
+
+    r(x, t) = ∂v/∂t - κ ∂²v/∂x²
+
+and an exact solution has `r = 0` everywhere. On a grid the derivatives
+become differences: a central difference in time,
+`(v(x, t + dt) - v(x, t - dt)) / 2dt`, and the second difference in space,
+both second order, so the residual of an exact solution comes out
+`O(dt^2 + dx^2)` instead of zero.
+
+A residual measures how well the **equation** holds, not whether the
+**problem** is solved. Even for a linear system a small residual can hide a
+large error when the problem is ill-conditioned (unit 30, section "Forward
+error, backward error and the condition number"). For a PDE there is a
+second gap: the residual does not see the boundary or initial values at all. The heat equation is linear, so adding any other
+solution, even the constant 1, gives another function with zero residual
+that violates the boundary condition. A complete check measures the
+residual inside, the boundary values and the initial values. Unit 47 builds
+a physics-informed neural network on exactly these three terms, and unit 48
+shows how a small residual at a few points can still hide a large error.
+'''
+
+  [[section.example]]
+  caption = "Grid residuals (κ = 1, `dx = 0.05`, `dt = 0.005`) for the exact solution, for a candidate with the wrong decay rate, and for the exact solution plus 1 (rounded to 2 digits)."
+  notice = "Notice that the exact solution's residual is small but not zero (the `O(dt^2 + dx^2)` error of the differences, mostly the `dx^2 π^4 / 12 ≈ 0.02` part), that the wrong decay rate leaves a residual near `π² - 1`, and that adding 1 leaves the residual unchanged while the boundary values are now wrong."
+  code = '''
+function max_residual(v, κ, x, t)
+    dx, dt = step(x), step(t)
+    r = [(v(x[i], t[j+1]) - v(x[i], t[j-1])) / 2dt -
+         κ * (v(x[i-1], t[j]) - 2v(x[i], t[j]) + v(x[i+1], t[j])) / dx^2
+         for i in 2:length(x)-1, j in 2:length(t)-1]
+    return maximum(abs, r)
+end
+x = range(0, 1; step = 0.05); t = range(0, 0.1; step = 0.005)
+exact(x, t) = exp(-pi^2 * t) * sin(pi * x)
+slow(x, t) = exp(-t) * sin(pi * x)
+shifted(x, t) = exact(x, t) + 1
+for (name, v) in (("exact", exact), ("wrong rate", slow), ("exact + 1", shifted))
+    println(rpad(name, 11), "max residual = ", round(max_residual(v, 1.0, x, t); sigdigits = 2),
+            "   u(0, 0.05) = ", round(v(0.0, 0.05); digits = 3))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A candidate `v(x, t)` has residual zero (to rounding) at every grid point of the heat equation. What can you conclude?"
+  choices = [
+    "It solves the problem, since the residual is zero everywhere",
+    "Nothing: grid residuals are always zero for smooth functions",
+    "It satisfies the equation there; boundary and initial values still need checking",
+  ]
+  answer = 3
+  explain = "Infinitely many functions satisfy the heat equation; the boundary and initial conditions pick one. `exact + 1` in the example has the same residual as the exact solution and the wrong boundary values. So a check, and later a PINN loss, measures all three."
+  misconceptions = [
+    "The residual tests the equation only; `exact(x, t) + 1` has the same zero residual and violates `u(0, t) = 0`.",
+    "The wrong-rate candidate in the example is smooth and has a residual near 9; a residual distinguishes candidates, it just does not test the conditions at the boundary.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The residual of `v(x, t) = x^2` for the heat equation with κ = 1, using the grid formulas at `x = 0.5`, `t = 0.2`. What does this print?"
+  code = '''
+v(x, t) = x^2
+dx, dt = 0.1, 0.01
+r = (v(0.5, 0.2 + dt) - v(0.5, 0.2 - dt)) / 2dt - (v(0.4, 0.2) - 2v(0.5, 0.2) + v(0.6, 0.2)) / dx^2
+round(r; digits = 6)
+'''
+  choices = ["0.0", "-2.0", "2.0", "-0.25"]
+  answer = 2
+  explain = "`x^2` does not change in time, so `∂v/∂t = 0`, and `∂²v/∂x² = 2`, which the second difference reproduces exactly for a quadratic. The residual is `0 - 1 * 2 = -2`: `x^2` is not a solution (as time passes, heat would flow and change it)."
+  misconceptions = [
+    "A function that does not change in time solves the heat equation only if its second derivative is zero (a straight line); `x^2` curves.",
+    "",
+    "The sign is reversed: the residual is `∂v/∂t - κ ∂²v/∂x²`, and the time derivative is the zero part.",
+    "That is `v(0.5, t)`, the value, not the residual.",
+  ]
+
+[[problem]]
+id = "pde-laplacian-1d"
+title = "The second difference of a grid function"
+difficulty = "warm-up"
+kcs = ["finite-differences"]
+entry = "laplacian_1d"
+# packages: an empty list would load the whole scicomp env (JuMP, Ipopt, ...) for every grading
+# run; these cases need only Base, so name one light stdlib from the env instead.
+packages = ["SparseArrays"]
+prompt = '''
+Write `laplacian_1d(u, dx)` that takes the values `u` of a function on an
+equally spaced grid (boundary points included, `length(u) >= 3`) and the
+spacing `dx`, and returns a new `Vector{Float64}` of length `length(u) - 2`
+with the second difference at each interior point:
+
+    (u[i-1] - 2u[i] + u[i+1]) / dx^2,   i = 2, ..., length(u) - 1
+
+```julia
+laplacian_1d([0.0, 1.0, 4.0, 9.0], 1.0)    # [2.0, 2.0]: x^2 has u'' = 2
+laplacian_1d([1.0, 0.0, 1.0], 0.5)         # [8.0]
+```
+
+Results are compared with `rtol = 1e-10` (the same formula in another
+order differs only by rounding, about `1e-15` relative); the grader also
+measures time and memory.
+'''
+starter = '''
+function laplacian_1d(u, dx)
+    # one value per interior point
+end
+'''
+reference = '''
+function laplacian_1d(u, dx)
+    n = length(u)
+    out = Vector{Float64}(undef, n - 2)
+    for i in 2:n-1
+        out[i-1] = (u[i-1] - 2u[i] + u[i+1]) / dx^2
+    end
+    return out
+end
+'''
+cases = ["[0.0, 1.0, 4.0, 9.0], 1.0", "[1.0, 0.0, 1.0], 0.5", "sin.(range(0, pi; length = 9)), pi / 8"]
+gen = "rng -> [(randn(rng, rand(rng, 3:40)), 0.01 + rand(rng)) for _ in 1:20]"
+compare = "isapprox"
+# rtol: the reference and any reordering of the same three-term formula differ by a few ulps of
+# |u| / dx^2; with random inputs the second differences are of that size, so 1e-10 leaves a
+# margin of about 1e5 while a missing dx^2 or a wrong coefficient is off by order 1.
+rtol = 1e-10
+hints = [
+  "Each interior point `i` combines its two neighbours and itself; the first and last entries of `u` have no result of their own.",
+  "Index `i` of `u` (from 2 to `length(u) - 1`) goes to position `i - 1` of the result, which you can allocate once with `Vector{Float64}(undef, length(u) - 2)`.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n), 1 / n"
+  sizes = [10000, 100000]
+
+  [[problem.variant]]
+  label = "divides by dx instead of dx^2"
+  code = '''
+laplacian_1d(u, dx) = [(u[i-1] - 2u[i] + u[i+1]) / dx for i in 2:length(u)-1]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "keeps the boundary points (wrong length)"
+  code = '''
+function laplacian_1d(u, dx)
+    out = zeros(length(u))
+    for i in 2:length(u)-1
+        out[i] = (u[i-1] - 2u[i] + u[i+1]) / dx^2
+    end
+    return out
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a comprehension"
+  code = '''
+laplacian_1d(u, dx) = [(u[i-1] - 2u[i] + u[i+1]) / dx^2 for i in 2:length(u)-1]
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "diff(diff(u)): two temporary vectors"
+  code = '''
+laplacian_1d(u, dx) = diff(diff(u)) ./ dx^2
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "slices: three copies of u"
+  code = '''
+laplacian_1d(u, dx) = (u[1:end-2] .- 2 .* u[2:end-1] .+ u[3:end]) ./ dx^2
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "pde-heat-rhs"
+title = "The heat equation's right-hand side, in place"
+difficulty = "core"
+kcs = ["method-of-lines", "boundary-conditions"]
+entry = "heat!"
+# packages: an empty list would load the whole scicomp env (JuMP, Ipopt, ...) for every grading
+# run; these cases need only Base, so name one light stdlib from the env instead.
+packages = ["SparseArrays"]
+prompt = '''
+Write the method-of-lines right-hand side of the heat equation
+`∂u/∂t = κ ∂²u/∂x²` with Dirichlet ends **held at the values `a` and `b`**:
+
+    heat!(du, u, p, t)      with p = (κ, dx, a, b)
+
+`u` holds the values at the `n` interior points only; the boundary values
+`u(0) = a` and `u(1) = b` are not in `u`. Write into `du` (do not rebind it)
+
+    du[i] = κ * (u[i-1] - 2u[i] + u[i+1]) / dx^2
+
+where `u[0]` means `a` and `u[n+1]` means `b`, and return `nothing`. The
+function must also work for `n = 1`.
+
+```julia
+du = zeros(3)
+heat!(du, [1.0, 1.0, 1.0], (2.0, 0.25, 0.0, 0.0), 0.0)
+du    # [-32.0, 0.0, -32.0]: only the points next to the cold ends change
+```
+
+`du` is compared with `rtol = 1e-10` (rounding only); the grader measures
+memory: `heat!` is called several times per solver step.
+'''
+starter = '''
+function heat!(du, u, p, t)
+    κ, dx, a, b = p
+    # fill du
+    return nothing
+end
+'''
+reference = '''
+function heat!(du, u, p, t)
+    κ, dx, a, b = p
+    n = length(u)
+    for i in 1:n
+        left = i > 1 ? u[i-1] : oftype(u[i], a)
+        right = i < n ? u[i+1] : oftype(u[i], b)
+        du[i] = κ * (left - 2u[i] + right) / dx^2
+    end
+    return nothing
+end
+'''
+cases = [
+  "zeros(3), [1.0, 1.0, 1.0], (2.0, 0.25, 0.0, 0.0), 0.0",
+  "zeros(1), [0.5], (1.0, 0.5, 1.0, 3.0), 0.0",
+  "zeros(4), [1.0, 2.0, 3.0, 4.0], (0.1, 0.2, 0.0, 5.0), 1.0",
+]
+gen = "rng -> [(n = rand(rng, 1:30); (zeros(n), randn(rng, n), (rand(rng), 1 / (n + 1), randn(rng), randn(rng)), 0.0)) for _ in 1:20]"
+compare = "isapprox"
+# rtol: the same arithmetic in another order differs by a few ulps of κ|u|/dx^2; the random
+# inputs give values of that size. A dropped boundary value or a missing κ is off by order 1.
+rtol = 1e-10
+compare_args = true
+hints = [
+  "Loop over the interior points. The first and last points have a neighbour that is not in `u`: it is a boundary value from `p`.",
+  "Write each entry with `du[i] = ...`. An assignment `du = ...` makes a new local array and leaves the solver's `du` untouched.",
+]
+
+  [problem.perf]
+  args = "zeros(n), randn(rng, n), (1.0, 1 / (n + 1), 1.0, 2.0), 0.0"
+  sizes = [10000, 100000]
+  mutates = true
+
+  [[problem.variant]]
+  label = "ignores the boundary values a and b (always zero)"
+  code = '''
+function heat!(du, u, p, t)
+    κ, dx, a, b = p
+    n = length(u)
+    for i in 1:n
+        left = i > 1 ? u[i-1] : 0.0
+        right = i < n ? u[i+1] : 0.0
+        du[i] = κ * (left - 2u[i] + right) / dx^2
+    end
+    return nothing
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "rebinds du instead of writing into it"
+  code = '''
+function heat!(du, u, p, t)
+    κ, dx, a, b = p
+    du = κ .* ([a; u[1:end-1]] .- 2 .* u .+ [u[2:end]; b]) ./ dx^2
+    return nothing
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "pads u with the boundary values on every call"
+  code = '''
+function heat!(du, u, p, t)
+    κ, dx, a, b = p
+    w = [a; u; b]
+    du .= κ .* (w[1:end-2] .- 2 .* w[2:end-1] .+ w[3:end]) ./ dx^2
+    return nothing
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "interior loop plus the two ends written separately"
+  code = '''
+function heat!(du, u, p, t)
+    κ, dx, a, b = p
+    n = length(u)
+    c = κ / dx^2
+    if n == 1
+        du[1] = c * (a - 2u[1] + b)
+        return nothing
+    end
+    du[1] = c * (a - 2u[1] + u[2])
+    @inbounds for i in 2:n-1
+        du[i] = c * (u[i-1] - 2u[i] + u[i+1])
+    end
+    du[n] = c * (u[n-1] - 2u[n] + b)
+    return nothing
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "pde-heat-residual"
+title = "Residual of a candidate on a space-time grid"
+difficulty = "stretch"
+kcs = ["pde-residual", "finite-differences"]
+entry = "heat_residual"
+# packages: an empty list would load the whole scicomp env (JuMP, Ipopt, ...) for every grading
+# run; these cases need only Base, so name one light stdlib from the env instead.
+packages = ["SparseArrays"]
+prompt = '''
+A candidate solution of the heat equation `∂u/∂t = κ ∂²u/∂x²` is given by
+its values on a grid: `U[i, j]` is the value at `x_i` (row `i`, spacing
+`dx`) and `t_j` (column `j`, spacing `dt`). Write
+`heat_residual(U, dx, dt, κ)` that returns the matrix of residuals at the
+interior points, of size `(size(U, 1) - 2, size(U, 2) - 2)`:
+
+    R[i-1, j-1] = (U[i, j+1] - U[i, j-1]) / (2dt) - κ * (U[i-1, j] - 2U[i, j] + U[i+1, j]) / dx^2
+
+(a central difference in time and the second difference in space, both
+second order).
+
+```julia
+x = range(0, 1; length = 11); t = range(0, 0.1; length = 6)
+U = [exp(-pi^2 * tj) * sin(pi * xi) for xi in x, tj in t]
+maximum(abs, heat_residual(U, 0.1, 0.02, 1.0))   # about 0.12: small, not zero
+```
+
+Results are compared with `rtol = 1e-9` (rounding only); the grader also
+measures memory.
+'''
+starter = '''
+function heat_residual(U, dx, dt, κ)
+    # one residual per interior grid point
+end
+'''
+reference = '''
+function heat_residual(U, dx, dt, κ)
+    nx, nt = size(U)
+    R = Matrix{Float64}(undef, nx - 2, nt - 2)
+    for j in 2:nt-1, i in 2:nx-1
+        ut = (U[i, j+1] - U[i, j-1]) / (2dt)
+        uxx = (U[i-1, j] - 2U[i, j] + U[i+1, j]) / dx^2
+        R[i-1, j-1] = ut - κ * uxx
+    end
+    return R
+end
+'''
+cases = [
+  "[exp(-pi^2 * tj) * sin(pi * xi) for xi in range(0, 1; length = 11), tj in range(0, 0.1; length = 6)], 0.1, 0.02, 1.0",
+  "[xi^2 + tj for xi in 0:0.25:1, tj in 0:0.5:2], 0.25, 0.5, 0.25",
+  "[1.0 2.0 3.0; 4.0 5.0 6.0; 7.0 8.0 10.0], 1.0, 1.0, 2.0",
+]
+gen = "rng -> [(randn(rng, rand(rng, 3:12), rand(rng, 3:12)), 0.05 + rand(rng), 0.05 + rand(rng), rand(rng)) for _ in 1:20]"
+compare = "isapprox"
+# rtol: reordering the same arithmetic changes results by a few ulps of |U|/dx^2 and |U|/dt; the
+# random cases give residuals of that size, so 1e-9 is far above rounding, while a one-sided
+# time difference or swapped dimensions are off by order 1.
+rtol = 1e-9
+hints = [
+  "Rows are space and columns are time. Each interior point needs its two neighbours in its column (space) and in its row (time).",
+  "Allocate the result once and fill it in a double loop; slices such as `U[2:end-1, 3:end]` work but copy the matrix several times.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n, n), 0.01, 0.001, 1.0"
+  sizes = [300, 600]
+
+  [[problem.variant]]
+  label = "forward difference in time: first order, a different formula"
+  code = '''
+function heat_residual(U, dx, dt, κ)
+    nx, nt = size(U)
+    return [(U[i, j+1] - U[i, j]) / dt - κ * (U[i-1, j] - 2U[i, j] + U[i+1, j]) / dx^2
+            for i in 2:nx-1, j in 2:nt-1]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "space and time swapped (rows read as time)"
+  code = '''
+function heat_residual(U, dx, dt, κ)
+    nx, nt = size(U)
+    return [(U[i+1, j] - U[i-1, j]) / (2dt) - κ * (U[i, j-1] - 2U[i, j] + U[i, j+1]) / dx^2
+            for i in 2:nx-1, j in 2:nt-1]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a comprehension over the interior"
+  code = '''
+function heat_residual(U, dx, dt, κ)
+    nx, nt = size(U)
+    return [(U[i, j+1] - U[i, j-1]) / (2dt) - κ * (U[i-1, j] - 2U[i, j] + U[i+1, j]) / dx^2
+            for i in 2:nx-1, j in 2:nt-1]
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "slices: six shifted copies of U"
+  code = '''
+function heat_residual(U, dx, dt, κ)
+    ut = (U[2:end-1, 3:end] .- U[2:end-1, 1:end-2]) ./ (2dt)
+    uxx = (U[1:end-2, 2:end-1] .- 2 .* U[2:end-1, 2:end-1] .+ U[3:end, 2:end-1]) ./ dx^2
+    return ut .- κ .* uxx
+end
+'''
+  expect = ["correct", "allocates"]

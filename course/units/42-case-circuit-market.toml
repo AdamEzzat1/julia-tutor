@@ -1,0 +1,833 @@
+id = "42-case-circuit-market"
+title = "Case study: a circuit and an energy dispatch market"
+track = "scicomp"
+env = "scicomp"
+status = "ready"
+summary = "Two models from electrical engineering. An RLC circuit written as node equations (Kirchhoff's current law at each node) becomes a mass-matrix DAE, checked against the analytic step response, and assembled by stamping components into matrices, which is what an acausal modelling tool automates. Then economic dispatch as a linear program: the merit order, a price read from the dual of the demand constraint and checked by perturbing demand, what happens at a capacity breakpoint, and locational prices when a transmission line is congested."
+kcs = ["nodal-analysis", "circuit-dae", "economic-dispatch", "lp-duality-prices"]
+prerequisites = ["36-daes", "38-constrained-optimization", "39-integer-modelling"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This case study applies two earlier tools to electrical systems: DAEs to a
+circuit, and duality to an electricity market. It relies on four facts:
+
+* **A DAE in mass-matrix form** is `M u' = F(u)` with zero rows of `M` for
+  the algebraic equations; `Rodas5P` accepts it through
+  `ODEFunction(f; mass_matrix = M)`, and the initial state must satisfy the
+  algebraic equations (unit 36, section "Algebraic equations beside
+  differential ones: mass-matrix form").
+* **Acausal modelling** describes each component by its own equations and
+  lets a tool assemble them; unit 36 built an RC circuit with
+  ModelingToolkitBase (section "Acausal components: an RC circuit with
+  ModelingToolkitBase").
+* **A multiplier is a sensitivity**: `d f* / d b = λ` while the same
+  constraints stay active, and it can be checked by solving again with a
+  moved constraint (unit 38, section "Multipliers are sensitivities").
+* **JuMP states a model and a solver solves it**; `termination_status`,
+  `objective_value`, `value` and `dual` read the result (unit 25, section
+  "JuMP: state the model, let a solver solve it"). Unit 39 adds integer
+  variables, which a real unit-commitment model needs and this one leaves
+  out.
+
+**Why one environment.** A unit runs in one environment. The circuit could
+use ModelingToolkitBase (environment `mtk`), but the market needs JuMP and
+HiGHS, which only `scicomp` has. This unit therefore writes the circuit's
+equations by hand, in `scicomp`, and shows the assembly step that
+`mtkcompile` performed in unit 36.
+'''
+
+[[section]]
+title = "Node equations of an RLC circuit"
+body = '''
+**Nodal analysis** writes Kirchhoff's current law at every node: the
+currents leaving a node sum to zero. One node is the reference (ground,
+voltage 0), and the unknowns are the other nodes' voltages
+([nodal analysis](https://en.wikipedia.org/wiki/Nodal_analysis)). Each
+component relates its current to the voltages at its two ends:
+
+* a resistor carries `(v_a - v_b) / R`;
+* a capacitor carries `C d(v_a - v_b)/dt`, so it brings a derivative;
+* an inductor's current `i_L` is its own unknown, with `L di_L/dt = v_a - v_b`.
+
+Take a series RLC circuit driven by a source that jumps to `V_s` at
+`t = 0`: the source feeds node `a` through `R`, the inductor joins `a` to
+node `b`, and the capacitor joins `b` to ground. The unknowns
+`u = (v_a, i_L, v_b)` satisfy
+
+    0         = (V_s - v_a) / R - i_L      KCL at a (no capacitor there)
+    L di_L/dt = v_a - v_b                  the inductor
+    C dv_b/dt = i_L                        KCL at b
+
+The first equation has no derivative: node `a` has no capacitor, so its
+voltage follows the inductor current instantly. That is a DAE with
+`M = Diagonal([0, L, C])`, of index 1, because the algebraic equation can
+be solved for `v_a`. A consistent start has `v_a = V_s - R i_L`.
+
+The analytic answer comes from eliminating `v_a`: `L C v_b'' + R C v_b' + v_b = V_s`.
+With `α = R / (2L)` and `ω₀ = 1 / sqrt(LC)` the circuit is underdamped when
+`α < ω₀`, oscillating at `ω_d = sqrt(ω₀² - α²)` with an envelope
+`exp(-α t)` ([RLC circuit](https://en.wikipedia.org/wiki/RLC_circuit)). For
+a capacitor that starts uncharged with no current,
+
+    v_b(t) = V_s (1 - exp(-α t) (cos ω_d t + (α / ω_d) sin ω_d t))
+
+which has `v_b(0) = 0` and `v_b'(0) = 0`, as the circuit requires.
+'''
+
+  [[section.example]]
+  caption = "R = 2 Ω, L = 1 H, C = 0.2 F, V_s = 1 V: α = 1, ω₀ = √5 and ω_d = 2. The node equations as a mass-matrix DAE, solved with `Rodas5P` at tolerances `1e-10`, against the analytic capacitor voltage."
+  notice = "Notice that the largest difference over 10 s is below `1e-8`, and that `v_a = V_s - R i_L` holds along the solution: the solver kept the algebraic equation satisfied at every step, not only at the start."
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+R, L, C, Vs = 2.0, 1.0, 0.2, 1.0
+function rlc!(du, u, p, t)                 # u = [v_a, i_L, v_b]
+    va, iL, vb = u
+    du[1] = (Vs - va) / R - iL              # KCL at a: an algebraic row
+    du[2] = va - vb                         # L di_L/dt
+    du[3] = iL                              # C dv_b/dt
+end
+f = ODEFunction(rlc!; mass_matrix = Diagonal([0.0, L, C]))
+sol = solve(ODEProblem(f, [Vs, 0.0, 0.0], (0.0, 10.0)), Rodas5P(); abstol = 1e-10, reltol = 1e-10)
+α, ω0 = R / (2L), 1 / sqrt(L * C)
+ωd = sqrt(ω0^2 - α^2)
+vC(t) = Vs * (1 - exp(-α * t) * (cos(ωd * t) + α / ωd * sin(ωd * t)))
+println("α = ", α, ", ω₀ = ", round(ω0; digits = 4), ", ω_d = ", ωd)
+println("max |v_b - analytic| over [0, 10]: below 1e-8: ", maximum(abs(sol(t)[3] - vC(t)) for t in 0:0.01:10) < 1e-8)
+println("max |v_a - (V_s - R i_L)|: below 1e-8: ", maximum(abs(u[1] - (Vs - R * u[2])) for u in sol.u) < 1e-8)
+println("v_b at t = 1, 2, 5: ", round.([sol(t)[3] for t in (1.0, 2.0, 5.0)]; digits = 6))
+println("analytic:           ", round.([vC(t) for t in (1.0, 2.0, 5.0)]; digits = 6))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In the series RLC circuit, why is the KCL equation at node `a` algebraic while the one at node `b` is differential?"
+  choices = [
+    "Node `b` is closer to ground, so its equation keeps the time derivative",
+    "The inductor makes every node it touches differential",
+    "Only node `b` has a capacitor, whose current is a derivative of voltage",
+  ]
+  answer = 3
+  explain = "KCL sums the currents of the components at a node. At `a` they are the resistor's `(V_s - v_a)/R` and the inductor's `i_L`, neither a derivative of `v_a`, so the equation constrains `v_a` instantly. At `b` the capacitor contributes `C dv_b/dt`."
+  misconceptions = [
+    "Distance to ground does not enter KCL; what matters is which components meet at the node and whether one of them carries a current proportional to a derivative.",
+    "The inductor brings a derivative of its own current, `L di_L/dt`, as its own equation; it does not put a derivative into the KCL of the nodes it joins.",
+    "",
+  ]
+
+[[section]]
+title = "Stamping: assembling node equations from components"
+body = '''
+Writing the equations by hand stops scaling beyond a few nodes. The
+standard method assembles them from a component list. Collect the unknowns
+as node voltages followed by one current per inductor (and per voltage
+source), and write the circuit as
+
+    C_m u' = -G u + b(t)
+
+Each component adds ("stamps") a few entries:
+
+* a resistor `R` between nodes `i` and `j` adds `1/R` to `G[i,i]` and
+  `G[j,j]` and `-1/R` to `G[i,j]` and `G[j,i]`, the conductance pattern of
+  [nodal analysis](https://en.wikipedia.org/wiki/Nodal_analysis);
+* a capacitor stamps the same pattern with `C` into `C_m`;
+* an inductor with current unknown `k` adds `±1` in row `k` and column `k`
+  for its two nodes, and `L` to `C_m[k,k]`;
+* a voltage source with current unknown `k` adds the same `±1` pattern
+  and puts `-V_s` into `b[k]`, so that row `k` of `0 = -G u + b` reads
+  `v_i - v_j - V_s = 0`.
+
+A connection to ground is left out of the stamps, because the ground voltage is
+0. This is the **modified nodal analysis** that circuit simulators use,
+and it is what an acausal tool does with `connect` equations: every
+component contributes its own equations, the connections add Kirchhoff's
+laws, and the result is one mass-matrix system. A tool also removes the
+trivial equations and checks the index. Here that is two looks: the zero
+rows of `C_m` mark the algebraic equations (and its zero columns the
+unknowns without a derivative), and the DAE has index 1 when those
+equations can be solved for those unknowns, that is, when the block of `G`
+in those rows and columns is nonsingular. The example prints its
+determinant.
+'''
+
+  [[section.example]]
+  caption = "The same circuit from a component list: three nodes (source node `s`, `a`, `b`), the source current and the inductor current as extra unknowns. The stamped DAE is solved and compared with the hand-written node equations' analytic answer."
+  notice = "Notice that the stamped mass matrix has zeros on the rows of nodes `s` and `a` and on the source row: three algebraic equations, which the solver handles as before, and that the capacitor voltage again matches the analytic curve to solver tolerance."
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+R, L, C, Vs = 2.0, 1.0, 0.2, 1.0
+nodes = (s = 1, a = 2, b = 3)                     # ground is node 0
+parts = [(:V, :s, 0, Vs), (:R, :s, :a, R), (:L, :a, :b, L), (:C, :b, 0, C)]
+n = length(nodes)
+nextra = count(p -> p[1] in (:V, :L), parts)
+N = n + nextra
+G, Cm, bvec = zeros(N, N), zeros(N, N), zeros(N)
+idx(x) = x == 0 ? 0 : nodes[x]
+function stamp!(A, i, j, val)                     # the 2×2 conductance pattern, skipping ground
+    i > 0 && (A[i, i] += val)
+    j > 0 && (A[j, j] += val)
+    i > 0 && j > 0 && (A[i, j] -= val; A[j, i] -= val)
+end
+k = n
+for (kind, x, y, val) in parts
+    i, j = idx(x), idx(y)
+    if kind == :R
+        stamp!(G, i, j, 1 / val)
+    elseif kind == :C
+        stamp!(Cm, i, j, val)
+    else                                          # :V or :L: a current unknown in row and column k
+        global k += 1
+        i > 0 && (G[i, k] += 1; G[k, i] -= 1)
+        j > 0 && (G[j, k] -= 1; G[k, j] += 1)
+        kind == :L ? (Cm[k, k] = val) : (bvec[k] = -val)
+    end
+end
+println("diagonal of the mass matrix: ", diag(Cm))
+alg = findall(iszero, diag(Cm))                   # Cm is diagonal here: zero rows = zero columns
+println("algebraic unknowns ", alg, "; det of G on them: ", det(G[alg, alg]), " (1/R = ", 1 / R, ")")
+rhs!(du, u, p, t) = (du .= -G * u .+ bvec)
+u0 = [Vs, Vs, 0.0, 0.0, 0.0]                      # v_s, v_a, v_b, i_source, i_L: consistent at t = 0
+sol = solve(ODEProblem(ODEFunction(rhs!; mass_matrix = Cm), u0, (0.0, 10.0)), Rodas5P(); abstol = 1e-10, reltol = 1e-10)
+α, ωd = R / (2L), sqrt(1 / (L * C) - (R / (2L))^2)
+vC(t) = Vs * (1 - exp(-α * t) * (cos(ωd * t) + α / ωd * sin(ωd * t)))
+println("max |v_b - analytic| below 1e-8: ", maximum(abs(sol(t)[3] - vC(t)) for t in 0:0.01:10) < 1e-8)
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "Two resistors, 1 Ω between nodes 1 and 2 and 2 Ω from node 2 to ground, stamped into a conductance matrix. What does this print?"
+  code = '''
+G = zeros(2, 2)
+for (i, j, R) in ((1, 2, 1.0), (2, 0, 2.0))
+    G[i, i] += 1 / R
+    j > 0 && (G[j, j] += 1 / R; G[i, j] -= 1 / R; G[j, i] -= 1 / R)
+end
+G
+'''
+  choices = [
+    "2×2 Matrix{Float64}:\n  1.0  -1.0\n -1.0   1.5",
+    "2×2 Matrix{Float64}:\n 1.0  1.0\n 1.0  1.5",
+    "2×2 Matrix{Float64}:\n  1.0  -1.0\n -1.0   1.0",
+    "2×2 Matrix{Float64}:\n  1.0  -1.0\n -1.0   0.5",
+  ]
+  answer = 1
+  explain = "Each diagonal entry is the sum of the conductances at that node: node 1 has the 1 Ω resistor (1.0), node 2 has both (1 + 0.5 = 1.5). Off the diagonal is minus the conductance between the two nodes. The grounded resistor stamps only its non-ground end."
+  misconceptions = [
+    "",
+    "The off-diagonal entries are negative: the current from node 1 to node 2 is `(v_1 - v_2)/R`, so `v_2` enters node 1's equation with a minus sign.",
+    "Node 2's diagonal must include the 2 Ω resistor to ground too; leaving out the ground connection drops only the ground's row and column, not the resistor.",
+    "Node 2's diagonal is the sum of both conductances at it, 1 + 0.5; only the 2 Ω resistor's share is 0.5.",
+  ]
+
+[[section]]
+title = "Economic dispatch: a linear program and the merit order"
+body = '''
+A grid operator must meet a demand `D` (in MW) with generators `g` that
+each produce `p_g` between 0 and a capacity `P_g`, at a marginal cost
+`c_g` (in €/MWh: mostly fuel). The cheapest schedule solves
+
+    minimize  Σ c_g p_g
+    subject to  Σ p_g = D,   0 ≤ p_g ≤ P_g
+
+This is **economic dispatch**, "the short-term determination of the
+optimal output of a number of electricity generation facilities"
+([economic dispatch](https://en.wikipedia.org/wiki/Economic_dispatch)). For
+this simple form the answer is the **merit order**: sort the generators by
+cost and run them in that order, each at full capacity, until the demand is
+met; the last one runs partly
+([merit order](https://en.wikipedia.org/wiki/Merit_order)). It is optimal
+because moving a megawatt from a cheaper unit to a dearer one can only
+raise the cost. Real dispatch adds what breaks the simple rule: start-up
+costs and minimum outputs (integer variables, unit 39), ramp limits over
+time, and the network, which the last section adds.
+'''
+
+  [[section.example]]
+  caption = "Four generators (costs 12, 25, 40 and 90 €/MWh; capacities 300, 200, 250 and 150 MW) and a demand of 600 MW, as a JuMP LP solved by HiGHS, against the merit order computed by sorting."
+  notice = "Notice that HiGHS returns the merit-order schedule: the two cheapest units full, the 40 €/MWh unit at 100 MW to close the gap, and the dearest off."
+  code = '''
+using JuMP, HiGHS
+cost = [12.0, 25.0, 40.0, 90.0]
+cap = [300.0, 200.0, 250.0, 150.0]
+function dispatch(cost, cap, D)
+    m = Model(HiGHS.Optimizer)
+    set_silent(m)
+    @variable(m, 0 <= p[g in eachindex(cost)] <= cap[g])
+    @constraint(m, balance, sum(p) == D)
+    @objective(m, Min, sum(cost[g] * p[g] for g in eachindex(cost)))
+    optimize!(m)
+    return termination_status(m), objective_value(m), value.(p), dual(balance)
+end
+function merit_order(cost, cap, D)
+    p = zeros(length(cost))
+    left = D
+    for g in sortperm(cost)
+        p[g] = min(cap[g], left)
+        left -= p[g]
+    end
+    return p
+end
+status, total, p, _ = dispatch(cost, cap, 600.0)
+println(status, ": cost ", total, " €/h, schedule ", p)
+println("merit order:              ", merit_order(cost, cap, 600.0))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "With demand 600 MW and the four generators above, why does the 40 €/MWh unit run at 100 MW rather than the 90 €/MWh unit?"
+  choices = [
+    "Each megawatt is bought from the cheapest unit with capacity left",
+    "The LP gives each unit an equal share of the remaining demand",
+    "HiGHS starts from the first generator in the list and fills it before the next",
+  ]
+  answer = 1
+  explain = "Moving one megawatt from the 40 €/MWh unit to the 90 €/MWh unit raises the cost by 50 €/h, so no optimal schedule does it. The cheapest units fill up first, and the remaining 100 MW go to the cheapest unit still below capacity."
+  misconceptions = [
+    "",
+    "An LP has no notion of fairness; it minimizes cost, and an even split would pay 90 €/MWh for megawatts the 40 €/MWh unit could produce.",
+    "The listing order happens to match the cost order here; the LP's solution depends only on costs and capacities, and shuffling the list gives the same schedule.",
+  ]
+
+[[section]]
+title = "The price is the dual of the demand constraint"
+body = '''
+How much does one more megawatt of demand cost? In the merit order it is
+produced by the **marginal unit**, the one running partly, so the total
+cost rises by that unit's `c_g`: the system's marginal cost, "the
+marginal cost of the final generator needed to meet load setting the
+system marginal cost" ([merit order](https://en.wikipedia.org/wiki/Merit_order)).
+
+Duality gives the same number without knowing the merit order. The
+multiplier `λ` of `Σ p_g = D` is the sensitivity `d(cost*) / dD` (unit
+38's envelope argument, here for a linear program). So the dual of the
+demand constraint **is** the price of electricity in this market; a
+uniform-price auction pays every running generator `λ` per MWh. The
+cheaper units then earn `λ - c_g` per MWh above their running cost.
+
+Two cautions, both visible below:
+
+* **Check the sign convention.** JuMP's `dual` follows its own convention,
+  "independent of the objective sense"
+  ([JuMP: solutions](https://jump.dev/JuMP.jl/stable/manual/solutions/)).
+  In a minimization it gives the rule of unit 38's section "Multipliers are
+  sensitivities": the dual of an equality is `d(cost*) / d(rhs)`, here the
+  price. `shadow_price` answers another question: its docstring defines it
+  as the change in the objective from an infinitesimal **relaxation** of
+  the constraint. Relaxing a constraint can only lower a minimum, so in a
+  minimization it is never positive. For `Σ p_g = D` the side that binds is
+  `Σ p_g ≥ D`, whose relaxation lowers `D`, so `shadow_price` is minus the
+  price. The safest check is the definition itself: solve with `D + 1` and
+  compare costs.
+* **At a breakpoint the price is not unique.** When the demand equals the
+  total capacity of the cheapest units exactly, one more megawatt comes
+  from the next unit and one less saves the last full one's cost: the cost
+  function `cost*(D)` has a kink, its left and right slopes differ, and
+  any `λ` between them is a valid dual. The solver returns one of them.
+'''
+
+  [[section.example]]
+  caption = "The dual of the demand constraint and the cost change from one more megawatt, at three demands; then the breakpoint `D = 500` (the two cheapest units exactly full), with both one-sided differences."
+  notice = "Notice that away from breakpoints the dual equals the cost of the marginal unit and the measured change, and that `shadow_price` has the opposite sign: it is the cost change from relaxing the binding side, one megawatt less demand. At `D = 500` the left slope is 25 and the right slope 40, and the solver's dual is one of the two."
+  code = '''
+using JuMP, HiGHS
+cost = [12.0, 25.0, 40.0, 90.0]
+cap = [300.0, 200.0, 250.0, 150.0]
+function dispatch(D)
+    m = Model(HiGHS.Optimizer)
+    set_silent(m)
+    @variable(m, 0 <= p[g in 1:4] <= cap[g])
+    @constraint(m, balance, sum(p) == D)
+    @objective(m, Min, sum(cost[g] * p[g] for g in 1:4))
+    optimize!(m)
+    @assert termination_status(m) == OPTIMAL
+    return objective_value(m), dual(balance), shadow_price(balance)
+end
+for D in (250.0, 600.0, 800.0)
+    c, λ, sp = dispatch(D)
+    println("D = ", D, ": dual ", λ, ", shadow_price ", sp, ", cost(D + 1) - cost(D) = ", dispatch(D + 1)[1] - c)
+end
+c, λ, _ = dispatch(500.0)
+println("D = 500: left slope ", c - dispatch(499.0)[1], ", right slope ", dispatch(501.0)[1] - c,
+        ", dual is one of them: ", λ in (25.0, 40.0))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "At demand 600 MW the dual of the balance constraint is 40 €/MWh, yet the average cost of the schedule is 21 €/MWh. Which number is the price at which one more megawatt can be supplied?"
+  choices = [
+    "21 €/MWh, the total cost divided by the demand",
+    "40 €/MWh, the cost of the marginal unit",
+    "12 €/MWh, the cost of the cheapest unit",
+    "90 €/MWh, the cost of the dearest unit",
+  ]
+  answer = 2
+  explain = "One more megawatt is produced by the unit running partly, the 40 €/MWh one, so the total cost rises by 40: that is `d(cost*)/dD`, the dual. The average mixes in the cheap units, which are already full and cannot supply the extra megawatt."
+  misconceptions = [
+    "The average answers what the whole schedule costs per MWh; the extra megawatt cannot come from the cheap units, which are already at capacity.",
+    "",
+    "The cheapest unit is already at its 300 MW capacity, so it cannot produce the extra megawatt.",
+    "The 90 €/MWh unit is off; it would set the price only once demand exceeds the first three units' 750 MW.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A test asserts that `dual(balance)` equals the marginal unit's cost for random whole-megawatt demands drawn from `0:900`. Why can it fail even though the model is right?"
+  choices = [
+    "HiGHS duals are only approximate, so a tolerance below 1 is too tight",
+    "The dual changes sign between two runs of HiGHS",
+    "At a breakpoint, every value between two costs is a valid dual",
+  ]
+  answer = 3
+  explain = "At a capacity breakpoint the optimal cost has a kink, the left and right derivatives differ, and the set of optimal duals is the interval between them. The breakpoints here are whole numbers (300, 500, 750), so each draw hits one with probability 3/901, and a test with a thousand draws meets one with probability about 0.96; a correct test excludes them or accepts the interval."
+  misconceptions = [
+    "For an LP the simplex method returns duals that are exact up to rounding (here the costs exactly); the issue is that more than one dual is correct at a kink.",
+    "HiGHS is deterministic: the same model gives the same dual. The sign depends on JuMP's convention, which is fixed, not on the run.",
+    "",
+  ]
+
+[[section]]
+title = "Two buses and a congested line: locational prices"
+body = '''
+Put the generators on two buses joined by a transmission line with a limit
+`F` on its flow `f`. Each bus has its own balance constraint, so its own
+dual:
+
+    bus A:  p_1 + p_2 - f = D_A
+    bus B:  p_3 + p_4 + f = D_B,      -F ≤ f ≤ F
+
+While the line is below its limit the two buses act as one market and
+their duals are equal. When the cheap power at A would need more than `F`
+to reach B, the line limit binds, the two duals separate, and each bus's
+dual is the cost of one more megawatt **there**: the **locational marginal
+price** (LMP), "the price of supplying one more kWh at a specific grid
+node" in the words of the [LMP article](https://en.wikipedia.org/wiki/Locational_marginal_pricing),
+where "Prices on either side of the constraint separate". The difference
+between the two prices is the dual of the line limit, the value of one more
+megawatt of transmission capacity.
+'''
+
+  [[section.example]]
+  caption = "Units 1 and 2 at bus A, 3 and 4 at bus B; 100 MW of demand at A and 450 MW at B; a line limit of 150 MW. The duals of the two bus balances and of the line limit, each checked by moving its right-hand side by one megawatt."
+  notice = "Notice that the line is full (150 MW), that bus A's price is 12 €/MWh (its marginal unit is the cheapest one, partly used) while bus B's is 90 €/MWh, and that the line limit's dual has magnitude 78, the price difference: one more megawatt of line capacity would replace a 90 €/MWh megawatt at B by a 12 €/MWh one from A."
+  code = '''
+using JuMP, HiGHS
+cost = [12.0, 25.0, 40.0, 90.0]
+cap = [300.0, 200.0, 250.0, 150.0]
+function two_bus(DA, DB, F)
+    m = Model(HiGHS.Optimizer)
+    set_silent(m)
+    @variable(m, 0 <= p[g in 1:4] <= cap[g])
+    @variable(m, f)
+    @constraint(m, line, -F <= f <= F)
+    @constraint(m, busA, p[1] + p[2] - f == DA)
+    @constraint(m, busB, p[3] + p[4] + f == DB)
+    @objective(m, Min, sum(cost[g] * p[g] for g in 1:4))
+    optimize!(m)
+    @assert termination_status(m) == OPTIMAL
+    return objective_value(m), value.(p), value(f), dual(busA), dual(busB), dual(line)
+end
+c, p, f, λA, λB, μ = two_bus(100.0, 450.0, 150.0)
+println("schedule ", p, ", line flow ", f)
+println("price at A ", λA, " (cost change from 1 MW more at A: ", two_bus(101.0, 450.0, 150.0)[1] - c, ")")
+println("price at B ", λB, " (cost change from 1 MW more at B: ", two_bus(100.0, 451.0, 150.0)[1] - c, ")")
+println("line limit dual ", μ, " (cost change from 1 MW more capacity: ", two_bus(100.0, 450.0, 151.0)[1] - c, ")")
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In the two-bus example, the line limit is raised from 150 MW to 600 MW. What happens to the two prices?"
+  choices = [
+    "They become equal, set by a single marginal unit for the whole system",
+    "They stay at 12 and 90 €/MWh, since the generators did not change",
+    "Both fall to 12 €/MWh, since the cheapest unit can now serve everyone",
+  ]
+  answer = 1
+  explain = "Without a binding line the two buses form one market: 550 MW of demand in merit order fills units 1 and 2 (500 MW) and takes 50 MW from unit 3, so both duals equal 40 €/MWh. The flow is 400 MW, below the new limit."
+  misconceptions = [
+    "",
+    "The prices separate only because the line limit binds; with spare capacity, power flows from A until a single marginal unit serves both buses.",
+    "The cheapest unit has only 300 MW; the system needs 550 MW, so the marginal unit is the 40 €/MWh one, and it sets one price for both buses.",
+  ]
+
+[[problem]]
+id = "cm-node-voltages"
+title = "Node voltages of a resistor network"
+difficulty = "warm-up"
+kcs = ["nodal-analysis"]
+entry = "node_voltages"
+packages = ["StableRNGs"]
+prompt = '''
+Write `node_voltages(n, resistors, injections)` for a DC network of
+resistors with nodes `1:n` and ground `0`. `resistors` is a vector of
+tuples `(i, j, R)`: a resistor of `R` ohms between nodes `i` and `j`
+(either may be `0`). `injections` is a `Vector{Float64}` of length `n`:
+the current (in A) that a source pushes **into** each node. Stamp the
+conductance matrix `G` (nodal analysis) and return the node voltages
+`G \ injections` as a `Vector{Float64}`.
+
+```julia
+node_voltages(1, [(1, 0, 2.0)], [1.0])                    # [2.0]: 1 A through 2 Ω
+node_voltages(2, [(1, 2, 1.0), (2, 0, 2.0)], [1.0, 0.0])  # [3.0, 2.0]
+```
+
+Every case connects every node to ground through some path, so `G` is
+nonsingular, and its condition number is below `1e4`; results are compared
+with `rtol = 1e-10`, a margin of more than a thousand over the solve's error
+bound `κ u ≈ 1e-12` (unit 30). Speed is graded against the reference.
+'''
+starter = '''
+function node_voltages(n, resistors, injections)
+    G = zeros(n, n)
+    for (i, j, R) in resistors
+        i > 0 && (G[i, i] += 1 / R)
+        j > 0 && (G[j, j] += 1 / R)
+    end
+    return G \ injections
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function node_voltages(n, resistors, injections)
+    G = zeros(n, n)
+    for (i, j, R) in resistors
+        g = 1 / R
+        i > 0 && (G[i, i] += g)
+        j > 0 && (G[j, j] += g)
+        if i > 0 && j > 0
+            G[i, j] -= g
+            G[j, i] -= g
+        end
+    end
+    return G \ injections
+end
+'''
+cases = [
+  "1, [(1, 0, 2.0)], [1.0]",
+  "2, [(1, 2, 1.0), (2, 0, 2.0)], [1.0, 0.0]",
+  "3, [(1, 2, 1.0), (2, 3, 1.0), (3, 0, 1.0), (1, 0, 4.0)], [0.0, 2.0, 0.0]",
+  "2, [(0, 1, 1.0), (1, 2, 1.0), (1, 2, 1.0), (2, 0, 1.0)], [1.0, -1.0]",
+]
+gen = "rng -> [(n = rand(rng, 2:12); rs = [[(i, i + 1, 0.5 + 2rand(rng)) for i in 1:n-1]; [(i, 0, 1.0 + 4rand(rng)) for i in 1:n if rand(rng) < 0.5 || i == n]; [(rand(rng, 1:n), rand(rng, 1:n), 1.0 + rand(rng)) for _ in 1:2]]; (n, [r for r in rs if r[1] != r[2]], randn(rng, n))) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "The starter puts each conductance on the diagonal, but a resistor between two nodes also couples them: node `i`'s equation contains `v_j` too.",
+  "For a resistor between nodes `i` and `j` (both nonzero), the current `(v_i - v_j)/R` leaves `i` and enters `j`. Write out which entries of row `i` and row `j` that touches, and with which sign.",
+]
+
+  [problem.perf]
+  args = "n, [[(i, i + 1, 1.0) for i in 1:n-1]; [(i, 0, 10.0) for i in 1:n]], randn(rng, n)"
+  sizes = [200]
+
+  [[problem.variant]]
+  label = "off-diagonal stamps with the wrong sign"
+  code = '''
+function node_voltages(n, resistors, injections)
+    G = zeros(n, n)
+    for (i, j, R) in resistors
+        i > 0 && (G[i, i] += 1 / R)
+        j > 0 && (G[j, j] += 1 / R)
+        i > 0 && j > 0 && (G[i, j] += 1 / R; G[j, i] += 1 / R)
+    end
+    return G \ injections
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "resistances stamped instead of conductances"
+  code = '''
+function node_voltages(n, resistors, injections)
+    G = zeros(n, n)
+    for (i, j, R) in resistors
+        i > 0 && (G[i, i] += R)
+        j > 0 && (G[j, j] += R)
+        i > 0 && j > 0 && (G[i, j] -= R; G[j, i] -= R)
+    end
+    return G \ injections
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "inv(G) * injections (correct here, more work than a solve)"
+  code = '''
+using LinearAlgebra
+function node_voltages(n, resistors, injections)
+    G = zeros(n, n)
+    for (i, j, R) in resistors
+        i > 0 && (G[i, i] += 1 / R)
+        j > 0 && (G[j, j] += 1 / R)
+        i > 0 && j > 0 && (G[i, j] -= 1 / R; G[j, i] -= 1 / R)
+    end
+    return inv(G) * injections
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "the conductance matrix as a Symmetric solve via cholesky"
+  code = '''
+using LinearAlgebra
+function node_voltages(n, resistors, injections)
+    G = zeros(n, n)
+    for (i, j, R) in resistors
+        i > 0 && (G[i, i] += 1 / R)
+        j > 0 && (G[j, j] += 1 / R)
+        i > 0 && j > 0 && (G[i, j] -= 1 / R; G[j, i] -= 1 / R)
+    end
+    return cholesky(Symmetric(G)) \ injections
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "cm-merit-order"
+title = "Merit-order dispatch"
+difficulty = "core"
+kcs = ["economic-dispatch"]
+entry = "merit_order"
+packages = ["StableRNGs"]
+prompt = '''
+Write `merit_order(cost, cap, demand)` for vectors `cost` and `cap`
+(`Vector{Float64}`, one entry per generator, all costs different) and a
+`demand` in MW. Return the cheapest schedule as a `Vector{Float64}` in the
+generators' original order: run the generators from cheapest to dearest,
+each up to its capacity, until the demand is met.
+
+Throw an `ArgumentError` if `demand` is negative or larger than
+`sum(cap)`.
+
+```julia
+merit_order([40.0, 12.0, 25.0], [250.0, 300.0, 200.0], 600.0)   # [100.0, 300.0, 200.0]
+merit_order([40.0, 12.0, 25.0], [250.0, 300.0, 200.0], 0.0)     # [0.0, 0.0, 0.0]
+```
+
+Results are compared with `rtol = 1e-12`: the schedule is a few
+subtractions of the inputs, exact or within a rounding of them. Speed is
+graded against the reference.
+'''
+starter = '''
+function merit_order(cost, cap, demand)
+    p = zeros(length(cost))
+    left = demand
+    for g in eachindex(cost)
+        p[g] = min(cap[g], left)
+        left -= p[g]
+    end
+    return p
+end
+'''
+reference = '''
+function merit_order(cost, cap, demand)
+    0 <= demand <= sum(cap) || throw(ArgumentError("demand $demand is outside [0, total capacity]"))
+    p = zeros(length(cost))
+    left = demand
+    for g in sortperm(cost)
+        p[g] = min(cap[g], left)
+        left -= p[g]
+    end
+    return p
+end
+'''
+cases = [
+  "[40.0, 12.0, 25.0], [250.0, 300.0, 200.0], 600.0",
+  "[40.0, 12.0, 25.0], [250.0, 300.0, 200.0], 0.0",
+  "[40.0, 12.0, 25.0], [250.0, 300.0, 200.0], 750.0",
+  "[40.0, 12.0, 25.0], [250.0, 300.0, 200.0], 751.0",
+  "[5.0], [10.0], -1.0",
+  "[90.0, 12.0, 25.0, 40.0], [150.0, 300.0, 200.0, 250.0], 299.5",
+]
+gen = "rng -> [(n = rand(rng, 1:10); cap = 10 .+ 200rand(rng, n); (100rand(rng, n), cap, sum(cap) * rand(rng))) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "The starter fills the generators in the order they are listed. The merit order is an order by cost.",
+  "`sortperm(cost)` gives the indices from cheapest to dearest; write each unit's output at its own index so the result stays in the original order. Check the demand first.",
+]
+
+  [problem.perf]
+  args = "100rand(rng, n), 10 .+ 200rand(rng, n), 50.0 * n"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "sorted by capacity instead of cost"
+  code = '''
+function merit_order(cost, cap, demand)
+    0 <= demand <= sum(cap) || throw(ArgumentError("demand"))
+    p = zeros(length(cost))
+    left = demand
+    for g in sortperm(cap; rev = true)
+        p[g] = min(cap[g], left)
+        left -= p[g]
+    end
+    return p
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns the schedule in cost order, not the original order"
+  code = '''
+function merit_order(cost, cap, demand)
+    0 <= demand <= sum(cap) || throw(ArgumentError("demand"))
+    p = Float64[]
+    left = demand
+    for g in sortperm(cost)
+        push!(p, min(cap[g], left))
+        left -= p[end]
+    end
+    return p
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "no check on the demand"
+  code = '''
+function merit_order(cost, cap, demand)
+    p = zeros(length(cost))
+    left = demand
+    for g in sortperm(cost)
+        p[g] = min(cap[g], left)
+        left -= p[g]
+    end
+    return p
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "searches for the cheapest unused unit each time (quadratic)"
+  code = '''
+function merit_order(cost, cap, demand)
+    0 <= demand <= sum(cap) || throw(ArgumentError("demand"))
+    p = zeros(length(cost))
+    used = falses(length(cost))
+    left = demand
+    for _ in eachindex(cost)
+        g = 0
+        for h in eachindex(cost)
+            if !used[h] && (g == 0 || cost[h] < cost[g])
+                g = h
+            end
+        end
+        used[g] = true
+        p[g] = min(cap[g], left)
+        left -= p[g]
+    end
+    return p
+end
+'''
+  expect = ["correct", "slow"]
+
+[[problem]]
+id = "cm-market-price"
+title = "Read the market price from a dual"
+difficulty = "core"
+kcs = ["lp-duality-prices"]
+entry = "market_price"
+packages = ["JuMP", "HiGHS"]
+prompt = '''
+Write `market_price(cost, cap, demand)` that builds the economic-dispatch
+LP of this unit in JuMP (variables `0 <= p[g] <= cap[g]`, one constraint
+`sum(p) == demand`, minimize `sum(cost .* p)`), solves it with HiGHS, and
+returns the price of one more megawatt, `d(total cost) / d(demand)`, read
+from the dual of the demand constraint (a `Float64`).
+
+```julia
+market_price([12.0, 25.0, 40.0, 90.0], [300.0, 200.0, 250.0, 150.0], 600.0)   # 40.0
+market_price([12.0, 25.0, 40.0, 90.0], [300.0, 200.0, 250.0, 150.0], 820.0)   # 90.0
+```
+
+Every case has `0 < demand < sum(cap)`, distinct costs, and a demand away
+from the breakpoints (sums of the cheapest capacities), where the dual is
+not unique. Results are compared with `rtol = 1e-9`: the simplex method's
+dual here is a cost from the input, exact up to its feasibility tolerance.
+Make sure of the sign: the price of more demand is positive.
+'''
+starter = '''
+using JuMP, HiGHS
+
+function market_price(cost, cap, demand)
+    m = Model(HiGHS.Optimizer)
+    set_silent(m)
+    @variable(m, 0 <= p[g in eachindex(cost)] <= cap[g])
+    @constraint(m, balance, sum(p) == demand)
+    @objective(m, Min, sum(cost[g] * p[g] for g in eachindex(cost)))
+    optimize!(m)
+    return objective_value(m) / demand
+end
+'''
+reference = '''
+using JuMP, HiGHS
+
+function market_price(cost, cap, demand)
+    m = Model(HiGHS.Optimizer)
+    set_silent(m)
+    @variable(m, 0 <= p[g in eachindex(cost)] <= cap[g])
+    @constraint(m, balance, sum(p) == demand)
+    @objective(m, Min, sum(cost[g] * p[g] for g in eachindex(cost)))
+    optimize!(m)
+    termination_status(m) == OPTIMAL || error("dispatch not solved: ", termination_status(m))
+    return dual(balance)
+end
+'''
+cases = [
+  "[12.0, 25.0, 40.0, 90.0], [300.0, 200.0, 250.0, 150.0], 600.0",
+  "[12.0, 25.0, 40.0, 90.0], [300.0, 200.0, 250.0, 150.0], 820.0",
+  "[12.0, 25.0, 40.0, 90.0], [300.0, 200.0, 250.0, 150.0], 120.0",
+  "[60.0, 15.0, 33.0], [50.0, 80.0, 70.0], 100.0",
+]
+gen = "rng -> [(n = rand(rng, 2:8); cap = 10 .+ 100rand(rng, n); (10 .+ 90rand(rng, n), cap, sum(cap) * (0.02 + 0.96rand(rng)))) for _ in 1:12]"
+compare = "isapprox"
+rtol = 1e-9
+hints = [
+  "The starter returns the average cost of the schedule. The price of one more megawatt is a derivative, which an LP gives you without re-solving.",
+  "JuMP's `dual` of the named constraint `balance` is the multiplier. Check its sign on the example by solving again with `demand + 1` and comparing objective values.",
+]
+
+  [problem.perf]
+  args = "10 .+ 90rand(rng, n), 10 .+ 100rand(rng, n), 25.0 * n"
+  sizes = [50]
+
+  [[problem.variant]]
+  label = "shadow_price: the opposite sign for this equality"
+  code = '''
+using JuMP, HiGHS
+function market_price(cost, cap, demand)
+    m = Model(HiGHS.Optimizer)
+    set_silent(m)
+    @variable(m, 0 <= p[g in eachindex(cost)] <= cap[g])
+    @constraint(m, balance, sum(p) == demand)
+    @objective(m, Min, sum(cost[g] * p[g] for g in eachindex(cost)))
+    optimize!(m)
+    return shadow_price(balance)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the cost of the dearest running unit, found from the primal solution"
+  code = '''
+using JuMP, HiGHS
+function market_price(cost, cap, demand)
+    m = Model(HiGHS.Optimizer)
+    set_silent(m)
+    @variable(m, 0 <= p[g in eachindex(cost)] <= cap[g])
+    @constraint(m, sum(p) == demand)
+    @objective(m, Min, sum(cost[g] * p[g] for g in eachindex(cost)))
+    optimize!(m)
+    return maximum(cost[g] for g in eachindex(cost) if value(p[g]) > 1e-9)
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "the most expensive unit overall"
+  code = '''
+market_price(cost, cap, demand) = maximum(cost)
+'''
+  expect = ["incorrect"]

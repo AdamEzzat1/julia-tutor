@@ -1,8 +1,12 @@
 # Plan: a Scientific ML track (draft for review, 2026-11-09)
 
-Status: proposal. Nothing here is built or run yet. Code below is a sketch of
-what a lesson will show; every example is recorded and verified in the
-sandbox container before it ships, like the rest of the course.
+Status (2026-11-10): built, with changes from this draft. The track is now the
+sixth, after `scicomp` (docs/SCICOMP_PLAN.md), and requires it. Units 30 and
+31 below moved into scicomp as 34 and 35; units 32 to 37 shipped as 43 to 48.
+Review changed one claim: unit 45 no longer says a UDE extrapolates where a
+pure network does not. Over 16 training seeds the UDE won 9, and the
+lower-loss model won 13, so the unit reports that experiment instead. The
+text below is the original plan, kept for its reasoning.
 
 ## Why this track
 

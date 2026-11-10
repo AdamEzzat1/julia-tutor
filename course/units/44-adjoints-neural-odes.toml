@@ -1,0 +1,830 @@
+id = "44-adjoints-neural-odes"
+title = "Adjoints and neural ODEs"
+track = "sciml"
+env = "sciml"
+status = "ready"
+summary = "Reverse mode through an ODE solver: the discrete adjoint of N Euler steps written by hand and checked against ForwardDiff, why its cost does not grow with the number of parameters, SciMLSensitivity's continuous adjoint (`GaussAdjoint` with `ZygoteVJP`) checked against forward mode, and a Lux network with explicit, Float64 `ComponentArray` parameters as the whole right-hand side of a neural ODE."
+kcs = ["adjoint-method", "reverse-mode", "neural-ode", "sensealg"]
+prerequisites = ["23-derivatives", "26-machine-learning", "43-sensitivities"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit computes the same gradients as unit 43 in reverse, then puts a
+neural network inside the ODE. It relies on these facts:
+
+* **Forward sensitivities cost grows with the parameters** (unit 43,
+  "Forward sensitivities by hand" and "What forward sensitivities cost as
+  parameters grow"): the augmented system has `n + n m` states, one column
+  of `S` per parameter.
+* **`sensealg` is always explicit, and every gradient is checked a second
+  way** (unit 43, "Gradients through solve: SciMLSensitivity and an explicit
+  sensealg"): `ForwardDiffSensitivity()` for few parameters, cross-checked
+  by ForwardDiff or finite differences.
+* **Reverse mode costs a few evaluations whatever the number of inputs**
+  (unit 23, "The cost of forward mode, and reverse mode"), and Zygote cannot
+  differentiate code that mutates arrays (unit 26, "Gradients with Zygote").
+* **Lux keeps parameters outside the model** (unit 26, "Where to go next"):
+  `ps, st = Lux.setup(rng, model)` and `model(x, ps, st)` returns a pair
+  `(output, new_state)`. Unit 26 also explained why networks default to
+  `Float32` ("Arrays as the data model: features by batch, Float32").
+'''
+
+[[section]]
+title = "Reverse mode through N Euler steps, by hand"
+body = '''
+Take the simplest solver, forward Euler with a fixed step `h`:
+
+    u_{k+1} = u_k + h f(u_k, p),   k = 0, ..., N-1
+
+and a loss of the final state, `L = g(u_N)`. Forward mode pushes the
+sensitivity `S_k = ∂u_k/∂p` (an `n × m` matrix) forward through every step.
+Reverse mode instead pulls one vector backward. Define the **adjoint**
+`λ_k = ∂L/∂u_k` (a vector of length `n`). At the end, `λ_N = ∇g(u_N)`, and the
+chain rule through one step gives
+
+    λ_k = λ_{k+1} + h J_kᵀ λ_{k+1},        J_k = ∂f/∂u at (u_k, p)
+    ∂L/∂p += h F_kᵀ λ_{k+1},               F_k = ∂f/∂p at (u_k, p)
+
+for `k = N-1` down to `0`. Each backward step needs `u_k`, so the forward
+pass stores the trajectory (`N + 1` states). The products `Jᵀλ` and `Fᵀλ`
+are **vector-Jacobian products** (VJPs): the backward pass needs these
+products, never the full Jacobians, which is what lets AD tools compute
+them cheaply for large `f`.
+
+The result is the exact gradient of the Euler arithmetic, so it must agree
+with ForwardDiff run through the same loop to rounding error, not to a
+solver tolerance. That makes ForwardDiff a sharp check of a hand-written
+adjoint.
+'''
+
+  [[section.example]]
+  caption = "The discrete adjoint of 200 Euler steps of Lotka-Volterra, for `L = ‖u_N - target‖² / 2`, against ForwardDiff through the same loop."
+  notice = "Notice the agreement to better than `1e-13` relative, near machine precision: both differentiate the same arithmetic, so only rounding separates them."
+  code = '''
+using ForwardDiff, LinearAlgebra
+f(u, p) = [p[1] * u[1] - p[2] * u[1] * u[2], p[4] * u[1] * u[2] - p[3] * u[2]]
+J(u, p) = [p[1]-p[2]*u[2] -p[2]*u[1]; p[4]*u[2] p[4]*u[1]-p[3]]          # ∂f/∂u
+F(u, p) = [u[1] -u[1]*u[2] 0 0; 0 0 -u[2] u[1]*u[2]]                     # ∂f/∂p
+function euler_loss(p, u0, target, h, N)
+    u = u0
+    for k in 1:N
+        u = u + h * f(u, p)
+    end
+    return sum(abs2, u - target) / 2
+end
+function euler_adjoint(p, u0, target, h, N)
+    us = [u0]
+    for k in 1:N                                   # forward pass, keeping every state
+        push!(us, us[end] + h * f(us[end], p))
+    end
+    λ = us[end] - target                           # ∇g(u_N)
+    grad = zeros(length(p))
+    for k in N:-1:1                                # us[k] is u_{k-1}
+        grad += h * F(us[k], p)' * λ
+        λ = λ + h * J(us[k], p)' * λ
+    end
+    return grad
+end
+p, u0, target = [1.5, 1.0, 3.0, 1.0], [1.0, 1.0], [2.0, 0.5]
+g_adj = euler_adjoint(p, u0, target, 0.01, 200)
+g_fwd = ForwardDiff.gradient(q -> euler_loss(q, u0, target, 0.01, 200), p)
+println("adjoint gradient ≈ ", round.(g_adj; sigdigits = 4))
+println("agrees with ForwardDiff to 1e-13: ", norm(g_adj - g_fwd) / norm(g_fwd) < 1e-13)
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "One Euler step of `du/dt = a u` with `h = 0.1` from `u0 = 2`, and the loss `L = u_1`. What gradient `∂L/∂a` does the backward pass give?"
+  code = '''
+a, h, u0 = -1.0, 0.1, 2.0
+λ = 1.0                          # ∂L/∂u_1
+F = u0                           # ∂f/∂a at u_0
+grad = h * F * λ
+grad
+'''
+  choices = ["0.2", "-0.2", "1.8", "0.1"]
+  answer = 1
+  explain = "`u_1 = u_0 + h a u_0`, so `∂u_1/∂a = h u_0 = 0.2`: the parameter's derivative uses the state where the step started. The sign of `a` does not enter this derivative, only `u_0` and `h`."
+  misconceptions = [
+    "",
+    "`a` multiplies `u_0` in the step, but differentiating with respect to `a` removes it: `∂(h a u_0)/∂a = h u_0`, positive.",
+    "1.8 is the value `u_1 = 2 + 0.1 × (-1) × 2`, not its derivative.",
+    "That is `h` alone; the step's derivative with respect to `a` is scaled by the state `u_0 = 2`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does the backward pass need the states `u_k` stored by the forward pass?"
+  choices = [
+    "`J_k` and `F_k` are evaluated at `u_k`, and nothing else gives it",
+    "The loss `g` must be recomputed at every step of the backward pass",
+    "The adjoint `λ_k` is defined as the difference `u_k - target`",
+  ]
+  answer = 1
+  explain = "The chain rule through step `k` uses the derivatives of `f` at the point where that step started. For a nonlinear `f` those depend on `u_k`, so the trajectory is stored (or recomputed from checkpoints) before the backward sweep."
+  misconceptions = [
+    "",
+    "The loss depends on `u_N` only, and its gradient is used once, to start the sweep at `λ_N`.",
+    "Only `λ_N = u_N - target` has that form (for this loss); earlier `λ_k` come from the backward recursion.",
+  ]
+
+[[section]]
+title = "Why the adjoint's cost does not grow with the parameters"
+body = '''
+Count the work per Euler step, for `n` states and `m` parameters.
+
+* **Forward sensitivities** update `S_{k+1} = S_k + h (J_k S_k + F_k)`: a
+  product of an `n × n` with an `n × m` matrix, about `n² m` multiplications
+  per step, or `m` Jacobian-vector products. The work grows in proportion to
+  `m`.
+* **The adjoint** updates one vector, `λ_k = λ_{k+1} + h J_kᵀ λ_{k+1}`, and
+  adds `h F_kᵀ λ_{k+1}` to the gradient: `n²` plus `n m` multiplications, or
+  two vector-Jacobian products, per step. The `n m` term only reads `F`; when
+  AD computes the VJP `F_kᵀ λ` directly, its cost is a small multiple of one
+  evaluation of `f`, whatever `m` is.
+
+So forward mode costs about `N m` products and the adjoint about `N`, for a
+scalar loss. The price of the adjoint is memory: it stores `N + 1` states
+(or recomputes them from checkpoints), while forward mode keeps only the
+current `S`. This is reverse mode (unit 23) applied to a time-stepping loop.
+When the loss has many outputs instead (say you need the whole Jacobian of
+all final states), reverse mode needs one sweep per output and the balance
+shifts back: reverse mode is cheaper for few outputs and many parameters,
+not always.
+
+The timing below uses `du/dt = A u` with `m = n²` parameters (the entries of
+`A`), where the Jacobians are known in closed form (`J = A`, and
+`F_kᵀ λ = vec(λ u_kᵀ)`), so both methods run as plain matrix code.
+'''
+
+  [[section.example]]
+  caption = "Hand-written forward sensitivities against the hand-written adjoint, 100 Euler steps of `du/dt = A u` with `m = n²` parameters. Timings vary between machines, so the example is recorded, not checked; each row compares the two gradients and counts the states the adjoint stored."
+  notice = "Notice that the forward method's time grows with `m` much faster than the adjoint's, while both give the same gradient."
+  check = false
+  code = '''
+using LinearAlgebra
+function forward_grad(A, u0, N, h)            # carries S = ∂u/∂vec(A), n × n²
+    n = length(u0)
+    u, S = copy(u0), zeros(n, n^2)
+    for k in 1:N
+        F = kron(u', Matrix(1.0I, n, n))      # ∂(A u)/∂vec(A)
+        S = S + h * (A * S + F)
+        u = u + h * (A * u)
+    end
+    return S' * u                              # gradient of ‖u_N‖² / 2
+end
+function adjoint_grad(A, u0, N, h)
+    us = [u0]
+    for k in 1:N
+        push!(us, us[end] + h * (A * us[end]))
+    end
+    λ, G = copy(us[end]), zeros(size(A))
+    for k in N:-1:1
+        G += h * λ * us[k]'                    # F_kᵀ λ, written as a matrix
+        λ = λ + h * (A' * λ)
+    end
+    return vec(G), length(us)
+end
+for n in (4, 8, 16, 32)
+    A = -I + 0.1 * [sin(i + 2j) for i in 1:n, j in 1:n]
+    u0 = ones(n)
+    gf, (ga, stored) = forward_grad(A, u0, 100, 0.01), adjoint_grad(A, u0, 100, 0.01)
+    tf = minimum(@elapsed(forward_grad(A, u0, 100, 0.01)) for _ in 1:5)
+    ta = minimum(@elapsed(adjoint_grad(A, u0, 100, 0.01)) for _ in 1:5)
+    println("n = ", lpad(n, 2), ", m = ", lpad(n^2, 4), ": same gradient ", norm(gf - ga) < 1e-10 * norm(ga),
+            ", forward / adjoint time ≈ ", round(Int, tf / ta), ", states stored by the adjoint: ", stored)
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A colleague says reverse mode is always the cheaper way to differentiate an ODE solve. For which task is that wrong?"
+  choices = [
+    "The gradient of a scalar loss with respect to 10,000 network weights",
+    "The full 500 × 3 Jacobian of 500 saved outputs in 3 rate constants",
+    "The gradient of a scalar loss with respect to 200 rate constants",
+  ]
+  answer = 2
+  explain = "Reverse mode costs one backward sweep per output, forward mode one direction per input. With 500 outputs and 3 rate constants, forward mode needs 3 directions and reverse mode 500 sweeps; a scalar loss reverses the balance."
+  misconceptions = [
+    "One output and many parameters is the case reverse mode is built for: one backward sweep gives all 10,000 derivatives.",
+    "",
+    "200 parameters and one output still favour the adjoint; the sensitivity guide puts the switch near 100 parameters.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "What does the discrete adjoint of N Euler steps keep in memory that forward sensitivities do not?"
+  choices = [
+    "The full `n × m` sensitivity matrix at every step",
+    "The `N + 1` states of the forward trajectory",
+    "One Jacobian `J_k` per parameter and per step",
+  ]
+  answer = 2
+  explain = "The backward sweep evaluates derivatives at each `u_k`, so the forward states are stored (or recomputed from checkpoints). Forward sensitivities keep only the current `S`, overwriting it at every step."
+  misconceptions = [
+    "That is what forward mode carries, and only the current one; the adjoint never forms `S`.",
+    "",
+    "`J_k` does not depend on which parameter you differentiate by, and the adjoint only needs products with it, computed on the fly.",
+  ]
+
+[[section]]
+title = "Continuous adjoints in SciMLSensitivity"
+body = '''
+An adaptive solver changes its steps with `p`, so differentiating its
+arithmetic step by step is awkward. SciMLSensitivity's adjoint methods work
+with the ODE instead: the adjoint `λ(t)` of the exact solution obeys its own
+ODE backward in time,
+
+    dλ/dt = -J(t)ᵀ λ,
+
+with jumps at the data times, and the gradient is an integral of
+`F(t)ᵀ λ(t)` over the time span. This is the continuous version of the
+recursion in the previous sections (let `h → 0`). Solving it with a second
+adaptive solve is called **optimize-then-discretize**; differentiating the
+solver's own steps (ForwardDiff through `Tsit5`, or the Euler adjoint above)
+is **discretize-then-optimize**. The two give the gradient of slightly
+different things, so they agree to the solver tolerance, not to rounding.
+
+`GaussAdjoint` is the method the
+[sensitivity guide](https://docs.sciml.ai/SciMLSensitivity/stable/manual/differential_equation_sensitivities/)
+recommends as the general adjoint ("should be generally preferred");
+`QuadratureAdjoint` and `InterpolatingAdjoint` trade memory and compute
+differently. Each needs the vector-Jacobian products `J(t)ᵀ λ` and
+`F(t)ᵀ λ`, and `autojacvec` says which AD tool computes them.
+`ZygoteVJP()` uses Zygote, which needs an **out-of-place** right-hand side
+`f(u, p, t)` that does not mutate arrays (the guide recommends `EnzymeVJP`
+first when it applies; Enzyme is not part of this course's examples).
+'''
+
+  [[section.example]]
+  caption = "A Lotka-Volterra loss differentiated with `GaussAdjoint(autojacvec = ZygoteVJP())` and checked against ForwardDiff through `Tsit5`, at two tolerances."
+  notice = "Notice that the agreement improves with the tolerance: below `1e-4` relative at `tol = 1e-6`, below `1e-9` at `1e-10`. The two gradients differentiate the exact and the discretised solution, which differ by the solver error."
+  code = '''
+using OrdinaryDiffEq, SciMLSensitivity, ForwardDiff, Zygote, LinearAlgebra
+lv(u, p, t) = [p[1] * u[1] - p[2] * u[1] * u[2], p[4] * u[1] * u[2] - p[3] * u[2]]   # out of place, no mutation
+p = [1.5, 1.0, 3.0, 1.0]
+prob = ODEProblem(lv, [1.0, 1.0], (0.0, 2.0), p)
+ts = 0.0:0.1:2.0
+data = Array(solve(prob, Tsit5(); saveat = ts, abstol = 1e-12, reltol = 1e-12)) .+ 0.1
+loss(q, tol, sa) = sum(abs2, Array(solve(remake(prob; p = q), Tsit5(); saveat = ts, abstol = tol, reltol = tol, sensealg = sa)) .- data)
+for tol in (1e-6, 1e-10)
+    g_adj = Zygote.gradient(q -> loss(q, tol, GaussAdjoint(autojacvec = ZygoteVJP())), p)[1]
+    g_fwd = ForwardDiff.gradient(q -> loss(q, tol, ForwardDiffSensitivity()), p)
+    rel = norm(g_adj - g_fwd) / norm(g_fwd)
+    bound = tol == 1e-6 ? 1e-4 : 1e-9
+    println("tol = ", tol, ": relative difference below ", bound, ": ", rel < bound)
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "At `abstol = reltol = 1e-6`, `GaussAdjoint` and ForwardDiff gradients of the same loss differ in the fifth digit. What does that tell you?"
+  choices = [
+    "One of the two methods has a bug, since gradients should match to rounding",
+    "They differentiate the exact and the discretised solution",
+    "ForwardDiff is inaccurate at loose tolerances, and the adjoint is the correct one",
+  ]
+  answer = 2
+  explain = "The adjoint solves a backward ODE for the exact solution's gradient; ForwardDiff differentiates the solver's steps. Each is right for what it computes, and the gap shrinks with the tolerance, as the example shows. A real bug shows up as a gap that does not shrink."
+  misconceptions = [
+    "Matching to rounding is expected between two discretize-then-optimize methods (like the Euler adjoint and ForwardDiff); a continuous adjoint matches only to the solver tolerance.",
+    "",
+    "ForwardDiff gives the exact derivative of the computed solution; neither gradient is the exact one of the true solution at `1e-6`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does the example write `lv(u, p, t)` out of place when `GaussAdjoint` uses `ZygoteVJP()`?"
+  choices = [
+    "Adjoint methods accept only scalar right-hand sides, not vectors",
+    "Zygote cannot differentiate code that writes into an array like `du`",
+    "In-place functions are slower than out-of-place ones for two states",
+  ]
+  answer = 2
+  explain = "`ZygoteVJP` asks Zygote for the products `Jᵀλ` and `Fᵀλ`, and Zygote raises an error on `du[1] = ...` (unit 26). For in-place `f!`, the guide suggests `EnzymeVJP` or `ReverseDiffVJP` instead."
+  misconceptions = [
+    "The state here is a vector of two; adjoints work on vector (and matrix) states.",
+    "",
+    "For small systems out-of-place is often fine for speed, but the reason here is Zygote's restriction on mutation.",
+  ]
+
+[[section]]
+title = "A neural network as the whole right-hand side"
+body = '''
+A **neural ODE** replaces the right-hand side by a network:
+`du/dt = NN(u; θ)`. In Chen et al. ("Neural Ordinary Differential Equations",
+NeurIPS 2018, [arXiv:1806.07366](https://arxiv.org/abs/1806.07366)) a
+network parameterizes the derivative of the hidden state, and an ODE solver
+produces the output. Fitting `θ` is the parameter
+fit of unit 43 with many more parameters.
+
+With Lux the pieces are explicit:
+
+* `nn = Chain(Dense(2 => 16, tanh), Dense(16 => 2))` describes the function;
+* `ps, st = Lux.setup(StableRNG(1), nn)` draws the initial weights from a
+  stable generator you pass in (no global RNG) and returns the (empty)
+  state;
+* `f(u, p, t) = first(nn(u, p, st))` is the right-hand side: the model
+  returns `(output, state)`, and `first` keeps the output.
+
+`ps` is a nested `NamedTuple`, and solvers and optimizers want one flat
+vector. `ComponentArray(ps)` from ComponentArrays.jl is a flat vector that
+still answers `ps.layer_1.weight`, so the same object serves Lux and the
+solver.
+
+**The element type trap.** Lux initialises weights as `Float32`, the
+deep-learning default (unit 26). A forward solve with a `Float64` state still
+works, because `Float32` weights times a `Float64` state promote to
+`Float64`. Differentiating does not: with `ForwardDiffSensitivity` the
+solver stops with `TypeNotConstantError`, its check that the output of
+`f` has the type of `u`, which fails once dual numbers of two element
+types meet. Convert once:
+`ps = ComponentArray{Float64}(ps)`. This course uses `Float64` throughout:
+`Float32` carries about 7 digits (`eps(Float32)` is about `1.2e-7`), so
+solver tolerances below that mean nothing in it.
+'''
+
+  [[section.example]]
+  caption = "A Lux network as the right-hand side: parameter count, the Float32 default, and a gradient with `ForwardDiffSensitivity` before and after converting to Float64, checked against a second method, the continuous adjoint `GaussAdjoint(autojacvec = ZygoteVJP())`."
+  notice = "Notice that the forward solve works with Float32 weights but the gradient does not, and that after the conversion the forward-mode and adjoint gradients agree to better than `1e-8` relative, as two methods at solver tolerance `1e-8` should."
+  code = '''
+using OrdinaryDiffEq, SciMLSensitivity, Lux, ComponentArrays, StableRNGs, Zygote, LinearAlgebra, Logging
+nn = Chain(Dense(2 => 16, tanh), Dense(16 => 2))
+ps, st = Lux.setup(StableRNG(1), nn)
+rhs(u, p, t) = first(nn(u, p, st))
+ts = range(0, 1.5; length = 30)
+data = [cos.(2 .* ts)'; sin.(2 .* ts)']                 # a circle, as target
+println("parameters: ", Lux.parameterlength(nn), ", element type: ", eltype(ps.layer_1.weight))
+prob = ODEProblem(rhs, [1.0, 0.0], (0.0, 1.5), ComponentArray(ps))
+loss(p, sa = ForwardDiffSensitivity()) = sum(abs2, Array(solve(remake(prob; p = p), Tsit5(); saveat = ts,
+                                abstol = 1e-8, reltol = 1e-8, sensealg = sa)) .- data)
+with_logger(NullLogger()) do          # silences Lux's warning about mixed Float32/Float64 products
+    println("forward solve with Float32 weights: ", solve(prob, Tsit5()).retcode)
+    try
+        Zygote.gradient(loss, ComponentArray(ps))
+    catch err
+        println("gradient with Float32 weights: ", nameof(typeof(err)))
+    end
+end
+p64 = ComponentArray{Float64}(ps)
+g_zygote = Zygote.gradient(loss, p64)[1]
+g_adj = Zygote.gradient(q -> loss(q, GaussAdjoint(autojacvec = ZygoteVJP())), p64)[1]
+println("gradient with Float64 weights: ", length(g_zygote), " entries, agrees with GaussAdjoint to 1e-8: ",
+        norm(g_zygote - g_adj) / norm(g_adj) < 1e-8)
+println("the gradient keeps the layout: ", size(g_zygote.layer_1.weight))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "How many parameters does this network have?"
+  code = '''
+using Lux
+Lux.parameterlength(Chain(Dense(2 => 16, tanh), Dense(16 => 2)))
+'''
+  choices = ["64", "66", "82", "48"]
+  answer = 3
+  explain = "`Dense(2 => 16)` has a 16 × 2 weight and 16 biases (48), `Dense(16 => 2)` a 2 × 16 weight and 2 biases (34): 82 in all."
+  misconceptions = [
+    "That counts the two weight matrices (32 + 32) and leaves out every bias.",
+    "That adds only the output layer's 2 biases; the hidden layer has 16 biases too.",
+    "",
+    "That is the first layer alone (32 weights and 16 biases); the output layer adds 34 more.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does the example call `ComponentArray{Float64}(ps)` before differentiating?"
+  choices = [
+    "Lux cannot evaluate a network whose weights are Float32 on a Float64 input",
+    "Lux's Float32 weights and the Float64 state give derivatives of mixed types",
+    "ComponentArray stores Float32 values inefficiently, and the conversion saves memory",
+  ]
+  answer = 2
+  explain = "The forward solve works because the products promote to Float64, but under ForwardDiffSensitivity the state's and the parameters' dual numbers differ in element type, and the solver rejects a right-hand side whose output type differs from the state's. One Float64 copy of the parameters avoids it and keeps the tolerances meaningful."
+  misconceptions = [
+    "The example's forward solve succeeds with Float32 weights; the failure appears only when differentiating.",
+    "",
+    "Float64 takes twice the memory of Float32; the conversion is about types matching, not storage.",
+  ]
+
+[[section]]
+title = "Forward and adjoint cost as the parameters grow"
+body = '''
+The operation count in the section on the adjoint's cost says that forward
+mode costs about `m` evaluations of the right-hand side per step and the
+adjoint a small, fixed number of them. For a neural ODE there is a catch:
+widening the network adds parameters **and** makes each evaluation of `f`
+more expensive, so the adjoint's time grows too, in proportion to the cost
+of `f`, while forward mode's grows with `m` times that cost. The
+measurement also shows the constant factors the count leaves out: the
+adjoint solves an extra ODE backward and calls Zygote for every
+vector-Jacobian product, so for small `m` it is slower than forward mode.
+
+The example writes the network by hand (two layers, `tanh`, weights read
+from one flat vector with `reshape(view(...))`), so that changing the width
+`w` does not change any type and nothing is recompiled between widths; the
+parameter count is `m = 5w + 2`. Each row checks that the two gradients
+agree before timing them.
+
+Where the crossover falls depends on the problem, the solver and the
+machine. The sensitivity guide's rule of thumb (forward mode below about 100
+parameters) is a starting point; measure your own model, as here, when the
+gradient is the bottleneck.
+'''
+
+  [[section.example]]
+  caption = "Gradient time with `ForwardDiffSensitivity` (through ForwardDiff) and with `GaussAdjoint(autojacvec = ZygoteVJP())`, for a neural ODE of width `w`. Timings vary between machines, so they are recorded, not checked."
+  notice = "Notice that in this run forward mode wins at 42 parameters and loses at 642: from 42 to 642 parameters its time grows by two orders of magnitude, the adjoint's by less than 3 times (the cost of the wider network itself)."
+  check = false
+  code = '''
+using OrdinaryDiffEq, SciMLSensitivity, ForwardDiff, Zygote, StableRNGs, LinearAlgebra
+function mlp(u, p, w)                          # Dense(2 => w, tanh) then Dense(w => 2), from a flat p
+    W1 = reshape(view(p, 1:2w), w, 2); b1 = view(p, 2w+1:3w)
+    W2 = reshape(view(p, 3w+1:5w), 2, w); b2 = view(p, 5w+1:5w+2)
+    return W2 * tanh.(W1 * u .+ b1) .+ b2
+end
+ts = range(0, 1.5; length = 30)
+data = [cos.(2 .* ts)'; sin.(2 .* ts)']
+for w in (8, 32, 128)
+    p0 = 0.3 .* randn(StableRNG(w), 5w + 2)
+    prob = ODEProblem((u, p, t) -> mlp(u, p, w), [1.0, 0.0], (0.0, 1.5), p0)
+    loss(q, sa) = sum(abs2, Array(solve(remake(prob; p = q), Tsit5(); saveat = ts, abstol = 1e-8, reltol = 1e-8, sensealg = sa)) .- data)
+    fwd() = ForwardDiff.gradient(q -> loss(q, ForwardDiffSensitivity()), p0)
+    adj() = Zygote.gradient(q -> loss(q, GaussAdjoint(autojacvec = ZygoteVJP())), p0)[1]
+    agree = norm(fwd() - adj()) / norm(fwd()) < 1e-6        # both tolerances are 1e-8
+    t_fwd = minimum(@elapsed(fwd()) for _ in 1:3)
+    t_adj = minimum(@elapsed(adj()) for _ in 1:3)
+    println("m = ", lpad(5w + 2, 3), ": agree ", agree, ", forward ", round(1000t_fwd; digits = 1), " ms, adjoint ",
+            round(1000t_adj; digits = 1), " ms")
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In the timing example the adjoint is slower than forward mode at 42 parameters. Which explanation fits?"
+  choices = [
+    "The adjoint's cost grows with `m` too, only more slowly",
+    "Its fixed costs (backward solve, Zygote calls) outweigh a few chunks",
+    "The adjoint computes a less accurate gradient, which takes extra iterations",
+  ]
+  answer = 2
+  explain = "The operation count says nothing about constants. At 42 parameters forward mode needs 4 solves, one per chunk of dual numbers; the adjoint needs the forward solve, a backward solve and a vector-Jacobian product from Zygote at every step. As `m` grows, only the forward side gets more expensive."
+  misconceptions = [
+    "The adjoint's time grows less than 3 times from 42 to 642 parameters, as the network itself gets wider; forward mode's grows a hundredfold.",
+    "",
+    "Both gradients agree to the solver tolerance (checked in each row), and no iteration is involved in computing a gradient.",
+  ]
+
+[[problem]]
+id = "adj-lv-vjp"
+title = "The two vector-Jacobian products of one adjoint step"
+difficulty = "warm-up"
+kcs = ["adjoint-method", "reverse-mode"]
+entry = "lv_vjp"
+packages = ["ForwardDiff"]
+prompt = '''
+For the Lotka-Volterra right-hand side
+
+    f(u, p) = [α x - β x y,  δ x y - γ y],    u = [x, y],  p = [α, β, γ, δ]
+
+write `lv_vjp(u, p, λ)` that returns the tuple `(Jᵀλ, Fᵀλ)`, where
+`J = ∂f/∂u` (2 × 2) and `F = ∂f/∂p` (2 × 4) are evaluated at `(u, p)` and
+`λ` is a vector of length 2. These are the two products each backward step
+of the adjoint needs. Return two `Vector{Float64}`s, of lengths 2 and 4.
+Results are compared with `rtol = 1e-12` (only rounding separates correct
+solutions).
+
+```julia
+lv_vjp([1.0, 2.0], [1.5, 1.0, 3.0, 1.0], [1.0, 0.0])
+# ([-0.5, -1.0], [1.0, -2.0, 0.0, 0.0])
+```
+'''
+starter = '''
+function lv_vjp(u, p, λ)
+    # return (J' * λ, F' * λ)
+end
+'''
+reference = '''
+function lv_vjp(u, p, λ)
+    α, β, γ, δ = p
+    x, y = u
+    J = [α-β*y -β*x; δ*y δ*x-γ]
+    F = [x -x*y 0.0 0.0; 0.0 0.0 -y x*y]
+    return (J' * λ, F' * λ)
+end
+'''
+cases = [
+  "[1.0, 2.0], [1.5, 1.0, 3.0, 1.0], [1.0, 0.0]",
+  "[1.0, 2.0], [1.5, 1.0, 3.0, 1.0], [0.0, 1.0]",
+  "[0.7, 1.3], [1.1, 0.4, 0.4, 0.1], [2.0, -0.5]",
+]
+gen = "rng -> [(0.1 .+ 3rand(rng, 2), 0.1 .+ 2rand(rng, 4), randn(rng, 2)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "Write `J` and `F` as small matrices first: one row per component of `f`, one column per state or parameter you differentiate by.",
+  "The adjoint needs the transposes: `J' * λ` has length 2 and `F' * λ` length 4. Check one entry by hand with `λ = [1, 0]`, which picks out the first row.",
+]
+
+  [problem.perf]
+  args = "rand(rng, 2), rand(rng, 4), randn(rng, 2)"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "J * λ instead of J' * λ"
+  code = '''
+function lv_vjp(u, p, λ)
+    α, β, γ, δ = p
+    x, y = u
+    J = [α-β*y -β*x; δ*y δ*x-γ]
+    F = [x -x*y 0.0 0.0; 0.0 0.0 -y x*y]
+    return (J * λ, F' * λ)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the sign of the γ column dropped"
+  code = '''
+function lv_vjp(u, p, λ)
+    α, β, γ, δ = p
+    x, y = u
+    J = [α-β*y -β*x; δ*y δ*x-γ]
+    F = [x -x*y 0.0 0.0; 0.0 0.0 y x*y]
+    return (J' * λ, F' * λ)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "both products from ForwardDiff Jacobians"
+  code = '''
+using ForwardDiff
+f(u, p) = [p[1] * u[1] - p[2] * u[1] * u[2], p[4] * u[1] * u[2] - p[3] * u[2]]
+lv_vjp(u, p, λ) = (ForwardDiff.jacobian(v -> f(v, p), u)' * λ, ForwardDiff.jacobian(q -> f(u, q), p)' * λ)
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "adj-euler-gradient"
+title = "The adjoint of N Euler steps"
+difficulty = "core"
+kcs = ["adjoint-method", "reverse-mode"]
+entry = "euler_adjoint_gradient"
+packages = ["ForwardDiff"]
+prompt = '''
+Write `euler_adjoint_gradient(p, u0, target, h, N)` that returns the
+gradient with respect to `p` (a `Vector{Float64}` of length 4) of
+
+    L(p) = ‖u_N - target‖² / 2,    u_{k+1} = u_k + h f(u_k, p),
+
+for `N` forward-Euler steps of the Lotka-Volterra model
+`f(u, p) = [α x - β x y, δ x y - γ y]` from `u0`, with `p = [α, β, γ, δ]`.
+
+Compute it with the discrete adjoint from the section "Reverse mode through
+N Euler steps, by hand": a forward pass that stores the states, then a
+backward pass over `λ`. The grader measures time at `N = 200` and `N = 1600`:
+an adjoint whose cost grows faster than `N` will be flagged.
+
+Results are compared with `rtol = 1e-10`. A correct adjoint and ForwardDiff
+through the same loop agree to better than `1e-13` relative (checked in the
+unit's first example); the margin allows for rounding over a few thousand steps.
+
+```julia
+euler_adjoint_gradient([1.5, 1.0, 3.0, 1.0], [1.0, 1.0], [2.0, 0.5], 0.01, 200)
+```
+'''
+starter = '''
+function euler_adjoint_gradient(p, u0, target, h, N)
+    # forward pass storing u_0 ... u_N, then the backward recursion for λ
+end
+'''
+reference = '''
+function euler_adjoint_gradient(p, u0, target, h, N)
+    α, β, γ, δ = p
+    f(u) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+    us = Vector{Vector{Float64}}(undef, N + 1)
+    us[1] = u0
+    for k in 1:N
+        us[k+1] = us[k] + h * f(us[k])
+    end
+    λ = us[N+1] - target
+    grad = zeros(4)
+    for k in N:-1:1
+        x, y = us[k]
+        grad .+= h .* [x * λ[1], -x * y * λ[1], -y * λ[2], x * y * λ[2]]           # Fᵀλ
+        λ = λ + h * [(α - β * y) * λ[1] + δ * y * λ[2], -β * x * λ[1] + (δ * x - γ) * λ[2]]   # Jᵀλ
+    end
+    return grad
+end
+'''
+cases = [
+  "[1.5, 1.0, 3.0, 1.0], [1.0, 1.0], [2.0, 0.5], 0.01, 200",
+  "[1.1, 0.4, 0.4, 0.1], [10.0, 5.0], [8.0, 6.0], 0.02, 100",
+  "[1.5, 1.0, 3.0, 1.0], [1.0, 1.0], [1.0, 1.0], 0.1, 1",
+]
+gen = "rng -> [(0.3 .+ 1.5rand(rng, 4), 0.5 .+ 2rand(rng, 2), 0.5 .+ 2rand(rng, 2), 0.005 + 0.01rand(rng), rand(rng, 1:300)) for _ in 1:12]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Each backward step uses the state where the forward step started, and `λ` from the step after it: accumulate the parameter gradient before you update `λ`.",
+  "In the update for `λ` the Jacobian appears transposed: the entry of `Jᵀλ` for `x` collects the `x`-derivatives of both equations.",
+]
+
+  [problem.perf]
+  args = "[1.5, 1.0, 3.0, 1.0], [1.0, 1.0], [2.0, 0.5], 1.0 / n, n"
+  sizes = [200, 1600]
+
+  [[problem.variant]]
+  label = "updates λ before adding Fᵀλ (uses λ_k instead of λ_{k+1})"
+  code = '''
+function euler_adjoint_gradient(p, u0, target, h, N)
+    α, β, γ, δ = p
+    f(u) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+    us = [u0]
+    for k in 1:N
+        push!(us, us[end] + h * f(us[end]))
+    end
+    λ = us[end] - target
+    grad = zeros(4)
+    for k in N:-1:1
+        x, y = us[k]
+        λ = λ + h * [(α - β * y) * λ[1] + δ * y * λ[2], -β * x * λ[1] + (δ * x - γ) * λ[2]]
+        grad .+= h .* [x * λ[1], -x * y * λ[1], -y * λ[2], x * y * λ[2]]
+    end
+    return grad
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "J λ instead of Jᵀλ in the backward update"
+  code = '''
+function euler_adjoint_gradient(p, u0, target, h, N)
+    α, β, γ, δ = p
+    f(u) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+    us = [u0]
+    for k in 1:N
+        push!(us, us[end] + h * f(us[end]))
+    end
+    λ = us[end] - target
+    grad = zeros(4)
+    for k in N:-1:1
+        x, y = us[k]
+        J = [α-β*y -β*x; δ*y δ*x-γ]
+        grad .+= h .* [x * λ[1], -x * y * λ[1], -y * λ[2], x * y * λ[2]]
+        λ = λ + h * (J * λ)
+    end
+    return grad
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "ForwardDiff through the Euler loop"
+  code = '''
+using ForwardDiff
+function euler_adjoint_gradient(p, u0, target, h, N)
+    function loss(q)
+        u = u0
+        for k in 1:N
+            u = u + h * [q[1] * u[1] - q[2] * u[1] * u[2], q[4] * u[1] * u[2] - q[3] * u[2]]
+        end
+        return sum(abs2, u - target) / 2
+    end
+    return ForwardDiff.gradient(loss, p)
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "stores nothing: recomputes u_k from u_0 at every backward step (N² work)"
+  code = '''
+function euler_adjoint_gradient(p, u0, target, h, N)
+    α, β, γ, δ = p
+    f(u) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+    function state(k)
+        u = u0
+        for _ in 1:k
+            u = u + h * f(u)
+        end
+        return u
+    end
+    λ = state(N) - target
+    grad = zeros(4)
+    for k in N:-1:1
+        x, y = state(k - 1)
+        grad .+= h .* [x * λ[1], -x * y * λ[1], -y * λ[2], x * y * λ[2]]
+        λ = λ + h * [(α - β * y) * λ[1] + δ * y * λ[2], -β * x * λ[1] + (δ * x - γ) * λ[2]]
+    end
+    return grad
+end
+'''
+  expect = ["correct", "scaling"]
+
+[[problem]]
+id = "adj-node-rhs"
+title = "A neural-ODE right-hand side from given weights"
+difficulty = "core"
+kcs = ["neural-ode"]
+entry = "node_rhs"
+packages = ["Lux", "ComponentArrays", "StableRNGs"]
+prompt = '''
+A neural ODE uses `Chain(Dense(2 => w, tanh), Dense(w => 2))` as its whole
+right-hand side. Write `node_rhs(u, ps)` that computes the network's output
+for the state `u` (a `Vector{Float64}` of length 2) **without calling Lux**,
+from the parameters `ps` (a `ComponentArray` with the layout `Lux.setup`
+gives: `ps.layer_1.weight` is `w × 2`, `ps.layer_1.bias` has length `w`,
+`ps.layer_2.weight` is `2 × w`, `ps.layer_2.bias` has length 2). Return a
+`Vector{Float64}` of length 2.
+
+A `Dense(in => out, σ)` layer computes `σ.(W * x .+ b)`; without an
+activation, `σ = identity`. The grader builds the parameters with
+`ComponentArray{Float64}(first(Lux.setup(StableRNG(seed), model)))` and
+compares with `rtol = 1e-12` (the same arithmetic in another order
+changes only the last bits).
+
+```julia
+using Lux, ComponentArrays, StableRNGs
+ps = ComponentArray{Float64}(first(Lux.setup(StableRNG(1), Chain(Dense(2 => 8, tanh), Dense(8 => 2)))))
+node_rhs([2.0, 0.0], ps)
+```
+'''
+starter = '''
+function node_rhs(u, ps)
+    # hidden layer, then output layer, as Lux's Dense computes them
+end
+'''
+reference = '''
+using Lux, ComponentArrays, StableRNGs   # for the displayed sample calls
+
+function node_rhs(u, ps)
+    l1, l2 = ps.layer_1, ps.layer_2
+    hidden = tanh.(l1.weight * u .+ l1.bias)
+    return l2.weight * hidden .+ l2.bias
+end
+'''
+cases = [
+  "[2.0, 0.0], ComponentArray{Float64}(first(Lux.setup(StableRNG(1), Chain(Dense(2 => 8, tanh), Dense(8 => 2)))))",
+  "[0.0, 0.0], ComponentArray{Float64}(first(Lux.setup(StableRNG(2), Chain(Dense(2 => 8, tanh), Dense(8 => 2)))))",
+  "[-1.5, 0.7], ComponentArray{Float64}(first(Lux.setup(StableRNG(3), Chain(Dense(2 => 16, tanh), Dense(16 => 2)))))",
+]
+gen = "rng -> [(w = rand(rng, 2:20); (randn(rng, 2), ComponentArray{Float64}(first(Lux.setup(StableRNG(rand(rng, 1:10^6)), Chain(Dense(2 => w, tanh), Dense(w => 2))))))) for _ in 1:8]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "Two affine maps with `tanh` between them: the first layer has the activation, the second does not.",
+  "The bias of each layer is added before that layer's activation, and `ps.layer_1.weight * u` has length `w`.",
+]
+
+  [problem.perf]
+  args = "randn(rng, 2), ComponentArray{Float64}(first(Lux.setup(StableRNG(1), Chain(Dense(2 => n, tanh), Dense(n => 2)))))"
+  sizes = [64]
+
+  [[problem.variant]]
+  label = "tanh on the output layer too"
+  code = '''
+function node_rhs(u, ps)
+    hidden = tanh.(ps.layer_1.weight * u .+ ps.layer_1.bias)
+    return tanh.(ps.layer_2.weight * hidden .+ ps.layer_2.bias)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "adds the hidden bias after tanh"
+  code = '''
+function node_rhs(u, ps)
+    hidden = tanh.(ps.layer_1.weight * u) .+ ps.layer_1.bias
+    return ps.layer_2.weight * hidden .+ ps.layer_2.bias
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "forgets the output bias"
+  code = '''
+function node_rhs(u, ps)
+    hidden = tanh.(ps.layer_1.weight * u .+ ps.layer_1.bias)
+    return ps.layer_2.weight * hidden
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "loops over the hidden units"
+  code = '''
+function node_rhs(u, ps)
+    W1, b1, W2, b2 = ps.layer_1.weight, ps.layer_1.bias, ps.layer_2.weight, ps.layer_2.bias
+    out = copy(b2)
+    for j in eachindex(b1)
+        a = tanh(W1[j, 1] * u[1] + W1[j, 2] * u[2] + b1[j])
+        out[1] += W2[1, j] * a
+        out[2] += W2[2, j] * a
+    end
+    return out
+end
+'''
+  expect = ["correct"]

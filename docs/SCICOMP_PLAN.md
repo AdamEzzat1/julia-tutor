@@ -1,7 +1,8 @@
 # Plan: a Scientific computing track (2026-11-09)
 
-Status: approved for drafting. Nothing below is recorded in the container
-yet; every example is recorded and verified there before it ships.
+Status (2026-11-10): units 30 to 42 drafted, independently reviewed, fixed
+and verified on a Windows host. Docker was down, so the container recording
+and verify run in CI.
 
 ## Why, and what it adds
 

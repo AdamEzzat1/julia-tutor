@@ -1,0 +1,771 @@
+id = "30-floating-point"
+title = "Floating point, conditioning and stability"
+track = "scicomp"
+env = "base"
+status = "ready"
+summary = "Why a numerical answer can be wrong and whose fault it is. Every floating-point operation rounds by at most half an `eps`; cancellation is exact but exposes earlier rounding; the condition number measures how much the problem amplifies input errors, and backward error measures how much the algorithm adds. Forward error is at most their product, shown on scalar formulas and on a Hilbert matrix that a backward-stable LU solves to the wrong answer."
+kcs = ["floating-point-rounding", "cancellation", "condition-number", "backward-stability"]
+prerequisites = ["02-numbers", "14-performance", "20-stdlib-tour", "23-derivatives"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit explains where the errors you have already met come from, and how
+to tell a bad problem from a bad algorithm. It relies on four facts:
+
+* **A `Float64` holds about 16 significant digits**, `eps()` is the gap
+  between `1.0` and the next float, and floats are compared with `≈`, not
+  `==` (unit 02, section "Floating point is approximate").
+* **Subtracting nearly equal numbers loses digits**: a finite difference
+  `(f(x + h) - f(x)) / h` gets worse as `h` shrinks, because the rounding in
+  the two values of `f` is divided by `h` (unit 23, section "Three ways to
+  get a derivative").
+* **`A \ b` solves a linear system with an LU factorization**, and BLAS
+  results can differ in the last digits between machines (unit 20, section
+  "LinearAlgebra: matrices and solving systems").
+* **Timings vary and allocations do not**: the problems below are timed
+  against a reference, and examples that print a timing are not checked
+  (unit 14, section "Measuring without fooling yourself").
+
+The words used throughout: the **forward error** is how far the computed
+answer is from the true one; the **backward error** is how much the input
+would have to change for the computed answer to be exact.
+'''
+
+[[section]]
+title = "Every operation rounds, and the errors add up"
+body = '''
+IEEE arithmetic computes each `+`, `-`, `*`, `/` and `sqrt` as if exactly
+and then rounds the result to the nearest float. So every operation has a
+relative error of at most the **unit roundoff** `u = eps() / 2 ≈ 1.1e-16`:
+
+    fl(x + y) = (x + y)(1 + δ),    |δ| <= u
+
+One operation is as accurate as the format allows. The trouble is that a
+computation is many operations, and each one rounds a result that already
+carries error. Two consequences:
+
+* **Floating-point addition is not associative.** `(a + b) + c` and
+  `a + (b + c)` round different intermediate sums, so the order of a sum
+  changes its last digits. That is why a threaded or SIMD sum can differ
+  from a plain loop.
+* **Errors accumulate with the number of operations.** A loop
+  `s += x[i]` over `n` terms rounds `n` times, and its worst-case error
+  grows like `n u` times the sum of `|x[i]|`. When a large partial sum
+  meets a small term, the small term's low digits are rounded away.
+
+Julia's `sum` of an array does not run that loop: it splits the array in
+halves recursively (pairwise summation) and sums blocks of up to 1024
+elements with a loop marked `@simd`
+([base/reduce.jl](https://raw.githubusercontent.com/JuliaLang/julia/v1.10.5/base/reduce.jl),
+`pairwise_blocksize` and `mapreduce_impl`). Pairwise summation's error bound
+grows like `log n` instead of `n`. `@simd` lets the compiler keep several
+partial sums, one per vector lane, and add them at the end, so each block is
+itself split into shorter sums. Both effects shrink the error, and how much
+the lanes help depends on the CPU's vector width, so the exact digits of
+`sum` can differ between machines.
+
+**Compensated (Kahan) summation** goes further: it keeps a second
+variable with the low-order part that each addition lost and feeds it back
+into the next one, so its error bound is about `2u` times `sum(abs, x)`,
+independent of `n` ([Kahan summation](https://en.wikipedia.org/wiki/Kahan_summation_algorithm)).
+The first problem asks for an improved version of it.
+'''
+
+  [[section.example]]
+  caption = "`big(x)` shows the exact value a `Float64` stores; the stored `0.1` is off by less than `u` relative. Addition in two orders gives two different floats."
+  notice = "Notice that the stored 0.1 is slightly above 1/10, and that the two orders of the same three-term sum differ by one float spacing at 0.6, `1.1e-16`."
+  code = '''
+println("stored 0.1:   ", big(0.1))
+println("relative error of 0.1 below u: ", abs(big(0.1) - big(1) / 10) / (big(1) / 10) < eps() / 2)
+println("(0.1 + 0.2) + 0.3 = ", (0.1 + 0.2) + 0.3)
+println("0.1 + (0.2 + 0.3) = ", 0.1 + (0.2 + 0.3))
+'''
+
+  [[section.example]]
+  caption = "Adding `1.0` and then ten thousand terms of `1e-16`, three ways, against the exact sum computed in `BigFloat`. The relative errors are compared rather than printed: `sum`'s digits depend on the CPU's vector width."
+  notice = "Notice that the plain loop returns exactly 1.0: each `1e-16` is below half the spacing of floats near 1 and is rounded away, ten thousand times. Pairwise `sum` (with its `@simd` blocks) loses less, and the compensated loop gets the exact sum to the last digit."
+  code = '''
+x = [1.0; fill(1e-16, 10_000)]
+exact = Float64(sum(big.(x)))
+function loop_sum(x)
+    s = 0.0
+    for v in x
+        s += v
+    end
+    return s
+end
+function kahan_sum(x)
+    s = 0.0; c = 0.0
+    for v in x
+        y = v - c          # the term, corrected by what the last addition lost
+        t = s + y
+        c = (t - s) - y    # what this addition lost (exactly, by algebra on floats)
+        s = t
+    end
+    return s
+end
+relerr(f) = abs(f(x) - exact) / exact
+println("exact sum:  ", exact)
+println("loop returns 1.0:        ", loop_sum(x) == 1.0)
+println("loop error > sum error:  ", relerr(loop_sum) > 10 * relerr(sum))
+println("sum error > Kahan error: ", relerr(sum) > relerr(kahan_sum))
+println("Kahan error:             ", relerr(kahan_sum))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The same three numbers added in two orders. What does this print?"
+  code = '''
+(0.1 + 0.2) + 0.3 - (0.3 + 0.2 + 0.1)
+'''
+  choices = ["0.0", "1.1102230246251565e-16", "5.551115123125783e-17"]
+  answer = 2
+  explain = "`0.1 + 0.2` rounds to `0.30000000000000004`, and adding `0.3` gives the float just above 0.6; `0.3 + 0.2` is exactly the float nearest 0.5, and adding 0.1 gives the float nearest 0.6. The two results are neighbours, one spacing (`eps(0.6) ≈ 1.1e-16`) apart."
+  misconceptions = [
+    "Addition of real numbers is associative, but each floating-point addition rounds its own intermediate result, and the two orders round different numbers.",
+    "",
+    "That is `u` relative to 0.5; the difference of two floats near 0.6 is a multiple of their spacing, `eps(0.6) = 1.1e-16`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A loop `s += x[i]` adds a million positive numbers of similar size. How does the worst-case relative error of `s` behave?"
+  choices = [
+    "It stays below `u`, since each addition is correctly rounded",
+    "It can grow in proportion to the number of terms",
+    "It grows only when some of the terms are negative",
+  ]
+  answer = 2
+  explain = "Each addition contributes a relative error up to `u` on the partial sum, and the partial sums carry those errors forward, so the bound is about `n u` (a million terms: about `1e-10`). Pairwise summation reduces the bound to about `u log2(n)`, and Kahan summation to about `2u`."
+  misconceptions = [
+    "Correct rounding bounds the error of one operation. A million operations each add their own rounding to a result that already carries the earlier ones.",
+    "",
+    "Negative terms can make the relative error far worse (through cancellation), but positive terms alone already accumulate rounding with every addition.",
+  ]
+
+[[section]]
+title = "Cancellation is exact, and exposes earlier errors"
+body = '''
+Subtracting two floats that are close is **exact**: if `y/2 <= x <= 2y`,
+then `x - y` is itself a float, so the rounded result is the true
+difference (the [Sterbenz lemma](https://en.wikipedia.org/wiki/Sterbenz_lemma)).
+Cancellation does not create error. What it does is remove the leading
+digits that the two numbers share, so the digits that remain are the ones
+that already carried their **earlier** rounding errors. If `x` and `y` each
+have a relative error `u` and `x - y` is a thousand times smaller than `x`,
+the difference has a relative error near `1000 u`.
+
+`1 - cos(x)` for small `x` shows it. `cos(x)` is computed to within `u` of
+the true value, about `1 - x²/2`; subtracting from 1 is exact; and the
+result, about `x²/2`, now has a relative error near `u / (x²/2)`. At
+`x = 1e-4` that is `2e-8`; at `x = 1e-8`, `cos(x)` rounds to exactly
+`1.0` and every digit is gone.
+
+The cure is to rewrite the formula so the subtraction happens on exact data
+or not at all. The identity `1 - cos(x) = 2 sin²(x/2)` has no subtraction.
+Base provides such functions for the common cases: `expm1(x)` is
+`exp(x) - 1` and `log1p(x)` is `log(1 + x)`, both accurate for tiny `x`.
+'''
+
+  [[section.example]]
+  caption = "`x = 1 + 1e-8` stores the nearest float; `x - 1` is computed exactly, and the result shows the rounding of `x` itself."
+  notice = "Notice that `x - 1` is not `1e-8`: its relative error, `6e-9`, is the rounding error made when `x` was stored (`u` relative to 1), now relative to a number 1e8 times smaller."
+  code = '''
+x = 1 + 1e-8
+d = x - 1
+println("x - 1 = ", d)
+println("relative error against 1e-8: ", round(abs(d - 1e-8) / 1e-8; sigdigits = 2))
+println("the subtraction itself was exact: ", big(x) - 1 == big(d))
+'''
+
+  [[section.example]]
+  caption = "`(1 - cos x) / x²` two ways, against a `BigFloat` evaluation of the same formula (relative errors, rounded to 2 digits). The true value tends to 1/2."
+  notice = "Notice that the naive formula loses about two digits for every factor of 10 in `x`, as `u / (x²/2)` predicts, and returns 0.0 at `1e-8`; the rewritten one stays at the level of `u` throughout."
+  code = '''
+naive(x) = (1 - cos(x)) / x^2
+rewritten(x) = 2sin(x / 2)^2 / x^2
+for x in (1e-2, 1e-4, 1e-6, 1e-8)
+    exact = Float64((1 - cos(big(x))) / big(x)^2)
+    println("x = ", rpad(x, 7), " naive ", rpad(round(abs(naive(x) - exact) / exact; sigdigits = 2), 9),
+            " rewritten ", round(abs(rewritten(x) - exact) / exact; sigdigits = 2))
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+(1 + 1e-15) - 1
+'''
+  choices = ["1.0e-15", "0.0", "1.1102230246251565e-15"]
+  answer = 3
+  explain = "`1 + 1e-15` is stored as the nearest float, which is `1 + 5 eps()`, and `5 eps() = 1.11e-15`. The subtraction is exact (Sterbenz), so it returns that stored offset, 11% away from `1e-15`."
+  misconceptions = [
+    "The subtraction is exact, but its input is not: `1 + 1e-15` was rounded when it was stored, and only multiples of `eps()` above 1 exist.",
+    "`1e-15` is about 4.5 `eps()`, well above half a spacing, so `1 + 1e-15` does not round back to 1 (that happens below `1.1e-16`).",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Cancellation in `x - y` is exact when `x` and `y` are within a factor of 2. Why can the result still be inaccurate?"
+  choices = [
+    "The subtraction rounds the shared leading digits away",
+    "Julia evaluates `x - y` in lower precision when they are close",
+    "The surviving digits carry the rounding errors `x` and `y` already had",
+  ]
+  answer = 3
+  explain = "An exact subtraction returns exactly `x - y` for the floats it was given. If those floats are rounded versions of the true values, their absolute errors pass through unchanged, and relative to a much smaller difference they become large."
+  misconceptions = [
+    "The Sterbenz lemma says the difference is representable, so nothing is rounded; the shared digits cancel exactly and are not the source of error.",
+    "Every `Float64` operation uses the same 53-bit significand; the precision does not depend on the operands.",
+    "",
+  ]
+
+[[section]]
+title = "Conditioning: how much the problem amplifies errors"
+body = '''
+Before blaming an algorithm, ask how sensitive the **problem** is. The
+relative **condition number** of evaluating `f` at `x` is
+
+    κ(x) = |x f'(x) / f(x)|
+
+the factor by which a small relative change in `x` becomes a relative change
+in `f(x)`. It is a property of `f` and `x` alone: no algorithm appears in it.
+Some values:
+
+* `f(x) = x - 1` near 1: `κ = |x / (x - 1)|`, a million at `x = 1.000001`.
+  Subtraction of nearby numbers is ill-conditioned, which is the previous
+  section's cancellation stated as a property of the problem.
+* `log(x)` near 1: `κ = 1 / |log x|`, large for the same reason.
+* `sqrt(x)`: `κ = 1/2` everywhere. `exp(x)`: `κ = |x|`.
+
+For a linear system `A x = b` the condition number is
+`κ(A) = ‖A‖ ‖A⁻¹‖`, which for the 2-norm is the ratio of the largest to the
+smallest singular value; `cond(A)` in LinearAlgebra computes it. A relative
+change in `b` or `A` can change `x` by up to `κ(A)` times as much.
+
+Since every input you have is already rounded (relative error `u`) or
+measured, an ill-conditioned problem has an uncertain answer **before any
+algorithm runs**.
+'''
+
+  [[section.example]]
+  caption = "The formula `κ = |x f'(x) / f(x)|` against a measurement: change `x` by a relative `1e-10` and divide the relative change of `f(x)` by it (both rounded to 3 digits)."
+  notice = "Notice that the measured amplification matches the formula for each function, from `1/2` for `sqrt` to a million for `x - 1` next to 1."
+  code = '''
+δ = 1e-10
+for (name, f, df, x) in (("x - 1", x -> x - 1, x -> 1.0, 1.000001), ("log", log, x -> 1 / x, 1.0001),
+                         ("sqrt", sqrt, x -> 0.5 / sqrt(x), 2.0), ("exp", exp, exp, 50.0))
+    κ = abs(x * df(x) / f(x))
+    measured = abs(f(x * (1 + δ)) - f(x)) / abs(f(x)) / δ
+    println(rpad(name, 6), "at x = ", rpad(x, 9), " κ = ", rpad(round(κ; sigdigits = 3), 9),
+            " measured = ", round(measured; sigdigits = 3))
+end
+'''
+
+  [[section.example]]
+  caption = "A nearly singular 2×2 system: `κ(A)` is about `4e10`, and a relative change of `5e-11` in `b` moves the solution from `[1, 1]` to `[0, 2]` (rounded to 3 digits)."
+  notice = "Notice that with `1e-10` and `2e-10` taken exactly, the two systems have the solutions `[1, 1]` and `[0, 2]`, and the solver returned them to the digits shown; no algorithm went wrong. The problem turns a change in the 11th digit of `b` into a change in the first digit of `x`."
+  code = '''
+using LinearAlgebra
+A = [1.0 1.0; 1.0 1.0 + 1e-10]
+println("cond(A) ≈ ", round(cond(A); sigdigits = 2))
+println("b = [2, 2 + 1e-10]  ->  x = ", round.(A \ [2.0, 2.0 + 1e-10]; digits = 3))
+println("b = [2, 2 + 2e-10]  ->  x = ", round.(A \ [2.0, 2.0 + 2e-10]; digits = 3))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`log(x)` is computed to within one rounding of the true value for every `x`, yet `log(1 + 1e-12)` from a measured `x` is unreliable. Why?"
+  choices = [
+    "The `log` routine is inaccurate near its zero",
+    "`log` near 1 is ill-conditioned: `κ = 1 / |log x| ≈ 1e12`",
+    "`1 + 1e-12` overflows the significand of a `Float64`",
+    "Logarithms of numbers near 1 are computed in single precision",
+  ]
+  answer = 2
+  explain = "The problem amplifies a relative error in `x` by `1 / |log x|`. A measured or rounded `x` has a relative error of at least `u`, so the logarithm has a relative error near `1e12 u ≈ 1e-4` whatever routine computes it. (If `x - 1` is known exactly, `log1p(x - 1)` avoids the issue by changing the input.)"
+  misconceptions = [
+    "The premise is that `log` itself is accurate to one rounding; the error comes from the input's own uncertainty, amplified by the problem.",
+    "",
+    "`1 + 1e-12` is an ordinary float (`1e-12` is about 4500 `eps()`); it is stored with a relative error below `u`, which is exactly what gets amplified.",
+    "`Float64` functions compute in `Float64`; the precision does not change with the argument.",
+  ]
+
+[[section]]
+title = "Stability: the algorithm's share of the error"
+body = '''
+An algorithm is judged by its **backward error**: the computed `ŷ` is the
+exact answer `f(x̂)` for some slightly different input `x̂`, and the
+backward error is `|x̂ - x| / |x|`. An algorithm is **backward stable** if
+that is a small multiple of `u` for every input. It is the best you can ask
+of an algorithm, because the input already has an error of that size.
+
+A backward-stable algorithm gives an accurate answer on a well-conditioned
+problem. So when a **well-conditioned** problem comes back with a large
+error, the algorithm is unstable. Both examples in this section are of that
+kind:
+
+* `(1 - cos x) / x²` tends to `1/2` and its condition number is about
+  `x²/6`, tiny: small changes in `x` barely change the value. The naive
+  formula returned values far from `1/2`, which no nearby `x` could produce,
+  so its backward error is huge. The rewritten formula is stable.
+* The smaller root of `x² - b x + 1` for `b = 1e8` is close to `1/b`, and
+  well-conditioned. The textbook formula `(b - sqrt(b² - 4)) / 2` subtracts
+  two numbers that agree in almost all digits, the second of them rounded;
+  the product of the roots is 1, so `2 / (b + sqrt(b² - 4))` gives the same
+  root with no cancellation.
+
+The cure for instability is a different algorithm for the same problem.
+'''
+
+  [[section.example]]
+  caption = "The small root of `x² - 1e8 x + 1`, two formulas, against a `BigFloat` evaluation (relative errors rounded to 2 digits)."
+  notice = "Notice that the textbook formula is wrong in the first digit (`7.45e-9` against `1e-8`, a 25% error) while the rewritten one is correct to rounding, on a problem whose answer is insensitive to its data."
+  code = '''
+b, c = 1e8, 1.0
+d = sqrt(b^2 - 4c)
+textbook = (b - d) / 2
+rewritten = 2c / (b + d)
+exact = (big(b) - sqrt(big(b)^2 - 4big(c))) / 2
+println("textbook:  ", textbook, "   relative error ", round(Float64(abs(textbook - exact) / exact); sigdigits = 2))
+println("rewritten: ", rewritten, "   relative error below u: ", abs(rewritten - exact) / exact < eps() / 2)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The naive `(1 - cos x) / x²` returns `0.0` at `x = 1e-8`, where the answer is `0.5`. Whose fault is it?"
+  choices = [
+    "The problem's: values near `x = 0` are ill-conditioned",
+    "The algorithm's: the problem is well-conditioned, so the formula is unstable",
+    "`cos`'s: it should not round `cos(1e-8)` to exactly 1",
+  ]
+  answer = 2
+  explain = "The condition number is about `x²/6 ≈ 2e-17`: the true value barely moves when `x` moves. No input near `1e-8` maps to 0, so the backward error is enormous. `cos(1e-8)` rounds correctly to 1 (the true value differs from 1 by `5e-17`, below half a spacing); the formula then cancels everything."
+  misconceptions = [
+    "Ill-conditioning means the true answer is sensitive to the input; here the true answer is about 0.5 for every small `x`, so the problem is benign.",
+    "",
+    "`cos(1e-8) = 1 - 5e-17`, and the float nearest to it is exactly `1.0`; any correctly rounded `cos` returns that. The formula, not `cos`, has to change.",
+  ]
+
+[[section]]
+title = "Forward error, backward error and the condition number"
+body = '''
+The two ideas combine into the rule this unit is about:
+
+    forward error  <=  condition number  ×  backward error
+
+The algorithm's backward error is the size of the input change it is
+equivalent to, and the problem's condition number is how much such a change
+can move the answer. For a linear system it holds exactly in this form: if
+the computed `x̂` solves `(A + ΔA) x̂ = b` with `‖ΔA‖ <= η ‖A‖`, then
+`x̂ - x = -A⁻¹ ΔA x̂`, so
+
+    ‖x̂ - x‖ / ‖x̂‖  <=  κ(A) η,     with   η = ‖b - A x̂‖ / (‖A‖ ‖x̂‖)
+
+The residual `b - A x̂` gives the backward error `η` without knowing `x`.
+
+LU with partial pivoting (`A \ b`) is backward stable in practice: `η` comes
+out as a small multiple of `u`. On the **Hilbert matrix** `H[i, j] = 1/(i + j - 1)`,
+whose condition number grows exponentially with `n`
+([Hilbert matrix](https://en.wikipedia.org/wiki/Hilbert_matrix)), LU still has
+a backward error below `u`, and the answer still loses about `log10 κ`
+digits. The loss is the problem's, and no algorithm working on the stored
+matrix avoids it: storing `H` in `Float64` already changes each entry by up
+to `u`, and that change alone moves the exact solution by at least as much
+as LU's whole error.
+
+So: small residual, large error means ill-conditioning (reformulate, or get
+more accurate data); large error on a well-conditioned problem means an
+unstable algorithm (rewrite it). Digits you can trust: about
+`16 - log10(κ)` for a backward-stable method.
+'''
+
+  [[section.example]]
+  caption = "`H \\ ones(n)` for three sizes: `κ`, the backward error `η` (from the residual computed exactly in rational arithmetic), the forward error against the exact solution of the stored matrix, and the bound `κη`. Recorded, not checked: the last digits of an LU solve depend on the CPU's BLAS kernels."
+  check = false
+  notice = "Notice that `η` stays below `u ≈ 1.1e-16` at every size, while the forward error grows with `κ`, staying under `κη`: about 13 correct digits at n = 4, 8 at n = 8, 5 at n = 10."
+  code = '''
+using LinearAlgebra
+for n in (4, 8, 10)
+    H = [1 / (i + j - 1) for i in 1:n, j in 1:n]
+    b = ones(n)
+    x̂ = H \ b
+    Hq, bq = Rational{BigInt}.(H), Rational{BigInt}.(b)
+    x = Hq \ bq                                            # exact solution for the stored H
+    η = Float64(norm(big.(bq - Hq * Rational{BigInt}.(x̂)))) / (opnorm(H) * norm(x̂))
+    fwd = norm(x̂ - Float64.(x)) / norm(x̂)
+    κ = cond(H)
+    println("n = ", rpad(n, 3), "κ = ", rpad(round(κ; sigdigits = 2), 9), "η = ", rpad(round(η; sigdigits = 2), 9),
+            "forward = ", rpad(round(fwd; sigdigits = 2), 9), "κη = ", round(κ * η; sigdigits = 2))
+end
+'''
+
+  [[section.example]]
+  caption = "The same facts as checks, and the point about storage: the exact solution for the true Hilbert matrix against the exact solution for its `Float64` copy (rational arithmetic throughout, rounded to 1 digit)."
+  notice = "Notice that at n = 10 merely rounding `H` to `Float64` changes the exact solution by about `9e-5` relative, at least as large as LU's error in the previous example: the algorithm adds little to what the stored problem already lost."
+  code = '''
+using LinearAlgebra
+for n in (4, 8, 10)
+    Hq = [1 // big(i + j - 1) for i in 1:n, j in 1:n]       # the true Hilbert matrix
+    H = Float64.(Hq)                                        # what a Float64 program holds
+    b = ones(n)
+    x̂ = H \ b
+    xstored = Rational{BigInt}.(H) \ Rational{BigInt}.(b)
+    xtrue = Hq \ Rational{BigInt}.(b)
+    η = Float64(norm(big.(b - Rational{BigInt}.(H) * Rational{BigInt}.(x̂)))) / (opnorm(H) * norm(x̂))
+    fwd = norm(x̂ - Float64.(xstored)) / norm(x̂)
+    storing = Float64(norm(big.(xstored - xtrue)) / norm(big.(xtrue)))
+    println("n = ", rpad(n, 3), "η < u: ", η < eps() / 2, "   forward <= κη: ", fwd <= cond(H) * η,
+            "   storing H alone changes x by ", round(storing; sigdigits = 1))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You solve a 12×12 Hilbert system with `A \\ b`. The residual gives `η ≈ 1e-17`, and `x` agrees with the exact solution to only 2 digits. What would get more digits?"
+  choices = [
+    "Solving the same `Float64` matrix with `qr` instead of LU",
+    "Converting the `Float64` matrix to `BigFloat` and solving again",
+    "Reformulating the problem, or having its data more accurately",
+  ]
+  answer = 3
+  explain = "The backward error is already below `u`: the solver did its job. The `Float64` matrix is a perturbation of the true one with `κ ≈ 1e16`, so its exact solution is already far from the true problem's. Only a better-conditioned formulation (an orthogonal basis instead of the monomials the Hilbert matrix comes from), or the matrix entries in more precision, helps."
+  misconceptions = [
+    "QR is backward stable too, so on the same stored matrix it is bounded by the same `κη`, and the stored matrix has already lost the digits.",
+    "`BigFloat` arithmetic would solve the stored `Float64` matrix exactly, but that matrix already differs from the true Hilbert matrix by rounding, and the example shows that difference alone costs the digits.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A backward-stable solver reports `η ≈ 1e-16` on a system with `cond(A) ≈ 1e10`. About how many significant digits of `x` can you trust?"
+  choices = [
+    "About 16, since the backward error is at rounding level",
+    "About 10, the exponent of the condition number",
+    "About 6, since the relative error is at most about `1e-6`",
+    "None, since a condition number above `1e8` means `A` is singular",
+  ]
+  answer = 3
+  explain = "Forward error <= `κ η ≈ 1e10 × 1e-16 = 1e-6`, so about 6 digits are guaranteed: roughly `16 - log10 κ`. The bound can be pessimistic, so more may be right, but nothing guarantees them."
+  misconceptions = [
+    "A small backward error says the solver is good; the problem then amplifies it by `κ`, so the answer has fewer digits than the residual suggests.",
+    "`log10 κ = 10` is the number of digits **lost**, not kept: 16 minus 10 remain.",
+    "",
+    "A matrix is singular only when `κ` is infinite; a finite `κ` costs `log10 κ` digits, and at `1e10` six remain.",
+  ]
+
+[[problem]]
+id = "fp-kahan-sum"
+title = "Compensated summation that survives large terms"
+difficulty = "warm-up"
+kcs = ["floating-point-rounding"]
+entry = "kahan_sum"
+packages = []
+prompt = '''
+The `kahan_sum` in the first section's example assumes that the running sum
+`s` is at least as large as each new term. When a term is larger, the
+addition `s + v` loses the low digits of `s`, not of `v`, and Kahan's
+correction `(t - s) - y` does not recover them:
+
+```julia
+kahan_sum([1.0, 1e100, 1.0, -1e100])   # Kahan returns 0.0; the true sum is 2.0
+```
+
+Write `kahan_sum(x)` for a `Vector{Float64}` that returns its sum (a
+`Float64`) by **Neumaier's** compensated summation. For each term, the
+error of `t = s + v` can be computed exactly from the larger of `s` and `v`
+(in magnitude) minus `t`, plus the smaller one. Add every such error to a
+separate compensation `c`, and add `c` to the sum once, at the end. Return
+`0.0` for an empty vector.
+
+```julia
+kahan_sum([1.0, 1e100, 1.0, -1e100])   # 2.0
+kahan_sum([1e16, 1.0, -1e16])          # 1.0
+kahan_sum([1.0; fill(1e-16, 10_000)])  # 1.000000000001
+```
+
+Results are compared with `rtol = 1e-15`. Neumaier's error is about `u`
+times `abs(sum(x))` plus a term of order `n u²` times `sum(abs, x)`, so on
+these cases two correct versions agree to within a few roundings. The plain
+loop, Base's `sum` and Kahan's version all return `0.0` on the first two
+calls above. Speed is graded against the reference.
+'''
+starter = '''
+function kahan_sum(x)
+    s = 0.0
+    for v in x
+        s += v
+    end
+    return s
+end
+'''
+reference = '''
+function kahan_sum(x)
+    s = 0.0
+    c = 0.0
+    for v in x
+        t = s + v
+        if abs(s) >= abs(v)
+            c += (s - t) + v      # low digits of v were lost
+        else
+            c += (v - t) + s      # low digits of s were lost
+        end
+        s = t
+    end
+    return s + c
+end
+'''
+cases = [
+  "[1.0, 1e100, 1.0, -1e100]",
+  "[1e16, 1.0, -1e16]",
+  "[1.0; fill(1e-16, 10_000)]",
+  "fill(0.1, 100_000)",
+  "Float64[]",
+  "[3.0, 1e-16, 1e-16, 1e-16, 1e-16, 1e-16, -1.0]",
+]
+gen = "rng -> [([1.0 + rand(rng); 1e-16 .* rand(rng, rand(rng, 2000:6000))],) for _ in 1:15]"
+compare = "isapprox"
+rtol = 1e-15
+hints = [
+  "The starter is the plain loop: it rounds away low digits at every addition. Keep a second variable for what each addition lost, and decide which operand lost digits.",
+  "When `abs(s) >= abs(v)`, `v`'s low digits were lost and `(s - t) + v` gives them back exactly. Work out the other case by symmetry, and add the accumulated errors once, after the loop.",
+]
+
+  [problem.perf]
+  args = "rand(rng, n)"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "pairwise sum (Base)"
+  code = '''
+kahan_sum(x) = sum(x; init = 0.0)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Kahan's version from the example: fails when a term exceeds the running sum"
+  code = '''
+function kahan_sum(x)
+    s = 0.0; c = 0.0
+    for v in x
+        y = v - c
+        t = s + y
+        c = (t - s) - y
+        s = t
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "always assumes s is the larger operand"
+  code = '''
+function kahan_sum(x)
+    s = 0.0; c = 0.0
+    for v in x
+        t = s + v
+        c += (s - t) + v
+        s = t
+    end
+    return s + c
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "branch-free with ifelse"
+  code = '''
+function kahan_sum(x)
+    s = 0.0; c = 0.0
+    for v in x
+        t = s + v
+        c += ifelse(abs(s) >= abs(v), (s - t) + v, (v - t) + s)
+        s = t
+    end
+    return s + c
+end
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "exact sum in rationals: right answer, heap allocations per term"
+  code = '''
+kahan_sum(x) = Float64(sum(Rational{BigInt}, x; init = Rational{BigInt}(0)))
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "fp-log1pexp"
+title = "A stable log(1 + exp(x))"
+difficulty = "core"
+kcs = ["cancellation", "backward-stability"]
+entry = "log1pexp"
+packages = []
+prompt = '''
+`log(1 + exp(x))` (the "softplus" of machine learning) is well-conditioned
+for every real `x`, but the formula fails twice as written:
+
+* for large `x`, `exp(x)` overflows to `Inf` (above `x ≈ 709.8`), although
+  the answer is close to `x`;
+* for very negative `x`, `1 + exp(x)` rounds to `1.0` and the result is
+  `0.0`, although the answer is close to `exp(x)`; even at `x = -20` the
+  rounding of `1 + exp(x)` costs about 8 digits.
+
+Write `log1pexp(x)` for a `Float64` that is accurate for every `x` in
+`[-740, 740]`. Neither failure is the problem's: both come from forming an
+intermediate value (`exp(x)` or `1 + exp(x)`) that the answer does not need.
+The section on cancellation names the tools for avoiding such a value.
+
+```julia
+log1pexp(800.0)    # 800.0
+log1pexp(-40.0)    # 4.248354255291589e-18
+log1pexp(0.0)      # 0.6931471805599453
+```
+
+Results are compared with `rtol = 1e-12`: a stable formula is within a few
+roundings (about `1e-15` relative) of the true value, while the naive
+formula is off by `3e-8` at `x = -20` and by 100% below about `-37`.
+'''
+starter = '''
+function log1pexp(x)
+    return log(1 + exp(x))
+end
+'''
+reference = '''
+function log1pexp(x)
+    return x > 0 ? x + log1p(exp(-x)) : log1p(exp(x))
+end
+'''
+cases = ["800.0", "-40.0", "-20.0", "0.0", "30.0", "-700.0", "1.0e-10"]
+gen = "rng -> [(1480 * rand(rng) - 740,) for _ in 1:40]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "Treat the two failures separately, split by the sign of `x`, so that each branch only calls `exp` on a number that is zero or negative.",
+  "For `x > 0`, factor `exp(x)` out of `1 + exp(x)` and use `log(a b) = log a + log b`. For the small term left in either branch, Base has a logarithm that takes `y` instead of `1 + y`.",
+]
+
+  [problem.perf]
+  args = "1480 * rand(rng) - 740"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "only fixes the overflow (large x)"
+  code = '''
+log1pexp(x) = x > 0 ? x + log(1 + exp(-x)) : log(1 + exp(x))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns x above a cutoff, naive below it"
+  code = '''
+log1pexp(x) = x > 36 ? x : log(1 + exp(x))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "max(x, 0) + log1p(exp(-|x|))"
+  code = '''
+log1pexp(x) = max(x, zero(x)) + log1p(exp(-abs(x)))
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "fp-error-bound"
+title = "How many digits can you trust?"
+difficulty = "stretch"
+kcs = ["condition-number", "backward-stability"]
+entry = "forward_error_bound"
+packages = []
+prompt = '''
+Given a square matrix `A`, a right-hand side `b` and a computed solution
+`x̂` (`xhat`), return the bound on the relative forward error from this
+unit (a `Float64`):
+
+    κ(A) × η,    with   κ(A) = cond(A)   and   η = ‖b - A x̂‖ / (‖A‖ ‖x̂‖)
+
+using 2-norms throughout: `norm` for vectors and `opnorm` (the largest
+singular value) for the matrix, not `norm(A)`, which is the Frobenius norm.
+`-log10` of the result is the number of digits of `x̂` the bound guarantees.
+
+```julia
+A = [2.0 1.0; 1.0 3.0]; b = [3.0, 4.0]          # exact solution [1, 1]
+forward_error_bound(A, b, [1.001, 0.999])         # about 1.1e-3: 2 to 3 digits
+```
+
+Every case has `cond(A) <= 1e8` and a residual far above rounding level, so
+`cond` and the residual are both accurate to many digits; results are
+compared with `rtol = 1e-6`. Speed is graded against the reference: think
+about what `cond(A)` and `opnorm(A)` each compute, and whether you need
+both.
+'''
+starter = '''
+using LinearAlgebra
+
+function forward_error_bound(A, b, xhat)
+    return norm(b - A * xhat) / norm(b)
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function forward_error_bound(A, b, xhat)
+    σ = svdvals(A)                       # sorted, largest first
+    κ = σ[1] / σ[end]
+    η = norm(b - A * xhat) / (σ[1] * norm(xhat))
+    return κ * η                         # = ‖b - A x̂‖ / (σ_min ‖x̂‖)
+end
+'''
+cases = [
+  "[2.0 1.0; 1.0 3.0], [3.0, 4.0], [1.001, 0.999]",
+  "[1.0 1.0; 1.0 1.0001], [2.0, 2.0001], [1.01, 0.99]",
+  "[1 / (i + j - 1) for i in 1:5, j in 1:5], ones(5), ones(5)",
+  "[4.0 0.0 0.0; 0.0 1e-3 0.0; 0.0 0.0 1.0], [1.0, 1.0, 1.0], [0.25, 1001.0, 1.0]",
+]
+gen = "rng -> [(n = rand(rng, 2:8); A = randn(rng, n, n) .+ n .* (1:n .== (1:n)'); x = randn(rng, n); (A, A * x, x .+ 1e-4 .* randn(rng, n))) for _ in 1:15]"
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "The starter divides the residual by `norm(b)` and ignores conditioning. The bound has two factors: the backward error `η` and the condition number.",
+  "Both `cond(A)` and `opnorm(A)` come from the singular values. `svdvals(A)` gives them all (largest first); one call is enough for both factors.",
+]
+
+  [problem.perf]
+  args = "(A = randn(rng, n, n) .+ n .* (1:n .== (1:n)'); x = randn(rng, n); (A, A * x, x .+ 1e-4 .* randn(rng, n)))..."
+  sizes = [200]
+
+  [[problem.variant]]
+  label = "Frobenius norm(A) instead of opnorm(A)"
+  code = '''
+using LinearAlgebra
+forward_error_bound(A, b, xhat) = cond(A) * norm(b - A * xhat) / (norm(A) * norm(xhat))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "backward error only, no condition number"
+  code = '''
+using LinearAlgebra
+forward_error_bound(A, b, xhat) = norm(b - A * xhat) / (opnorm(A) * norm(xhat))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "cond and opnorm: two SVDs"
+  code = '''
+using LinearAlgebra
+forward_error_bound(A, b, xhat) = cond(A) * norm(b - A * xhat) / (opnorm(A) * norm(xhat))
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "the inverse's norm directly: ‖A⁻¹‖ ‖r‖ / ‖x̂‖"
+  code = '''
+using LinearAlgebra
+forward_error_bound(A, b, xhat) = opnorm(inv(A)) * norm(b - A * xhat) / norm(xhat)
+'''
+  expect = ["correct"]

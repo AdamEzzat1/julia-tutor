@@ -1,0 +1,906 @@
+id = "41-case-pharmacokinetics"
+title = "Case study: a pharmacokinetic model"
+track = "scicomp"
+env = "scicomp"
+status = "ready"
+summary = "A two-compartment model of a drug taken by mouth, from equations to answers: the linear system and its three phases, repeated doses as callbacks checked against a matrix-exponential superposition, exposure (AUC) from the solution and from sampled data, a Gauss-Newton fit to simulated noisy concentrations that finds two equally good answers (and the same clearance in both), and an ensemble over patients with a Monte Carlo interval checked against an exact mean. A teaching model: real pharmacometrics uses dedicated population (NLME) tools."
+kcs = ["compartment-models", "dosing-callbacks", "auc", "nonlinear-least-squares", "parameter-identifiability", "population-variability"]
+prerequisites = ["24-differential-equations", "31-convergence", "32-dense-linear-algebra", "35-stiffness", "37-stochastic-delay-uq", "38-constrained-optimization"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+Pharmacokinetics (PK) describes how the concentration of a drug in the
+body changes after doses. This case study puts several earlier tools
+together on one model. It relies on five facts:
+
+* **A `DiscreteCallback` with `tstops`** changes the state at known times:
+  the solver is made to stop exactly there, and the callback's condition
+  is checked at the end of each step (unit 24, section "Events and
+  callbacks: a bouncing ball").
+* **`abstol` and `reltol` bound each step's local error estimate**, and the
+  global error ends up somewhat larger, so an answer is checked against an
+  exact one with a margin (unit 31, sections "What an adaptive solver's
+  error estimate is" and "Work-precision: what a tolerance buys").
+* **A linear system `u' = K u` has time scales `1/|λ|`** for the
+  eigenvalues `λ` of `K`, and widely spread ones make it stiff (unit 35,
+  section "Stability is set by the Jacobian's eigenvalues").
+* **A Monte Carlo mean has a 95% interval `± 1.96 s / sqrt(N)`**, and an
+  ensemble draws its random inputs reproducibly (unit 37, sections "Monte
+  Carlo error and confidence intervals" and "Ensembles: many solves,
+  reproducibly").
+* **Local optimizers find local answers**: one nonconvex model from two
+  starts can give two results (unit 38, section "Ipopt is local: one
+  model, two answers"). A least-squares step is solved by QR, as in unit 32,
+  section "Least squares: QR, not the normal equations".
+
+**What this unit is not.** Real pharmacometric analyses fit
+**population** models (nonlinear mixed-effects, NLME) to data from many
+patients at once, with dedicated tools: Pumas (from PumasAI, a commercial
+product with an academic access programme, [pumas.ai](https://pumas.ai/))
+or nlmixr2 (an R package for NLME models, licensed GPL,
+[nlmixr2.org](https://nlmixr2.org/)). The model and its parameter values
+here are invented for teaching, and the data are simulated from known
+parameters, so every answer can be checked.
+'''
+
+[[section]]
+title = "Two compartments and an absorption depot: one linear system"
+body = '''
+A **compartment** is a well-mixed volume in which the drug has one
+concentration. The model has three amounts (in mg):
+
+* `A_g`, the dose in the gut, absorbed at rate `k_a A_g` (first order);
+* `A_c`, the drug in the **central** compartment (blood and well-perfused
+  organs) of volume `V_1`, where it is measured as `C = A_c / V_1` and
+  eliminated at rate `CL · C` (the **clearance** `CL`, in L/h, is the
+  volume cleared per hour);
+* `A_p`, the drug in a **peripheral** compartment (tissue) of volume
+  `V_2`, exchanged with the central one by the inter-compartmental
+  clearance `Q`.
+
+Each flow is a clearance times the concentration it leaves from:
+
+    A_g' = -k_a A_g
+    A_c' =  k_a A_g - (CL + Q) / V_1 · A_c + Q / V_2 · A_p
+    A_p' =  Q / V_1 · A_c - Q / V_2 · A_p
+
+The right-hand side is linear: `u' = K u` with a constant 3×3 matrix `K`.
+So the exact solution is `u(t) = exp(K t) u(0)`, which `exp` of a matrix
+computes, and every concentration curve is a sum of three exponentials
+`exp(λ t)` with the eigenvalues of `K`. They are `-k_a` (absorption) and two
+others, the **distribution** phase (fast) and the **elimination** phase
+(slow), and `log(2) / |λ|` is the half-life of each phase. The slowest one
+sets how long the drug stays: after the peak, the terminal decline is a
+straight line on a log scale with that slope.
+
+With the values below the eigenvalues spread over a factor of about 60.
+That is not stiff: an explicit method's stable step is set by the fastest
+time scale (half an hour), and over a horizon of days that costs only a
+few hundred steps, so `Tsit5` is the right choice. A model with rates
+spread over many more orders of magnitude (a fast infusion, a metabolite
+formed in seconds) would be stiff and call for `Rodas5P`, as in unit 35.
+'''
+
+  [[section.example]]
+  caption = "k_a = 2 /h, CL = 5 L/h, V_1 = 20 L, Q = 4 L/h, V_2 = 60 L and one 100 mg dose: the eigenvalues of `K`, the half-lives of the three phases, and `Tsit5` at tolerances `1e-10` against the exact `exp(K t) u(0)`."
+  notice = "Notice the three phases: absorption with a half-life of 0.35 h, distribution 1.4 h and elimination 20 h; and that the ODE solution agrees with the matrix exponential to better than `1e-8` of the peak amount, the size the tolerances predict."
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+ka, CL, V1, Q, V2 = 2.0, 5.0, 20.0, 4.0, 60.0
+function pk!(du, u, p, t)                         # u = [gut, central, peripheral] amounts in mg
+    ka, CL, V1, Q, V2 = p
+    du[1] = -ka * u[1]
+    du[2] = ka * u[1] - (CL + Q) / V1 * u[2] + Q / V2 * u[3]
+    du[3] = Q / V1 * u[2] - Q / V2 * u[3]
+end
+K = [-ka 0 0; ka -(CL + Q)/V1 Q/V2; 0 Q/V1 -Q/V2]
+λ = sort(eigvals(K))
+println("eigenvalues (1/h): ", round.(λ; digits = 4))
+println("half-lives (h):    ", round.(log(2) ./ abs.(λ); digits = 2))
+u0 = [100.0, 0.0, 0.0]
+sol = solve(ODEProblem(pk!, u0, (0.0, 72.0), [ka, CL, V1, Q, V2]), Tsit5(); abstol = 1e-10, reltol = 1e-10)
+exact(t) = exp(K * t) * u0
+peak = maximum(exact(t)[2] for t in 0:0.1:72)
+println("max |A_c - exact| / peak below 1e-8: ", maximum(abs(sol(t)[2] - exact(t)[2]) for t in 0:0.5:72) / peak < 1e-8)
+println("C at 1, 6, 24, 72 h (mg/L): ", round.([sol(t)[2] / V1 for t in (1.0, 6.0, 24.0, 72.0)]; sigdigits = 4))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Long after a dose, the log of the concentration falls along a straight line. Which eigenvalue of `K` gives its slope?"
+  choices = [
+    "The one of smallest magnitude, since its term decays last",
+    "The one of largest magnitude, since it dominates the solution",
+    "`-k_a`, since absorption feeds the central compartment",
+  ]
+  answer = 1
+  explain = "The concentration is a sum of terms `a_j exp(λ_j t)`. The terms with large `|λ|` die out first, so at late times only the slowest one is left, and `log C` is then a line with slope `λ`. Here that is the 20-hour elimination phase."
+  misconceptions = [
+    "",
+    "A large `|λ|` makes its term decay fastest; it dominates only the first moments, not the tail.",
+    "Absorption with `k_a = 2 /h` is the fastest phase here; after a few hours the gut is empty and `-k_a` no longer shows. (If absorption were the slowest process, the tail would follow it: that is called flip-flop kinetics. The fit below shows a related swap, of absorption with distribution.)",
+  ]
+
+[[section]]
+title = "Repeated doses as callbacks"
+body = '''
+A dose taken every 12 hours adds 100 mg to the gut at `t = 0, 12, 24, …`.
+The state jumps there, so a solver must not step across a dose time: it
+would integrate the smooth equations through the jump and never see it.
+The pattern from unit 24 does it:
+
+* put the first dose in `u0`;
+* a `DiscreteCallback` whose condition is `t in dose_times` and whose
+  `affect!` adds the dose to `integrator.u[1]`;
+* `tstops = dose_times`, which makes the solver end a step exactly at each
+  dose time, so the condition is checked there and comes out `true`.
+
+Without `tstops` the steps end wherever the error control puts them, which
+is almost never exactly at 12.0, and the doses are silently skipped. (The
+DiffEqCallbacks package has a ready-made `PresetTimeCallback` that does
+both at once; it is not in this course's environment, and the two-line
+version shows what it does.)
+
+Because the equations are linear, the exact answer for several doses is
+the **superposition** of single doses, each shifted to its own time:
+`u(t) = Σ_{t_d ≤ t} exp(K (t - t_d)) · [D, 0, 0]`. That is an independent
+check of the callback.
+'''
+
+  [[section.example]]
+  caption = "Five doses of 100 mg every 12 h: the callback solution with `tstops`, the superposition of matrix exponentials, and the same callback without `tstops` (concentrations in mg/L, 6 digits)."
+  notice = "Notice that with `tstops` the solution matches the superposition in all digits shown at every time, and that without `tstops` only the first dose (the one in `u0`) is in the solution: the concentration after 30 h is a seventh of the right one, and no warning is printed."
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+ka, CL, V1, Q, V2 = 2.0, 5.0, 20.0, 4.0, 60.0
+function pk!(du, u, p, t)
+    ka, CL, V1, Q, V2 = p
+    du[1] = -ka * u[1]
+    du[2] = ka * u[1] - (CL + Q) / V1 * u[2] + Q / V2 * u[3]
+    du[3] = Q / V1 * u[2] - Q / V2 * u[3]
+end
+dose_times = 12.0:12.0:48.0                        # the doses after the first
+cb = DiscreteCallback((u, t, integrator) -> t in dose_times, integrator -> (integrator.u[1] += 100.0))
+prob = ODEProblem(pk!, [100.0, 0.0, 0.0], (0.0, 72.0), [ka, CL, V1, Q, V2])
+sol = solve(prob, Tsit5(); callback = cb, tstops = dose_times, abstol = 1e-10, reltol = 1e-10)
+missed = solve(prob, Tsit5(); callback = cb, abstol = 1e-10, reltol = 1e-10)
+K = [-ka 0 0; ka -(CL + Q)/V1 Q/V2; 0 Q/V1 -Q/V2]
+superposed(t) = sum(exp(K * (t - td)) * [100.0, 0.0, 0.0] for td in [0.0; dose_times] if td <= t)
+println("  t    callback   superposition   no tstops")
+for t in (6.0, 30.0, 60.0, 72.0)
+    println(rpad(t, 6), rpad(round(sol(t)[2] / V1; digits = 6), 11), rpad(round(superposed(t)[2] / V1; digits = 6), 16),
+            round(missed(t)[2] / V1; digits = 6))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A dosing callback has the condition `t in dose_times`, but the solve is called without `tstops`. Why are the doses skipped?"
+  choices = [
+    "`DiscreteCallback` conditions are only checked at the initial time",
+    "`t in dose_times` compares floats with `==`, which is never true for `12.0`",
+    "Steps rarely end exactly at a dose time, where the condition is checked",
+  ]
+  answer = 3
+  explain = "A `DiscreteCallback` is tested at the end of every step. The adaptive step sizes put those ends at times like 11.73 and 12.41, so `t in dose_times` is false at all of them. `tstops` forces a step to end at each listed time, where the test is exact."
+  misconceptions = [
+    "The condition is checked after every step, which is why `tstops` alone fixes it; the first dose is missing from the callback only because it was put in `u0` instead.",
+    "`12.0 == 12.0` is true: both are the same exactly representable float. With `tstops` the solver lands on exactly `12.0`, and the comparison succeeds.",
+    "",
+  ]
+
+[[section]]
+title = "Exposure: the area under the curve"
+body = '''
+The **AUC**, `∫ C(t) dt`, measures total exposure to the drug, and it has a
+simple exact value. Elimination removes drug at rate `CL · C(t)`, so over
+all time it removes `CL · AUC_∞`; everything absorbed is eventually
+eliminated, so `CL · AUC_∞ = D` for a dose `D` that is fully absorbed:
+
+    AUC_∞ = D / CL
+
+whatever `k_a`, `Q` and the volumes are. ("The amount eliminated by the
+body = clearance × AUC", [AUC in pharmacokinetics](https://en.wikipedia.org/wiki/Area_under_the_curve_(pharmacokinetics)).)
+That is why clearance is the parameter dosing is built around, and why it
+is the parameter data determine best (next section).
+
+Two ways to compute an AUC:
+
+* **From the model**, by adding a fourth equation `AUC' = A_c / V_1` and
+  reading its value at the end: the integral then has the solver's
+  accuracy.
+* **From measured samples**, as in a clinical study, by a trapezoid rule
+  between sample times. The **linear-up/log-down** rule is the default of
+  the PKNCA package for noncompartmental analysis: linear interpolation while
+  the concentration rises, and logarithmic when it falls to a nonzero
+  value ([PKNCA: AUC integration methods](https://stat.ethz.ch/CRAN/web/packages/PKNCA/vignettes/v23-auc-integration-methods.html)).
+  If `C` decays exponentially from `c_1` to `c_2` over `Δt`, its integral
+  is exactly `(c_1 - c_2) Δt / log(c_1 / c_2)`, while the straight line
+  overestimates a convex decay. You will write this rule in a problem.
+'''
+
+  [[section.example]]
+  caption = "One 100 mg dose: the AUC from an extra ODE state, at 72 h and at 400 h against `D / CL = 20`; then the AUC over 0 to 72 h from 15 samples with the linear and the linear-up/log-down trapezoid rules (mg·h/L)."
+  notice = "Notice that the ODE's AUC at 400 h is `D / CL` to about `1e-6` (the part after 400 h is `exp(-0.0346 · 400)` of the total), and that on the samples the log-down rule is closer than the linear rule, which overestimates every falling stretch."
+  code = '''
+using OrdinaryDiffEq
+function pk_auc!(du, u, p, t)                      # u = [gut, central, peripheral, AUC]
+    ka, CL, V1, Q, V2 = p
+    du[1] = -ka * u[1]
+    du[2] = ka * u[1] - (CL + Q) / V1 * u[2] + Q / V2 * u[3]
+    du[3] = Q / V1 * u[2] - Q / V2 * u[3]
+    du[4] = u[2] / V1                              # dAUC/dt = C
+end
+p = [2.0, 5.0, 20.0, 4.0, 60.0]
+sol = solve(ODEProblem(pk_auc!, [100.0, 0.0, 0.0, 0.0], (0.0, 400.0), p), Tsit5(); abstol = 1e-12, reltol = 1e-10)
+println("AUC 0-72 h from the ODE:  ", round(sol(72.0)[4]; digits = 4))
+println("AUC 0-400 h from the ODE: ", round(sol(400.0)[4]; digits = 6), "   D / CL = ", 100 / 5)
+ts = [0.0, 0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 36, 48, 72]
+cs = [sol(t)[2] / 20.0 for t in ts]
+linear = sum((cs[i] + cs[i+1]) / 2 * (ts[i+1] - ts[i]) for i in 1:length(ts)-1)
+linlog = sum(cs[i+1] < cs[i] && cs[i+1] > 0 ? (cs[i] - cs[i+1]) * (ts[i+1] - ts[i]) / log(cs[i] / cs[i+1]) :
+             (cs[i] + cs[i+1]) / 2 * (ts[i+1] - ts[i]) for i in 1:length(ts)-1)
+println("linear trapezoid:         ", round(linear; digits = 4))
+println("linear-up/log-down:       ", round(linlog; digits = 4))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A second patient has the same clearance but twice the central volume `V_1`. After the same single dose, what happens to `AUC_∞`?"
+  choices = [
+    "It halves, since the same amount is spread over twice the volume",
+    "It stays the same, since `AUC_∞ = D / CL` does not involve the volume",
+    "It doubles, since the drug stays longer in the body when the volume is larger",
+  ]
+  answer = 2
+  explain = "The peak concentration is lower and the decline slower (elimination rate `CL / V_1` per hour is halved), and the two effects cancel exactly in the integral: everything absorbed is eliminated at rate `CL · C`, so `CL · AUC_∞ = D`."
+  misconceptions = [
+    "The peak is lower, but the concentration also falls more slowly, since the same clearance removes a smaller fraction of a larger amount each hour; the area does not change.",
+    "",
+    "The drug does stay longer, but at a lower concentration; the balance `CL · AUC_∞ = D` fixes the area.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The concentration falls from 8 to 2 mg/L between two samples 2 h apart. What does the log-down trapezoid give for that stretch (rounded to 3 digits)?"
+  code = '''
+c1, c2, dt = 8.0, 2.0, 2.0
+round((c1 - c2) * dt / log(c1 / c2); digits = 3)
+'''
+  choices = ["10.0", "8.656", "6.0", "4.328"]
+  answer = 2
+  explain = "`(8 - 2) · 2 / log(4) = 12 / 1.386 = 8.656`. That is the exact integral of the exponential through the two points; the straight line gives `(8 + 2) / 2 · 2 = 10`, an overestimate, because a decaying exponential is convex."
+  misconceptions = [
+    "That is the linear trapezoid, `(c_1 + c_2) / 2 · Δt`; the log-down rule integrates an exponential through the two points, which lies below the straight line.",
+    "",
+    "That is `(c_1 - c_2) Δt / 2`, without the logarithm; the rule divides by `log(c_1 / c_2)`, here `log 4 ≈ 1.386`.",
+    "That divides by `2 log 4`; the rule is `(c_1 - c_2) Δt / log(c_1 / c_2)`, with no extra factor.",
+  ]
+
+[[section]]
+title = "Fitting the model to concentrations"
+body = '''
+Data: 15 concentrations after one 100 mg dose, simulated from the true
+parameters with multiplicative noise, `c_obs = C(t) · exp(0.1 z)` with
+`z` standard normal (a 10% error, as an assay might have). The fit asks
+for the parameters `θ` that minimize the sum of squares of the
+**log residuals** `r_i(θ) = log c_obs_i - log C(t_i; θ)`, which treats a
+10% error at 0.05 mg/L like one at 3 mg/L. Each parameter is fitted as its
+logarithm, which keeps it positive.
+
+**The method: Gauss-Newton.** Linearize the residuals around the current
+`θ`, `r(θ + δ) ≈ r(θ) + J δ` with the Jacobian `J = ∂r/∂θ`, and pick the
+`δ` that minimizes the linear model's sum of squares: a linear
+least-squares problem, solved by QR (`J \ -r`). If the step does not
+reduce the sum of squares, halve it. Here `J` comes from central finite
+differences of the ODE solution (step `h = 1e-6` in `log θ`). Its error is
+about `1e-6` relative, and it comes from the solver, not from truncation:
+the truncation error of a central difference is of order `h² = 1e-12`,
+while each residual carries the solver's own error, about `1e-12`, which
+the difference divides by `2h`. Gauss-Newton stops where `J̃ᵀ r = 0` for
+this approximate `J̃`, so the point it returns is moved slightly from the
+true minimum, by much less than the 4 digits printed; the sum of squares,
+which is flat at a minimum, moves less still.
+
+**Why not a solver from unit 38?** Optim is not in this environment, and
+JuMP with Ipopt would need the ODE written as constraints on a time grid
+(collocation), with the dose jumps placed in that grid: a sound method,
+but a large model for five parameters. A least-squares problem has
+structure that Gauss-Newton uses directly, and every step is a linear
+solve from unit 32.
+
+**What the data determine.** A fit is local, and here the model is not
+fully identifiable from one oral dose: the absorption rate and a
+disposition rate can swap roles and produce the same concentration curve.
+The classical case is **flip-flop kinetics**, where absorption is slower
+than elimination and the terminal slope belongs to absorption. The example
+finds another swap: from two guesses it reaches two parameter sets with the
+**same** sum of squares (to better than `1e-9` relative), in which the
+absorption rate of one is the distribution rate of the other (about 2.27
+and 0.454 per hour); the terminal rate is the same in both. Both have the
+same clearance: `CL = D / AUC`, and the AUC is pinned down by the data
+whichever phase is which. That is the parameter to trust, and it comes with
+a standard error from the curvature, `sqrt(σ² (JᵀJ)⁻¹)`.
+'''
+
+  [[section.example]]
+  caption = "Gauss-Newton with step halving on log residuals, from two starting guesses, fitted to concentrations simulated with `StableRNG(2026)` (true k_a = 2, CL = 5, V_1 = 20, Q = 4, V_2 = 60). Values rounded to 4 digits; the standard error of CL relative."
+  notice = "Notice that the two fits have the same sum of squares but different `k_a`, `V_1`, `Q` and `V_2`: the second start found the solution in which absorption and distribution trade rates (`k_a ≈ 0.45`, the first fit's distribution rate). The clearance is the same in both, within about 4% of the true 5 L/h, and its standard error is about 4%: the data determine it, and not which phase is absorption."
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra, StableRNGs
+function pk!(du, u, p, t)
+    ka, CL, V1, Q, V2 = p
+    du[1] = -ka * u[1]
+    du[2] = ka * u[1] - (CL + Q) / V1 * u[2] + Q / V2 * u[3]
+    du[3] = Q / V1 * u[2] - Q / V2 * u[3]
+end
+tobs = [0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 36, 48, 72]
+prob = ODEProblem(pk!, [100.0, 0.0, 0.0], (0.0, 72.0), ones(5))
+conc(θ) = (q = exp.(θ); solve(remake(prob; p = q), Tsit5(); abstol = 1e-12, reltol = 1e-10, saveat = tobs)[2, :] ./ q[3])
+ptrue = [2.0, 5.0, 20.0, 4.0, 60.0]
+cobs = conc(log.(ptrue)) .* exp.(0.1 .* randn(StableRNG(2026), length(tobs)))
+resid(θ) = log.(cobs) .- log.(conc(θ))
+function jacobian(θ; h = 1e-6)                      # central differences in log θ
+    J = zeros(length(tobs), length(θ))
+    for k in eachindex(θ)
+        e = zeros(length(θ)); e[k] = h
+        J[:, k] = (resid(θ .+ e) .- resid(θ .- e)) ./ (2h)
+    end
+    return J
+end
+function gauss_newton(θ)
+    for _ in 1:100
+        r, J = resid(θ), jacobian(θ)
+        δ = -(J \ r)                                # least-squares step by QR
+        λ = 1.0
+        while sum(abs2, resid(θ .+ λ .* δ)) > sum(abs2, r) && λ > 1e-6
+            λ /= 2
+        end
+        θ = θ .+ λ .* δ
+        norm(λ .* δ) < 1e-8 && break
+    end
+    return θ
+end
+println("start                          fit (ka, CL, V1, Q, V2)              sum of squares   SE(CL)/CL")
+sse = Float64[]
+for start in ([3.0, 8.0, 30.0, 6.0, 40.0], [0.5, 4.0, 10.0, 4.0, 60.0])
+    θ = gauss_newton(log.(start))
+    r, J = resid(θ), jacobian(θ)
+    push!(sse, sum(abs2, r))
+    σ² = sum(abs2, r) / (length(r) - length(θ))
+    se = sqrt.(σ² .* diag(inv(J' * J)))             # standard errors of log θ = relative errors of θ
+    println(rpad(string(start), 31), rpad(string(round.(exp.(θ); sigdigits = 4)), 37),
+            rpad(round(sum(abs2, r); sigdigits = 8), 17), round(se[2]; sigdigits = 2))
+end
+println("sums of squares equal to 1e-9 relative: ", isapprox(sse[1], sse[2]; rtol = 1e-9))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Two fits from different starts end with the same sum of squares to `1e-9` relative, `k_a = 2.3` in one and `k_a = 0.45` in the other, and the same `CL`. What should you report?"
+  choices = [
+    "The fit with the larger `k_a`, since absorption is usually fast",
+    "Neither of them, since a fit that finds two minima must have a bug in its Jacobian",
+    "The average of the two `k_a` values, as a compromise",
+    "The clearance, which both agree on; `k_a` is not determined by these data",
+  ]
+  answer = 4
+  explain = "Equal sums of squares mean the data cannot tell the two parameter sets apart: an oral dose's curve is a sum of exponentials, and which rate is absorption is not visible in it (here absorption and distribution can trade rates). The clearance is fixed by the AUC, so it is identified. Separating `k_a` needs other data, such as an intravenous dose that bypasses absorption."
+  misconceptions = [
+    "Prior knowledge can break the tie, but then it is an assumption to state, not something the fit found; the data support both values equally.",
+    "A wrong Jacobian would slow or stall the iterations, not produce two parameter sets with identical sums of squares; the model itself has two equally good fits.",
+    "The average of two equally good answers is not itself a minimum; it can fit far worse than either.",
+    "",
+  ]
+
+[[section]]
+title = "Patient variability: an ensemble and a Monte Carlo interval"
+body = '''
+Patients differ. A common model makes each patient's clearance and volume
+log-normal around typical values: `CL_i = CL · exp(η_i)` with
+`η_i ~ N(0, ω²)`, so the spread is multiplicative (here `ω_CL = 0.3`,
+about 30%, and `ω_V1 = 0.2`). Simulating 500 patients is an
+`EnsembleProblem`, with every patient's parameters drawn up front from a
+`StableRNG` so that patient `i` is the same however the ensemble runs.
+
+Two different intervals come out of such a simulation, and they answer
+different questions:
+
+* A **prediction interval** for one patient, from the quantiles of the
+  simulated values: 90% of patients have a concentration at 24 h between
+  the 5% and 95% quantiles. It does not shrink with more simulations; it is
+  the spread of the population.
+* A **confidence interval** for a population mean, `m ± 1.96 s / sqrt(N)`
+  (unit 37): how well 500 simulations estimate the mean. It shrinks like
+  `1 / sqrt(N)`.
+
+The mean exposure has an exact value to check the Monte Carlo against:
+`AUC_∞ = D / CL_i`, so `E[AUC] = (D / CL) E[exp(-η)] = (D / CL) exp(ω² / 2)`,
+from the mean of a log-normal variable. It is larger than `D / CL`: the
+typical patient's AUC is not the average patient's. The ensemble integrates
+to 400 h, not to infinity, so patients with a low clearance lose a little
+of their tail: about `5e-4` of their AUC (`exp(λ · 400)` for the slowest eigenvalue `λ`) for the lowest clearance drawn
+here, and about `1e-5` of the mean, far inside the Monte Carlo interval.
+'''
+
+  [[section.example]]
+  caption = "500 simulated patients (`StableRNG(11)`, `ω_CL = 0.3`, `ω_V1 = 0.2`, one 100 mg dose): the mean AUC with its 95% Monte Carlo interval against the exact `E[AUC]`, and a 90% prediction interval for the concentration at 24 h (rounded to 3 digits)."
+  notice = "Notice that the confidence interval for the mean AUC contains the exact value `20 exp(0.045) = 20.9`, which is above `D / CL = 20`, and that the prediction interval for `C(24 h)` spans a factor of about four: the variability between patients, which more simulations would describe better but not narrow."
+  code = '''
+using OrdinaryDiffEq, StableRNGs, Statistics
+function pk_auc!(du, u, p, t)
+    ka, CL, V1, Q, V2 = p
+    du[1] = -ka * u[1]
+    du[2] = ka * u[1] - (CL + Q) / V1 * u[2] + Q / V2 * u[3]
+    du[3] = Q / V1 * u[2] - Q / V2 * u[3]
+    du[4] = u[2] / V1
+end
+N = 500
+rng = StableRNG(11)
+CLs = 5.0 .* exp.(0.3 .* randn(rng, N))
+V1s = 20.0 .* exp.(0.2 .* randn(rng, N))
+prob = ODEProblem(pk_auc!, [100.0, 0.0, 0.0, 0.0], (0.0, 400.0), [2.0, 5.0, 20.0, 4.0, 60.0])
+ens = EnsembleProblem(prob;
+    prob_func = (prob, ctx) -> remake(prob; p = [2.0, CLs[ctx.sim_id], V1s[ctx.sim_id], 4.0, 60.0]),
+    output_func = (sol, ctx) -> ((sol.u[end][4], sol(24.0)[2] / V1s[ctx.sim_id]), false))
+sim = solve(ens, Tsit5(); trajectories = N, abstol = 1e-10, reltol = 1e-8)
+aucs, c24 = first.(sim.u), last.(sim.u)
+m, half = mean(aucs), 1.96 * std(aucs) / sqrt(N)
+println("mean AUC ", round(m; digits = 2), " ± ", round(half; digits = 2), "; exact E[AUC] = ", round(20 * exp(0.3^2 / 2); digits = 2),
+        "; inside: ", abs(m - 20 * exp(0.3^2 / 2)) < half)
+println("90% prediction interval for C(24 h): ", round.(quantile(c24, [0.05, 0.95]); sigdigits = 3), " mg/L, median ",
+        round(median(c24); sigdigits = 3))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The ensemble is rerun with 50,000 patients instead of 500. What happens to the two intervals?"
+  choices = [
+    "Both shrink by a factor of 10, since both are estimated from the simulations",
+    "Only the prediction interval shrinks, by about 10",
+    "Only the confidence interval shrinks, by about 10",
+  ]
+  answer = 3
+  explain = "The confidence half-width is `1.96 s / sqrt(N)`, so 100 times the simulations divide it by 10. The prediction interval is made of quantiles of the population's distribution; more simulations estimate those quantiles better but do not move them."
+  misconceptions = [
+    "The prediction interval describes how much patients differ, which is a property of the population model (`ω`), not of the number of simulations.",
+    "The two are swapped: the `1/sqrt(N)` law applies to the estimate of the mean, while the spread between patients is fixed by `ω`.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Clearance varies log-normally around 5 L/h, so the median patient has `CL = 5`. Why is the mean AUC over patients larger than `D / 5`?"
+  choices = [
+    "`AUC = D / CL` is convex in `CL`, so low clearances weigh more",
+    "Monte Carlo error, which would vanish if the ensemble had many more patients",
+    "The ensemble's tolerances bias every computed AUC upwards by a few percent",
+  ]
+  answer = 1
+  explain = "`1/CL` is a convex function, so its mean over patients exceeds its value at the median patient (Jensen's inequality): a patient with half the clearance has twice the AUC, while one with twice the clearance has half, and the doubling outweighs the halving. For log-normal `CL` it is exactly `exp(ω²/2)`, here 4.6%."
+  misconceptions = [
+    "",
+    "The exact mean `(D / CL) exp(ω² / 2)` is above `D / CL` with no sampling at all; the Monte Carlo estimate converges to it, not to `D / CL`.",
+    "With tolerances `1e-8` each AUC is accurate to about `1e-6`; the 4.6% difference is a property of the population, not of the solver.",
+  ]
+
+[[problem]]
+id = "pk-dose-callbacks"
+title = "Repeated doses with a callback"
+difficulty = "warm-up"
+kcs = ["dosing-callbacks"]
+entry = "dosed_concentration"
+packages = ["OrdinaryDiffEq"]
+prompt = '''
+A one-compartment model with first-order absorption has a gut amount
+`A_g` and a central amount `A_c`:
+
+    A_g' = -k_a A_g,     A_c' = k_a A_g - (CL / V) A_c,     C = A_c / V
+
+Write `dosed_concentration(dose, tau, ndoses, ka, CL, V, tq)` that gives
+`ndoses` doses of `dose` mg into the gut at `t = 0, tau, 2tau, …`, solves
+the model with OrdinaryDiffEq (`abstol = 1e-12`, `reltol = 1e-10`), and
+returns the concentration `C(tq)` as a `Float64`. Doses after `tq` do not
+matter; `tq` is never exactly a dose time, and the amount at `tq` stays far
+above the solver's absolute tolerance (the random cases put `tq` at most
+`5 V / CL` hours after the last dose before it).
+
+```julia
+dosed_concentration(100.0, 12.0, 1, 1.5, 5.0, 20.0, 6.0)   # one dose
+dosed_concentration(100.0, 12.0, 5, 1.5, 5.0, 20.0, 50.0)  # five doses every 12 h
+```
+
+Results are compared with `rtol = 1e-6`: at these tolerances, and with a
+concentration far above `abstol`, the solver's global error is about
+`1e-9` relative (unit 31: one to two digits above `reltol`), so any
+correct method, including the exact superposition of single-dose
+solutions, agrees far inside that. (Long after the last dose, when the
+amount falls below `abstol = 1e-12`, the solver returns noise of that
+size, and a relative comparison would mean nothing.)
+'''
+starter = '''
+using OrdinaryDiffEq
+
+function dosed_concentration(dose, tau, ndoses, ka, CL, V, tq)
+    f!(du, u, p, t) = (du[1] = -ka * u[1]; du[2] = ka * u[1] - CL / V * u[2])
+    prob = ODEProblem(f!, [dose, 0.0], (0.0, tq))
+    sol = solve(prob, Tsit5(); abstol = 1e-12, reltol = 1e-10)
+    return sol.u[end][2] / V
+end
+'''
+reference = '''
+using OrdinaryDiffEq
+
+function dosed_concentration(dose, tau, ndoses, ka, CL, V, tq)
+    f!(du, u, p, t) = (du[1] = -ka * u[1]; du[2] = ka * u[1] - CL / V * u[2])
+    times = [k * tau for k in 1:ndoses-1 if k * tau < tq]     # the doses after the first, up to tq
+    cb = DiscreteCallback((u, t, integrator) -> t in times, integrator -> (integrator.u[1] += dose))
+    prob = ODEProblem(f!, [dose, 0.0], (0.0, tq))
+    sol = solve(prob, Tsit5(); callback = cb, tstops = times, abstol = 1e-12, reltol = 1e-10, save_everystep = false)
+    return sol.u[end][2] / V
+end
+'''
+cases = [
+  "100.0, 12.0, 1, 1.5, 5.0, 20.0, 6.0",
+  "100.0, 12.0, 5, 1.5, 5.0, 20.0, 50.0",
+  "100.0, 12.0, 5, 1.5, 5.0, 20.0, 100.0",
+  "250.0, 8.0, 3, 0.7, 2.0, 50.0, 7.5",
+  "50.0, 24.0, 10, 3.0, 1.0, 10.0, 200.0",
+]
+gen = "rng -> [(d = 10 + 200rand(rng); tau = 4 + 20rand(rng); nd = rand(rng, 1:6); ka = 0.5 + 3rand(rng); CL = 0.5 + 10rand(rng); V = 5 + 80rand(rng); tq = rand(rng, 0:nd-1) * tau + 0.1 + rand(rng) * (5V / CL - 0.1); (d, tau, nd, ka, CL, V, tq)) for _ in 1:10]"
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "The starter gives only the first dose. The others are jumps in the gut amount at known times, which is what a `DiscreteCallback` is for.",
+  "The callback's condition is checked only where a step ends; tell `solve` with `tstops` to end steps at the dose times, and add `dose` to `integrator.u[1]` there.",
+]
+
+  [problem.perf]
+  args = "100.0, 12.0, n, 1.5, 5.0, 20.0, 12.0 * n - 6.0"
+  sizes = [10]
+
+  [[problem.variant]]
+  label = "doses added to the central compartment"
+  code = '''
+using OrdinaryDiffEq
+function dosed_concentration(dose, tau, ndoses, ka, CL, V, tq)
+    f!(du, u, p, t) = (du[1] = -ka * u[1]; du[2] = ka * u[1] - CL / V * u[2])
+    times = [k * tau for k in 1:ndoses-1 if k * tau < tq]
+    cb = DiscreteCallback((u, t, integrator) -> t in times, integrator -> (integrator.u[2] += dose))
+    sol = solve(ODEProblem(f!, [dose, 0.0], (0.0, tq)), Tsit5(); callback = cb, tstops = times, abstol = 1e-12, reltol = 1e-10)
+    return sol.u[end][2] / V
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "callback without tstops: the doses are skipped"
+  code = '''
+using OrdinaryDiffEq
+function dosed_concentration(dose, tau, ndoses, ka, CL, V, tq)
+    f!(du, u, p, t) = (du[1] = -ka * u[1]; du[2] = ka * u[1] - CL / V * u[2])
+    times = [k * tau for k in 1:ndoses-1 if k * tau < tq]
+    cb = DiscreteCallback((u, t, integrator) -> t in times, integrator -> (integrator.u[1] += dose))
+    sol = solve(ODEProblem(f!, [dose, 0.0], (0.0, tq)), Tsit5(); callback = cb, abstol = 1e-12, reltol = 1e-10)
+    return sol.u[end][2] / V
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "exact superposition of single-dose (Bateman) curves"
+  code = '''
+function dosed_concentration(dose, tau, ndoses, ka, CL, V, tq)
+    k = CL / V
+    c = 0.0
+    for j in 0:ndoses-1
+        s = tq - j * tau
+        s > 0 || continue
+        c += dose * ka / (V * (ka - k)) * (exp(-k * s) - exp(-ka * s))
+    end
+    return c
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "pk-auc-linlog"
+title = "AUC by the linear-up/log-down rule"
+difficulty = "core"
+kcs = ["auc"]
+entry = "auc_linlog"
+packages = ["StableRNGs"]
+prompt = '''
+Write `auc_linlog(t, c)` for sample times `t` (increasing) and
+concentrations `c` (non-negative), both `Vector{Float64}` of the same
+length, that returns the area under the sampled curve as a `Float64`, one
+interval at a time:
+
+* if the concentration **falls** to a **nonzero** value (`c2 < c1` and
+  `c2 > 0`): the log trapezoid `(c1 - c2) (t2 - t1) / log(c1 / c2)`;
+* otherwise (rising, constant, or falling to zero): the linear trapezoid
+  `(c1 + c2) (t2 - t1) / 2`.
+
+Vectors of different lengths throw a `DimensionMismatch`; fewer than two
+samples give `0.0`.
+
+```julia
+auc_linlog([0.0, 1.0, 3.0], [0.0, 8.0, 2.0])   # 4.0 + 8.656... = 12.656...
+```
+
+Results are compared with `rtol = 1e-12`: each interval is a few
+operations, and a sum of positive terms in any order has a relative error
+of about `n u`. On exactly exponential data the log trapezoid is exact, a
+check you can run yourself. Speed and allocations are graded against the
+reference.
+'''
+starter = '''
+function auc_linlog(t, c)
+    s = 0.0
+    for i in 2:length(t)
+        s += (c[i-1] + c[i]) / 2 * (t[i] - t[i-1])
+    end
+    return s
+end
+'''
+reference = '''
+function auc_linlog(t, c)
+    length(t) == length(c) || throw(DimensionMismatch("t has $(length(t)) samples, c has $(length(c))"))
+    s = 0.0
+    for i in 2:length(t)
+        c1, c2, dt = c[i-1], c[i], t[i] - t[i-1]
+        s += c2 < c1 && c2 > 0 ? (c1 - c2) * dt / log(c1 / c2) : (c1 + c2) * dt / 2
+    end
+    return s
+end
+'''
+cases = [
+  "[0.0, 1.0, 3.0], [0.0, 8.0, 2.0]",
+  "[0.0, 2.0, 4.0, 6.0], [8.0, 4.0, 2.0, 1.0]",
+  "[0.0, 1.0, 2.0], [3.0, 3.0, 0.0]",
+  "[5.0], [1.0]",
+  "[0.0, 1.0], [1.0, 2.0, 3.0]",
+  "[0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 24.0], [0.0, 1.9, 2.6, 2.4, 1.5, 0.6, 0.0]",
+]
+gen = "rng -> [(n = rand(rng, 2:60); t = cumsum(0.1 .+ rand(rng, n)); c = [rand(rng) < 0.1 ? 0.0 : 5rand(rng) for _ in 1:n]; (t, c)) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "The starter uses the linear trapezoid everywhere. On a falling stretch, integrate the exponential that passes through the two samples instead.",
+  "Decide per interval: a fall to a positive value gets `(c1 - c2) Δt / log(c1 / c2)`; anything else keeps the linear rule. Check the lengths before the loop.",
+]
+
+  [problem.perf]
+  args = "cumsum(rand(rng, n)), 10 .* exp.(-0.01 .* (1:n)) .* (1 .+ 0.1 .* rand(rng, n))"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "linear trapezoid everywhere (checks the lengths)"
+  code = '''
+function auc_linlog(t, c)
+    length(t) == length(c) || throw(DimensionMismatch("lengths"))
+    s = 0.0
+    for i in 2:length(t)
+        s += (c[i-1] + c[i]) / 2 * (t[i] - t[i-1])
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "log trapezoid on rising stretches too"
+  code = '''
+function auc_linlog(t, c)
+    length(t) == length(c) || throw(DimensionMismatch("lengths"))
+    s = 0.0
+    for i in 2:length(t)
+        c1, c2, dt = c[i-1], c[i], t[i] - t[i-1]
+        s += c1 > 0 && c2 > 0 && c1 != c2 ? (c1 - c2) * dt / log(c1 / c2) : (c1 + c2) * dt / 2
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "log trapezoid also when falling to zero (gives NaN or a wrong 0)"
+  code = '''
+function auc_linlog(t, c)
+    length(t) == length(c) || throw(DimensionMismatch("lengths"))
+    s = 0.0
+    for i in 2:length(t)
+        c1, c2, dt = c[i-1], c[i], t[i] - t[i-1]
+        s += c2 < c1 ? (c1 - c2) * dt / log(c1 / c2) : (c1 + c2) * dt / 2
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "with diff(t) and a comprehension: correct, allocates"
+  code = '''
+function auc_linlog(t, c)
+    length(t) == length(c) || throw(DimensionMismatch("lengths"))
+    dts = diff(t)
+    return sum([c[i+1] < c[i] && c[i+1] > 0 ? (c[i] - c[i+1]) * dts[i] / log(c[i] / c[i+1]) :
+                (c[i] + c[i+1]) * dts[i] / 2 for i in eachindex(dts)]; init = 0.0)
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "pk-fit-clearance"
+title = "Fit the clearance by Gauss-Newton"
+difficulty = "stretch"
+kcs = ["nonlinear-least-squares", "parameter-identifiability"]
+entry = "fit_clearance"
+packages = ["StableRNGs"]
+prompt = '''
+After one oral dose `D` (mg), a one-compartment model with known
+absorption rate `k_a` predicts the concentration (the Bateman function)
+
+    C(t) = D k_a / (V (k_a - k)) · (exp(-k t) - exp(-k_a t)),     k = CL / V
+
+Write `fit_clearance(t, c, dose, ka, CL0, V0)` that fits `CL` and `V` to
+measured concentrations `c` at times `t` (both `Vector{Float64}`, all
+`c > 0`) by **Gauss-Newton** on the log residuals
+`r_i = log c_i - log C(t_i)`, with the parameters `θ = (log CL, log V)`,
+starting from `(CL0, V0)`. Halve a step while it does not reduce
+`sum(r.^2)`, and stop when the step's norm is below `1e-10` (or after 100
+iterations). Return the fitted `CL` as a `Float64`.
+
+```julia
+t = [0.5, 1, 2, 3, 4, 6, 8, 12, 16, 24]
+c = [100 * 1.5 / (20 * (1.5 - 0.25)) * (exp(-0.25s) - exp(-1.5s)) for s in t]   # CL = 5, V = 20, no noise
+fit_clearance(t, c, 100.0, 1.5, 7.5, 14.0)                                     # 5.0 (to 1e-10)
+```
+
+The Jacobian can be written by hand (differentiate `log C` with respect to
+`k`, then use `∂k/∂log CL = k` and `∂k/∂log V = -k`) or by finite
+differences. Every case starts within about a factor 1.5 of the minimum and has
+`k_a` at least 3 times `k`. Results are compared with `rtol = 1e-6`: any
+method that converges to the minimum of this sum of squares to `1e-8`
+agrees with the reference, while minimizing the residuals `c_i - C(t_i)`
+without the logarithm gives another minimum, off by more than `1e-3` on
+the noisy cases.
+'''
+starter = '''
+function fit_clearance(t, c, dose, ka, CL0, V0)
+    return CL0
+end
+'''
+reference = '''
+using LinearAlgebra
+
+bateman(t, dose, ka, CL, V) = (k = CL / V; dose * ka / (V * (ka - k)) * (exp(-k * t) - exp(-ka * t)))
+
+function fit_clearance(t, c, dose, ka, CL0, V0)
+    θ = [log(CL0), log(V0)]
+    resid(θ) = [log(c[i]) - log(bateman(t[i], dose, ka, exp(θ[1]), exp(θ[2]))) for i in eachindex(t, c)]
+    J = zeros(length(t), 2)
+    for _ in 1:100
+        k = exp(θ[1]) / exp(θ[2])
+        for i in eachindex(t)
+            e1, e2 = exp(-k * t[i]), exp(-ka * t[i])
+            g = 1 / (ka - k) - t[i] * e1 / (e1 - e2)       # d log C / dk
+            J[i, 1] = -k * g                                # d r / d log CL   (r = log c - log C)
+            J[i, 2] = 1 + k * g                             # d r / d log V
+        end
+        r = resid(θ)
+        δ = -(J \ r)
+        λ = 1.0
+        while sum(abs2, resid(θ .+ λ .* δ)) > sum(abs2, r) && λ > 1e-8
+            λ /= 2
+        end
+        θ = θ .+ λ .* δ
+        norm(λ .* δ) < 1e-10 && break
+    end
+    return exp(θ[1])
+end
+'''
+cases = [
+  "[0.5, 1, 2, 3, 4, 6, 8, 12, 16, 24], [100 * 1.5 / (20 * (1.5 - 0.25)) * (exp(-0.25s) - exp(-1.5s)) for s in [0.5, 1, 2, 3, 4, 6, 8, 12, 16, 24]], 100.0, 1.5, 7.5, 14.0",
+  "[0.5, 1, 2, 3, 4, 6, 8, 12, 16, 24], [2.118, 3.667, 2.975, 3.305, 2.54, 1.295, 0.8493, 0.3012, 0.1006, 0.01643], 100.0, 1.5, 7.5, 14.0",
+  "[0.5, 1, 2, 3, 4, 6, 8, 12, 16, 24], [2.345, 2.755, 2.17, 2.21, 1.664, 1.658, 1.736, 1.325, 1.052, 0.7545], 100.0, 3.0, 1.4, 56.0",
+  "[0.5, 1, 2, 3, 4, 6, 8, 12, 16, 24], [0.328, 0.5361, 0.7482, 1.013, 0.7695, 0.6448, 0.5387, 0.3188, 0.2167, 0.1158], 100.0, 0.8, 15.0, 70.0",
+]
+gen = "rng -> [(t = [0.5, 1, 2, 3, 4, 6, 8, 12, 16, 24]; V = 10 + 90rand(rng); k = 0.05 + 0.2rand(rng); ka = 3k + 2rand(rng); c = [100ka / (V * (ka - k)) * (exp(-k * s) - exp(-ka * s)) for s in t] .* exp.(0.1 .* randn(rng, 10)); (t, c, 100.0, ka, k * V * exp(0.2randn(rng)), V * exp(0.2randn(rng)))) for _ in 1:12]"
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "Gauss-Newton repeats: compute the residuals `r` and the Jacobian `J = ∂r/∂θ`, solve the linear least-squares problem `J δ ≈ -r` (with `\\`), and step to `θ + δ`.",
+  "With `k = CL / V`, `log C = log(D k_a) - log V - log(k_a - k) + log(exp(-k t) - exp(-k_a t))`. Its derivative in `k` is `1/(k_a - k) - t exp(-k t) / (exp(-k t) - exp(-k_a t))`; the residual has the opposite sign, and `log V` also appears directly.",
+]
+
+  [problem.perf]
+  args = "(t = collect(range(0.5, 24.0; length = n)); c = [100 * 1.5 / (20 * 1.25) * (exp(-0.25s) - exp(-1.5s)) for s in t] .* exp.(0.1 .* randn(rng, n)); (t, c, 100.0, 1.5, 6.0, 18.0))..."
+  sizes = [40]
+
+  [[problem.variant]]
+  label = "least squares on c - C instead of the log residuals"
+  code = '''
+using LinearAlgebra
+function fit_clearance(t, c, dose, ka, CL0, V0)
+    C(θ, s) = (k = exp(θ[1]) / exp(θ[2]); dose * ka / (exp(θ[2]) * (ka - k)) * (exp(-k * s) - exp(-ka * s)))
+    resid(θ) = [c[i] - C(θ, t[i]) for i in eachindex(t)]
+    θ = [log(CL0), log(V0)]
+    for _ in 1:100
+        r = resid(θ)
+        J = hcat([(resid(θ .+ h) .- resid(θ .- h)) ./ 2e-7 for h in ([1e-7, 0.0], [0.0, 1e-7])]...)
+        δ = -(J \ r)
+        λ = 1.0
+        while sum(abs2, resid(θ .+ λ .* δ)) > sum(abs2, r) && λ > 1e-8
+            λ /= 2
+        end
+        θ = θ .+ λ .* δ
+        norm(λ .* δ) < 1e-10 && break
+    end
+    return exp(θ[1])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a single Gauss-Newton step"
+  code = '''
+function fit_clearance(t, c, dose, ka, CL0, V0)
+    C(θ, s) = (k = exp(θ[1]) / exp(θ[2]); dose * ka / (exp(θ[2]) * (ka - k)) * (exp(-k * s) - exp(-ka * s)))
+    resid(θ) = [log(c[i]) - log(C(θ, t[i])) for i in eachindex(t)]
+    θ = [log(CL0), log(V0)]
+    J = hcat([(resid(θ .+ h) .- resid(θ .- h)) ./ 2e-6 for h in ([1e-6, 0.0], [0.0, 1e-6])]...)
+    θ = θ .- J \ resid(θ)
+    return exp(θ[1])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns the fitted volume"
+  code = '''
+using LinearAlgebra
+function fit_clearance(t, c, dose, ka, CL0, V0)
+    C(θ, s) = (k = exp(θ[1]) / exp(θ[2]); dose * ka / (exp(θ[2]) * (ka - k)) * (exp(-k * s) - exp(-ka * s)))
+    resid(θ) = [log(c[i]) - log(C(θ, t[i])) for i in eachindex(t)]
+    θ = [log(CL0), log(V0)]
+    for _ in 1:100
+        r = resid(θ)
+        J = hcat([(resid(θ .+ h) .- resid(θ .- h)) ./ 2e-6 for h in ([1e-6, 0.0], [0.0, 1e-6])]...)
+        δ = -(J \ r)
+        λ = 1.0
+        while sum(abs2, resid(θ .+ λ .* δ)) > sum(abs2, r) && λ > 1e-8
+            λ /= 2
+        end
+        θ = θ .+ λ .* δ
+        norm(λ .* δ) < 1e-10 && break
+    end
+    return exp(θ[2])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Gauss-Newton with a finite-difference Jacobian"
+  code = '''
+using LinearAlgebra
+function fit_clearance(t, c, dose, ka, CL0, V0)
+    C(θ, s) = (k = exp(θ[1]) / exp(θ[2]); dose * ka / (exp(θ[2]) * (ka - k)) * (exp(-k * s) - exp(-ka * s)))
+    resid(θ) = [log(c[i]) - log(C(θ, t[i])) for i in eachindex(t)]
+    θ = [log(CL0), log(V0)]
+    for _ in 1:100
+        r = resid(θ)
+        J = hcat([(resid(θ .+ h) .- resid(θ .- h)) ./ 2e-6 for h in ([1e-6, 0.0], [0.0, 1e-6])]...)
+        δ = -(J \ r)
+        λ = 1.0
+        while sum(abs2, resid(θ .+ λ .* δ)) > sum(abs2, r) && λ > 1e-8
+            λ /= 2
+        end
+        θ = θ .+ λ .* δ
+        norm(λ .* δ) < 1e-10 && break
+    end
+    return exp(θ[1])
+end
+'''
+  expect = ["correct"]

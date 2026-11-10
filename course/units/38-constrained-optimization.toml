@@ -1,0 +1,812 @@
+id = "38-constrained-optimization"
+title = "Constrained nonlinear optimization"
+track = "scicomp"
+env = "scicomp"
+status = "ready"
+summary = "What a constrained optimum is and how to check one: the Lagrangian and the KKT conditions (stationarity, feasibility, sign of the multipliers, complementarity) solved by hand and checked at Ipopt's answers, the log-barrier idea behind interior-point methods written out in one dimension, why Ipopt's `LOCALLY_SOLVED` is a local statement (one nonconvex model, two starts, two answers), and multipliers as sensitivities, verified by perturbing a constraint."
+kcs = ["kkt-conditions", "lagrange-multipliers", "barrier-methods", "local-optimization", "sensitivity"]
+prerequisites = ["25-optimization", "32-dense-linear-algebra"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+Unit 25 solved constrained problems with JuMP and read a shadow price off
+an LP; this unit is about the nonlinear case and about checking the answer.
+It relies on four facts:
+
+* **A JuMP model** is variables, constraints and an objective handed to a
+  solver; check `termination_status` before reading `value` and
+  `objective_value`, and `dual(c)` gives a constraint's multiplier (unit 25,
+  section "JuMP: state the model, let a solver solve it").
+* **A zero gradient is a local statement**: BFGS from different starts on a
+  double well found different minima, both reported converged (unit 25,
+  section "Checking an optimum").
+* **`ForwardDiff.gradient` and `jacobian`** give exact derivatives of a
+  Julia function (unit 23, section "ForwardDiff: derivative, gradient,
+  jacobian, hessian").
+* **`A \ b`** solves a square system by a factorization, never by forming
+  `inv(A)` (unit 32, sections "What `\` does, matrix type by matrix type"
+  and "Never `inv(A) * b`").
+
+Ipopt prints a banner and a log by default. `set_silent(model)` turns off
+the log; the banner is printed once per process unless the option
+`"sb" => "yes"` is set, so every example sets both. Iteration counts are
+never printed: they depend on rounding and are not part of an answer.
+'''
+
+[[section]]
+title = "The Lagrangian and the KKT conditions"
+body = '''
+Minimize `f(x)` subject to constraints `c_i(x) ≥ 0` (inequalities) and
+`h_j(x) = 0` (equalities). At a constrained minimum you cannot decrease
+`f` by any small move that stays feasible. For one equality constraint
+that means `∇f` has no component along the constraint surface: it is
+parallel to the surface's normal `∇h`, so `∇f = λ ∇h` for some number `λ`,
+the **Lagrange multiplier**.
+
+With the **Lagrangian** `L(x, λ) = f(x) - Σ λ_i c_i(x) - Σ λ_j h_j(x)`, the
+**KKT conditions** (Karush-Kuhn-Tucker) at a local minimum are, under a
+mild regularity assumption on the constraints:
+
+* **stationarity**: `∇f(x) = Σ λ_i ∇c_i(x) + Σ λ_j ∇h_j(x)`;
+* **primal feasibility**: `c_i(x) ≥ 0`, `h_j(x) = 0`;
+* **dual feasibility**: `λ_i ≥ 0` for each inequality (free sign for
+  equalities): an active inequality can only push `x` back into the
+  feasible side;
+* **complementarity**: `λ_i c_i(x) = 0`: a constraint that is not tight
+  has multiplier 0.
+
+They are necessary, not sufficient: a KKT point can be a maximum or a
+saddle, and in a nonconvex problem there can be several minima. For a
+convex problem (convex `f`, convex feasible set) a KKT point is the global
+minimum.
+
+For an **equality-constrained quadratic** problem, the KKT conditions are a
+linear system. Minimizing `x² + 2y²` on `x + y = 1`:
+
+    2x = λ,   4y = λ,   x + y = 1      =>   x = 2/3, y = 1/3, λ = 4/3
+'''
+
+  [[section.example]]
+  caption = "The KKT system of `min x² + 2y²` subject to `x + y = 1`, solved with `\\`, and the same model in JuMP with Ipopt (values rounded to 6 digits)."
+  notice = "Notice that Ipopt's `dual` of the equality is the `λ` of the hand-made system: JuMP's sign convention for a minimization matches `∇f = λ ∇h` here."
+  code = '''
+using JuMP, Ipopt
+K = [2.0 0.0 -1.0; 0.0 4.0 -1.0; 1.0 1.0 0.0]     # rows: ∂L/∂x, ∂L/∂y, the constraint
+x, y, λ = K \ [0.0, 0.0, 1.0]
+println("by hand: x = ", round(x; digits = 6), ", y = ", round(y; digits = 6), ", λ = ", round(λ; digits = 6))
+model = Model(Ipopt.Optimizer)
+set_silent(model)
+set_attribute(model, "sb", "yes")
+@variable(model, xv)
+@variable(model, yv)
+@constraint(model, line, xv + yv == 1)
+@objective(model, Min, xv^2 + 2yv^2)
+optimize!(model)
+println("Ipopt:   ", termination_status(model), ", x = ", round(value(xv); digits = 6), ", y = ", round(value(yv); digits = 6),
+        ", dual = ", round(dual(line); digits = 6))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The KKT system of `min x² + y²` subject to `x + 2y = 5`. What does this print?"
+  code = '''
+K = [2.0 0.0 -1.0; 0.0 2.0 -2.0; 1.0 2.0 0.0]
+println(round.(K \ [0.0, 0.0, 5.0]; digits = 6))
+'''
+  choices = [
+    "[1.0, 2.0, 2.0]",
+    "[2.0, 1.0, 4.0]",
+    "[1.0, 2.0, 1.0]",
+  ]
+  answer = 1
+  explain = "Stationarity gives `x = λ/2` and `y = λ`; the constraint `λ/2 + 2λ = 5` gives `λ = 2`, so `(x, y) = (1, 2)`: the point of the line closest to the origin, along the normal `(1, 2)`."
+  misconceptions = [
+    "",
+    "That swaps the roles of `x` and `y`: the normal of `x + 2y = 5` is `(1, 2)`, so the nearest point has `y = 2x`.",
+    "The point is right, but `λ` is the scale of `∇f = (2x, 2y) = (2, 4)` against `∇h = (1, 2)`, which is 2, not 1.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "At a candidate minimum of `f` subject to `c(x) ≥ 0` (active), stationarity holds with `λ = -3`. What does the negative sign tell you?"
+  choices = [
+    "The point is not a minimum: moving into the feasible side lowers `f`",
+    "The constraint should have been written as an equality",
+    "Nothing: multipliers of inequalities can have either sign",
+  ]
+  answer = 1
+  explain = "`∇f = λ ∇c` with `λ < 0` means `∇f` points against `∇c`, so stepping in the direction of `∇c` (into the region `c > 0`) decreases `f`. Dual feasibility `λ ≥ 0` is what rules this out at a minimum."
+  misconceptions = [
+    "",
+    "Turning it into an equality would allow a negative multiplier, but it would change the problem: the feasible side would be forbidden, and the true minimum lies there.",
+    "Only equality multipliers are free in sign; for an inequality the sign records which side of the constraint the gradient pushes toward.",
+  ]
+
+[[section]]
+title = "Checking the KKT conditions at a solver's answer"
+body = '''
+A solver's status says its own stopping test passed. The KKT conditions
+can be checked independently, with derivatives from ForwardDiff and
+multipliers from `dual`. Each residual should be small **relative to the
+problem's scale**: Ipopt stops when its scaled optimality error is below
+`tol`, default `1e-8` according to the [Ipopt options
+list](https://www.coin-or.org/Ipopt/OPTIONS.html), which also allows a
+constraint violation up to `constr_viol_tol = 1e-4` (absolute) in its
+final check. So residuals of `1e-8` are expected and `1e-12` is not.
+
+The model is the double well of unit 25 cut by a half-plane:
+
+    min  x⁴ - 3x² + x + y²     subject to   x + y ≥ 0
+
+Its left well (near `x = -1.3`) lies outside the half-plane, so the
+constraint is active there; the right well (near `x = 1.13`) lies inside.
+Ipopt finds the point of the line `x + y = 0` from the left, and the right
+well's interior minimum from the right.
+'''
+
+  [[section.example]]
+  caption = "Ipopt from two starts, then the four KKT residuals at each answer, computed with ForwardDiff and `dual` (shown as bounds; constraint values rounded to 4 digits, multipliers to 2 significant digits)."
+  notice = "Notice that both answers pass all four checks. At the left answer the constraint is active (`c = 0`) and its multiplier is about 2.2; at the right one the constraint is slack (`c ≈ 1.13`) and the multiplier is below `1e-6`, zero up to Ipopt's tolerance (its exact tiny value depends on the run and is not printed). That is complementarity, seen from both sides."
+  code = '''
+using JuMP, Ipopt, ForwardDiff
+f(z) = z[1]^4 - 3z[1]^2 + z[1] + z[2]^2
+c(z) = z[1] + z[2]
+function solve_from(start)
+    model = Model(Ipopt.Optimizer)
+    set_silent(model)
+    set_attribute(model, "sb", "yes")
+    @variable(model, z[i = 1:2], start = start[i])
+    @constraint(model, half, z[1] + z[2] >= 0)
+    @objective(model, Min, z[1]^4 - 3z[1]^2 + z[1] + z[2]^2)
+    optimize!(model)
+    return termination_status(model), value.(z), dual(half)
+end
+for start in ([-2.0, 1.0], [2.0, 0.0])
+    status, z, λ = solve_from(start)
+    stationarity = maximum(abs, ForwardDiff.gradient(f, z) .- λ .* ForwardDiff.gradient(c, z))
+    println("start ", start, ": ", status, ", c = ", round(c(z); digits = 4) + 0.0, ", λ ≈ ", abs(λ) < 1e-6 ? "0 (below 1e-6)" : round(λ; sigdigits = 2))
+    println("   stationarity < 1e-6: ", stationarity < 1e-6, ", c ≥ -1e-6: ", c(z) >= -1e-6,
+            ", λ ≥ -1e-6: ", λ >= -1e-6, ", |λ c| < 1e-6: ", abs(λ * c(z)) < 1e-6)
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The same model from the start `(2, 0)`, where the constraint ends up slack. What does this print?"
+  code = '''
+using JuMP, Ipopt
+model = Model(Ipopt.Optimizer)
+set_silent(model)
+set_attribute(model, "sb", "yes")
+@variable(model, x, start = 2.0)
+@variable(model, y, start = 0.0)
+@constraint(model, half, x + y >= 0)
+@objective(model, Min, x^4 - 3x^2 + x + y^2)
+optimize!(model)
+round(dual(half); digits = 6)
+'''
+  choices = ["2.21432", "0.0", "-2.21432", "1.130901"]
+  answer = 2
+  explain = "The right well's minimum is inside the half-plane, so the constraint is not tight and complementarity forces its multiplier to 0. Ipopt returns a tiny positive number (an interior-point method never reaches exactly 0, see the next section), which rounds to 0."
+  misconceptions = [
+    "That is the multiplier at the left answer, where the constraint is active; here it is slack.",
+    "",
+    "A minimization's `≥` constraint has a nonnegative dual in JuMP's convention, and a slack one has dual 0.",
+    "That is the value of `x` at the solution, not the multiplier.",
+  ]
+
+[[section]]
+title = "Barrier methods: how Ipopt handles inequalities"
+body = '''
+Complementarity is combinatorial: which constraints are active is part of
+the answer. **Interior-point** (barrier) methods avoid guessing it. For
+`c(x) ≥ 0`, they minimize
+
+    φ_μ(x) = f(x) - μ log c(x)
+
+which is infinite on the boundary, so the minimizer `x(μ)` stays strictly
+feasible. As `μ → 0`, `x(μ)` follows the **central path** to the
+constrained minimum. At `x(μ)`, `∇f = (μ / c) ∇c`: the number `μ / c(x(μ))`
+plays the role of the multiplier, and its product with `c` is exactly `μ`.
+So a barrier method satisfies a **perturbed complementarity** `λ c = μ` and
+drives `μ` to zero; that is why Ipopt's multiplier for a slack constraint
+was a tiny positive number of the size of the final `μ`, not 0. (Ipopt starts at `mu_init = 0.1` by default,
+according to its options list.)
+
+One dimension shows the whole idea. Minimize `(x - 2)²` subject to
+`x ≤ 1`, that is `c(x) = 1 - x ≥ 0`. The answer is `x = 1` with
+`λ = 2` (from `∇f = 2(x - 2) = -2 = λ ∇c = -λ`). The barrier minimizer
+solves `2(x - 2) + μ / (1 - x) = 0`, found here by Newton's method,
+started inside and damped so that it never leaves `x < 1`.
+'''
+
+  [[section.example]]
+  caption = "The log-barrier method by hand for `min (x - 2)²` subject to `x ≤ 1`: for `μ = 1e-0, 1e-2, ..., 1e-8`, Newton's method on `φ_μ'(x) = 0` from the previous `x(μ)`; the gap to the answer `1 - x(μ)` and the multiplier estimate `μ / (1 - x(μ))` (rounded to 3 digits)."
+  notice = "Notice that the gap shrinks in proportion to `μ` (about `μ / 2`) while the multiplier estimate converges to `λ = 2`: the central path approaches the constrained minimum from inside, and the multipliers come for free."
+  code = '''
+dφ(x, μ) = 2(x - 2) + μ / (1 - x)
+d2φ(x, μ) = 2 + μ / (1 - x)^2
+x = 0.0                                   # strictly inside
+for k in 0:2:8
+    μ = 10.0^-k
+    for _ in 1:100
+        step = dφ(x, μ) / d2φ(x, μ)
+        while x - step >= 1                # damp: never touch the boundary
+            step /= 2
+        end
+        global x -= step
+        abs(step) < 1e-14 && break
+    end
+    println("μ = ", rpad("1e-$k", 6), " 1 - x(μ) = ", rpad(round(1 - x; sigdigits = 3), 9), " μ / (1 - x) = ", round(μ / (1 - x); sigdigits = 3))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Ipopt reports the multiplier of a slack constraint as a tiny positive number instead of 0. Why?"
+  choices = [
+    "The constraint is weakly active, so its true multiplier is small but positive",
+    "A barrier method keeps `λ c = μ` with `μ` small but not zero when it stops",
+    "Rounding error in the gradient, at the level of `eps()`",
+  ]
+  answer = 2
+  explain = "Interior-point methods follow the central path, where each product `λ_i c_i` equals the barrier parameter `μ`. With the constraint value about 1.13, the multiplier is about `μ / 1.13` for the `μ` at which Ipopt stopped. It is a tolerance artefact, not information."
+  misconceptions = [
+    "The constraint value is about 1.13, far from 0; a slack constraint's exact multiplier is 0 by complementarity.",
+    "",
+    "Rounding errors would be near `1e-16`; the tiny multiplier has the size of the barrier parameter at Ipopt's stopping point, which is far larger.",
+  ]
+
+[[section]]
+title = "Ipopt is local: one model, two answers"
+body = '''
+Ipopt applies Newton's method to the KKT conditions of the barrier
+problem. Newton's method converges to a nearby solution of those
+equations, so Ipopt finds a **local** solution near its start. Its status `LOCALLY_SOLVED`
+says exactly that. For a nonconvex model, other starts can give other
+local minima, each reported `LOCALLY_SOLVED`, and nothing in the status
+says which is better.
+
+For the half-plane double well, the left answer has objective about
+`-2.056` and the right one about `-1.070`. Comparing objective values is
+the only way the solver output tells them apart; proving which is global
+needs a global method or a convexity argument, which this model does not
+have (`x⁴ - 3x²` is not convex).
+'''
+
+  [[section.example]]
+  caption = "The half-plane double well from four starts: status, the solution and the objective (rounded to 4 digits)."
+  notice = "Notice that every run is `LOCALLY_SOLVED`, that three starts reach the left answer (objective -2.0562) and one reaches the right one (-1.0702), and that even the start at the origin, between the wells, goes left: the start decides, and not by distance: the origin is closer to the right answer (1.13 away) than to the left one (1.57 away)."
+  code = '''
+using JuMP, Ipopt
+function solve_from(x0, y0)
+    model = Model(Ipopt.Optimizer)
+    set_silent(model)
+    set_attribute(model, "sb", "yes")
+    @variable(model, x, start = x0)
+    @variable(model, y, start = y0)
+    @constraint(model, x + y >= 0)
+    @objective(model, Min, x^4 - 3x^2 + x + y^2)
+    optimize!(model)
+    return termination_status(model), value(x), value(y), objective_value(model)
+end
+for start in ((-2.0, 1.0), (0.0, 0.0), (-0.1, 0.5), (2.0, 0.0))
+    status, x, y, obj = solve_from(start...)
+    println("start ", rpad(start, 12), status, ": x = ", round(x; digits = 4), ", y = ", round(y; digits = 4) + 0.0,
+            ", objective = ", round(obj; digits = 4))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Two Ipopt runs of the same nonconvex model, from different starts, both return `LOCALLY_SOLVED`, with objectives 3.2 and 5.7. What can you conclude?"
+  choices = [
+    "The run with 3.2 found the global minimum",
+    "One run has a bug, since a solved model has one optimum",
+    "Both are KKT points; the global minimum may be neither",
+  ]
+  answer = 3
+  explain = "`LOCALLY_SOLVED` says the first-order (KKT) conditions hold to Ipopt's tolerance at the returned point; Ipopt does not check second-order conditions there, so such a point is usually a local minimum but could be a saddle. A nonconvex problem can have many KKT points; the better of two is only the best you found. Global solvers or a convexity proof are what settle the global question."
+  misconceptions = [
+    "3.2 is better than 5.7, but there may be other local minima that neither start reached.",
+    "Uniqueness holds for strictly convex problems; this one is nonconvex, and several local minima are expected.",
+    "",
+  ]
+
+[[section]]
+title = "Multipliers are sensitivities"
+body = '''
+The multiplier answers an economic question: if the constraint is moved
+by `δ`, how much does the optimal value change? For `min f` subject to
+`c(x) ≥ b`, with optimal value `f*(b)` and multiplier `λ`,
+
+    d f* / d b = λ
+
+for small changes that keep the same constraints active (the envelope
+theorem: at the optimum, the change in `x` contributes nothing to first
+order, because `∇_x L = 0`). Tightening a constraint with `λ = 2.21` by
+`0.001` costs about `0.0022` in the objective; relaxing a slack constraint
+gains nothing.
+
+This is checkable without trusting the solver's duals: solve again with
+`b ± δ` and form the central difference
+`(f*(b + δ) - f*(b - δ)) / (2δ)`. Its error is `O(δ²)` from the curvature
+of `f*` plus the solver's own error divided by `δ` (about `1e-8 / δ`), so
+`δ = 1e-3` should agree with `λ` to about `1e-5`.
+
+The rule `d f* / d b = λ` is for a **minimization**. JuMP's `dual` follows a
+sign convention that ignores the objective sense, so for a maximization
+it is `-d obj / d b`. `shadow_price(c)` is defined by the objective
+instead: the change in the objective when the constraint is relaxed by
+one unit, in either sense. The second example below shows both.
+'''
+
+  [[section.example]]
+  caption = "The half-plane double well from the left start with the constraint moved to `x + y ≥ b`: the dual at `b = 0` against the central difference of the optimal values at `b = ±0.001`; and the same check for the equality QP of the first section (rounded to 6 digits)."
+  notice = "Notice that both pairs agree to about 5 digits, as the error estimate predicts, and that for the quadratic program, whose optimal value is exactly quadratic in `b`, the central difference has no curvature error at all."
+  code = '''
+using JuMP, Ipopt
+function quiet_model()
+    model = Model(Ipopt.Optimizer)
+    set_silent(model)
+    set_attribute(model, "sb", "yes")
+    return model
+end
+function well(b)
+    model = quiet_model()
+    @variable(model, x, start = -2.0)
+    @variable(model, y, start = 1.0)
+    @constraint(model, con, x + y >= b)
+    @objective(model, Min, x^4 - 3x^2 + x + y^2)
+    optimize!(model)
+    return objective_value(model), dual(con)
+end
+function qp(b)
+    model = quiet_model()
+    @variable(model, x)
+    @variable(model, y)
+    @constraint(model, con, x + y == b)
+    @objective(model, Min, x^2 + 2y^2)
+    optimize!(model)
+    return objective_value(model), dual(con)
+end
+δ = 1e-3
+for (name, solve_at) in (("double well", well), ("equality QP", qp))
+    b0 = name == "double well" ? 0.0 : 1.0
+    _, λ = solve_at(b0)
+    fd = (solve_at(b0 + δ)[1] - solve_at(b0 - δ)[1]) / (2δ)
+    println(rpad(name, 12), ": dual = ", round(λ; digits = 6), ", central difference = ", round(fd; digits = 6),
+            ", agree within 1e-4: ", abs(λ - fd) < 1e-4)
+end
+'''
+
+  [[section.example]]
+  caption = "The QP turned into a maximization, `max -(x² + 2y²)` subject to `x + y ≥ b` at `b = 1`: `dual`, `shadow_price` and the central difference of the optimal value (rounded to 4 digits)."
+  notice = "Notice that the optimal value falls as `b` grows (`d obj / d b ≈ -4/3`), while `dual` is `+4/3`: for a maximization it is the negative of the sensitivity. `shadow_price` is `+4/3`, the gain from relaxing the constraint, that is from lowering `b`."
+  code = '''
+using JuMP, Ipopt
+function qpmax(b)
+    model = Model(Ipopt.Optimizer)
+    set_silent(model)
+    set_attribute(model, "sb", "yes")
+    @variable(model, x)
+    @variable(model, y)
+    @constraint(model, con, x + y >= b)
+    @objective(model, Max, -(x^2 + 2y^2))
+    optimize!(model)
+    return objective_value(model), con
+end
+_, con = qpmax(1.0)
+fd = (qpmax(1.001)[1] - qpmax(0.999)[1]) / 0.002
+println("d obj / d b ≈ ", round(fd; digits = 4), ", dual = ", round(dual(con); digits = 4),
+        ", shadow_price = ", round(shadow_price(con); digits = 4))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "For `min x² + 2y²` subject to `x + y = 1`, the optimum is `2/3` with multiplier `4/3`. You change the constraint to `x + y = 1.03`. What is the predicted new optimum?"
+  choices = [
+    "About 0.6267",
+    "About 0.7067",
+    "About 0.6667",
+    "About 0.7133",
+  ]
+  answer = 2
+  explain = "First order: `f* ≈ 2/3 + λ · 0.03 = 0.6667 + 0.04 = 0.7067`. (The exact value is `(2/3) · 1.03² ≈ 0.7073`; the gap is the second-order term.)"
+  misconceptions = [
+    "That subtracts `λ δ`; with JuMP's convention, the dual of an equality in a minimization is `d f* / d b`, and moving the line away from the origin raises the minimum.",
+    "",
+    "The objective does change: the constraint is an equality, so it is always active and its multiplier 4/3 is not zero.",
+    "That adds `2 λ δ`, double the first-order change; the sensitivity is `λ` per unit of `b`, not `2λ`.",
+  ]
+
+[[problem]]
+id = "opt-kkt-residuals"
+title = "KKT residuals at a point"
+difficulty = "warm-up"
+kcs = ["kkt-conditions"]
+entry = "kkt_residuals"
+packages = ["ForwardDiff"]
+prompt = '''
+For `min f(x)` subject to `c(x) ≥ 0` (componentwise; `c` returns a vector),
+write `kkt_residuals(f, c, x, λ)` that returns the four KKT residuals at a
+point `x` with multipliers `λ` as a `Vector{Float64}`:
+
+1. stationarity: `maximum(abs, ∇f(x) - J(x)' λ)`, with `J` the Jacobian
+   of `c` (rows are constraint gradients);
+2. primal infeasibility: `max(0, -minimum(c(x)))`;
+3. dual infeasibility: `max(0, -minimum(λ))`;
+4. complementarity: `maximum(abs.(λ .* c(x)))`.
+
+Use `ForwardDiff.gradient` and `ForwardDiff.jacobian` for the derivatives.
+
+```julia
+f(x) = x[1]^2 + x[2]^2
+c(x) = [x[1] + x[2] - 2]
+kkt_residuals(f, c, [1.0, 1.0], [2.0])   # [0.0, 0.0, 0.0, 0.0]: a KKT point
+kkt_residuals(f, c, [2.0, 1.0], [1.0])   # not one
+```
+
+Results are compared as vectors with `rtol = 1e-10`: ForwardDiff's
+derivatives are exact up to rounding, so any correct arrangement agrees to
+a few `eps()` relative to the largest residual.
+'''
+starter = '''
+using ForwardDiff
+
+function kkt_residuals(f, c, x, λ)
+    return zeros(4)
+end
+'''
+reference = '''
+using ForwardDiff
+
+function kkt_residuals(f, c, x, λ)
+    g = ForwardDiff.gradient(f, x)
+    J = ForwardDiff.jacobian(c, x)
+    cx = c(x)
+    stationarity = maximum(abs, g .- J' * λ)
+    primal = max(0.0, -minimum(cx))
+    dual = max(0.0, -minimum(λ))
+    complementarity = maximum(abs.(λ .* cx))
+    return [stationarity, primal, dual, complementarity]
+end
+'''
+cases = [
+  "x -> x[1]^2 + x[2]^2, x -> [x[1] + x[2] - 2], [1.0, 1.0], [2.0]",
+  "x -> x[1]^2 + x[2]^2, x -> [x[1] + x[2] - 2], [2.0, 1.0], [1.0]",
+  "x -> x[1]^4 - 3x[1]^2 + x[1] + x[2]^2, x -> [x[1] + x[2]], [-1.1, 1.1], [2.2]",
+  "x -> (x[1] - 3)^2 + (x[2] - 2)^2, x -> [4 - x[1] - x[2], x[1], x[2]], [2.5, 1.5], [1.0, 0.0, -0.5]",
+  "x -> sum(abs2, x), x -> [x[1] - 1, 1 - x[2]^2], [0.5, 2.0], [0.3, 0.7]",
+]
+gen = "rng -> [(n = rand(rng, 2:5); m = rand(rng, 1:3); A = randn(rng, m, n); b = randn(rng, m); (let A = A, b = b; x -> sum(abs2, x) + x[1]^3 end, let A = A, b = b; x -> A * x .- b end, randn(rng, n), randn(rng, m))) for _ in 1:15]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Stationarity compares the gradient of `f` with a combination of the constraint gradients, weighted by `λ`; the Jacobian of `c` has those gradients as its rows.",
+  "`J' * λ` is the weighted sum of the constraint gradients. Infeasibility counts only violations, so clip at zero with `max(0, ...)`.",
+]
+
+  [problem.perf]
+  args = "x -> sum(abs2, x), x -> x .- 0.5, rand(rng, n), rand(rng, n)"
+  sizes = [20]
+
+  [[problem.variant]]
+  label = "stationarity with a plus sign: ∇f + J'λ"
+  code = '''
+using ForwardDiff
+function kkt_residuals(f, c, x, λ)
+    g = ForwardDiff.gradient(f, x)
+    J = ForwardDiff.jacobian(c, x)
+    cx = c(x)
+    return [maximum(abs, g .+ J' * λ), max(0.0, -minimum(cx)), max(0.0, -minimum(λ)), maximum(abs.(λ .* cx))]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "primal infeasibility not clipped at zero"
+  code = '''
+using ForwardDiff
+function kkt_residuals(f, c, x, λ)
+    g = ForwardDiff.gradient(f, x)
+    J = ForwardDiff.jacobian(c, x)
+    cx = c(x)
+    return [maximum(abs, g .- J' * λ), -minimum(cx), max(0.0, -minimum(λ)), maximum(abs.(λ .* cx))]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "complementarity as the sum λ'c, which can cancel"
+  code = '''
+using ForwardDiff
+function kkt_residuals(f, c, x, λ)
+    g = ForwardDiff.gradient(f, x)
+    J = ForwardDiff.jacobian(c, x)
+    cx = c(x)
+    return [maximum(abs, g .- J' * λ), max(0.0, -minimum(cx)), max(0.0, -minimum(λ)), abs(sum(λ .* cx))]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a loop over the constraints"
+  code = '''
+using ForwardDiff
+function kkt_residuals(f, c, x, λ)
+    r = ForwardDiff.gradient(f, x)
+    J = ForwardDiff.jacobian(c, x)
+    cx = c(x)
+    primal = 0.0; dual = 0.0; comp = 0.0
+    for i in eachindex(λ)
+        r = r .- λ[i] .* J[i, :]
+        primal = max(primal, -cx[i])
+        dual = max(dual, -λ[i])
+        comp = max(comp, abs(λ[i] * cx[i]))
+    end
+    return [maximum(abs, r), primal, dual, comp]
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "opt-barrier-path"
+title = "A one-dimensional log-barrier method"
+difficulty = "core"
+kcs = ["barrier-methods"]
+entry = "barrier_path"
+packages = ["ForwardDiff"]
+prompt = '''
+To minimize a convex `f(x)` on the interval `a ≤ x ≤ b`, a barrier method
+minimizes
+
+    φ_μ(x) = f(x) - μ (log(x - a) + log(b - x))
+
+for a decreasing sequence of `μ`. Write `barrier_path(f, a, b, μs)` that
+returns the vector of minimizers `x(μ)` for each `μ` in `μs` (in order), as
+a `Vector{Float64}`.
+
+* Start at the midpoint `(a + b) / 2`; start each later `μ` from the
+  previous `x(μ)`.
+* Use Newton's method on `φ_μ'(x) = 0`, with `f'` and `f''` from
+  `ForwardDiff.derivative`.
+* **Damp** the step: halve it until the new point is strictly inside
+  `(a, b)`. Stop when the step is below `1e-12 * (1 + abs(x))` or after
+  100 iterations.
+
+```julia
+barrier_path(x -> (x - 2)^2, 0.0, 1.0, [1.0, 1e-2, 1e-4])   # approaches 1 from inside
+```
+
+Results are compared with `rtol = 1e-8`: `φ_μ` is strictly convex, so
+`x(μ)` is unique, and Newton's stopping test puts the result within about
+`1e-12` of it.
+'''
+starter = '''
+using ForwardDiff
+
+function barrier_path(f, a, b, μs)
+    return [clamp(0.0, a, b) for μ in μs]
+end
+'''
+reference = '''
+using ForwardDiff
+
+function barrier_path(f, a, b, μs)
+    df(x) = ForwardDiff.derivative(f, x)
+    d2f(x) = ForwardDiff.derivative(df, x)
+    x = (a + b) / 2
+    path = Float64[]
+    for μ in μs
+        for _ in 1:100
+            g = df(x) - μ / (x - a) + μ / (b - x)
+            h = d2f(x) + μ / (x - a)^2 + μ / (b - x)^2
+            step = g / h
+            while !(a < x - step < b)
+                step /= 2
+            end
+            x -= step
+            abs(step) < 1e-12 * (1 + abs(x)) && break
+        end
+        push!(path, x)
+    end
+    return path
+end
+'''
+cases = [
+  "x -> (x - 2)^2, 0.0, 1.0, [1.0, 1e-2, 1e-4]",
+  "x -> (x - 0.3)^2, 0.0, 1.0, [1.0, 0.1, 0.01, 1e-6]",
+  "x -> exp(x) - 3x, -1.0, 0.5, [0.5, 0.05, 0.005]",
+  "x -> x^4 + x, -2.0, 2.0, [1.0, 1e-3, 1e-8]",
+  "x -> -log(x + 1) + 0.1x^2, 0.0, 10.0, [10.0, 1.0, 0.1, 1e-3]",
+]
+compare = "isapprox"
+rtol = 1e-8
+hints = [
+  "The barrier's derivative is `-μ / (x - a) + μ / (b - x)` and its second derivative `μ / (x - a)^2 + μ / (b - x)^2`; add them to `f'` and `f''`.",
+  "A full Newton step can jump past `a` or `b`, where the logarithm is undefined: shrink the step before applying it, and keep `x` from one `μ` to the next.",
+]
+
+  [problem.perf]
+  args = "x -> (x - 2)^2, 0.0, 1.0, [10.0^-k for k in 0:8]"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "the constrained minimizer for every μ (clamping the unconstrained one)"
+  code = '''
+barrier_path(f, a, b, μs) = [clamp(2.0, a, b) for μ in μs]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "undamped Newton: steps out of the interval"
+  code = '''
+using ForwardDiff
+function barrier_path(f, a, b, μs)
+    df(x) = ForwardDiff.derivative(f, x)
+    d2f(x) = ForwardDiff.derivative(df, x)
+    x = (a + b) / 2
+    path = Float64[]
+    for μ in μs
+        for _ in 1:100
+            step = (df(x) - μ / (x - a) + μ / (b - x)) / (d2f(x) + μ / (x - a)^2 + μ / (b - x)^2)
+            x -= step
+            abs(step) < 1e-12 * (1 + abs(x)) && break
+        end
+        push!(path, log(x - a) + log(b - x) > -Inf ? x : NaN)
+    end
+    return path
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a single Newton step per μ"
+  code = '''
+using ForwardDiff
+function barrier_path(f, a, b, μs)
+    df(x) = ForwardDiff.derivative(f, x)
+    d2f(x) = ForwardDiff.derivative(df, x)
+    x = (a + b) / 2
+    path = Float64[]
+    for μ in μs
+        step = (df(x) - μ / (x - a) + μ / (b - x)) / (d2f(x) + μ / (x - a)^2 + μ / (b - x)^2)
+        while !(a < x - step < b)
+            step /= 2
+        end
+        x -= step
+        push!(path, x)
+    end
+    return path
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "bisection on φ' (slower, same minimizers)"
+  code = '''
+using ForwardDiff
+function barrier_path(f, a, b, μs)
+    df(x) = ForwardDiff.derivative(f, x)
+    path = Float64[]
+    for μ in μs
+        lo, hi = a, b
+        for _ in 1:200
+            mid = (lo + hi) / 2
+            (mid == lo || mid == hi) && break
+            if df(mid) - μ / (mid - a) + μ / (b - mid) > 0
+                hi = mid
+            else
+                lo = mid
+            end
+        end
+        push!(path, (lo + hi) / 2)
+    end
+    return path
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "opt-equality-qp"
+title = "Multipliers of an equality-constrained QP"
+difficulty = "stretch"
+kcs = ["lagrange-multipliers", "sensitivity"]
+entry = "equality_qp"
+packages = ["StableRNGs"]
+prompt = '''
+For the quadratic program
+
+    min  ½ x'Q x + c'x    subject to   A x = b
+
+with `Q` symmetric positive definite and `A` of full row rank, write
+`equality_qp(Q, c, A, b)` that returns `(x, λ)`: the minimizer and the
+multipliers, with the sign convention
+
+    Q x + c = A' λ
+
+so that `λ_i = d f* / d b_i` (the same convention as JuMP's `dual` for a
+minimization). Solve the KKT conditions as one linear system with `\`.
+
+```julia
+equality_qp([2.0 0.0; 0.0 4.0], [0.0, 0.0], [1.0 1.0], [1.0])   # ([2/3, 1/3], [4/3])
+```
+
+Results are compared with `rtol = 1e-8`: the KKT matrices in the cases
+have condition numbers below about `1e4`, so a backward-stable solve is
+accurate to about `1e4 · eps() ≈ 2e-12` (unit 30's rule: forward error ≤
+condition number × backward error).
+'''
+starter = '''
+using LinearAlgebra
+
+function equality_qp(Q, c, A, b)
+    x = zeros(length(c))
+    λ = zeros(length(b))
+    return (x, λ)
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function equality_qp(Q, c, A, b)
+    n, m = length(c), length(b)
+    K = [Q -A'; A zeros(m, m)]
+    sol = K \ [-c; b]
+    return (sol[1:n], sol[n+1:end])
+end
+'''
+cases = [
+  "[2.0 0.0; 0.0 4.0], [0.0, 0.0], [1.0 1.0], [1.0]",
+  "[2.0 0.0; 0.0 2.0], [0.0, 0.0], [1.0 2.0], [5.0]",
+  "[4.0 1.0 0.0; 1.0 3.0 1.0; 0.0 1.0 2.0], [1.0, -1.0, 0.5], [1.0 1.0 1.0; 1.0 -1.0 0.0], [1.0, 0.0]",
+  "[1.0 0.0 0.0 0.0; 0.0 1.0 0.0 0.0; 0.0 0.0 1.0 0.0; 0.0 0.0 0.0 1.0], [1.0, 2.0, 3.0, 4.0], [1.0 0.0 1.0 0.0], [2.0]",
+]
+gen = "rng -> [(n = rand(rng, 2:8); m = rand(rng, 1:n-1); B = randn(rng, n, n); (B' * B + one(B), randn(rng, n), randn(rng, m, n), randn(rng, m))) for _ in 1:15]"
+compare = "isapprox"
+rtol = 1e-8
+hints = [
+  "Stationarity `Q x + c - A' λ = 0` and feasibility `A x = b` are linear in the unknowns `x` and `λ` together: stack them into one block system.",
+  "The block matrix is `[Q -A'; A 0]` with an `m × m` zero block, and the right-hand side is `[-c; b]`. Split the solution into its first `n` and last `m` entries.",
+]
+
+  [problem.perf]
+  args = "(B = randn(rng, n, n); Q = B' * B + one(B); (Q, randn(rng, n), randn(rng, n ÷ 2, n), randn(rng, n ÷ 2)))..."
+  sizes = [100]
+
+  [[problem.variant]]
+  label = "the opposite sign convention: Q x + c + A' λ = 0"
+  code = '''
+using LinearAlgebra
+function equality_qp(Q, c, A, b)
+    n, m = length(c), length(b)
+    sol = [Q A'; A zeros(m, m)] \ [-c; b]
+    return (sol[1:n], sol[n+1:end])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "ignores the constraint: x = -Q \\ c"
+  code = '''
+using LinearAlgebra
+equality_qp(Q, c, A, b) = (-(Q \ c), zeros(length(b)))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the Schur complement: λ first, then x"
+  code = '''
+using LinearAlgebra
+function equality_qp(Q, c, A, b)
+    F = cholesky(Symmetric(Q))
+    # x = Q⁻¹(A'λ - c), and A x = b gives (A Q⁻¹ A') λ = b + A Q⁻¹ c
+    QiAt = F \ Matrix(A')
+    λ = (A * QiAt) \ (b .+ A * (F \ c))
+    x = F \ (A' * λ .- c)
+    return (x, λ)
+end
+'''
+  expect = ["correct"]

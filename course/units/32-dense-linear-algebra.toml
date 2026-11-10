@@ -1,0 +1,675 @@
+id = "32-dense-linear-algebra"
+title = "Dense linear algebra in practice"
+track = "scicomp"
+env = "base"
+status = "ready"
+summary = "Choosing and using dense solvers: what `\\` does for each matrix type and what each factorization costs, why `inv(A) * b` has a large backward error, why the normal equations square the condition number while QR does not (a Vandermonde fit), factoring once and solving many times without allocating, and the SVD as the tool for numerical rank."
+kcs = ["matrix-factorization", "least-squares", "factorization-reuse", "numerical-rank"]
+prerequisites = ["14-performance", "20-stdlib-tour", "30-floating-point"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit is about choosing and reusing the factorizations behind `\`. It
+relies on four facts:
+
+* **`A \ b` solves a system**, LU for a square matrix and QR for a tall
+  one, and is preferred to `inv(A) * b` (unit 20, section "LinearAlgebra:
+  matrices and solving systems"). This unit says why.
+* **In-place functions** such as `mul!` write into an existing array, and
+  `@allocated` after a warm-up call measures what a call allocates (unit 14,
+  section "Allocations: slices, views, fusion and in-place updates").
+* **The condition number** `κ(A) = cond(A)` amplifies relative errors, and a
+  backward-stable solver loses about `log10 κ` digits (unit 30, sections
+  "Conditioning: how much the problem amplifies errors" and "Forward error,
+  backward error and the condition number").
+* **The backward error of a solve** is read from the residual,
+  `η = ‖b - A x̂‖ / (‖A‖ ‖x̂‖)` (same section of unit 30).
+
+BLAS and LAPACK results can differ in their last digits between CPUs, so
+examples that print such numbers round them or print a comparison.
+'''
+
+[[section]]
+title = "What `\\` does, matrix type by matrix type"
+body = '''
+`A \ b` is a **polyalgorithm**: it inspects `A` and picks a method. For a
+plain square `Matrix`, the source
+([generic.jl](https://raw.githubusercontent.com/JuliaLang/julia/v1.10.5/stdlib/LinearAlgebra/src/generic.jl))
+checks whether `A` is triangular (then substitution, no factorization) and
+otherwise computes an LU factorization with partial pivoting; for a
+rectangular `A` it uses a column-pivoted QR and returns the least-squares
+solution. It does **not** check for symmetry: a symmetric positive definite
+`Matrix` is solved with LU.
+
+The matrix **type** carries the structure. `factorize(A)` does look at the
+entries and picks the cheapest valid factorization
+([dense.jl](https://raw.githubusercontent.com/JuliaLang/julia/v1.10.5/stdlib/LinearAlgebra/src/dense.jl)):
+Cholesky for positive definite, Bunch-Kaufman for symmetric indefinite, the
+triangular or diagonal type itself, LU otherwise, QR for non-square. Wrapper
+types (`Symmetric`, `UpperTriangular`, `Diagonal`, `Tridiagonal`) and
+explicit calls (`cholesky(A)`) choose without the inspection.
+
+The choice matters because the costs differ. For an `n × n` matrix, LU takes
+about `2n³/3` floating-point operations, Cholesky `n³/3` (it uses symmetry),
+and a triangular solve `n²`; a tridiagonal LU is `O(n)`. Once a
+factorization exists, each solve with it is `O(n²)` (or less).
+'''
+
+  [[section.example]]
+  caption = "`factorize` on the same random 5×5 data in different shapes: the type of factorization it chooses."
+  notice = "Notice that the same numbers get six different methods depending on structure: `A'A + I` is positive definite, so Cholesky; `A + A'` is symmetric but indefinite, so Bunch-Kaufman; the tall matrix gets a pivoted QR."
+  code = '''
+using LinearAlgebra, Random
+A = randn(Xoshiro(1), 5, 5)
+for (name, M) in (("general", A), ("A'A + I", A'A + I), ("A + A'", A + A'), ("triu(A)", triu(A)),
+                  ("Tridiagonal", Tridiagonal(A)), ("tall 8×5", randn(Xoshiro(2), 8, 5)), ("Diagonal", Diagonal(diag(A))))
+    println(rpad(name, 13), nameof(typeof(factorize(M))))
+end
+'''
+
+  [[section.example]]
+  caption = "Solving one system with a 1500×1500 positive definite matrix three ways. Recorded, not checked: timings vary from run to run and machine to machine."
+  check = false
+  notice = "Notice that Cholesky is faster than the LU that a plain `\\` uses on the same matrix (the operation counts, `n³/3` against `2n³/3`, predict a factor of 2, which a single run on a shared machine need not show), and that a triangular solve, `O(n²)`, costs a small fraction of either."
+  code = '''
+using LinearAlgebra, Random
+BLAS.set_num_threads(1)
+n = 1500
+B = randn(Xoshiro(1), n, n)
+S = B'B + n * I                     # symmetric positive definite
+b = randn(Xoshiro(2), n)
+U = UpperTriangular(S)
+S \ b; cholesky(S) \ b; U \ b       # compile first
+best(f) = minimum(@elapsed(f()) for _ in 1:3)
+println("S \\ b  (LU):       ", round(best(() -> S \ b) * 1e3; digits = 1), " ms")
+println("cholesky(S) \\ b:   ", round(best(() -> cholesky(S) \ b) * 1e3; digits = 1), " ms")
+println("triangular solve:  ", round(best(() -> U \ b) * 1e3; digits = 2), " ms")
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`S` is a symmetric positive definite matrix stored as a plain `Matrix{Float64}`. What does `S \\ b` compute?"
+  choices = [
+    "A Cholesky factorization, since `S` is positive definite",
+    "LU, since `\\` tests only for triangular structure",
+    "A Bunch-Kaufman factorization, since `S` is symmetric",
+  ]
+  answer = 2
+  explain = "For a square `Matrix`, `\\` tests `istril` and `istriu` and otherwise calls `lu`. To use the symmetry, call `cholesky(S)` (or `factorize(S)`, which checks), or wrap the matrix: `Symmetric(S) \\ b` uses Bunch-Kaufman."
+  misconceptions = [
+    "Testing positive definiteness costs as much as trying a Cholesky factorization; `\\` on a plain matrix does not try. `factorize` and `cholesky` do.",
+    "",
+    "Bunch-Kaufman is what `factorize` picks for a symmetric indefinite matrix, or what `Symmetric(S) \\ b` uses; plain `\\` does not test symmetry.",
+  ]
+
+[[section]]
+title = "Never `inv(A) * b`"
+body = '''
+Computing `inv(A)` and multiplying is worse than `A \ b` on both counts.
+
+**Cost.** `inv` computes an LU factorization and then solves for all `n`
+columns of the identity: about `2n³` operations against `2n³/3` for one
+solve. If you need `A⁻¹ b` for many `b`, keep the factorization instead
+(section "Factor once, solve many").
+
+**Accuracy.** LU with partial pivoting is backward stable in practice: the
+computed `x̂` has a residual at the level of `u ‖A‖ ‖x̂‖`. The product
+`inv(A) * b` is not: each entry of the computed inverse carries an error
+relative to `‖A⁻¹‖`, and the residual of the product can be as large as
+`κ(A) u ‖A‖ ‖x̂‖`. Its forward error is often of the same order as that of
+`A \ b` (both are bounded by about `κ u`), but its backward error is `κ`
+times larger: `x̂` is not the solution of any nearby system.
+
+The same holds for any formula with an inverse in it: `A⁻¹ B` is `A \ B`,
+and `x' * inv(S) * x` is `dot(x, S \ x)` or, with a Cholesky factor `L`,
+`sum(abs2, L \ x)`.
+'''
+
+  [[section.example]]
+  caption = "A 100×100 matrix with singular values from 1 to `1e-12` (`κ = 1e12`): backward error and forward error of `A \\ b` and of `inv(A) * b`, against the known solution."
+  notice = "Notice that `\\` has a backward error far below `1e-15` and `inv(A) * b` one about `1e10` times larger, while both forward errors are about `1e-5`, inside the `κ u ≈ 1e-4` bound: the inverse's harm shows in the residual. The values are printed as powers of 10, since their digits depend on the BLAS."
+  code = '''
+using LinearAlgebra, Random
+BLAS.set_num_threads(1)
+rng = Xoshiro(1)
+n = 100
+U = Matrix(qr(randn(rng, n, n)).Q); V = Matrix(qr(randn(rng, n, n)).Q)
+A = U * Diagonal(10 .^ range(0, -12; length = n)) * V'
+x = randn(rng, n); b = A * x
+backward(x̂) = norm(b - A * x̂) / (opnorm(A) * norm(x̂))
+forward(x̂) = norm(x̂ - x) / norm(x)
+x_lu, x_inv = A \ b, inv(A) * b
+power10(v) = string("1e", round(Int, log10(v)))      # nearest power of 10
+println("backward error: A \\ b below 1e-15: ", backward(x_lu) < 1e-15, ",  inv(A) * b above 1e-9: ", backward(x_inv) > 1e-9)
+println("ratio of backward errors ≈ ", power10(backward(x_inv) / backward(x_lu)))
+println("forward error:  A \\ b ≈ ", power10(forward(x_lu)), ",  inv(A) * b ≈ ", power10(forward(x_inv)),
+        ",  both below κu = 1e-4: ", max(forward(x_lu), forward(x_inv)) < 1e-4)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "With `κ(A) = 1e12`, `inv(A) * b` and `A \\ b` have forward errors of similar size. What does `A \\ b` give that the inverse does not?"
+  choices = [
+    "A tiny backward error: `x̂` exactly solves a nearby system",
+    "More correct digits, since LU avoids all rounding",
+    "Nothing, apart from about three times fewer operations",
+  ]
+  answer = 1
+  explain = "Both forward errors are bounded by about `κ u`, but only the LU solve is backward stable: its residual is at rounding level, so `x̂` is the exact answer for data within rounding of yours. The inverse's residual is about `κ` times larger, which matters when `x̂` feeds further computation (a Newton step, a constraint that must hold)."
+  misconceptions = [
+    "",
+    "LU rounds in every operation too; its errors are just equivalent to a tiny change in `A`. The example shows forward errors of the same order.",
+    "The operation count is one difference (`2n³` against `2n³/3`); the example shows the other, a backward error ten orders of magnitude larger.",
+  ]
+
+[[section]]
+title = "Least squares: QR, not the normal equations"
+body = '''
+Fitting `m` data points with `n < m` parameters means minimizing
+`‖A c - y‖`. Setting the gradient to zero gives the **normal equations**
+`AᵀA c = Aᵀ y`, a square system that is cheap to form and solve. The
+trouble is `κ(AᵀA) = κ(A)²`: the singular values of `AᵀA` are the squares of
+those of `A`. A problem that should lose `log10 κ` digits loses twice as
+many, and with `κ(A) = 1e8` that is all 16.
+
+**QR** avoids the product. With `A = QR`, `Q` having orthonormal columns
+and `R` upper triangular, `‖A c - y‖ = ‖R c - Qᵀ y‖` (for the part in the
+range of `A`), so `c = R \ (Qᵀ y)`, computed from `A` itself with an error
+governed by `κ(A)` when the fit's residual `A c - y` is small. When the
+residual is large, the least-squares problem itself has a term in `κ(A)²`
+times the residual, and every method pays it; the normal equations pay
+`κ(A)²` even for an exact fit. In Julia, `qr(A) \ y` does exactly that, and `A \ y` for
+a tall `A` uses a column-pivoted QR.
+
+Polynomial fitting in the monomial basis is the standard trap: the
+Vandermonde matrix `V[i, j] = x_i^(j-1)` on `[0, 1]` has columns that look
+more and more alike as `j` grows, so `κ(V)` grows exponentially with the
+degree.
+'''
+
+  [[section.example]]
+  caption = "Fitting exact polynomial data (all coefficients 1, 50 points on [0, 1]) of degree 8 and 12: the condition numbers and the relative error of the recovered coefficients."
+  notice = "Notice that `cond(V'V)` equals `cond(V)²` at degree 8; at degree 12 the square is `5e17`, and the computed `cond(V'V)` is only known to be above `1e15`: the rounding made in forming `V'V` already exceeds its smallest singular value. Notice also that at degree 12 the normal equations return coefficients wrong by more than 100% while QR recovers them to about `κ(V) u`."
+  code = '''
+using LinearAlgebra
+BLAS.set_num_threads(1)
+for d in (8, 12)
+    x = range(0, 1; length = 50)
+    c = ones(d + 1)
+    V = [xi^j for xi in x, j in 0:d]
+    y = V * c
+    qr_err = norm(qr(V) \ y - c) / norm(c)
+    normal_err = norm((V'V) \ (V'y) - c) / norm(c)
+    println("degree ", d, ": cond(V) ≈ ", round(cond(V); sigdigits = 1), ", cond(V)^2 ≈ ", round(cond(V)^2; sigdigits = 1),
+            ", cond(V'V) ", d == 8 ? string("≈ ", round(cond(V'V); sigdigits = 1)) : string("above 1e15: ", cond(V'V) > 1e15))
+    println("   QR error below 1e-7: ", qr_err < 1e-7, "   normal-equations error > 1000 × QR error: ", normal_err > 1000 * qr_err,
+            "   above 1: ", normal_err > 1)
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A least-squares problem has `κ(A) = 1e6`. About how many digits can you expect from the normal equations and from QR?"
+  choices = [
+    "About 10 from both: the problem is the same",
+    "About 4 from the normal equations, about 10 from QR",
+    "About 10 from the normal equations, about 4 from QR",
+    "About 16 from QR, since orthogonal matrices do not round",
+  ]
+  answer = 2
+  explain = "The normal equations solve a system with `κ(AᵀA) = κ(A)² = 1e12`, losing about 12 of 16 digits; QR works with `A` and loses about 6. (For a large residual, the least-squares problem itself has a `κ²` term, but the normal equations pay `κ²` even when the fit is exact, as in the example.)"
+  misconceptions = [
+    "The two methods solve the same problem but different linear systems, and the normal equations' system is squared in condition.",
+    "",
+    "The squaring happens in forming `AᵀA`; QR never forms it.",
+    "Householder QR rounds like every other computation; it is backward stable, so it still loses about `log10 κ` digits.",
+  ]
+
+[[section]]
+title = "Factor once, solve many"
+body = '''
+A factorization is an object: `F = lu(A)`, `cholesky(S)`, `qr(A)`. It stores
+the factors (and the pivoting), and `F \ b` solves with them in `O(n²)`. When
+the same matrix meets many right-hand sides (time steps of an implicit
+method, Newton iterations with a frozen Jacobian, inverse iteration for an
+eigenvector), factor **once** outside the loop. With `n = 1000`, a loop of
+100 solves with `A \ b` does 100 factorizations of `6.7e8` operations each;
+with `F` it does one, plus 100 solves of `2e6`.
+
+Two refinements remove allocation as well:
+
+* `ldiv!(y, F, b)` writes the solution into an existing `y`;
+  `ldiv!(F, b)` overwrites `b` with it.
+* `lu!(A)` and `cholesky!(S)` factor in place, overwriting the matrix,
+  when you no longer need it.
+
+`F \ B` with a matrix `B` solves for all of its columns with one call.
+'''
+
+  [[section.example]]
+  caption = "Solving with a stored LU factorization: same result as `A \\ b`, and `ldiv!` allocates nothing (measured inside a function after a warm-up call)."
+  notice = "Notice the zero: the factorization was paid for once, and each later solve reuses `F` and the output vector."
+  code = '''
+using LinearAlgebra, Random
+rng = Xoshiro(1)
+A = randn(rng, 200, 200); b = randn(rng, 200)
+F = lu(A)
+println("F \\ b ≈ A \\ b: ", F \ b ≈ A \ b)
+function solve_into(y, F, b)
+    ldiv!(y, F, b)
+    return @allocated ldiv!(y, F, b)
+end
+println("bytes allocated by ldiv!: ", solve_into(similar(b), F, b))
+'''
+
+  [[section.example]]
+  caption = "One hundred right-hand sides with a 600×600 matrix: refactoring every time against one factorization. Recorded, not checked: timings vary."
+  check = false
+  notice = "Notice the factor of roughly 50 to 100: the loop with `A \\ b` spends almost all its time redoing the same LU."
+  code = '''
+using LinearAlgebra, Random
+BLAS.set_num_threads(1)
+rng = Xoshiro(1)
+A = randn(rng, 600, 600); bs = [randn(rng, 600) for _ in 1:100]
+refactor(A, bs) = [A \ b for b in bs]
+reuse(A, bs) = (F = lu(A); [F \ b for b in bs])
+refactor(A, bs); reuse(A, bs)
+println("A \\ b each time: ", round(@elapsed(refactor(A, bs)); digits = 3), " s")
+println("lu once:         ", round(@elapsed(reuse(A, bs)); digits = 3), " s")
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "By what factor does factoring once reduce the floating-point operations of a loop of 50 solves with a 1000×1000 matrix, using `2n³/3` per LU and `2n²` per solve with the factors? What does this print?"
+  code = '''
+n = 1000
+refactor = 50 * (2n^3 / 3 + 2n^2)
+reuse = 2n^3 / 3 + 50 * 2n^2
+round(refactor / reuse; digits = 1)
+'''
+  choices = ["50.0", "43.6", "1.0", "25.0"]
+  answer = 2
+  explain = "Refactoring costs `50 × (6.7e8 + 2e6) ≈ 3.35e10`; factoring once costs `6.7e8 + 1e8 ≈ 7.7e8`, a ratio of 43.6. The solves with the factors (`2n²` each) keep it below 50."
+  misconceptions = [
+    "50 would hold if solves with the factors were free; the 50 triangular solve pairs add `1e8` operations to the single factorization.",
+    "",
+    "Both loops solve 50 systems, but one of them redoes the `n³` part every time; the `n²` parts are what they share.",
+    "A ratio of 25 needs each solve with the factors to cost about a 48th of a factorization (`1.4e7` operations); it costs `2n² = 2e6`, about 0.3% of one at `n = 1000`.",
+  ]
+
+[[section]]
+title = "The SVD and numerical rank"
+body = '''
+The **singular value decomposition** `A = U Σ Vᵀ` writes any matrix as a
+rotation, a scaling by the singular values `σ_1 >= σ_2 >= ... >= 0`, and
+another rotation. `σ_1` is `opnorm(A)`, `σ_1 / σ_n` is `cond(A)`, and the
+number of nonzero singular values is the rank. `svdvals(A)` computes only
+the values; `svd(A)` also the vectors, at several times the cost.
+
+In floating point, "nonzero" needs a threshold. A matrix of exact rank 3
+comes out with three singular values of order 1 and the rest near
+`u σ_1`, because rounding perturbs every entry. Data with a measurement
+error `δ` produce trailing singular values near `δ`. So the **numerical
+rank** is the number of singular values above a tolerance, and the
+tolerance should come from what you know about the data's accuracy.
+`rank(A)` counts singular values above `rtol * σ_1` with the default
+`rtol = min(m, n) * eps()`
+([generic.jl](https://raw.githubusercontent.com/JuliaLang/julia/v1.10.5/stdlib/LinearAlgebra/src/generic.jl)):
+right for data exact to rounding, wrong for data with any noise.
+
+A gap in the singular values tells you a rank is meaningful: three values
+of order 1 followed by values near `1e-10` is a clear rank 3 at any
+tolerance in between.
+'''
+
+  [[section.example]]
+  caption = "A 6×6 matrix of exact rank 3, before and after adding noise of size `1e-10` to every entry: singular values (rounded to 1 digit below 1e-3, since rounding sets those digits) and the rank at two tolerances."
+  notice = "Notice the gap from the third singular value, about 2.5, to the fourth, `2e-10`, after the noise: `rank` with its default tolerance reports 6, counting the noise, while `rtol = 1e-8`, chosen between the noise level and the signal, reports 3."
+  code = '''
+using LinearAlgebra, Random
+rng = Xoshiro(1)
+B = randn(rng, 6, 3) * randn(rng, 3, 6)            # rank 3 by construction
+noisy = B + 1e-10 * randn(rng, 6, 6)
+show_σ(s) = [x > 1e-3 ? round(x; digits = 3) : round(x; sigdigits = 1) for x in s]
+println("exact rank 3: three singular values below 1e-14: ", count(<(1e-14), svdvals(B)) == 3)
+println("noisy:        ", show_σ(svdvals(noisy)))
+println("rank(noisy) = ", rank(noisy), ",  rank(noisy; rtol = 1e-8) = ", rank(noisy; rtol = 1e-8))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Your measured matrix has singular values `[40.1, 3.2, 0.9, 2e-5, 8e-6, 1e-6]`, and the measurements are accurate to about `1e-4`. What is its numerical rank?"
+  choices = [
+    "6: every singular value is above `min(m, n) * eps()`",
+    "1: only `σ_1` is large relative to the others",
+    "3: the last three are at the level of the noise",
+  ]
+  answer = 3
+  explain = "Singular values below the data's error cannot be told apart from zero: noise of size `1e-4` alone produces values that size. The gap between 0.9 and `2e-5` makes rank 3 the answer for any tolerance in between."
+  misconceptions = [
+    "That is the default rule of `rank`, right for data exact to rounding; with noise of `1e-4` it counts the noise as rank.",
+    "Rank counts the singular values above the noise level; `3.2` and `0.9` are far above `1e-4`, even though `σ_1` is larger.",
+    "",
+  ]
+
+[[problem]]
+id = "dla-polyfit-qr"
+title = "A polynomial fit by QR"
+difficulty = "warm-up"
+kcs = ["least-squares"]
+entry = "polyfit_qr"
+packages = []
+prompt = '''
+Write `polyfit_qr(x, y, d)` that fits a polynomial of degree `d` to the
+points `(x[i], y[i])` by least squares and returns its coefficients
+`c::Vector{Float64}` of length `d + 1`, constant term first (so the fit is
+`evalpoly(t, c)`). Build the Vandermonde matrix `V[i, j] = x[i]^(j - 1)` and
+solve with a QR factorization, not the normal equations.
+
+```julia
+x = collect(range(0, 1; length = 50))
+polyfit_qr(x, 1 .+ 2 .* x, 1)               # [1.0, 2.0] to rounding
+polyfit_qr(x, evalpoly.(x, Ref(ones(13))), 12)   # all ones, to about 1e-7
+```
+
+Results are compared with `rtol = 1e-6`. The cases have `cond(V) <= 7e8`,
+so any backward-stable least-squares solver (Householder QR, pivoted QR)
+is within about `κ u ≈ 1.5e-7` of the exact coefficients, and two of them
+within `3e-7` of each other; the normal equations are off by more than 100%
+on the degree-12 case. Speed is graded against the reference.
+'''
+starter = '''
+using LinearAlgebra
+
+function polyfit_qr(x, y, d)
+    V = [xi^j for xi in x, j in 0:d]
+    return (V' * V) \ (V' * y)
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function polyfit_qr(x, y, d)
+    V = [xi^j for xi in x, j in 0:d]
+    return qr(V) \ y
+end
+'''
+cases = [
+  "collect(range(0, 1; length = 50)), 1 .+ 2 .* collect(range(0, 1; length = 50)), 1",
+  "collect(range(0, 1; length = 50)), evalpoly.(range(0, 1; length = 50), Ref(ones(13))), 12",
+  "collect(range(0, 1; length = 40)), sin.(2pi .* range(0, 1; length = 40)), 5",
+  "[-1.0, 0.0, 1.0, 2.0], [1.0, 0.0, 1.0, 4.0], 2",
+]
+gen = "rng -> [(x = sort(rand(rng, 30)); (x, randn(rng, 30), rand(rng, 0:6))) for _ in 1:15]"
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "The starter forms `V'V`, whose condition number is `cond(V)^2`. Keep `V` and let a factorization of `V` itself do the work.",
+  '`qr(V)` returns a factorization object; `\` with it gives the least-squares solution. `V \ y` for a tall `V` does the same with column pivoting.',
+]
+
+  [problem.perf]
+  args = "sort(rand(rng, n)), randn(rng, n), 8"
+  sizes = [2000]
+
+  [[problem.variant]]
+  label = "normal equations through the Cholesky factor"
+  code = '''
+using LinearAlgebra
+function polyfit_qr(x, y, d)
+    V = [xi^j for xi in x, j in 0:d]
+    return cholesky(Symmetric(V' * V)) \ (V' * y)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "coefficients in reverse order (highest power first)"
+  code = '''
+using LinearAlgebra
+polyfit_qr(x, y, d) = qr([xi^j for xi in x, j in d:-1:0]) \ y
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "backslash on the tall matrix (pivoted QR)"
+  code = '''
+polyfit_qr(x, y, d) = [xi^j for xi in x, j in 0:d] \ y
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "R \\ (Q'y) by hand"
+  code = '''
+using LinearAlgebra
+function polyfit_qr(x, y, d)
+    F = qr([xi^j for xi in x, j in 0:d])
+    return UpperTriangular(F.R) \ (F.Q' * y)[1:d+1]
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "dla-implicit-euler-reuse"
+title = "Implicit Euler with one factorization"
+difficulty = "core"
+kcs = ["factorization-reuse", "matrix-factorization"]
+entry = "implicit_euler_linear"
+packages = []
+prompt = '''
+Backward (implicit) Euler for the linear system `u' = A u` takes steps
+
+    (I - h A) u_{k+1} = u_k
+
+Write `implicit_euler_linear(A, u0, h, nsteps)` that returns `u` after
+`nsteps` steps from `u0` (a new `Vector{Float64}`; do not change `u0`). The
+matrix `I - h A` is the same at every step: factor it once and reuse the
+factorization.
+
+```julia
+A = [-2.0 1.0; 1.0 -2.0]
+implicit_euler_linear(A, [1.0, 0.0], 0.1, 10)    # about [0.229, 0.157]
+implicit_euler_linear(A, [1.0, 0.0], 0.1, 0)     # [1.0, 0.0]
+```
+
+Results are compared with `rtol = 1e-10`: in the cases `I - h A` has a
+condition number below `1e3`, so different solvers agree to about
+`1e-13` per step. The grader measures time and memory at `nsteps = 200`
+with a 100×100 matrix: one factorization and in-place solves allocate a
+fixed amount, while a solve that returns a new vector allocates at every
+step.
+'''
+starter = '''
+using LinearAlgebra
+
+function implicit_euler_linear(A, u0, h, nsteps)
+    u = copy(u0)
+    # nsteps solves with the matrix I - h * A
+    return u
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function implicit_euler_linear(A, u0, h, nsteps)
+    F = lu(I - h * A)
+    u = copy(u0)
+    for _ in 1:nsteps
+        ldiv!(F, u)
+    end
+    return u
+end
+'''
+cases = [
+  "[-2.0 1.0; 1.0 -2.0], [1.0, 0.0], 0.1, 10",
+  "[-2.0 1.0; 1.0 -2.0], [1.0, 0.0], 0.1, 0",
+  "[-100.0 0.0 0.0; 0.0 -1.0 0.0; 0.0 0.0 -0.01], [1.0, 1.0, 1.0], 0.5, 20",
+  "[0.0 1.0; -1.0 0.0], [1.0, 0.0], 0.05, 40",
+]
+gen = "rng -> [(n = rand(rng, 1:8); B = randn(rng, n, n); (-(B * B') ./ n, randn(rng, n), 0.01 + 0.5rand(rng), rand(rng, 0:30))) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Every step solves a system with the same matrix `I - h A`. Factoring it costs about `n³` operations, solving with the factors about `n²`.",
+  "Compute `F = lu(I - h * A)` before the loop. Inside it, `ldiv!(F, u)` overwrites `u` with the solution and allocates nothing.",
+]
+
+  [problem.perf]
+  args = "(B = randn(rng, n, n); -(B * B') ./ n), randn(rng, n), 0.01, 200"
+  sizes = [100]
+
+  [[problem.variant]]
+  label = "explicit Euler instead of implicit"
+  code = '''
+using LinearAlgebra
+function implicit_euler_linear(A, u0, h, nsteps)
+    u = copy(u0)
+    for _ in 1:nsteps
+        u = u + h * (A * u)
+    end
+    return u
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "one factorization, but F \\ u allocates a new vector each step"
+  code = '''
+using LinearAlgebra
+function implicit_euler_linear(A, u0, h, nsteps)
+    F = lu(I - h * A)
+    u = copy(u0)
+    for _ in 1:nsteps
+        u = F \ u
+    end
+    return u
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "multiplies by inv(I - hA) each step"
+  code = '''
+using LinearAlgebra
+function implicit_euler_linear(A, u0, h, nsteps)
+    M = inv(I - h * A)
+    u = copy(u0)
+    for _ in 1:nsteps
+        u = M * u
+    end
+    return u
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "refactors at every step"
+  code = '''
+using LinearAlgebra
+function implicit_euler_linear(A, u0, h, nsteps)
+    u = copy(u0)
+    for _ in 1:nsteps
+        u = (I - h * A) \ u
+    end
+    return u
+end
+'''
+  expect = ["correct", "slow", "allocates"]
+
+[[problem]]
+id = "dla-numerical-rank"
+title = "Numerical rank from the singular values"
+difficulty = "stretch"
+kcs = ["numerical-rank"]
+entry = "numerical_rank"
+packages = []
+prompt = '''
+Write `numerical_rank(A, rtol)` that returns the number of singular values
+of `A` strictly greater than `rtol * σ_1`, where `σ_1` is the largest (an
+`Int`; `0` for a zero matrix). `rtol` is the relative accuracy of the data,
+so this counts the directions that stand above the noise.
+
+```julia
+B = [1.0 2.0; 2.0 4.0] + [0.0 1e-9; 0.0 0.0]
+numerical_rank(B, 1e-6)      # 1
+numerical_rank(B, 1e-12)     # 2
+```
+
+The cases have a gap of at least two orders of magnitude around
+`rtol * σ_1`, so rounding in the singular values cannot change a count.
+The grader also measures time and memory: you need the singular values,
+not the singular vectors.
+'''
+starter = '''
+using LinearAlgebra
+
+function numerical_rank(A, rtol)
+    return rank(A)
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function numerical_rank(A, rtol)
+    σ = svdvals(A)
+    isempty(σ) && return 0
+    return count(>(rtol * σ[1]), σ)
+end
+'''
+cases = [
+  "[1.0 2.0; 2.0 4.0] + [0.0 1e-9; 0.0 0.0], 1e-6",
+  "[1.0 2.0; 2.0 4.0] + [0.0 1e-9; 0.0 0.0], 1e-12",
+  "1e6 .* (randn(Xoshiro(1), 6, 3) * randn(Xoshiro(2), 3, 6) .+ 1e-10 .* randn(Xoshiro(3), 6, 6)), 1e-8",
+  "zeros(3, 4), 1e-8",
+  "[1.0 1e6; 0.0 1.0], 1e-8",
+  "(randn(Xoshiro(4), 4, 7) .* [1.0 1.0 1.0 1e-12 1e-12 1e-12 1e-12]) * randn(Xoshiro(5), 7, 7), 1e-8",
+]
+gen = "rng -> [(r = rand(rng, 1:5); m = rand(rng, 5:8); n = rand(rng, 5:8); (10.0^rand(rng, -3:3) .* (randn(rng, m, r) * randn(rng, r, n) .+ 1e-11 .* randn(rng, m, n)), 1e-7)) for _ in 1:20]"
+hints = [
+  "`rank(A)` uses a tolerance meant for data exact to rounding. Here the tolerance is given, and it is relative to the largest singular value.",
+  "`svdvals(A)` returns the singular values sorted, largest first. Count the ones above `rtol` times the first; think about what to return when there are none.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n, 20) * randn(rng, 20, n), 1e-8"
+  sizes = [200]
+
+  [[problem.variant]]
+  label = "absolute threshold rtol instead of rtol * σ_1"
+  code = '''
+using LinearAlgebra
+numerical_rank(A, rtol) = count(>(rtol), svdvals(A))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "counts eigenvalues instead of singular values"
+  code = '''
+using LinearAlgebra
+function numerical_rank(A, rtol)
+    size(A, 1) == size(A, 2) || return count(>(rtol * maximum(svdvals(A); init = 0.0)), svdvals(A))
+    λ = abs.(eigvals(A))
+    return count(>(rtol * maximum(λ; init = 0.0)), λ)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "rank with the given rtol"
+  code = '''
+using LinearAlgebra
+numerical_rank(A, rtol) = rank(A; rtol = rtol)
+'''
+  expect = ["correct", "fast"]
+
+  [[problem.variant]]
+  label = "full svd: computes the singular vectors too"
+  code = '''
+using LinearAlgebra
+function numerical_rank(A, rtol)
+    S = svd(A).S
+    return isempty(S) ? 0 : count(>(rtol * S[1]), S)
+end
+'''
+  expect = ["correct", "allocates"]

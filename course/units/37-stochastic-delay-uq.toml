@@ -1,0 +1,855 @@
+id = "37-stochastic-delay-uq"
+title = "Stochastic and delay equations, ensembles and uncertainty"
+track = "scicomp"
+env = "scicomp"
+status = "ready"
+summary = "Equations with noise and with memory: Brownian increments and the Euler-Maruyama step written by hand and matched with StochasticDiffEq, strong order 1/2 against weak order 1 measured on geometric Brownian motion under fixed paths, Monte Carlo error that shrinks like 1/sqrt(N) and the confidence interval that reports it, reproducible ensembles, why Itô and Stratonovich give different answers to the same equation, and delay equations by the method of steps checked against DelayDiffEq and the exact solution."
+kcs = ["sde", "euler-maruyama", "strong-weak-order", "monte-carlo-error", "ensembles", "dde"]
+prerequisites = ["24-differential-equations", "27-probabilistic-programming", "31-convergence"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+Unit 24 listed `SDEProblem` and `DDEProblem` as members of the same family
+as `ODEProblem`; this unit says what their numbers mean and how far to trust
+them. It relies on four facts:
+
+* **Order from a log-log slope**: if an error behaves like `C h^p`, the
+  slope of `log(error)` against `log(h)` is `p` (unit 31, section "Order of
+  accuracy, read from a log-log slope").
+* **Monte Carlo error**: an average of `N` independent draws has standard
+  error `std / sqrt(N)` (unit 27, section "Checking the sampler against the
+  exact answer").
+* **Seeded generators**: pass an RNG to every random call, and use
+  StableRNGs when numbers must stay the same across Julia versions (unit 20,
+  section "Random: reproducible random numbers").
+* **Ensembles**: `EnsembleProblem(prob; prob_func, output_func)` solves many
+  variations, serially or on threads, and the functions receive a context
+  `ctx` with `ctx.sim_id` (unit 24, section "Where to go next").
+
+Every random number here comes from a `StableRNG` with a fixed seed, so the
+printed digits are the same on every machine.
+'''
+
+[[section]]
+title = "Brownian motion and the Euler-Maruyama step"
+body = '''
+A stochastic differential equation (SDE) in Itô form,
+
+    du = f(u, t) dt + g(u, t) dW
+
+adds to an ODE a random forcing driven by **Brownian motion** `W(t)`:
+`W(0) = 0`, and its increments over disjoint intervals are independent
+normals with `W(t + h) - W(t) ~ N(0, h)`. The standard deviation of an
+increment is `sqrt(h)`, not `h`: over a short step the noise is much larger
+than the drift, which is why the methods and their orders differ from ODEs.
+
+The **Euler-Maruyama** step freezes `f` and `g` at the start of the step:
+
+    u_{n+1} = u_n + f(u_n) h + g(u_n) ΔW_n,    ΔW_n = sqrt(h) · randn(rng)
+
+**Geometric Brownian motion** (GBM), `du = μ u dt + σ u dW`, has an exact
+solution along each path: `u(T) = u0 exp((μ - σ²/2) T + σ W(T))`. So for a
+given path we can compare a numerical solution with the truth.
+
+In StochasticDiffEq, a path can be given as a `NoiseGrid(times, W)`, and
+`EM` is Euler-Maruyama. Its docstring says `EM(; split = true)`, "Whether to
+use split-step handling": by default it evaluates `g` at `u_n + f h`
+instead of `u_n` (the source of `perform_step!` shows this). `EM(false)` is
+the textbook step, which the example reproduces up to rounding.
+'''
+
+  [[section.example]]
+  caption = "Euler-Maruyama by hand on GBM (μ = 1, σ = 0.5, 64 steps to T = 1) with increments from `StableRNG(5)`; the same path given to StochasticDiffEq as a `NoiseGrid`, with `EM(false)` and the default `EM()`; and the exact solution on that path (rounded to 6 digits)."
+  notice = "Notice that `EM(false)` reproduces the hand loop up to rounding (the grid times and increments are rebuilt from the cumulative sums, so bitwise equality is not expected), the default split-step `EM()` differs from it in the third significant digit on this coarse grid, and that on the same path the hand loop is about `0.01` and `EM()` about `0.005` away from the exact value."
+  code = '''
+using StochasticDiffEq, StableRNGs
+μ, σ, u0, T, N = 1.0, 0.5, 1.0, 1.0, 64
+h = T / N
+ΔW = sqrt(h) .* randn(StableRNG(5), N)
+function euler_maruyama(u0, ΔW, h)
+    u = u0
+    for w in ΔW
+        u += μ * u * h + σ * u * w
+    end
+    return u
+end
+hand = euler_maruyama(u0, ΔW, h)
+path = NoiseGrid(collect(range(0.0, T; length = N + 1)), [0.0; cumsum(ΔW)])
+prob = SDEProblem((u, p, t) -> μ * u, (u, p, t) -> σ * u, u0, (0.0, T); noise = path)
+textbook = solve(prob, EM(false); dt = h).u[end]
+split = solve(prob, EM(); dt = h).u[end]
+exact = u0 * exp((μ - σ^2 / 2) * T + σ * sum(ΔW))
+println("by hand   ", round(hand; digits = 6))
+println("EM(false) ", round(textbook; digits = 6), "   matches the hand loop to 1e-12: ", isapprox(textbook, hand; rtol = 1e-12))
+println("EM()      ", round(split; digits = 6))
+println("exact     ", round(exact; digits = 6))
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "One Euler-Maruyama step for GBM with `μ = 1`, `σ = 0.5`, `h = 0.25` and a drawn increment `ΔW = 0.2`. What does this print?"
+  code = '''
+u = 1.0
+μ, σ, h, ΔW = 1.0, 0.5, 0.25, 0.2
+u + μ * u * h + σ * u * ΔW
+'''
+  choices = ["1.25", "1.35", "1.375", "1.275"]
+  answer = 2
+  explain = "Drift `μ u h = 0.25` plus noise `σ u ΔW = 0.1`. `ΔW` already has the size `sqrt(h)` of an increment, so it is not multiplied by `h` again."
+  misconceptions = [
+    "That drops the noise because its mean is zero; on one path the increment is a drawn number, here `0.2`, and it moves the solution.",
+    "",
+    "That is the split-step version: `g` evaluated at `u + μ u h = 1.25` instead of at `u`, which is what the default `EM()` does.",
+    "That multiplies the increment by `h` as if it were a rate; `ΔW` is the change of `W` over the step, already of size `sqrt(h)`.",
+  ]
+
+[[section]]
+title = "Strong order 1/2, weak order 1"
+body = '''
+For an SDE there are two questions, with two different orders:
+
+* **Strong error**: how close is the numerical path to the exact path
+  driven by the same Brownian motion, `E |u_N - u(T)|`? Euler-Maruyama has
+  **strong order 1/2**: halving `h` divides it by about `sqrt(2)`. The
+  SciML solver list says the same: EM is "Strong Order 0.5 in the Ito
+  sense" ([SDE solvers](https://docs.sciml.ai/DiffEqDocs/stable/solvers/sde_solve/)).
+* **Weak error**: how close is a statistic, such as a moment
+  `|E φ(u_N) - E φ(u(T))|`? Euler-Maruyama has **weak order 1**.
+
+The reason is that the noise term `g ΔW` is right on average but its
+first neglected piece, of size `h` per step (not `h^(3/2)`), is random with
+mean zero: it does not cancel along one path, and it does cancel in the
+mean.
+
+GBM makes both measurable. To compare step sizes on the **same path**,
+draw the increments on the finest grid and add them in blocks for coarser
+grids. The weak error can even be computed exactly. The mean is not a
+good test: each step multiplies `E u` by `1 + μh`, which is forward Euler
+on `u' = μu`, and `σ` plays no part. The second moment does involve the
+noise: a step multiplies `u²` by `(1 + μh + σΔW)²`, whose mean is
+`(1 + μh)² + σ²h`, so `E u_N² = u0² ((1 + μh)² + σ²h)^N`, against
+`E u(T)² = u0² e^{(2μ + σ²) T}`. That weak error needs no sampling at all,
+while the strong one is averaged over 2000 seeded paths.
+'''
+
+  [[section.example]]
+  caption = "One path (`StableRNG(1)`, 1024 increments on the finest grid) solved with 16, 64, 256 and 1024 steps of Euler-Maruyama: error against the exact solution on that path (rounded to 2 digits)."
+  notice = "Notice that the error does not fall steadily: going from 16 to 64 steps made it larger. On one path the error is a random number; the order is a statement about its average."
+  code = '''
+using StableRNGs
+μ, σ, u0, T = 1.0, 0.5, 1.0, 1.0
+function euler_maruyama(u0, ΔW, h)
+    u = u0
+    for w in ΔW
+        u += μ * u * h + σ * u * w
+    end
+    return u
+end
+coarsen(ΔW, N) = [sum(@view ΔW[(i - 1) * (length(ΔW) ÷ N) + 1:i * (length(ΔW) ÷ N)]) for i in 1:N]
+fine = sqrt(T / 1024) .* randn(StableRNG(1), 1024)
+exact = u0 * exp((μ - σ^2 / 2) * T + σ * sum(fine))
+for N in (16, 64, 256, 1024)
+    println(lpad(N, 4), " steps: error ", round(abs(euler_maruyama(u0, coarsen(fine, N), T / N) - exact); sigdigits = 2))
+end
+'''
+
+  [[section.example]]
+  caption = "Strong error averaged over 2000 paths (`StableRNG(2)`, each refined to 1024 increments) and the exact weak error of the second moment, `|((1 + μh)² + σ²h)^N - e^{2μ + σ²}|`, for 4 to 256 steps; slopes are fitted to `log(error)` against `log(h)` (rounded to 2 digits)."
+  notice = "Notice the slopes: about 0.6 for the strong error (approaching 1/2; the coarsest grids are not yet asymptotic) and about 0.9 for the weak error. Each fourfold refinement divides the strong error by about 2.3 and the weak error by about 3 to 4, closer to 4 on the finer grids."
+  code = '''
+using StableRNGs, Statistics
+μ, σ, u0, T = 1.0, 0.5, 1.0, 1.0
+function euler_maruyama(u0, ΔW, h)
+    u = u0
+    for w in ΔW
+        u += μ * u * h + σ * u * w
+    end
+    return u
+end
+coarsen(ΔW, N) = [sum(@view ΔW[(i - 1) * (length(ΔW) ÷ N) + 1:i * (length(ΔW) ÷ N)]) for i in 1:N]
+rng = StableRNG(2)
+paths = [sqrt(T / 1024) .* randn(rng, 1024) for _ in 1:2000]
+Ns = [4, 16, 64, 256]
+strong = [mean(abs(euler_maruyama(u0, coarsen(p, N), T / N) - u0 * exp((μ - σ^2 / 2) * T + σ * sum(p))) for p in paths) for N in Ns]
+weak = [abs(u0^2 * ((1 + μ * T / N)^2 + σ^2 * T / N)^N - u0^2 * exp((2μ + σ^2) * T)) for N in Ns]
+slope(e) = (lh = log.(T ./ Ns); le = log.(e); sum((lh .- mean(lh)) .* (le .- mean(le))) / sum(abs2, lh .- mean(lh)))
+for (N, s, w) in zip(Ns, strong, weak)
+    println(lpad(N, 3), " steps: strong error ", rpad(round(s; sigdigits = 2), 7), " weak error ", round(w; sigdigits = 2))
+end
+println("fitted slopes: strong ", round(slope(strong); digits = 2), ", weak ", round(slope(weak); digits = 2))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You price an option, which needs only `E[payoff(u(T))]`, with Euler-Maruyama. Which order tells you how the discretization bias shrinks with `h`?"
+  choices = [
+    "The strong order 1/2, since the paths are only that accurate",
+    "The weak order 1, since only a statistic of `u(T)` is used",
+    "Neither: Monte Carlo error is the only error in an expectation",
+  ]
+  answer = 2
+  explain = "An expectation is a weak quantity: its bias falls like `h` for Euler-Maruyama even though individual paths are only `sqrt(h)` accurate. The total error is that bias plus the Monte Carlo error of the average, which the next section measures."
+  misconceptions = [
+    "Path accuracy matters when you need each path right (for example, to compare with a measured trajectory); for an expectation the path errors partly cancel.",
+    "",
+    "The discretization bias is separate from the sampling error: `(1 + μh)^N` differs from `e^{μT}` with no sampling at all.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "On one fixed Brownian path, you halve `h` and the Euler-Maruyama error grows. What does that tell you?"
+  choices = [
+    "The code has a bug, since a convergent method improves when `h` halves",
+    "The strong order is not 1/2 for this equation",
+    "Nothing unusual: the error on one path is random",
+  ]
+  answer = 3
+  explain = "Strong order 1/2 bounds the mean error over paths. On a single path the error fluctuates with the increments, and a finer grid can land further from the exact value, as in the 16-to-64-step example. Measure order on averages over many paths."
+  misconceptions = [
+    "For ODEs one comparison often suffices; for SDEs the error is a random variable, and a single draw can go either way.",
+    "The order is measured from the average over many paths (the 2000-path example gives a slope near 0.6); one path cannot measure it.",
+    "",
+  ]
+
+[[section]]
+title = "Monte Carlo error and confidence intervals"
+body = '''
+A Monte Carlo estimate `m = (x_1 + ... + x_N) / N` of `E x` from
+independent draws has standard deviation `s / sqrt(N)`, where `s` is the
+standard deviation of one draw. By the central limit theorem `m` is close
+to normal for large `N`, so
+
+    m ± 1.96 s / sqrt(N)
+
+is an approximate **95% confidence interval** (1.96 is the 97.5% point of
+the standard normal), with `s` estimated by the sample standard deviation
+`std(xs)` (dividing by `N - 1`). Two consequences:
+
+* One more digit costs 100 times the samples: the error falls like
+  `1/sqrt(N)` whatever the dimension of the problem.
+* A confidence interval is a statement about the procedure: about 95% of
+  intervals built this way contain the true value. That can be measured by
+  repeating it.
+
+To separate sampling error from discretization error, the examples draw
+`u(T)` of GBM from its exact formula, `u0 exp((μ - σ²/2) T + σ sqrt(T) Z)`
+with `Z` standard normal, whose mean is `u0 e^{μT}`.
+'''
+
+  [[section.example]]
+  caption = "Monte Carlo estimates of `E u(T) = e` for GBM (μ = 1, σ = 0.5, T = 1) from exact samples (`StableRNG(3)`): error and the 95% half-width `1.96 s / sqrt(N)` for growing `N` (rounded to 2 digits)."
+  notice = "Notice that each factor of 100 in `N` divides the half-width by 10, and that the actual error is of the size of the half-width (sometimes smaller, sometimes a bit larger), not of the size of `1/N`."
+  code = '''
+using StableRNGs, Statistics
+μ, σ, u0, T = 1.0, 0.5, 1.0, 1.0
+rng = StableRNG(3)
+for N in (100, 10_000, 1_000_000)
+    xs = u0 .* exp.((μ - σ^2 / 2) * T .+ σ * sqrt(T) .* randn(rng, N))
+    m, half = mean(xs), 1.96 * std(xs) / sqrt(N)
+    println("N = ", rpad(N, 9), " error ", rpad(round(abs(m - exp(μ * T)); sigdigits = 2), 9), " half-width ", round(half; sigdigits = 2))
+end
+'''
+
+  [[section.example]]
+  caption = "Coverage: 2000 independent 95% intervals, each from `N` exact samples (`StableRNG(4)`), and the fraction that contain the true mean `e`: for `N = 50` with the normal factor 1.96 and with Student's `t` factor 2.01 for 49 degrees of freedom, then for `N = 500`."
+  notice = "Notice that with `N = 50` and 1.96 the coverage is below 0.95 by about 4 standard errors (one standard error of a coverage from 2000 intervals is `sqrt(0.95 · 0.05 / 2000) ≈ 0.005`), so the shortfall is real. The `t` factor (on fresh intervals) recovers only a little of it, within the noise; most of the shortfall comes from the skewed (lognormal) samples, for which the normal approximation of the mean is not yet good at 50. At `N = 500` the coverage is within one standard error of 0.95."
+  code = '''
+using StableRNGs, Statistics
+μ, σ, u0, T = 1.0, 0.5, 1.0, 1.0
+rng = StableRNG(4)
+function covers(rng, N, q)
+    xs = u0 .* exp.((μ - σ^2 / 2) * T .+ σ * sqrt(T) .* randn(rng, N))
+    half = q * std(xs) / sqrt(N)
+    return abs(mean(xs) - exp(μ * T)) <= half
+end
+println("coverage with N = 50, factor 1.96: ", count(_ -> covers(rng, 50, 1.96), 1:2000) / 2000)
+println("coverage with N = 50, factor 2.01: ", count(_ -> covers(rng, 50, 2.0096), 1:2000) / 2000)
+println("coverage with N = 500, factor 1.96: ", count(_ -> covers(rng, 500, 1.96), 1:2000) / 2000)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A Monte Carlo estimate with `N = 1000` samples has a 95% half-width of `0.02`. About how many samples give a half-width of `0.005`?"
+  choices = [
+    "4,000",
+    "16,000",
+    "1,000,000",
+    "2,000",
+  ]
+  answer = 2
+  explain = "The half-width scales like `1/sqrt(N)`: dividing it by 4 needs 16 times the samples."
+  misconceptions = [
+    "That assumes the error falls like `1/N`; Monte Carlo error falls like `1/sqrt(N)`.",
+    "",
+    "A factor of 1000 would be needed for one more factor of about 32 in the half-width; here the target is a factor of 4.",
+    "That grows `N` by the square root of the improvement, `sqrt(4) = 2`; it is the other way round: the half-width falls like `1/sqrt(N)`, so `N` grows by the square, `4^2 = 16`.",
+  ]
+
+[[section]]
+title = "Ensembles: many solves, reproducibly"
+body = '''
+`EnsembleProblem` runs the same SDE many times and collects the results.
+Two settings decide what you get:
+
+* **What to keep.** `output_func = (sol, ctx) -> (sol.u[end], false)`
+  keeps only the end value of each trajectory (the `false` says "do not
+  rerun"), so 10,000 trajectories do not store 10,000 paths.
+* **Where the randomness comes from.** Passing `rng = StableRNG(7)` to
+  `solve` makes SciMLBase draw one seed per trajectory from it, before any
+  trajectory runs, and `rng_func = ctx -> StableRNG(ctx.sim_seed)` turns
+  each seed into the generator for that trajectory's noise. Trajectory `i`
+  then gets the same numbers whichever thread runs it (SciMLBase's
+  docstring for `generate_sim_seeds`: "so serial, threaded, and distributed
+  ensemble execution can create reproducible per-trajectory RNG state").
+
+`EnsembleSerial()` runs the trajectories one by one; `EnsembleThreads()`
+spreads them over threads. The answer is a sum of discretization bias
+(weak order 1, so about `e - (1 + μh)^N`) and Monte Carlo error, and the
+example reports both.
+'''
+
+  [[section.example]]
+  caption = "10,000 Euler-Maruyama trajectories of GBM (`dt = 0.01`) as an `EnsembleProblem` with `EnsembleSerial`, seeded with `StableRNG(7)`: mean with its 95% interval, the exact mean of the discretized method, and the exact mean of the SDE (rounded to 4 digits)."
+  notice = "Notice that the interval contains `(1 + μh)^N`, the mean the method converges to, and that this differs from `e` by the weak bias of about `0.013`, smaller than the Monte Carlo half-width at this `N`: here more samples would pay off before a smaller `dt` would."
+  code = '''
+using StochasticDiffEq, StableRNGs, Statistics
+μ, σ, u0, T, h = 1.0, 0.5, 1.0, 1.0, 0.01
+prob = SDEProblem((u, p, t) -> μ * u, (u, p, t) -> σ * u, u0, (0.0, T))
+ens = EnsembleProblem(prob; output_func = (sol, ctx) -> (sol.u[end], false))
+sim = solve(ens, EM(false), EnsembleSerial(); dt = h, trajectories = 10_000,
+            rng = StableRNG(7), rng_func = ctx -> StableRNG(ctx.sim_seed))
+xs = sim.u
+m, half = mean(xs), 1.96 * std(xs) / sqrt(length(xs))
+println("ensemble mean ", round(m; digits = 4), " ± ", round(half; digits = 4))
+println("method's mean (1 + μh)^N = ", round(u0 * (1 + μ * h)^round(Int, T / h); digits = 4), ",  SDE's mean e^μT = ", round(exp(μ * T); digits = 4))
+'''
+
+  [[section.example]]
+  caption = "The same ensemble with `EnsembleThreads`, run in a second Julia started with `--threads=2` (this session has one thread, which would prove nothing): whether its end values equal the serial ones, and the two run times. Times vary between runs and machines, so this output is not compared."
+  notice = "Notice that the values are identical on two threads: the per-trajectory seeds were drawn before any thread started, so it does not matter which thread runs a trajectory. The speedup is at most 2 here, and less when the machine is busy."
+  check = false
+  code = '''
+write("ensemble.jl", raw"""
+using StochasticDiffEq, StableRNGs
+μ, σ, u0, T, h = 1.0, 0.5, 1.0, 1.0, 0.01
+prob = SDEProblem((u, p, t) -> μ * u, (u, p, t) -> σ * u, u0, (0.0, T))
+ens = EnsembleProblem(prob; output_func = (sol, ctx) -> (sol.u[end], false))
+ends(alg) = solve(ens, EM(false), alg; dt = h, trajectories = 10_000, rng = StableRNG(7), rng_func = ctx -> StableRNG(ctx.sim_seed)).u
+ends(EnsembleSerial()); ends(EnsembleThreads())                   # compile both first
+ts = @elapsed serial = ends(EnsembleSerial())
+tt = @elapsed threaded = ends(EnsembleThreads())
+println("threads: ", Threads.nthreads(), ", same values: ", serial == threaded)
+println("serial ", round(ts; digits = 2), " s, threaded ", round(tt; digits = 2), " s, speedup ", round(ts / tt; digits = 2))
+""")
+run(`$(Base.julia_cmd()) --threads=2 --project=$(Base.active_project()) ensemble.jl`);
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "An ensemble passes `rng = StableRNG(7)` and `rng_func = ctx -> StableRNG(ctx.sim_seed)`. You rerun it with `EnsembleThreads()` on 8 threads instead of `EnsembleSerial()`. What happens to the trajectories' end values?"
+  choices = [
+    "They change, because threads finish in a different order",
+    "They stay the same, trajectory by trajectory",
+    "They stay the same as a set but come back in a shuffled order",
+  ]
+  answer = 2
+  explain = "The seeds are drawn from the master generator before any trajectory runs, and trajectory `i` always gets the `i`-th seed drawn; its noise does not depend on which thread runs it or when. Results are stored by trajectory index, not by finishing time."
+  misconceptions = [
+    "That happens when trajectories share one generator (each draw then depends on scheduling); per-trajectory seeds remove the dependence.",
+    "",
+    "`sim.u[i]` is trajectory `i` whichever thread finished first; the threaded run in the example compares equal element by element.",
+  ]
+
+[[section]]
+title = "Itô or Stratonovich: a modelling choice"
+body = '''
+The integral `∫ g(u) dW` has no unique meaning: the sum
+`Σ g(u(t*_n)) ΔW_n` converges to different limits depending on where in
+each interval `t*_n` is taken, because `u` and `ΔW` are correlated within a
+step. **Itô** evaluates `g` at the start (as Euler-Maruyama does);
+**Stratonovich** uses the midpoint (as the Euler-Heun predictor-corrector
+does). The SciML solver list labels `EM` and `EulerHeun` as the choices
+"for Ito and Stratonovich interpretations, respectively".
+
+The same symbols `du = μ u dt + σ u dW` therefore describe two different
+models. For GBM:
+
+* Itô: `u(T) = u0 exp((μ - σ²/2) T + σ W(T))`, mean `u0 e^{μT}`;
+* Stratonovich: `u(T) = u0 exp(μT + σ W(T))`, mean `u0 e^{(μ + σ²/2) T}`.
+
+A Stratonovich SDE with drift `f` is the Itô SDE with drift
+`f + (1/2) g ∂g/∂u` (here `μu + σ²u/2`). Neither interpretation is "the
+correct one" numerically: which one a model means is decided by how it was
+derived, and the method must match it. The example solves both on the same
+path and checks each against its own exact formula.
+'''
+
+  [[section.example]]
+  caption = "GBM (μ = 1, σ = 0.5) on one path (`StableRNG(11)`, 4096 steps to T = 1): `EM(false)` and `EulerHeun()` against the Itô and Stratonovich exact solutions, and Itô EM with the corrected drift `μ + σ²/2` (rounded to 3 digits)."
+  notice = "Notice that each method agrees with its own exact formula and not with the other (the two differ by the factor `exp(σ²T/2) ≈ 1.13`), and that Itô with the corrected drift lands on the Stratonovich value: the same model written in the other calculus."
+  code = '''
+using StochasticDiffEq, StableRNGs
+μ, σ, u0, T, N = 1.0, 0.5, 1.0, 1.0, 4096
+h = T / N
+ΔW = sqrt(h) .* randn(StableRNG(11), N)
+path() = NoiseGrid(collect(range(0.0, T; length = N + 1)), [0.0; cumsum(ΔW)])
+gbm(drift) = SDEProblem((u, p, t) -> drift * u, (u, p, t) -> σ * u, u0, (0.0, T); noise = path())
+WT = sum(ΔW)
+println("Itô:          EM ", round(solve(gbm(μ), EM(false); dt = h).u[end]; digits = 3),
+        ",  exact ", round(u0 * exp((μ - σ^2 / 2) * T + σ * WT); digits = 3))
+println("Stratonovich: EulerHeun ", round(solve(gbm(μ), EulerHeun(); dt = h).u[end]; digits = 3),
+        ",  exact ", round(u0 * exp(μ * T + σ * WT); digits = 3))
+println("Itô with drift μ + σ²/2: EM ", round(solve(gbm(μ + σ^2 / 2), EM(false); dt = h).u[end]; digits = 3))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A paper writes `du = μ u dt + σ u dW` for a population and does not say which calculus. You simulate it with `EulerHeun`, a colleague with `EM`, and your means differ by 13%. Who is right?"
+  choices = [
+    "The colleague, since Itô is the standard interpretation",
+    "You, since Euler-Heun is the more accurate method",
+    "It depends on which interpretation the model was derived for",
+  ]
+  answer = 3
+  explain = "The two methods converge to the solutions of two different equations. The gap `exp(σ²T/2)` is not a numerical error and does not shrink with `h`; it is resolved by finding out which model the authors meant (or converting the drift by `(1/2) g ∂g/∂u`)."
+  misconceptions = [
+    "Itô is common in finance and statistics, but a convention in one field does not settle what a given model means.",
+    "Both methods have strong order 1/2 in their own sense; the difference between the answers is the interpretation, not accuracy.",
+    "",
+  ]
+
+[[section]]
+title = "Delay equations and the method of steps"
+body = '''
+A **delay differential equation** (DDE) lets the rate depend on the past:
+
+    u'(t) = -u(t - 1)   for t > 0,     u(t) = 1   for t <= 0 (the history)
+
+The state is no longer a number but a whole function on `[t - 1, t]`, and
+the initial condition is the history function. On `[0, 1]` the delayed
+value comes from the history, so the DDE is an ODE with a known right-hand
+side; once that piece is solved, it is the known right-hand side for
+`[1, 2]`, and so on. This is the **method of steps**. Here every piece is a
+polynomial: `u = 1 - t` on `[0, 1]`, `u = 1 - t + (t - 1)²/2` on `[1, 2]`,
+and in general
+
+    u(t) = Σ_{k=0}^{n} (-1)^k (t - (k - 1))^k / k!    for t in [n - 1, n]
+
+**Discontinuities propagate.** At `t = 0` the derivative jumps (from 0 in
+the history to -1); at `t = 1` that jump is fed back and the second
+derivative jumps; at `t = 2` the third, and so on. A solver that steps
+across these points without knowing about them loses accuracy there.
+DelayDiffEq's `MethodOfSteps(Tsit5())` turns an ODE method into a DDE
+method (with its own dense output for the past); passing
+`constant_lags = [1.0]` lets it put steps exactly at `0, 1, 2, ...`.
+'''
+
+  [[section.example]]
+  caption = "The method of steps by hand: four ODE solves on `[0, 1]`, ..., `[3, 4]`, each using the previous solution as the delayed term; then DelayDiffEq with and without `constant_lags`; all against the exact piecewise polynomial (errors as bounds)."
+  notice = "Notice that each hand-made piece is an ordinary ODE solve and is exact to rounding, and that DelayDiffEq with the lag declared is as good, while without it the error is above `1e-12` (though still below `1e-7`) at the same tolerance of `1e-10`: steps that straddle the propagated discontinuities."
+  code = '''
+using OrdinaryDiffEq, DelayDiffEq
+exact(t) = sum((-1)^k * (t - (k - 1))^k / factorial(k) for k in 0:(floor(Int, t) + 1))
+pieces = Any[t -> 1.0]                    # pieces[1] is the history
+for k in 0:3
+    prev = pieces[end]
+    sol = solve(ODEProblem((u, p, t) -> -prev(t - 1), pieces[end](k), (Float64(k), k + 1.0)), Tsit5();
+                abstol = 1e-12, reltol = 1e-12)
+    push!(pieces, t -> sol(t))
+end
+hand_error = maximum(abs(pieces[floor(Int, t) + 2](t) - exact(t)) for t in 0:0.01:3.99)
+println("method of steps by hand: max error below 1e-12: ", hand_error < 1e-12)
+f(u, history, p, t) = -history(p, t - 1.0)
+history(p, t) = 1.0
+for lags in ([1.0], Float64[])
+    sol = solve(DDEProblem(f, 1.0, history, (0.0, 4.0); constant_lags = lags), MethodOfSteps(Tsit5());
+                abstol = 1e-10, reltol = 1e-10)
+    err = maximum(abs(sol(t) - exact(t)) for t in 0:0.01:4)
+    println("DelayDiffEq, constant_lags = ", lags, ": error below 1e-12: ", err < 1e-12, ", below 1e-7: ", err < 1e-7)
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "For `u'(t) = -u(t - 1)` with history `u = 1` for `t <= 0`, what is `u` on `[0, 1]`?"
+  choices = [
+    "`exp(-t)`, the solution of `u' = -u`",
+    "`1 - t`, since `u(t - 1) = 1` there",
+    "`1`, since the history is constant",
+  ]
+  answer = 2
+  explain = "On `[0, 1]`, `t - 1` lies in the history, so `u' = -1` and `u = 1 - t`. The delay makes the right-hand side a known function on this interval; that is the first step of the method of steps."
+  misconceptions = [
+    "That ignores the delay: the rate depends on `u` one time unit ago, which on `[0, 1]` is the history value 1, not the current `u`.",
+    "",
+    "The history fixes `u` only for `t <= 0`; for `t > 0` the equation drives `u` at rate `-u(t - 1) = -1`.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The method-of-steps formula on `[1, 2]` for the same DDE. What does this print?"
+  code = '''
+u(t) = 1 - t + (t - 1)^2 / 2
+u(1.5)
+'''
+  choices = ["-0.5", "-0.375", "0.125", "-0.25"]
+  answer = 2
+  explain = "`1 - 1.5 + 0.5² / 2 = -0.5 + 0.125 = -0.375`. The quadratic term is the integral of the first piece `1 - (t - 1)` fed back through the delay."
+  misconceptions = [
+    "That is the first piece `1 - t` continued past `t = 1`; after `t = 1` the delayed value is no longer the history, which adds `(t - 1)²/2`.",
+    "",
+    "That is the correction term `(t - 1)²/2` alone, without the linear part `1 - t`.",
+    "That uses `(t - 1)^2` without the factor 1/2 from integrating `t - 1`.",
+  ]
+
+[[problem]]
+id = "sde-em-path"
+title = "Euler-Maruyama with a given generator"
+difficulty = "warm-up"
+kcs = ["euler-maruyama", "sde"]
+entry = "em_gbm_path"
+packages = ["StableRNGs"]
+prompt = '''
+Write `em_gbm_path(μ, σ, u0, T, N, seed)` that solves geometric Brownian
+motion `du = μ u dt + σ u dW` on `[0, T]` with `N` Euler-Maruyama steps of
+size `h = T / N` and returns the whole path `[u_0, u_1, ..., u_N]` as a
+`Vector{Float64}`.
+
+Draw the increments from `rng = StableRNG(seed)`: step `n` uses
+`ΔW_n = sqrt(h) * randn(rng)`, drawn in order (the same numbers as
+`sqrt(h) .* randn(rng, N)`). Evaluate drift and diffusion at the start of
+the step (Itô, the textbook `EM(false)`).
+
+```julia
+em_gbm_path(1.0, 0.5, 1.0, 1.0, 4, 5)    # 5 values, starting with 1.0
+```
+
+Results are compared with `rtol = 1e-12`: with the same random numbers,
+different arrangements of the arithmetic differ only by rounding, a few
+`eps()` per step over at most a few thousand steps.
+'''
+starter = '''
+using StableRNGs
+
+function em_gbm_path(μ, σ, u0, T, N, seed)
+    rng = StableRNG(seed)
+    u = zeros(N + 1)
+    # one step per increment
+    return u
+end
+'''
+reference = '''
+using StableRNGs
+
+function em_gbm_path(μ, σ, u0, T, N, seed)
+    rng = StableRNG(seed)
+    h = T / N
+    u = Vector{Float64}(undef, N + 1)
+    u[1] = u0
+    for n in 1:N
+        ΔW = sqrt(h) * randn(rng)
+        u[n + 1] = u[n] + μ * u[n] * h + σ * u[n] * ΔW
+    end
+    return u
+end
+'''
+cases = [
+  "1.0, 0.5, 1.0, 1.0, 4, 5",
+  "0.05, 0.2, 100.0, 1.0, 252, 1",
+  "-0.5, 1.0, 2.0, 2.0, 1000, 42",
+  "0.0, 0.3, 1.0, 0.5, 1, 7",
+]
+gen = "rng -> [(randn(rng), rand(rng), 0.5 + rand(rng), 0.5 + rand(rng), rand(rng, 1:200), rand(rng, 1:10^6)) for _ in 1:15]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "An increment of Brownian motion over a step `h` has standard deviation `sqrt(h)`; the drift term is multiplied by `h`, the noise term by the increment.",
+  "Create the generator once, outside the loop, and draw one `randn(rng)` per step; evaluate `μ u` and `σ u` at the current value before updating it.",
+]
+
+  [problem.perf]
+  args = "0.05, 0.2, 100.0, 1.0, n, 42"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "increments scaled by h instead of sqrt(h)"
+  code = '''
+using StableRNGs
+function em_gbm_path(μ, σ, u0, T, N, seed)
+    rng = StableRNG(seed)
+    h = T / N
+    u = [u0]
+    for n in 1:N
+        push!(u, u[end] + μ * u[end] * h + σ * u[end] * h * randn(rng))
+    end
+    return u
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "split-step: diffusion evaluated after the drift"
+  code = '''
+using StableRNGs
+function em_gbm_path(μ, σ, u0, T, N, seed)
+    rng = StableRNG(seed)
+    h = T / N
+    u = [u0]
+    for n in 1:N
+        K = u[end] + μ * u[end] * h
+        push!(u, K + σ * K * sqrt(h) * randn(rng))
+    end
+    return u
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a new generator in every step"
+  code = '''
+using StableRNGs
+function em_gbm_path(μ, σ, u0, T, N, seed)
+    h = T / N
+    u = [u0]
+    for n in 1:N
+        push!(u, u[end] + μ * u[end] * h + σ * u[end] * sqrt(h) * randn(StableRNG(seed)))
+    end
+    return u
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "all increments drawn first, then accumulated"
+  code = '''
+using StableRNGs
+function em_gbm_path(μ, σ, u0, T, N, seed)
+    h = T / N
+    ΔW = sqrt(h) .* randn(StableRNG(seed), N)
+    u = [u0]
+    for w in ΔW
+        push!(u, u[end] * (1 + μ * h + σ * w))
+    end
+    return u
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "sde-mc-interval"
+title = "A Monte Carlo confidence interval"
+difficulty = "core"
+kcs = ["monte-carlo-error"]
+entry = "mc_interval"
+packages = ["StableRNGs"]
+prompt = '''
+Write `mc_interval(xs)` that takes independent samples `xs` of a random
+quantity and returns the approximate 95% confidence interval for its mean
+as a tuple `(lo, hi)` of `Float64`s. Use the normal approximation from the
+section "Monte Carlo error and confidence intervals", with the sample
+standard deviation (dividing by `N - 1`). Every case has at least two
+samples.
+
+```julia
+mc_interval([1.0, 2.0, 3.0, 4.0])    # about (1.235, 3.765)
+```
+
+Results are compared with `rtol = 1e-10`: a mean and a standard deviation
+of at most a few hundred thousand numbers, summed in any order, agree far
+inside that.
+'''
+starter = '''
+using Statistics
+
+function mc_interval(xs)
+    m = mean(xs)
+    return (m, m)
+end
+'''
+reference = '''
+using Statistics
+
+function mc_interval(xs)
+    m = mean(xs)
+    half = 1.96 * std(xs; mean = m) / sqrt(length(xs))
+    return (m - half, m + half)
+end
+'''
+cases = [
+  "[1.0, 2.0, 3.0, 4.0]",
+  "[2.7, 2.9, 2.6, 3.1, 2.8, 2.5]",
+  "[0.0, 10.0]",
+  "exp.(0.5 .* randn(StableRNG(1), 1000))",
+]
+gen = "rng -> [(randn(rng, rand(rng, 2:500)) .* (1 + 3rand(rng)) .+ randn(rng),) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "The width shrinks with the square root of the number of samples, and the spread is the standard deviation of one sample, not of the mean.",
+  "The half-width is the 97.5% point of the standard normal times the standard error of the mean. `std` from Statistics already divides by `N - 1`. Return a tuple, not a vector.",
+]
+
+  [problem.perf]
+  args = "randn(rng, n)"
+  sizes = [200000]
+
+  [[problem.variant]]
+  label = "divides by N instead of sqrt(N)"
+  code = '''
+using Statistics
+function mc_interval(xs)
+    m = mean(xs)
+    half = 1.96 * std(xs) / length(xs)
+    return (m - half, m + half)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the population standard deviation (divides by N)"
+  code = '''
+using Statistics
+function mc_interval(xs)
+    m = mean(xs)
+    half = 1.96 * std(xs; corrected = false) / sqrt(length(xs))
+    return (m - half, m + half)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a 90% interval (1.645)"
+  code = '''
+using Statistics
+function mc_interval(xs)
+    m = mean(xs)
+    half = 1.645 * std(xs) / sqrt(length(xs))
+    return (m - half, m + half)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "one pass with running sums"
+  code = '''
+function mc_interval(xs)
+    n = length(xs)
+    s = 0.0
+    for x in xs
+        s += x
+    end
+    m = s / n
+    q = 0.0
+    for x in xs
+        q += (x - m)^2
+    end
+    half = 1.96 * sqrt(q / (n - 1)) / sqrt(n)
+    return (m - half, m + half)
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "dde-method-of-steps"
+title = "A delay equation by the method of steps"
+difficulty = "stretch"
+kcs = ["dde"]
+entry = "dde_value"
+packages = ["StableRNGs"]
+prompt = '''
+For the delay equation
+
+    u'(t) = -a u(t - τ)   for t > 0,     u(t) = 1   for t <= 0
+
+write `dde_value(a, τ, T)` that returns `u(T)` (a `Float64`) for `a > 0`,
+`τ > 0` and `0 <= T <= 6τ`. The tests use `a τ` between 0.2 and 2. The
+section "Delay equations and the method of steps" worked out the case
+`a = τ = 1`; here both are general.
+
+Work it out by the method of steps: on `[0, τ]` the delayed value is the
+history, so `u` is a polynomial there; integrating each piece gives the
+next one. Either evaluate the resulting closed form (find the pattern in
+the first two or three pieces) or integrate the pieces numerically with a
+fourth-order method and steps that line up with multiples of `τ`.
+
+```julia
+dde_value(1.0, 1.0, 0.5)    # 0.5
+dde_value(1.0, 1.0, 1.5)    # -0.375
+```
+
+Results are compared with `rtol = 1e-6`, which the exact pieces meet to
+rounding and a fourth-order method meets with steps of `τ/100` or smaller
+(its error on a polynomial of degree up to 7 is far below `1e-6`). The
+cases (and the random ones, drawn with `|u(T)| > 0.05`) avoid values of
+`u(T)` near zero, where a relative tolerance would mean nothing.
+'''
+starter = '''
+function dde_value(a, τ, T)
+    return exp(-a * T)    # the equation without the delay
+end
+'''
+reference = '''
+function dde_value(a, τ, T)
+    # method of steps: on [(n-1)τ, nτ],  u(t) = Σ_{k=0}^{n} (-a)^k (t - (k-1)τ)^k / k!
+    n = floor(Int, T / τ) + 1
+    s = 0.0
+    term_factorial = 1.0
+    for k in 0:n
+        k > 0 && (term_factorial *= k)
+        s += (-a)^k * max(T - (k - 1) * τ, 0.0)^k / term_factorial
+    end
+    return s
+end
+'''
+cases = [
+  "1.0, 1.0, 0.5",
+  "1.0, 1.0, 1.5",
+  "1.0, 1.0, 3.5",
+  "2.0, 0.5, 1.3",
+  "0.2, 1.0, 5.8",
+  "1.0, 0.25, 0.1",
+  "1.8, 1.0, 5.9",
+]
+gen = "rng -> begin; u(a, τ, T) = sum((-a)^k * max(T - (k - 1) * τ, 0.0)^k / factorial(k) for k in 0:(floor(Int, T / τ) + 1)); out = Tuple{Float64, Float64, Float64}[]; while length(out) < 20; τ = 0.2 + 2rand(rng); a = (0.2 + 1.8rand(rng)) / τ; T = 6τ * rand(rng); abs(u(a, τ, T)) > 0.05 && push!(out, (a, τ, T)); end; out; end"
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "On `[0, τ]` the right-hand side is the constant `-a`, so `u = 1 - a t`. On `[τ, 2τ]` the right-hand side is `-a (1 - a (t - τ))`; integrate it from `u(τ)`.",
+  "Compute the third piece, on `[2τ, 3τ]`, the same way and compare the three: each piece keeps the previous terms and adds one, with the next power of `-a`, the next factorial and a shift by one more `τ`. Check your pattern against the two examples before trusting it.",
+]
+
+  [problem.perf]
+  args = "1.0, 1.0, 3.5"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "ignores the delay: exp(-a T)"
+  code = '''
+dde_value(a, τ, T) = exp(-a * T)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "one term short (sum to n - 1)"
+  code = '''
+function dde_value(a, τ, T)
+    n = floor(Int, T / τ)
+    return sum((-a)^k * (T - (k - 1) * τ)^k / factorial(k) for k in 0:n)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "only the first piece, 1 - a T"
+  code = '''
+dde_value(a, τ, T) = 1 - a * T
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the closed form in one generator expression"
+  code = '''
+dde_value(a, τ, T) = sum((-a)^k * max(T - (k - 1) * τ, 0.0)^k / factorial(k) for k in 0:(floor(Int, T / τ) + 1))
+'''
+  expect = ["correct"]

@@ -1,0 +1,684 @@
+id = "48-pinn-limits"
+title = "When PINNs fail, and fair comparisons"
+track = "sciml"
+env = "sciml"
+status = "ready"
+summary = "Why physics-informed neural networks are hard to train and how to compare them with classical solvers: a small loss with a large error between collocation points, shown concretely; the imbalance between residual and boundary gradients and the annealed weight that rebalances it; causal weights for time-dependent problems; and what two surveys found when PINNs and other ML solvers were compared with strong baselines."
+kcs = ["pinn-failure-modes", "loss-balancing", "causal-training", "fair-benchmarks"]
+prerequisites = ["31-convergence", "34-pde-discretization", "47-pinns"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit takes the PINN of unit 47 apart. It relies on:
+
+* **The PINN loss**: mean squared residual at collocation points plus a
+  weighted boundary term, `L = Lr + λ Lb`, both computed with nested
+  ForwardDiff (unit 47, section "The PINN loss: residual at collocation
+  points plus boundary terms").
+* **Training with Optimization.jl** and the gradient with respect to the
+  parameters by ForwardDiff, cross-checked by differences (unit 47, section
+  "Training, beside a classical solve"); training outputs are printed as
+  checked facts because their digits move between CPUs.
+* **The classical baseline**: the finite-difference solve `A u = f`, whose
+  error can be estimated before you run it (unit 34, sections
+  "Second derivatives on a grid" and "The discrete Laplacian is a matrix").
+'''
+
+[[section]]
+title = "Small loss, large error: what happens between the collocation points"
+body = '''
+The PINN loss only sees the residual **at the collocation points**. A small
+loss says the equation holds there, and says nothing about the points in
+between. With few points and a flexible network, the optimizer can make the
+residual vanish at every collocation point while the function between them
+is wrong.
+
+This can be shown without any training. For `u'' = -π² sin(πx)` on `(0, 1)`
+with `u(0) = u(1) = 0`, take `m` equally spaced collocation points
+`x_i = i / m` and add to the exact solution `A sin(mπx)`. Its second
+derivative, `-A (mπ)^2 sin(mπx)`, is zero at every `x_i`, and it vanishes at
+both ends, so the PINN loss is unchanged (zero, up to rounding), while the
+error is `A` wherever `sin(mπx) = ±1`. The collocation points cannot tell
+the two functions apart: the same aliasing that limits any method sampling
+at a fixed set of points.
+
+The finite-difference solve on the same few points has a large error too,
+but its error estimate warns you in advance; the PINN
+loss does not. The check that works for both is to evaluate the residual,
+or the error against a reference, at points the method did not use.
+'''
+
+  [[section.example]]
+  caption = "The exact solution plus `0.5 sin(8πx)`, against the PINN loss on the 7 interior points `i/8` (the ends x = 0 and x = 1 enter through the boundary term), then on 7 points shifted half a spacing to the left."
+  notice = "Notice that the loss is at rounding level for both functions, while the second has an error of 0.5: the collocation points sit exactly on the zeros of the added term's second derivative. Fresh midpoints expose it at once."
+  code = '''
+using ForwardDiff, Statistics
+f(x) = -pi^2 * sin(pi * x)
+d2(u, x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+loss(u, xs) = mean(x -> (d2(u, x) - f(x))^2, xs) + u(0.0)^2 + u(1.0)^2
+m = 8
+xs = (1:m-1) ./ m                       # interior collocation points
+exact(x) = sin(pi * x)
+fooled(x) = sin(pi * x) + 0.5 * sin(m * pi * x)
+xt = range(0, 1; length = 1001)
+for (name, u) in (("exact", exact), ("exact + 0.5 sin(8πx)", fooled))
+    mids = xs .- 0.5 / m
+    println(rpad(name, 22), "loss < 1e-20: ", loss(u, xs) < 1e-20,
+            "   max error = ", round(maximum(abs.(u.(xt) .- exact.(xt))); digits = 3),
+            "   loss at midpoints > 1: ", loss(u, mids) > 1)
+end
+'''
+
+  [[section.example]]
+  caption = "A real training run with few points: the network of unit 47 widened to 20 tanh units (61 parameters), trained by BFGS (300 iterations at most) for `u'' = -16π² sin(4πx)`, `u(0) = 0`, `u(1) = 1` (exact `sin(4πx) + x`), on 6 and on 40 collocation points, beside finite differences on the same points. Facts with wide margins, since trained digits vary by CPU; the margins quoted below are from one training run."
+  notice = "Notice the reversal: with 6 points the training loss is below `1e-10` and the 40-point loss is not, yet with 6 points the error is large and the residual at the midpoints between collocation points gives it away; with 40 points the error is small. In this run every printed fact holds by a factor of 3 or more (the 6-point loss was about `1e-22`, the 40-point error about `3e-4`). Finite differences on the same points are off by 0.31 and 0.0079: the PINN loses to them at 6 points and wins at 40, which is not yet a fair comparison (last section)."
+  code = '''
+using Lux, ComponentArrays, StableRNGs, ForwardDiff, Statistics, LinearAlgebra
+using Optimization, OptimizationOptimJL
+k = 4
+uex(x) = sin(k * pi * x) + x
+f(x) = -(k * pi)^2 * sin(k * pi * x)
+model = Chain(Dense(1 => 20, tanh), Dense(20 => 1))
+ps0, st = Lux.setup(StableRNG(1), model)
+ps0 = ComponentArray{Float64}(ps0)
+net(x, θ) = first(first(model(fill(x, 1, 1), θ, st)))
+d2(u, x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+residual2(θ, xs) = mean(x -> (d2(z -> net(z, θ), x) - f(x))^2, xs)
+xt = range(0, 1; length = 1001)
+for m in (6, 40)
+    xs = range(0, 1; length = m + 2)[2:end-1]
+    loss(θ) = residual2(θ, xs) + net(0.0, θ)^2 + (net(1.0, θ) - 1)^2
+    optf = OptimizationFunction((θ, _) -> loss(θ); grad = (G, θ, _) -> (G .= ForwardDiff.gradient(loss, θ)))
+    θ = solve(OptimizationProblem(optf, ps0), BFGS(); maxiters = 300).u
+    err = maximum(abs.(net.(xt, Ref(θ)) .- uex.(xt)))
+    mids = (xs[1:end-1] .+ xs[2:end]) ./ 2
+    dx = 1 / (m + 1)
+    A = SymTridiagonal(fill(-2.0, m), ones(m - 1)) / dx^2
+    rhs = f.(xs); rhs[end] -= 1 / dx^2                 # u(1) = 1 moves to the right-hand side
+    fd_err = maximum(abs.(A \ rhs .- uex.(xs)))
+    println(rpad(m, 3), "points: PINN loss < 1e-10: ", loss(θ) < 1e-10, ", error < 1e-2: ", err < 1e-2,
+            ", midpoint residual < 1: ", residual2(θ, mids) < 1, ", PINN error below FD error: ", err < fd_err,
+            ";  finite differences on the same points: error ", round(fd_err; sigdigits = 2))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A PINN reaches a training loss of `1e-10` on 20 collocation points. What do you know about its error?"
+  choices = [
+    "It is about `1e-5`, the square root of the mean squared residual",
+    "Nothing yet: check the residual at points not used in training",
+    "It is below `1e-10`, since the loss bounds the squared error",
+  ]
+  answer = 2
+  explain = "The loss measures the residual at the 20 points only. Between them the network can do anything the points cannot see, as `sin(πx) + 0.5 sin(8πx)` does on 8 points. Testing on fresh points (or against a classical solve) is what turns a small loss into evidence."
+  misconceptions = [
+    "That relates the residual to the loss at the collocation points; the error between them, and its relation to the residual, is not controlled by the loss at all.",
+    "",
+    "The loss is a residual, not an error: the PINN never sees the solution, and a residual of zero at the points allows an error of 0.5 in the example.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A PINN fails to resolve a sharp front. A colleague proposes doubling the width of every layer. What does the literature on PINN failures suggest?"
+  choices = [
+    "It will fix it: wider networks can represent sharper functions",
+    "It may not help: the usual cause is the optimization, not capacity",
+    "It will make it worse, since more parameters always overfit the residual",
+  ]
+  answer = 2
+  explain = "Krishnapriyan et al. (NeurIPS 2021, arXiv:2109.01050) found that PINNs failing on convection, reaction and diffusion problems did so not for lack of expressivity: the PDE term made the loss hard to optimize, and changing the training (a curriculum that starts from an easy PDE term and makes it harder, or learning the solution one time interval after another) gave up to one to two orders of magnitude lower error."
+  misconceptions = [
+    "A network that can represent the solution can still fail to be trained to it; the reported failures persisted with networks large enough to express the answer.",
+    "",
+    "More parameters do not always hurt; the documented problem is a loss that is hard to optimize, which width alone does not change.",
+  ]
+
+[[section]]
+title = "Loss imbalance: residual and boundary terms pull with different strength"
+body = '''
+The two loss terms can differ in size by orders of magnitude. For
+`u'' = -(kπ)^2 sin(kπx)` the forcing grows like `k^2`, so at initialization
+the residual term is of order `(kπ)^4` while the boundary term is of order
+1, and their gradients differ too, if by less. The optimizer follows the sum, so it spends
+its steps reducing the residual. Since the residual cannot see an added
+line `a + bx` (unit 47), the boundary values are left to a term whose pull
+is relatively weak.
+
+Wang, Teng and Perdikaris (arXiv:2001.04536) traced PINN failures to this:
+unbalanced back-propagated gradients between the terms. Their
+**learning-rate annealing** rule measures the imbalance from the gradients
+themselves and sets the boundary weight to
+
+    λ̂ = max |∇θ Lr| / mean |∇θ Lb|        (their Eq. 40)
+    λ ← (1 - α) λ + α λ̂                    (their Eq. 41, with α = 0.9)
+
+recomputed during training. On their Helmholtz example the relative L²
+error fell from `1.81e-1` to `1.27e-2`. The ratio `λ̂` itself is a cheap
+diagnostic: compute it at initialization and see how far apart the terms
+are before you train.
+'''
+
+  [[section.example]]
+  caption = "The gradient ratio `max |∇Lr| / mean |∇Lb|` at initialization for the untrained network of unit 47 (20 tanh units), for forcings `sin(kπx)` of growing frequency `k` (rounded to 2 digits)."
+  notice = "Notice that the ratio grows quickly with `k`: at `k = 4` the residual's largest gradient entry is hundreds of times the boundary's typical one, so with `λ = 1` the boundary condition gets a small share of every step."
+  code = '''
+using Lux, ComponentArrays, StableRNGs, ForwardDiff, Statistics
+model = Chain(Dense(1 => 20, tanh), Dense(20 => 1))
+ps0, st = Lux.setup(StableRNG(1), model)
+ps0 = ComponentArray{Float64}(ps0)
+net(x, θ) = first(first(model(fill(x, 1, 1), θ, st)))
+d2(u, x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+xs = range(0, 1; length = 42)[2:end-1]
+Lb(θ) = net(0.0, θ)^2 + (net(1.0, θ) - 1)^2
+gb = ForwardDiff.gradient(Lb, ps0)
+for k in (1, 2, 4)
+    f(x) = -(k * pi)^2 * sin(k * pi * x)
+    Lr(θ) = mean(x -> (d2(z -> net(z, θ), x) - f(x))^2, xs)
+    gr = ForwardDiff.gradient(Lr, ps0)
+    println("k = ", k, ":  λ̂ = max|∇Lr| / mean|∇Lb| ≈ ", round(maximum(abs, gr) / mean(abs, gb); sigdigits = 2))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "At initialization `max |∇Lr| / mean |∇Lb|` is about 500. With the annealing rule and `α = 0.9`, starting from `λ = 1`, what is the boundary weight after one update?"
+  choices = [
+    "About 450",
+    "About 500",
+    "About 51",
+  ]
+  answer = 1
+  explain = "`λ ← (1 - α) λ + α λ̂ = 0.1 * 1 + 0.9 * 500 = 450.1`. The moving average damps the noise in `λ̂` from one step to the next; with `α = 0.9` it follows the new estimate closely."
+  misconceptions = [
+    "",
+    "That is `λ̂` itself; the rule blends it with the old weight, keeping 10% of `λ = 1`.",
+    "That swaps the two weights: `0.9 * 1 + 0.1 * 500`. In Eq. 41, `α` multiplies the new estimate.",
+  ]
+
+[[section]]
+title = "Causality: a PINN may fit late times before early ones"
+body = '''
+A time-dependent PINN fits all of space-time at once (unit 47). The true
+solution at time `t` is determined by the solution at earlier times, but
+the loss sums the residual over every `t` with equal weight, so the
+optimizer is free to reduce the residual at late times first, against a
+wrong early solution. Wang, Sankaran and Perdikaris (arXiv:2203.07404)
+report that continuous-time PINNs are biased towards approximating the
+solution at later times first, and propose **causal weights**. Split the
+time interval into `N_t` slices with residual losses `L_1, ..., L_{N_t}`
+(in time order) and use
+
+    w_1 = 1,    w_i = exp(-ε Σ_{k<i} L_k)        (their Eq. 3.2)
+    L_r = (1/N_t) Σ_i w_i L_i                    (their Eq. 3.1)
+
+A slice gets weight only once all earlier slices have small residuals, so
+training proceeds forward in time, like a time-stepping solver. The
+causality parameter `ε` sets how strict that is. The weights are computed
+from the current losses and treated as constants for the gradient step.
+'''
+
+  [[section.example]]
+  caption = "Causal weights for five time slices whose residual losses are small at early times and large later, for three values of ε (rounded to 3 digits)."
+  notice = "Notice that the first three slices keep weight near 1, that for ε = 10 the two slices after the large third loss are switched off, that ε = 1 only damps them, and that a small ε weights everything almost equally, which is the ordinary PINN loss."
+  code = '''
+function causal_weights(L, ε)
+    w = similar(L)
+    s = zero(eltype(L))
+    for i in eachindex(L)
+        w[i] = exp(-ε * s)
+        s += L[i]
+    end
+    return w
+end
+L = [1e-4, 1e-3, 0.5, 2.0, 3.0]
+for ε in (0.01, 1.0, 10.0)
+    println("ε = ", rpad(ε, 6), round.(causal_weights(L, ε); sigdigits = 3))
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "Causal weights for three slices with `ε = 1`. What does this print?"
+  code = '''
+L = [0.0, 1.0, 1.0]
+w = [exp(-1.0 * sum(L[1:i-1])) for i in 1:3]
+round.(w; digits = 3)
+'''
+  choices = [
+    "3-element Vector{Float64}:\n 1.0\n 1.0\n 0.368",
+    "3-element Vector{Float64}:\n 1.0\n 0.368\n 0.135",
+    "3-element Vector{Float64}:\n 1.0\n 1.0\n 1.0",
+    "3-element Vector{Float64}:\n 0.368\n 0.135\n 0.05",
+  ]
+  answer = 1
+  explain = "Each weight uses the losses of the earlier slices only: `w_1 = exp(0) = 1`, `w_2 = exp(-L_1) = exp(0) = 1`, `w_3 = exp(-(L_1 + L_2)) = exp(-1) ≈ 0.368`. Slice 2's own loss does not reduce its own weight."
+  misconceptions = [
+    "",
+    "That includes each slice's own loss in its weight; the sum runs over `k < i`, the slices before it.",
+    "The weights are all 1 only when every earlier loss is zero; slice 3 comes after a loss of 1.",
+    "That shifts the sum by one slice; the first slice always has weight `exp(0) = 1`.",
+  ]
+
+[[section]]
+title = "Fair comparisons: equal accuracy or equal time, against a strong baseline"
+body = '''
+Any claim that a method is better needs a comparison, and the comparison
+can be tilted without a single wrong number. McGreivy and Hakim
+(arXiv:2407.07218) reviewed machine-learning papers that claim to beat
+standard numerical methods for fluid-related PDEs and propose two rules:
+
+1. **Compare at equal accuracy or at equal runtime**: for example, reduce
+   the classical solver's resolution until it is as accurate as the ML
+   method, then compare times.
+2. **Compare to an efficient numerical method**, the state of the art for
+   that PDE, not a deliberately simple one.
+
+Of the 76 articles in their sample that claimed to outperform a standard
+method, 60 (79%) broke rule 1, rule 2 or both, which the authors call
+comparing to a weak baseline. They left PINNs out of that count, on the
+grounds that standard methods are known to outperform PINNs for forward
+problems; in a random sample of PINN articles, each of the 8 they set
+aside for claiming otherwise compares to a weak baseline or, more often,
+leaves out the PINN's optimization time.
+
+Grossmann, Komorowska, Latz and Schönlieb (arXiv:2302.04107) compared PINNs
+with the finite element method on Poisson (1D to 3D), Allen-Cahn and
+Schrödinger problems. In their study PINNs did not beat FEM in solution
+time or accuracy; for 1D Poisson, PINNs that reached errors similar to some
+FEM meshes needed 2 to 3 orders of magnitude more training time than FEM's
+solve. In some experiments PINNs were faster at evaluating the trained
+solution, though the authors' conclusion says they could show this only
+in the 3D Poisson test; they suggest it matters when a solution must be
+evaluated on a very fine grid.
+
+When neither method is better at both error and time, there is no single
+winner; the methods worth considering are the **Pareto front**: those no
+other method beats in both.
+'''
+
+  [[section.example]]
+  caption = "Rule 1 applied to the PINN of unit 47: the finite-difference error for `u'' = -π² sin(πx)` at several grid sizes, against its estimate `dx^2 π^2 / 12` (unit 47), to find the grid that matches a given error (rounded to 2 digits)."
+  notice = "Notice that the estimate matches the measured error to both digits shown at every size, so the grid for a target error is known before solving: 10 interior points already give `1e-2` at the grid points, the bound the trained PINN of unit 47 was checked against, and doubling the number of points (which nearly halves `dx`) divides the error by nearly 4, the second order you would read from a log-log slope (unit 31, \"Order of accuracy, read from a log-log slope\"). Between the grid points an interpolant adds its own error, which the next example includes."
+  code = '''
+using LinearAlgebra
+f(x) = -pi^2 * sin(pi * x)
+for n in (5, 10, 20, 40, 80)
+    dx = 1 / (n + 1)
+    x = dx .* (1:n)
+    A = SymTridiagonal(fill(-2.0, n), ones(n - 1)) / dx^2
+    err = maximum(abs.(A \ f.(x) .- sin.(pi .* x)))
+    println(rpad(n, 3), "points: error ", rpad(round(err; sigdigits = 2), 8), "estimate ", round(dx^2 * pi^2 / 12; sigdigits = 2))
+end
+'''
+
+  [[section.example]]
+  caption = "The measured table: the PINN of unit 47 and finite differences at three resolutions, with time and error. Both are timed warm (a 2-iteration run compiles the training first), both times include producing values at the same 1001 points, and both errors are measured there (finite differences through a piecewise-linear interpolant between grid points). Recorded, not checked: timings and the trained network's digits vary between machines."
+  notice = "Notice that in this run the `n = 1000` row is both more accurate than the PINN and orders of magnitude faster, so it dominates the PINN, which is then not on the Pareto front. The finite-difference errors on the 1001 points stay close to their grid-point values: the interpolant lies below the concave `sin(πx)` (by up to about `dx^2 π^2 / 8`) while this solve lies above it, so the two errors partly cancel. That is luck of this problem; measure on the same points rather than assume it."
+  check = false
+  code = '''
+using Lux, ComponentArrays, StableRNGs, ForwardDiff, Statistics, LinearAlgebra
+using Optimization, OptimizationOptimJL
+f(x) = -pi^2 * sin(pi * x)
+xt = range(0, 1; length = 1001)
+model = Chain(Dense(1 => 16, tanh), Dense(16 => 1))
+ps0, st = Lux.setup(StableRNG(1), model)
+ps0 = ComponentArray{Float64}(ps0)
+net(x, θ) = first(first(model(fill(x, 1, 1), θ, st)))
+d2(u, x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+xs = range(0, 1; length = 32)[2:end-1]
+loss(θ) = mean(x -> (d2(z -> net(z, θ), x) - f(x))^2, xs) + net(0.0, θ)^2 + net(1.0, θ)^2
+optf = OptimizationFunction((θ, _) -> loss(θ); grad = (G, θ, _) -> (G .= ForwardDiff.gradient(loss, θ)))
+pinn(iters) = net.(xt, Ref(solve(OptimizationProblem(optf, ps0), BFGS(); maxiters = iters).u))
+pinn(2)                                          # compile training and evaluation
+t = @elapsed u = pinn(200)
+rows = [("PINN (16 units, 30 points)", maximum(abs.(u .- sin.(pi .* xt))), t)]
+function fd(n)                                   # grid values with the boundary zeros, then linear interpolation
+    dx = 1 / (n + 1)
+    A = SymTridiagonal(fill(-2.0, n), ones(n - 1)) / dx^2
+    ug = vcat(0.0, A \ f.(dx .* (1:n)), 0.0)
+    return map(xt) do x
+        s = x * (n + 1); i = min(floor(Int, s), n)
+        ug[i+1] + (s - i) * (ug[i+2] - ug[i+1])
+    end
+end
+for n in (10, 100, 1000)
+    fd(n)
+    t = @elapsed u = fd(n)
+    push!(rows, ("finite differences, n = $n", maximum(abs.(u .- sin.(pi .* xt))), t))
+end
+for (name, e, t) in rows
+    println(rpad(name, 30), "error ", rpad(round(e; sigdigits = 2), 9), "time ", round(t; sigdigits = 2), " s")
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A paper reports that its PINN is 10 times faster than a finite-difference solver on a 10,000-point grid, at an error of `1e-3` against the solver's `1e-7`. Which rule of McGreivy and Hakim does this comparison break?"
+  choices = [
+    "Rule 2: finite differences are never a strong enough baseline",
+    "None: the PINN is faster, which is what it claimed",
+    "Rule 1: the runs have neither equal accuracy nor equal time",
+  ]
+  answer = 3
+  explain = "The classical solver was run far more accurately than needed. At equal accuracy (`1e-3`) a much coarser grid would do, and its time could be far below the PINN's; only then is a speed comparison meaningful. Rule 2 is a separate question about which classical method to use."
+  misconceptions = [
+    "Whether finite differences are a strong baseline depends on the PDE; the comparison already fails rule 1, whichever classical method is used.",
+    "A speed claim at very different accuracies says nothing about which method reaches a given accuracy first.",
+    "",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In Grossmann et al.'s study, in what respect were PINNs ever faster than the finite element method?"
+  choices = [
+    "In training time on the 1D Poisson problem",
+    "In evaluating the trained solution at new points",
+    "In reaching an accurate Allen-Cahn solution at ε = 0.001",
+  ]
+  answer = 2
+  explain = "FEM was faster to solve and more accurate overall; PINNs were sometimes faster at pointwise evaluation of the solution, which the authors' conclusion says they could show only for 3D Poisson. Evaluation speed matters when a solution is needed on a very fine grid; the training cost has to be paid first."
+  misconceptions = [
+    "For 1D Poisson, PINNs needed 2 to 3 orders of magnitude more training time than FEM's solve.",
+    "",
+    "At ε = 0.001 the PINNs did not recover results close to the ground truth, while FEM could approximate it on a finer mesh.",
+  ]
+
+[[problem]]
+id = "pinn-annealed-weight"
+title = "The gradient-ratio weight between loss terms"
+difficulty = "warm-up"
+kcs = ["loss-balancing"]
+entry = "annealed_weight"
+packages = ["ForwardDiff"]
+prompt = '''
+Implement one update of the learning-rate annealing rule of Wang, Teng and
+Perdikaris (arXiv:2001.04536, Eqs. 40 and 41). Given the residual loss
+`Lr(θ)` and the boundary loss `Lb(θ)` (functions of a parameter vector),
+the parameters `θ`, the current weight `λ` and the averaging factor `α`,
+return the new weight as a `Float64`:
+
+    λ̂ = maximum(|∇Lr(θ)|) / mean(|∇Lb(θ)|)
+    new λ = (1 - α) * λ + α * λ̂
+
+with both gradients from `ForwardDiff.gradient`.
+
+```julia
+annealed_weight(θ -> 100 * sum(abs2, θ), θ -> sum(abs2, θ), [1.0, -2.0], 1.0, 0.9)
+# ∇Lr = [200, -400], ∇Lb = [2, -4]: λ̂ = 400 / 3, new λ = 0.1 + 0.9 * 400 / 3 = 120.1
+```
+
+Results are compared with `rtol = 1e-10` (ForwardDiff gradients are exact up
+to rounding).
+'''
+starter = '''
+using ForwardDiff
+
+function annealed_weight(Lr, Lb, θ, λ, α)
+    # gradients, ratio, moving average
+end
+'''
+reference = '''
+using ForwardDiff
+
+function annealed_weight(Lr, Lb, θ, λ, α)
+    gr = ForwardDiff.gradient(Lr, θ)
+    gb = ForwardDiff.gradient(Lb, θ)
+    λhat = maximum(abs, gr) / (sum(abs, gb) / length(gb))
+    return (1 - α) * λ + α * λhat
+end
+'''
+cases = [
+  "θ -> 100 * sum(abs2, θ), θ -> sum(abs2, θ), [1.0, -2.0], 1.0, 0.9",
+  "θ -> (θ[1] - 3θ[2])^4, θ -> (θ[1] + θ[2] - 1)^2, [0.5, 0.2], 10.0, 0.5",
+  "θ -> sum(sin, θ .* (1:3)), θ -> prod(θ)^2, [0.3, 0.6, 0.9], 2.0, 1.0",
+]
+gen = "rng -> [(let a = 10^(3rand(rng)); θ -> a * sum(abs2, θ .- 1) end, let c = randn(rng, n); θ -> (sum(c .* θ) - 1)^2 end, randn(rng, n), 10rand(rng), rand(rng)) for n in rand(rng, 2:6, 10)]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Two gradients at the same `θ`: the numerator takes the largest absolute entry of one, the denominator the average absolute entry of the other.",
+  "`α` multiplies the new estimate `λ̂` and `1 - α` the old weight; with `α = 1` the result is `λ̂` itself.",
+]
+
+  [problem.perf]
+  args = "θ -> sum(abs2, θ), θ -> sum(θ)^2, randn(rng, n), 1.0, 0.9"
+  sizes = [30]
+
+  [[problem.variant]]
+  label = "ratio of the gradient norms"
+  code = '''
+using ForwardDiff, LinearAlgebra
+function annealed_weight(Lr, Lb, θ, λ, α)
+    λhat = norm(ForwardDiff.gradient(Lr, θ)) / norm(ForwardDiff.gradient(Lb, θ))
+    return (1 - α) * λ + α * λhat
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "α on the old weight"
+  code = '''
+using ForwardDiff
+function annealed_weight(Lr, Lb, θ, λ, α)
+    gr = ForwardDiff.gradient(Lr, θ)
+    gb = ForwardDiff.gradient(Lb, θ)
+    return α * λ + (1 - α) * maximum(abs, gr) / (sum(abs, gb) / length(gb))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "no moving average: returns λ̂"
+  code = '''
+using ForwardDiff
+function annealed_weight(Lr, Lb, θ, λ, α)
+    gr = ForwardDiff.gradient(Lr, θ)
+    gb = ForwardDiff.gradient(Lb, θ)
+    return maximum(abs, gr) / (sum(abs, gb) / length(gb))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "with Statistics.mean"
+  code = '''
+using ForwardDiff, Statistics
+function annealed_weight(Lr, Lb, θ, λ, α)
+    λhat = maximum(abs, ForwardDiff.gradient(Lr, θ)) / mean(abs, ForwardDiff.gradient(Lb, θ))
+    return (1 - α) * λ + α * λhat
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "pinn-causal-weights"
+title = "Causal weights for time slices"
+difficulty = "core"
+kcs = ["causal-training"]
+entry = "causal_weights"
+packages = []
+prompt = '''
+Write `causal_weights(L, ε)` that takes the residual losses of the time
+slices in time order, `L = [L_1, ..., L_N]`, and the causality parameter
+`ε`, and returns the vector of weights (Wang, Sankaran and Perdikaris,
+arXiv:2203.07404, Eq. 3.2):
+
+    w_1 = 1,    w_i = exp(-ε * (L_1 + ... + L_{i-1}))
+
+as a `Vector{Float64}` of the same length.
+
+```julia
+causal_weights([0.0, 1.0, 1.0], 1.0)    # [1.0, 1.0, exp(-1)]
+```
+
+Results are compared with `rtol = 1e-10`. The grader also measures how the
+time grows with the number of slices.
+'''
+starter = '''
+function causal_weights(L, ε)
+    # one weight per slice, from the losses before it
+end
+'''
+reference = '''
+function causal_weights(L, ε)
+    w = Vector{Float64}(undef, length(L))
+    s = 0.0
+    for i in eachindex(L)
+        w[i] = exp(-ε * s)
+        s += L[i]
+    end
+    return w
+end
+'''
+cases = ["[0.0, 1.0, 1.0], 1.0", "[1e-4, 1e-3, 0.5, 2.0, 3.0], 10.0", "[2.0], 5.0", "fill(0.1, 8), 0.5"]
+gen = "rng -> [(rand(rng, rand(rng, 1:50)) .* 10.0^(rand(rng, -3:0)), 10.0^(rand(rng, -1:2))) for _ in 1:15]"
+compare = "isapprox"
+# rtol: a running sum and a fresh sum per slice differ by rounding only (relative 1e-15 in the
+# exponent's argument, times ε * Σ L ≤ 1e4 here, so at most about 1e-11 in the weight).
+rtol = 1e-10
+hints = [
+  "Slice `i` is weighted by the losses of slices `1` to `i - 1`, not including its own; the first slice has nothing before it.",
+  "Summing `L[1:i-1]` again for every `i` repeats work that grows quadratically; keep a running sum that you update after computing each weight.",
+]
+
+  [problem.perf]
+  args = "rand(rng, n) ./ n, 1.0"
+  sizes = [2000, 16000]
+
+  [[problem.variant]]
+  label = "includes the slice's own loss"
+  code = '''
+causal_weights(L, ε) = exp.(-ε .* cumsum(L))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "weights normalized to sum to 1"
+  code = '''
+function causal_weights(L, ε)
+    w = [exp(-ε * sum(L[1:i-1]; init = 0.0)) for i in eachindex(L)]
+    return w ./ sum(w)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a fresh sum for every slice: quadratic time"
+  code = '''
+causal_weights(L, ε) = [exp(-ε * sum(view(L, 1:i-1); init = 0.0)) for i in eachindex(L)]
+'''
+  expect = ["correct", "scaling"]
+
+  [[problem.variant]]
+  label = "cumsum shifted by one slice"
+  code = '''
+function causal_weights(L, ε)
+    s = cumsum(L)
+    return [i == 1 ? 1.0 : exp(-ε * s[i-1]) for i in eachindex(L)]
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "pinn-pareto-front"
+title = "Read an error/time table: the Pareto front"
+difficulty = "stretch"
+kcs = ["fair-benchmarks"]
+entry = "pareto_front"
+packages = []
+prompt = '''
+A benchmark table lists, for each method `i`, its error `err[i]` and its
+time `time[i]` (smaller is better for both). Method `j` **dominates**
+method `i` when `err[j] <= err[i]` and `time[j] <= time[i]` with at least
+one of the two strictly smaller. Write `pareto_front(err, time)` that
+returns the indices of the methods no other method dominates, in increasing
+order, as a `Vector{Int}`. Two methods with identical error and time do not
+dominate each other, so both stay.
+
+```julia
+pareto_front([1e-2, 1e-4, 1e-3, 1e-4], [0.001, 2.0, 0.01, 5.0])   # [1, 2, 3]: 4 is as accurate as 2, but slower
+pareto_front([1.0, 1.0, 2.0], [1.0, 1.0, 0.5])                    # [1, 2, 3]
+```
+
+The grader measures how the time grows with the table size: tables of
+thousands of rows (every configuration of a parameter sweep) should not
+take quadratic time.
+'''
+starter = '''
+function pareto_front(err, time)
+    # indices of the methods that no other method beats on both
+end
+'''
+reference = '''
+function pareto_front(err, time)
+    order = sortperm(collect(zip(time, err)))     # by time, then error
+    front = Int[]
+    best = Inf                                    # lowest error among strictly faster methods
+    k = 1
+    n = length(order)
+    while k <= n
+        # the group of methods with the same time
+        stop = k
+        while stop < n && time[order[stop+1]] == time[order[k]]
+            stop += 1
+        end
+        group_min = err[order[k]]                 # sorted by error within the group
+        if group_min < best
+            for m in k:stop
+                err[order[m]] == group_min && push!(front, order[m])
+            end
+            best = group_min
+        end
+        k = stop + 1
+    end
+    return sort!(front)
+end
+'''
+cases = [
+  "[1e-2, 1e-4, 1e-3, 1e-4], [0.001, 2.0, 0.01, 5.0]",
+  "[1.0, 1.0, 2.0], [1.0, 1.0, 0.5]",
+  "[3.0, 2.0, 1.0], [1.0, 2.0, 3.0]",
+  "[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]",
+  "[0.5, 0.5, 0.4], [2.0, 1.0, 2.0]",
+]
+gen = "rng -> [(n = rand(rng, 1:30); (round.(rand(rng, n); digits = 1), round.(rand(rng, n); digits = 1))) for _ in 1:30]"
+compare = "isequal"
+hints = [
+  "Sort the methods by time. Walking from fastest to slowest, a method can only be on the front if it is more accurate than every strictly faster method seen so far.",
+  "Ties need care: methods with the same time compete only on error, and a method with the same error as a strictly faster one is dominated by it, while an exact duplicate of a front method is not.",
+]
+
+  [problem.perf]
+  # anti-correlated: every method is on the front, the worst case for pairwise checks
+  args = "sort(rand(rng, n)), sort(rand(rng, n); rev = true)"
+  sizes = [2000, 16000]
+
+  [[problem.variant]]
+  label = "treats a tie as domination: drops exact duplicates"
+  code = '''
+function pareto_front(err, time)
+    n = length(err)
+    return [i for i in 1:n if !any(j -> j != i && err[j] <= err[i] && time[j] <= time[i], 1:n)]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "keeps only the most accurate method"
+  code = '''
+pareto_front(err, time) = [argmin(err)]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "compare every pair: quadratic time"
+  code = '''
+function pareto_front(err, time)
+    n = length(err)
+    dominated(i, j) = err[j] <= err[i] && time[j] <= time[i] && (err[j] < err[i] || time[j] < time[i])
+    return [i for i in 1:n if !any(j -> dominated(i, j), 1:n)]
+end
+'''
+  expect = ["correct", "scaling"]

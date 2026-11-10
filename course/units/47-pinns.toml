@@ -1,0 +1,735 @@
+id = "47-pinns"
+title = "Physics-informed neural networks from scratch"
+track = "sciml"
+env = "sciml"
+status = "ready"
+summary = "A physics-informed neural network (PINN) written by hand: a small Lux network as the trial function, its space derivatives by nested ForwardDiff, the loss as the PDE residual at collocation points plus boundary terms, training with Optimization.jl, and the same problem solved by finite differences beside it, with error and time for both. Then the time-dependent case, where the network takes (x, t)."
+kcs = ["pinn", "pinn-loss", "nested-ad", "lux"]
+prerequisites = ["23-derivatives", "26-machine-learning", "30-floating-point", "31-convergence", "34-pde-discretization", "43-sensitivities", "44-adjoints-neural-odes"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+A PINN combines three things you have seen separately:
+
+* **Residuals**: plug a candidate into the equation and measure what is
+  left; a zero residual is not enough, the boundary values must be checked
+  too (unit 34, section "Residuals: how far a candidate is from solving the
+  PDE"). The classical solve beside each PINN uses the matrix of unit 34,
+  section "The discrete Laplacian is a matrix".
+* **Nested derivatives with ForwardDiff**: tags keep the perturbations of a
+  derivative inside a derivative apart, so `derivative(x -> derivative(f, x), x0)`
+  is the exact second derivative (unit 23, section "ForwardDiff: derivative,
+  gradient, jacobian, hessian").
+* **Lux's explicit parameters**: `ps, st = Lux.setup(rng, model)` and
+  `model(x, ps, st)`, so a network is a function of its parameters (unit 26,
+  section "Where to go next"). This unit uses it in full for the first time.
+* **Differentiating a loss with respect to a model's parameters**, as units
+  43 and 44 do through an ODE solver. Here the model has few parameters, so
+  forward mode (ForwardDiff) computes the gradient; unit 23, section "The
+  cost of forward mode, and reverse mode" says when reverse mode would be
+  cheaper. Nothing below depends on unit 44's code.
+'''
+
+[[section]]
+title = "A network as a trial function"
+body = '''
+A PINN represents the unknown solution `u(x)` by a neural network
+`u_θ(x)` with parameters `θ`, and chooses `θ` so that `u_θ` satisfies the
+equation. The network is just a smooth function family. With one hidden
+layer of `H` tanh units it is
+
+    u_θ(x) = W2 tanh.(W1 x .+ b1) .+ b2
+
+with `W1` of size `H × 1`, `b1` of length `H`, `W2` of size `1 × H` and a
+scalar `b2`: `3H + 1` numbers.
+
+In Lux, `Chain(Dense(1 => 16, tanh), Dense(16 => 1))` is that family with
+`H = 16`. `Lux.setup(rng, model)` draws the initial parameters from the
+generator you pass (here a `StableRNG`, whose stream does not change
+between Julia versions) and returns them as a nested named tuple, plus a
+state `st` (empty for these layers). `ComponentArray` from
+ComponentArrays.jl flattens the named tuple into one vector that still
+answers to `ps.layer_1.weight`; optimizers and ForwardDiff want a flat
+vector. Lux initializes in `Float32`, the deep-learning default that unit
+26 used for Flux (section "Arrays as the data model: features by batch,
+Float32"); `ComponentArray{Float64}(ps)` converts to `Float64`, which a
+PINN needs: its loss contains second derivatives,
+and `Float32` keeps only about 7 digits.
+
+Lux layers take a matrix with one column per input point (features ×
+batch), and return one column per point.
+'''
+
+  [[section.example]]
+  caption = "A Lux network with 16 tanh units, its 49 parameters in Float64, and its output against the formula written by hand."
+  notice = "Notice the parameter count `3 * 16 + 1 = 49`, that five input points (one per column) give five outputs, and that Lux computes exactly the hand-written formula."
+  code = '''
+using Lux, ComponentArrays, StableRNGs
+model = Chain(Dense(1 => 16, tanh), Dense(16 => 1))
+ps, st = Lux.setup(StableRNG(1), model)
+ps = ComponentArray{Float64}(ps)
+println("parameters: ", length(ps), ", element type: ", eltype(ps))
+x = reshape(collect(range(0, 1; length = 5)), 1, :)       # 1 feature × 5 points
+y, _ = model(x, ps, st)
+W1, b1 = ps.layer_1.weight, ps.layer_1.bias
+W2, b2 = ps.layer_2.weight, ps.layer_2.bias
+byhand = W2 * tanh.(W1 * x .+ b1) .+ b2
+println("output size: ", size(y), ", equals the formula: ", maximum(abs.(y .- byhand)) < 1e-14)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does the unit convert the Lux parameters to `Float64` before building a PINN?"
+  choices = [
+    "Lux layers cannot be evaluated with `Float32` parameters",
+    "ForwardDiff only accepts `Float64` inputs",
+    "The loss uses second derivatives, and `Float32` keeps about 7 digits",
+  ]
+  answer = 3
+  explain = "The residual subtracts a computed `u''` from the forcing; in `Float32` its rounding error is around `1e-7` relative, which caps how small the loss and the error can get. `Float64` (about 16 digits) removes that floor for problems of this size; the cost on a CPU is small."
+  misconceptions = [
+    "`Float32` is Lux's default and works; the reason is the precision the loss needs, not whether the layer runs.",
+    "ForwardDiff works with any real number type, `Float32` included; dual numbers wrap whatever type they are given.",
+    "",
+  ]
+
+[[section]]
+title = "Derivatives of the network by nested AD"
+body = '''
+The residual of `u'' = f` needs `u_θ''(x)`, the second derivative of the
+network with respect to its **input**. Nested ForwardDiff gives it exactly
+(up to rounding): the inner `derivative` makes the input a dual number, the
+outer one differentiates the result again, and the tags of unit 23 keep the
+two perturbations apart. No finite-difference step is involved, so there is
+no truncation error to balance against round-off.
+
+The network takes a matrix, so wrap it as a scalar function:
+`u(x) = first(model(fill(x, 1, 1), ps, st)[1])`. Lux evaluates the layer
+with whatever number type arrives, dual numbers included.
+
+A finite-difference check is still worth one line. The central second
+difference with `h = 1e-4` balances a truncation error of order `h^2`
+(unit 31, "Order of accuracy, read from a log-log slope") against the
+rounding error that cancellation exposes, of order `eps() |u| / h^2`
+(unit 30, "Cancellation is exact, and exposes earlier errors"); both are
+a few times `1e-8` here, so agreement to `1e-6` confirms the AD result without
+testing digits the difference cannot deliver.
+'''
+
+  [[section.example]]
+  caption = "First and second derivative of the network at `x = 0.3` by nested ForwardDiff, checked against central differences."
+  notice = "Notice that the two methods agree to better than `1e-6` for both derivatives: the AD values are exact, the differences carry the errors of a few times `1e-8` described above."
+  code = '''
+using Lux, ComponentArrays, StableRNGs, ForwardDiff
+model = Chain(Dense(1 => 16, tanh), Dense(16 => 1))
+ps, st = Lux.setup(StableRNG(1), model)
+ps = ComponentArray{Float64}(ps)
+u(x) = first(first(model(fill(x, 1, 1), ps, st)))
+du(x) = ForwardDiff.derivative(u, x)
+d2u(x) = ForwardDiff.derivative(du, x)
+x0, h = 0.3, 1e-4
+fd1 = (u(x0 + h) - u(x0 - h)) / 2h
+fd2 = (u(x0 + h) - 2u(x0) + u(x0 - h)) / h^2
+println("u'  agrees with finite differences to 1e-6: ", abs(du(x0) - fd1) < 1e-6)
+println("u'' agrees with finite differences to 1e-6: ", abs(d2u(x0) - fd2) < 1e-6)
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "Nested ForwardDiff on a polynomial. What does this print?"
+  code = '''
+using ForwardDiff
+g(x) = x^3
+ForwardDiff.derivative(y -> ForwardDiff.derivative(g, y), 2.0)
+'''
+  choices = ["12.0", "6.0", "24.0", "8.0"]
+  answer = 1
+  explain = "The inner call gives `g'(y) = 3y^2`, the outer one differentiates that: `g''(y) = 6y`, which is 12 at `y = 2`. Each level is exact, with no step size."
+  misconceptions = [
+    "",
+    "That is the second derivative's coefficient, `6y` without the `y = 2`; the outer derivative is evaluated at 2 like the inner one.",
+    "That would be `g'` times 2 or a third derivative evaluated wrongly; `g''(2) = 6 * 2 = 12`.",
+    "That is `g(2)`, the value, not a derivative.",
+  ]
+
+[[section]]
+title = "The PINN loss: residual at collocation points plus boundary terms"
+body = '''
+Take the boundary-value problem
+
+    u''(x) = f(x) = -π² sin(πx)   on 0 < x < 1,    u(0) = u(1) = 0
+
+with exact solution `sin(πx)`. Choose **collocation points** `x_1, ..., x_N`
+inside the interval (no solution data is needed, only where to test the
+equation) and define
+
+    L(θ) = (1/N) Σ (u_θ''(x_i) - f(x_i))^2  +  λ (u_θ(0)^2 + u_θ(1)^2)
+
+The first term is the mean squared residual from unit 34, now computed
+exactly by AD instead of by differences; the second is the boundary
+condition, with a weight `λ` (1 here). Both are needed: `u'' = f` alone is
+satisfied by `sin(πx) + a + bx` for any `a, b`, and only the boundary term
+pins down `a` and `b`.
+
+The loss is a function of any trial function `u`, network or not, which is
+a good way to test it: the exact solution must give a loss at rounding
+level, and a wrong function a large one, before any training happens.
+'''
+
+  [[section.example]]
+  caption = "The PINN loss on 30 equally spaced collocation points, for the exact solution, for the exact solution plus a line, and for the untrained network."
+  notice = "Notice that `sin(πx) + 0.5x` has a residual of zero up to rounding (a line has `u'' = 0`) and still a loss of 0.25, all from the boundary term at x = 1, and that the untrained network's loss is large."
+  code = '''
+using Lux, ComponentArrays, StableRNGs, ForwardDiff, Statistics
+f(x) = -pi^2 * sin(pi * x)
+d2(u, x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+function pinn_loss(u, xs; λ = 1.0)
+    residual = mean(x -> (d2(u, x) - f(x))^2, xs)
+    boundary = u(0.0)^2 + u(1.0)^2
+    return residual + λ * boundary
+end
+xs = range(0, 1; length = 32)[2:end-1]
+model = Chain(Dense(1 => 16, tanh), Dense(16 => 1))
+ps, st = Lux.setup(StableRNG(1), model)
+ps = ComponentArray{Float64}(ps)
+net(x) = first(first(model(fill(x, 1, 1), ps, st)))
+println("exact sin(πx):       loss below 1e-20: ", pinn_loss(x -> sin(pi * x), xs) < 1e-20)
+println("sin(πx) + 0.5x:      loss = ", round(pinn_loss(x -> sin(pi * x) + 0.5x, xs); digits = 6))
+println("untrained network:   loss above 10: ", pinn_loss(net, xs) > 10)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A PINN for `u'' = f` on (0, 1) is trained with the residual term only, no boundary term. What does training determine?"
+  choices = [
+    "The solution, since the residual is zero only for the exact solution",
+    "The solution up to an arbitrary added line `a + bx`",
+    "Nothing at all: without data the network cannot learn",
+  ]
+  answer = 2
+  explain = "Any `a + bx` has zero second derivative, so `u + a + bx` has the same residual as `u`. The boundary conditions are the extra equations that fix `a` and `b`; for a time-dependent problem the initial condition plays the same role in time."
+  misconceptions = [
+    "The residual measures the equation only, and the equation has a two-parameter family of solutions here.",
+    "",
+    "The residual term needs no solution data; it alone pins down `u''`, just not the part with zero second derivative.",
+  ]
+
+[[section]]
+title = "Training, beside a classical solve"
+body = '''
+Training means minimizing `L(θ)` over the 49 parameters. Its gradient
+comes from ForwardDiff again, now with respect to `θ`: ForwardDiff carries
+the 49 partials in chunks (unit 23), and inside each evaluation the nested
+input derivatives run on dual numbers of dual numbers. With 49 parameters
+forward mode is fine; for networks with many thousands of parameters,
+reverse mode (Zygote, unit 26) is the cheaper choice. The ODE adjoints of
+unit 44 do not apply: a PINN calls no solver, so there is no solve to
+differentiate backward. Cross-check a few gradient entries by central differences before
+trusting it.
+
+`Optimization.jl` wraps the minimization: an `OptimizationFunction` with
+the loss and its gradient, an `OptimizationProblem` with the starting
+parameters, and `solve` with an algorithm. The example passes the gradient
+explicitly as `grad = (G, θ, p) -> ...`, so that BFGS calls the very
+function it has just checked against central differences.
+`OptimizationFunction(f, Optimization.AutoForwardDiff())`, as in unit 43,
+states the same backend and lets Optimization call ForwardDiff itself. `BFGS()` from OptimizationOptimJL (a quasi-Newton method from
+Optim.jl) uses the gradient to build up curvature information, which
+suits a smooth loss with a few dozen parameters.
+
+The **classical baseline** for the same problem is the finite-difference
+system of unit 34: `A u = f` with the tridiagonal matrix, one linear solve
+in `O(N)` operations. Its error is about `dx^2 π^2 / 12`: the stencil's
+truncation error is `dx^2 π^4 sin(πx) / 12` (unit 34), and the solution's
+error `e` solves `A e = -(truncation error)`, which for this `sin(πx)`
+shape divides by about `-π^2`, the eigenvalue of `A` nearest zero.
+
+Training results move between CPUs (rounding differs, and the optimizer
+amplifies it), so the example prints checked facts with wide margins, not
+the loss or the error digits; the timing example after it is recorded but
+not checked.
+'''
+
+  [[section.example]]
+  caption = "The gradient checked against central differences, then BFGS on the PINN loss, then the finite-difference solve with 99 interior points; errors are measured on 1001 points against `sin(πx)`."
+  notice = "Notice that the AD gradient matches the differences, that the loss falls by a factor of more than 1000, and that both methods reach an error below `1e-2`; the finite-difference error is about `8e-5`, as its `dx^2 π^2 / 12` estimate says."
+  code = '''
+using Lux, ComponentArrays, StableRNGs, ForwardDiff, Statistics, LinearAlgebra
+using Optimization, OptimizationOptimJL
+f(x) = -pi^2 * sin(pi * x)
+model = Chain(Dense(1 => 16, tanh), Dense(16 => 1))
+ps0, st = Lux.setup(StableRNG(1), model)
+ps0 = ComponentArray{Float64}(ps0)
+net(x, θ) = first(first(model(fill(x, 1, 1), θ, st)))
+d2(u, x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+xs = range(0, 1; length = 32)[2:end-1]
+loss(θ) = mean(x -> (d2(z -> net(z, θ), x) - f(x))^2, xs) + net(0.0, θ)^2 + net(1.0, θ)^2
+
+g = ForwardDiff.gradient(loss, ps0)
+e(j) = (v = zero(ps0); v[j] = 1e-6; v)
+fd = [(loss(ps0 + e(j)) - loss(ps0 - e(j))) / 2e-6 for j in (1, 20, 49)]
+println("gradient matches central differences (rtol 1e-5): ", isapprox(g[[1, 20, 49]], fd; rtol = 1e-5))
+
+optf = OptimizationFunction((θ, _) -> loss(θ); grad = (G, θ, _) -> (G .= ForwardDiff.gradient(loss, θ)))
+res = solve(OptimizationProblem(optf, ps0), BFGS(); maxiters = 200)
+xt = range(0, 1; length = 1001)
+pinn_err = maximum(abs.(net.(xt, Ref(res.u)) .- sin.(pi .* xt)))
+println("loss fell by more than 1000x: ", loss(res.u) < loss(ps0) / 1000)
+println("PINN max error below 1e-2: ", pinn_err < 1e-2)
+
+n = 99; dx = 1 / (n + 1); x = dx .* (1:n)
+A = SymTridiagonal(fill(-2.0, n), ones(n - 1)) / dx^2
+ufd = A \ f.(x)
+fd_err = maximum(abs.(ufd .- sin.(pi .* x)))
+println("finite differences max error below 1e-2: ", fd_err < 1e-2, ", about 8e-5: ", 7e-5 < fd_err < 9e-5)
+'''
+
+  [[section.example]]
+  caption = "The same two solves, timed (after a warm-up for the finite-difference solve; the PINN time includes compiling the nested AD, which is part of what a user waits for). Recorded, not checked: timings and the trained network's error vary between machines."
+  notice = "Notice the times: tens of seconds for the PINN, which include compiling the nested AD and the optimizer (unit 48 times a warm run), against microseconds for the finite-difference solve, at errors of the same order (on this machine the PINN's was the smaller one). Unit 48 asks what a fair comparison of such a pair looks like."
+  check = false
+  code = '''
+using Lux, ComponentArrays, StableRNGs, ForwardDiff, Statistics, LinearAlgebra
+using Optimization, OptimizationOptimJL
+f(x) = -pi^2 * sin(pi * x)
+xt = range(0, 1; length = 1001)
+t_pinn = @elapsed begin
+    model = Chain(Dense(1 => 16, tanh), Dense(16 => 1))
+    ps0, st = Lux.setup(StableRNG(1), model)
+    ps0 = ComponentArray{Float64}(ps0)
+    net(x, θ) = first(first(model(fill(x, 1, 1), θ, st)))
+    d2(u, x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+    xs = range(0, 1; length = 32)[2:end-1]
+    loss(θ) = mean(x -> (d2(z -> net(z, θ), x) - f(x))^2, xs) + net(0.0, θ)^2 + net(1.0, θ)^2
+    optf = OptimizationFunction((θ, _) -> loss(θ); grad = (G, θ, _) -> (G .= ForwardDiff.gradient(loss, θ)))
+    res = solve(OptimizationProblem(optf, ps0), BFGS(); maxiters = 200)
+end
+pinn_err = maximum(abs.(net.(xt, Ref(res.u)) .- sin.(pi .* xt)))
+function fd_solve(n)
+    dx = 1 / (n + 1)
+    A = SymTridiagonal(fill(-2.0, n), ones(n - 1)) / dx^2
+    return A \ f.(dx .* (1:n))
+end
+fd_solve(99)
+t_fd = @elapsed u = fd_solve(99)
+fd_err = maximum(abs.(u .- sin.(pi .* (1:99) ./ 100)))
+println("PINN:                time ", round(t_pinn; sigdigits = 2), " s,   max error ", round(pinn_err; sigdigits = 2))
+println("finite differences:  time ", round(t_fd; sigdigits = 2), " s,   max error ", round(fd_err; sigdigits = 2))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You trained a PINN for `u'' = -π² sin(πx)`. Now you need `u'' = -4π² sin(2πx)` with the same boundary conditions. What do you do?"
+  choices = [
+    "Evaluate the trained network: it has learned how Poisson problems behave",
+    "Train again with the new forcing in the loss, or solve the new problem classically",
+    "Scale the trained network's output by 4, since the forcing is 4 times larger",
+  ]
+  answer = 2
+  explain = "A PINN's parameters are fitted to one instance: one forcing, one domain, one set of boundary values. The new `f` changes the loss, so the minimizer changes. (Operator-learning methods train on many instances to map `f` to `u`; that is a different, data-hungry setup.)"
+  misconceptions = [
+    "The network was never shown other forcings; its parameters minimize the residual for the old `f` only, so it is not a reusable surrogate.",
+    "",
+    "The new solution is `sin(2πx)`, a different shape, not a multiple of `sin(πx)`; the old network's output has the wrong frequency.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The PINN's gradient with respect to its 49 parameters is computed with ForwardDiff. When would you switch to reverse mode?"
+  choices = [
+    "When the network has many thousands of parameters",
+    "When the PDE has second derivatives in space",
+    "Never: forward mode is exact and reverse mode is not",
+  ]
+  answer = 1
+  explain = "Forward mode's cost grows with the number of inputs being differentiated (here the parameters); reverse mode's cost for a scalar loss does not. With 49 parameters forward mode costs a handful of passes; with 100,000 it would cost thousands."
+  misconceptions = [
+    "",
+    "The order of the space derivatives concerns the inner, input derivatives, which stay one-dimensional; the choice is about the number of parameters.",
+    "Both modes compute exact derivatives (up to rounding); they differ in cost, which depends on the number of inputs and outputs.",
+  ]
+
+[[section]]
+title = "Time-dependent problems: the network takes (x, t)"
+body = '''
+For the heat equation `∂u/∂t = κ ∂²u/∂x²`, the network takes two inputs,
+`Dense(2 => 16, tanh)`, and represents `u(x, t)` on the whole space-time
+domain at once: there is no time stepping. The residual at a point needs
+`∂u/∂t` and `∂²u/∂x²`; with `v = [x, t]`, `ForwardDiff.gradient` of
+`v -> u(v[1], v[2])` gives both first derivatives, and
+`ForwardDiff.hessian` gives the second ones (its `[1, 1]` entry is
+`∂²u/∂x²`).
+
+The loss now has three terms, each a mean of squares over its own points:
+
+* the residual `u_t - κ u_xx` at collocation points inside the domain;
+* the initial condition `u(x, 0) - u0(x)` at points on `t = 0`;
+* the boundary conditions `u(0, t)` and `u(1, t)` at points on the ends.
+
+Training it works as before, at a higher cost: more collocation points
+(they fill a 2D domain) and a Hessian per point. The method-of-lines solve
+of unit 34 remains the baseline. For production PINN work, SciML's
+[NeuralPDE.jl](https://docs.sciml.ai/NeuralPDE/stable/) generates these
+losses from a symbolic description of the PDE; it is not installed in this
+environment.
+'''
+
+  [[section.example]]
+  caption = "The three loss terms of the heat equation (κ = 1, `u0 = sin(πx)`) for the exact solution and for an untrained two-input network, on fixed points."
+  notice = "Notice that the exact solution makes all three terms vanish to rounding, while the untrained network fails all three; training would drive the three down together, which is where unit 48 starts."
+  code = '''
+using Lux, ComponentArrays, StableRNGs, ForwardDiff, Statistics
+κ = 1.0
+function terms(u, interior, xs0, ts)
+    function r(x, t)
+        g = ForwardDiff.gradient(v -> u(v[1], v[2]), [x, t])
+        H = ForwardDiff.hessian(v -> u(v[1], v[2]), [x, t])
+        return g[2] - κ * H[1, 1]
+    end
+    res = mean(((x, t),) -> r(x, t)^2, interior)
+    ini = mean(x -> (u(x, 0.0) - sin(pi * x))^2, xs0)
+    bnd = mean(t -> u(0.0, t)^2 + u(1.0, t)^2, ts)
+    return (residual = res, initial = ini, boundary = bnd)
+end
+interior = [(x, t) for x in 0.1:0.2:0.9, t in 0.05:0.05:0.2]
+xs0, ts = 0.0:0.1:1.0, 0.0:0.05:0.2
+exact(x, t) = exp(-pi^2 * t) * sin(pi * x)
+model = Chain(Dense(2 => 16, tanh), Dense(16 => 1))
+ps, st = Lux.setup(StableRNG(2), model)
+ps = ComponentArray{Float64}(ps)
+net(x, t) = first(first(model(reshape([x, t], 2, 1), ps, st)))
+println("exact solution, every term below 1e-20: ", all(<(1e-20), terms(exact, interior, xs0, ts)))
+println("untrained network, every term above 1e-3: ", all(>(1e-3), terms(net, interior, xs0, ts)))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "How does a PINN for the heat equation produce `u` at `t = 0.2`?"
+  choices = [
+    "It steps forward from `t = 0` like an ODE solver",
+    "It evaluates the trained network at `(x, 0.2)`",
+    "It interpolates between the collocation points nearest to `t = 0.2`",
+  ]
+  answer = 2
+  explain = "The network is a function of `(x, t)` fitted over the whole space-time domain at once; the solution at any time is one forward pass. Nothing marches in time, which is also why information from the initial condition is not forced to reach later times first (unit 48, causality)."
+  misconceptions = [
+    "The method of lines steps in time; a PINN fits all times simultaneously by minimizing one loss.",
+    "",
+    "The network is defined everywhere, not only at collocation points; those are only where the residual is measured during training.",
+  ]
+
+[[problem]]
+id = "pinn-heat-loss"
+title = "The PINN residual loss of a given u(x, t)"
+difficulty = "warm-up"
+kcs = ["pinn-loss", "nested-ad"]
+entry = "heat_residual_loss"
+packages = ["ForwardDiff"]
+prompt = '''
+Write `heat_residual_loss(u, pts, κ)` for a function `u(x, t)`, a vector of
+collocation points `pts` (tuples `(x, t)`) and a diffusivity `κ`. Return the
+mean over the points of the squared residual of the heat equation,
+
+    (∂u/∂t - κ ∂²u/∂x²)^2
+
+as a `Float64`, with the derivatives computed by ForwardDiff (exact, not
+by differences).
+
+```julia
+heat_residual_loss((x, t) -> x^2 * t, [(0.5, 1.0)], 1.0)   # u_t = 0.25, u_xx = 2: (0.25 - 2)^2 = 3.0625
+```
+
+Results are compared with `rtol = 1e-10`: AD derivatives are exact up to
+rounding (about `1e-15` relative), while a finite-difference second
+derivative is off by `1e-8` or more.
+'''
+starter = '''
+using ForwardDiff
+
+function heat_residual_loss(u, pts, κ)
+    # mean of the squared residual over pts
+end
+'''
+reference = '''
+using ForwardDiff
+
+function heat_residual_loss(u, pts, κ)
+    total = 0.0
+    for (x, t) in pts
+        ut = ForwardDiff.derivative(s -> u(x, s), t)
+        uxx = ForwardDiff.derivative(y -> ForwardDiff.derivative(z -> u(z, t), y), x)
+        total += (ut - κ * uxx)^2
+    end
+    return total / length(pts)
+end
+'''
+cases = [
+  "(x, t) -> x^2 * t, [(0.5, 1.0)], 1.0",
+  "(x, t) -> sin(x) * exp(t), [(0.1, 0.2), (0.7, 0.4), (1.3, 0.9)], 0.5",
+  "(x, t) -> exp(-t) * cos(2x) + x * t^2, [(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)], 2.0",
+]
+gen = "rng -> [(let a = randn(rng), b = 1 + rand(rng); (x, t) -> a * sin(b * x) * exp(-t) + x^3 * t end, [(rand(rng), rand(rng)) for _ in 1:rand(rng, 1:20)], rand(rng)) for _ in 1:10]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Two derivatives at each point: a first derivative in `t` with `x` held fixed, and a second derivative in `x` with `t` held fixed. Each is a `ForwardDiff.derivative` of a one-variable closure.",
+  "The second derivative in `x` is a derivative of a derivative: wrap the inner `ForwardDiff.derivative(z -> u(z, t), y)` in an outer one over `y`.",
+]
+
+  [problem.perf]
+  args = "(x, t) -> sin(x) * exp(-t), [(rand(rng), rand(rng)) for _ in 1:n], 0.5"
+  sizes = [500]
+
+  [[problem.variant]]
+  label = "sign error: u_t + κ u_xx"
+  code = '''
+using ForwardDiff
+function heat_residual_loss(u, pts, κ)
+    r(x, t) = ForwardDiff.derivative(s -> u(x, s), t) +
+              κ * ForwardDiff.derivative(y -> ForwardDiff.derivative(z -> u(z, t), y), x)
+    return sum(((x, t),) -> r(x, t)^2, pts) / length(pts)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "finite differences with h = 1e-4: off by about 1e-8"
+  code = '''
+function heat_residual_loss(u, pts, κ)
+    h = 1e-4
+    r(x, t) = (u(x, t + h) - u(x, t - h)) / 2h - κ * (u(x + h, t) - 2u(x, t) + u(x - h, t)) / h^2
+    return sum(((x, t),) -> r(x, t)^2, pts) / length(pts)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "mean of absolute residuals, not squares"
+  code = '''
+using ForwardDiff
+function heat_residual_loss(u, pts, κ)
+    r(x, t) = ForwardDiff.derivative(s -> u(x, s), t) -
+              κ * ForwardDiff.derivative(y -> ForwardDiff.derivative(z -> u(z, t), y), x)
+    return sum(((x, t),) -> abs(r(x, t)), pts) / length(pts)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "gradient and Hessian of v -> u(v[1], v[2])"
+  code = '''
+using ForwardDiff
+function heat_residual_loss(u, pts, κ)
+    total = 0.0
+    for (x, t) in pts
+        w(v) = u(v[1], v[2])
+        g = ForwardDiff.gradient(w, [x, t])
+        H = ForwardDiff.hessian(w, [x, t])
+        total += (g[2] - κ * H[1, 1])^2
+    end
+    return total / length(pts)
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "pinn-network-residual"
+title = "Residual of a tiny fixed-weight network"
+difficulty = "core"
+kcs = ["nested-ad", "pinn"]
+entry = "poisson_residual"
+packages = ["ForwardDiff"]
+prompt = '''
+A network with one hidden layer of tanh units and scalar input and output
+is given by its weights:
+
+    u(x) = b2 + Σ_j w2[j] * tanh(w1[j] * x + b1[j])
+
+(`w1`, `b1`, `w2` vectors of the same length, `b2` a number). Write
+`poisson_residual(w1, b1, w2, b2, xs)` that returns the vector of residuals
+of `u'' = -π² sin(πx)` at the points `xs`:
+
+    r(x) = u''(x) + π² sin(πx)
+
+Compute `u''` exactly: nested ForwardDiff, or the chain rule by hand
+(`tanh'' = -2 tanh * (1 - tanh^2)`); both pass.
+
+```julia
+poisson_residual([1.0], [0.0], [1.0], 0.0, [0.0])   # u = tanh(x): u''(0) = 0, so r = [0.0]
+```
+
+Results are compared with `rtol = 1e-10` (the two exact methods differ by
+rounding only; a finite-difference `u''` misses by `1e-8` or more).
+'''
+starter = '''
+using ForwardDiff
+
+function poisson_residual(w1, b1, w2, b2, xs)
+    # u(x), then u''(x), then the residual at each x
+end
+'''
+reference = '''
+using ForwardDiff
+
+function poisson_residual(w1, b1, w2, b2, xs)
+    u(x) = b2 + sum(j -> w2[j] * tanh(w1[j] * x + b1[j]), eachindex(w1))
+    d2u(x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+    return [d2u(x) + pi^2 * sin(pi * x) for x in xs]
+end
+'''
+cases = [
+  "[1.0], [0.0], [1.0], 0.0, [0.0]",
+  "[1.0, -2.0, 0.5], [0.1, 0.3, -0.2], [0.7, 0.4, -1.1], 0.2, [0.0, 0.25, 0.5, 1.0]",
+  "[3.0, 3.0], [-1.5, 1.5], [1.0, -1.0], 0.0, collect(0.1:0.2:0.9)",
+]
+gen = "rng -> [(H = rand(rng, 1:12); (randn(rng, H), randn(rng, H), randn(rng, H), randn(rng), rand(rng, rand(rng, 1:15)))) for _ in 1:15]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Write the network as a scalar function `u(x)` first; then the residual needs its second derivative with respect to `x`, not with respect to the weights.",
+  "Differentiate twice: the derivative of `y -> ForwardDiff.derivative(u, y)`. If you use the chain rule instead, each term of `u''` carries a factor `w1[j]^2`.",
+]
+
+  [problem.perf]
+  args = "randn(rng, 16), randn(rng, 16), randn(rng, 16), 0.1, rand(rng, n)"
+  sizes = [200]
+
+  [[problem.variant]]
+  label = "the chain-rule factor w1^2 is missing"
+  code = '''
+function poisson_residual(w1, b1, w2, b2, xs)
+    d2u(x) = sum(j -> (s = tanh(w1[j] * x + b1[j]); w2[j] * (-2s * (1 - s^2))), eachindex(w1))
+    return [d2u(x) + pi^2 * sin(pi * x) for x in xs]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "residual with the wrong sign of the forcing: u'' - π² sin(πx)"
+  code = '''
+using ForwardDiff
+function poisson_residual(w1, b1, w2, b2, xs)
+    u(x) = b2 + sum(j -> w2[j] * tanh(w1[j] * x + b1[j]), eachindex(w1))
+    d2u(x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+    return [d2u(x) - pi^2 * sin(pi * x) for x in xs]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the chain rule by hand"
+  code = '''
+function poisson_residual(w1, b1, w2, b2, xs)
+    function d2u(x)
+        s = 0.0
+        for j in eachindex(w1)
+            th = tanh(w1[j] * x + b1[j])
+            s += w2[j] * w1[j]^2 * (-2th * (1 - th^2))
+        end
+        return s
+    end
+    return [d2u(x) + pi^2 * sin(pi * x) for x in xs]
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "pinn-weighted-loss"
+title = "Weighted loss terms"
+difficulty = "stretch"
+kcs = ["pinn-loss"]
+entry = "weighted_loss"
+packages = ["ForwardDiff"]
+prompt = '''
+For the boundary-value problem `u''(x) = f(x)` with `u = g` on the boundary,
+write `weighted_loss(u, f, xr, xb, gb, λ)` that returns the tuple
+`(Lr, Lb, L)`:
+
+* `Lr`: the mean over the collocation points `xr` of `(u''(x) - f(x))^2`,
+  with `u''` by nested ForwardDiff;
+* `Lb`: the mean over the boundary points `xb` of `(u(x) - g)^2`, where
+  `gb[i]` is the prescribed value at `xb[i]`;
+* `L = Lr + λ * Lb`.
+
+All three are `Float64`.
+
+```julia
+weighted_loss(x -> x^2, x -> 2.0, [0.5], [0.0, 1.0], [0.0, 0.0], 10.0)
+# (0.0, 0.5, 5.0): x^2 has u'' = 2 exactly, and misses u(1) = 0 by 1
+```
+
+Results are compared with `rtol = 1e-10`, element by element (rounding only).
+'''
+starter = '''
+using ForwardDiff
+
+function weighted_loss(u, f, xr, xb, gb, λ)
+    # residual term, boundary term, weighted sum
+end
+'''
+reference = '''
+using ForwardDiff
+
+function weighted_loss(u, f, xr, xb, gb, λ)
+    d2u(x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+    Lr = sum(x -> (d2u(x) - f(x))^2, xr) / length(xr)
+    Lb = sum(i -> (u(xb[i]) - gb[i])^2, eachindex(xb)) / length(xb)
+    return (Lr, Lb, Lr + λ * Lb)
+end
+'''
+cases = [
+  "x -> x^2, x -> 2.0, [0.5], [0.0, 1.0], [0.0, 0.0], 10.0",
+  "x -> sin(pi * x) + 0.5x, x -> -9.0, collect(0.1:0.1:0.9), [0.0, 1.0], [0.0, 0.0], 1.0",
+  "x -> exp(x), x -> 1.0, [0.2, 0.4, 0.6], [0.0, 1.0], [1.0, 2.0], 100.0",
+]
+gen = "rng -> [(let a = randn(rng), b = randn(rng); x -> a * x^3 + b * cos(x) end, x -> 6x, rand(rng, rand(rng, 1:20)), [0.0, 1.0], randn(rng, 2), 10.0^(4rand(rng) - 2)) for _ in 1:10]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Compute the two means separately, then combine them. The residual needs `u''`; the boundary term needs only `u`.",
+  "The weight multiplies the boundary term only, and each term is a mean (divide by its own number of points), not a sum.",
+]
+
+  [problem.perf]
+  args = "x -> sin(3x), x -> -9sin(3x), rand(rng, n), [0.0, 1.0], [0.0, 0.0], 10.0"
+  sizes = [500]
+
+  [[problem.variant]]
+  label = "the weight on the residual term instead"
+  code = '''
+using ForwardDiff
+function weighted_loss(u, f, xr, xb, gb, λ)
+    d2u(x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+    Lr = sum(x -> (d2u(x) - f(x))^2, xr) / length(xr)
+    Lb = sum(i -> (u(xb[i]) - gb[i])^2, eachindex(xb)) / length(xb)
+    return (Lr, Lb, λ * Lr + Lb)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sums instead of means"
+  code = '''
+using ForwardDiff
+function weighted_loss(u, f, xr, xb, gb, λ)
+    d2u(x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+    Lr = sum(x -> (d2u(x) - f(x))^2, xr)
+    Lb = sum(i -> (u(xb[i]) - gb[i])^2, eachindex(xb))
+    return (Lr, Lb, Lr + λ * Lb)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "boundary term against zero, ignoring gb"
+  code = '''
+using ForwardDiff
+function weighted_loss(u, f, xr, xb, gb, λ)
+    d2u(x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(u, y), x)
+    Lr = sum(x -> (d2u(x) - f(x))^2, xr) / length(xr)
+    Lb = sum(x -> u(x)^2, xb) / length(xb)
+    return (Lr, Lb, Lr + λ * Lb)
+end
+'''
+  expect = ["incorrect"]

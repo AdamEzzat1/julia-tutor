@@ -1,0 +1,742 @@
+id = "45-universal-odes"
+title = "Universal differential equations: missing physics"
+track = "sciml"
+env = "sciml"
+status = "ready"
+summary = "Universal differential equations: keep the terms of a model you know and let a small Lux network learn only the missing ones, train it on simulated Lotka-Volterra data with Optimization.jl, compare its extrapolation on a held-out time window with a pure neural ODE over several initial weights, and see that with this training budget the outcome varies from start to start: the UDE tends to win, a badly fitted run tends to extrapolate worse, and a wrong known term is absorbed by the network instead of showing up in the fit."
+kcs = ["universal-ode", "neural-ode", "extrapolation", "ode-parameter-fitting"]
+prerequisites = ["24-differential-equations", "32-dense-linear-algebra", "43-sensitivities", "44-adjoints-neural-odes"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+A universal differential equation is a neural ODE (unit 44) in which the
+network is only one term. This unit relies on:
+
+* **A Lux network as a right-hand side, with Float64 `ComponentArray`
+  parameters** (unit 44, "A neural network as the whole right-hand side"):
+  `first(nn(u, p, st))` is the network's output, and
+  `ComponentArray{Float64}(ps)` gives one flat Float64 vector.
+* **Fitting with Optimization.jl** (unit 43, "The fit with Optimization.jl,
+  next to Optim.jl"): `OptimizationFunction(loss, AutoForwardDiff())`, a
+  loss `loss(p, _)` of two arguments, and `sol.u` for the result; a failed
+  solve returns `Inf` instead of an error.
+* **Forward mode for few parameters** (unit 43, "What forward sensitivities
+  cost as parameters grow", and unit 44, "Forward and adjoint cost as the
+  parameters grow"): the networks here have 57 parameters, so ForwardDiff
+  through the solver is the cheaper gradient.
+* **The Lotka-Volterra model** (unit 24, problem "Predators and prey, in
+  place"): prey `x` grow at rate `α`, predators `y` die at rate `γ`, and the
+  `xy` terms with `β` and `δ` couple them. This unit and the next keep unit
+  24's names.
+'''
+
+[[section]]
+title = "Known physics plus a learned term"
+body = '''
+Suppose you know how the prey reproduce and how the predators die, but not
+how they interact. The true model, with the parameter values of the SciML
+missing-physics tutorial (`docs.sciml.ai/Overview/stable/showcase/missing_physics/`),
+is
+
+    dx/dt = α x - β x y
+    dy/dt = δ x y - γ y,      α = 1.3, β = 0.9, δ = 0.8, γ = 1.8
+
+The tutorial swaps the names of the last two (its `γ` is the interaction
+rate 0.8, its `δ` the death rate 1.8); here they follow unit 24. The
+**universal differential equation** (UDE) keeps the known terms and puts a
+network where the unknown ones were:
+
+    dx/dt = α x + NN₁(x, y)
+    dy/dt = -γ y + NN₂(x, y)
+
+The network must learn `NN(x, y) ≈ (-β x y, δ x y)`, a function of two
+inputs, instead of the whole dynamics. Rackauckas et al. introduced the
+name and the framework ("Universal Differential Equations for Scientific
+Machine Learning", [arXiv:2001.04385](https://arxiv.org/abs/2001.04385)).
+
+The network is a smaller version of the tutorial's: two hidden `Dense`
+layers of width 5 with the radial basis activation `exp(-x²)`, 57
+parameters (the tutorial has a third hidden layer, 87 parameters, and
+trains for thousands of iterations instead of a few hundred). The data are
+simulated: the true model from `u0 = [3, 1]`, saved every 0.25 on `[0, 3]`,
+with Gaussian noise of 0.5% of each variable's mean (also the tutorial's
+choice), drawn from a `StableRNG`.
+'''
+
+  [[section.example]]
+  caption = "The UDE's right-hand side with an untrained network, and with the exact missing term in place of the network."
+  notice = "Notice that the untrained network is far from the missing term (that is what training must fix), and that known part plus exact missing term is the true model, to rounding."
+  code = '''
+using OrdinaryDiffEq, Lux, ComponentArrays, StableRNGs
+const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
+truth(u, p, t) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+missing_term(u) = [-β * u[1] * u[2], δ * u[1] * u[2]]
+rbf(x) = exp(-x^2)
+nn = Chain(Dense(2 => 5, rbf), Dense(5 => 5, rbf), Dense(5 => 2))
+ps, st = Lux.setup(StableRNG(5), nn)
+ps = ComponentArray{Float64}(ps)
+known(u) = [α * u[1], -γ * u[2]]
+ude(u, p, t) = known(u) + first(nn(u, p, st))
+println("parameters: ", length(ps))
+u = [3.0, 1.0]
+println("missing term at u0:   ", round.(missing_term(u); digits = 3))
+println("untrained network:    ", round.(first(nn(u, ps, st)); digits = 3))
+sol = solve(ODEProblem(truth, u, (0.0, 3.0)), Tsit5(); saveat = 0.25, abstol = 1e-10, reltol = 1e-10)
+println("known + exact missing term = true model on the trajectory: ",
+        all(known(v) + missing_term(v) ≈ truth(v, nothing, 0.0) for v in sol.u))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Compared with a neural ODE for the same data, what does the UDE's network have to learn?"
+  choices = [
+    "The whole right-hand side, but with fewer layers than a neural ODE",
+    "Only the interaction terms, which the known part leaves out",
+    "The parameters `α` and `γ`, which the known part leaves out",
+  ]
+  answer = 2
+  explain = "The known terms `α x` and `-γ y` are written into the right-hand side, so the network's output is added to them and only has to supply what is missing: here `(-β x y, δ x y)`."
+  misconceptions = [
+    "The network's size is a separate choice; the difference is that its output is added to terms you already wrote.",
+    "",
+    "`α` and `γ` are fixed numbers in the known part; the network learns a function, not those constants.",
+  ]
+
+[[section]]
+title = "Training the UDE"
+body = '''
+Training is the fit of unit 43 with the network's 57 weights as `p`: the
+loss is the mean squared difference between the UDE's solution at the data
+times and the noisy data. Two stages, as in the SciML tutorials: `Adam` with
+step 0.05 for 300 iterations moves the weights out of the region where the
+predicted solution is far off, then `LBFGS` for 100 iterations refines.
+Both come through Optimization.jl, and the AD backend is
+`AutoForwardDiff()`: dual numbers through the solver (unit 43), with no
+reverse-mode rule involved, so SciMLSensitivity is not loaded and no
+`sensealg` applies.
+
+How low can the loss go? Even the true model misses the noisy data by the
+noise, so its loss is the mean squared noise, here about `1e-4`. Call that
+the **noise floor**. A final loss near it means the optimizer found a model
+that fits as well as the truth does; a loss far above it means training
+stopped early or in a poor local minimum, however steadily the loss fell
+on the way.
+
+Two habits make a training run safe to automate. A solve that blows up for
+some trial weights returns `Inf` instead of throwing, and the solver's
+warnings are switched off for those trials. And the output of training is
+checked against facts, not printed as raw losses: the digits of a loss after
+hundreds of steps change between CPUs (rounding differences compound), but
+"the loss fell by more than 1000×" does not.
+
+The initial weights come from `StableRNG(5)`, a start that ends near the
+noise floor; the next section trains from five starts and shows that not
+all of them do. The last check is possible only because the data are
+simulated: the missing term is known. The learned term matches it **on the
+states the training data visit**; nothing yet says what the network does
+elsewhere.
+'''
+
+  [[section.example]]
+  caption = "Adam then LBFGS on the UDE. Raw losses are not printed: their digits vary between CPUs."
+  notice = "Notice the three checks: the loss fell by more than 1000×, it ended within 10× of the noise floor (about 2× when recorded; the stalled run of the next section ends about 200× above it), and the network learned the missing term to within 10% where the data are (about 3% when recorded)."
+  code = '''
+using OrdinaryDiffEq, Lux, ComponentArrays, StableRNGs, Optimization, OptimizationOptimisers, OptimizationOptimJL, Statistics
+const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
+truth(u, p, t) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+ts = 0.0:0.25:3.0
+X = Array(solve(ODEProblem(truth, [3.0, 1.0], (0.0, 3.0)), Vern7(); saveat = ts, abstol = 1e-12, reltol = 1e-12))
+data = X .+ 5e-3 .* mean(X; dims = 2) .* randn(StableRNG(1111), size(X))
+noise_floor = mean(abs2, data .- X)          # the loss of the true model on these data
+rbf(x) = exp(-x^2)
+nn = Chain(Dense(2 => 5, rbf), Dense(5 => 5, rbf), Dense(5 => 2))
+ps, st = Lux.setup(StableRNG(5), nn)
+ps = ComponentArray{Float64}(ps)
+ude(u, p, t) = [α * u[1], -γ * u[2]] + first(nn(u, p, st))
+prob = ODEProblem(ude, data[:, 1], (0.0, 3.0), ps)
+function loss(p, _)
+    sol = solve(remake(prob; p = p), Tsit5(); saveat = ts, abstol = 1e-6, reltol = 1e-6,
+                verbose = DEVerbosity(SciMLLogging.None()))
+    SciMLBase.successful_retcode(sol) || return Inf
+    return mean(abs2, Array(sol) .- data)
+end
+optf = OptimizationFunction(loss, Optimization.AutoForwardDiff())
+stage1 = solve(OptimizationProblem(optf, ps), OptimizationOptimisers.Adam(0.05); maxiters = 300)
+stage2 = solve(OptimizationProblem(optf, stage1.u), LBFGS(); maxiters = 100)
+println("loss fell by more than 1000x: ", loss(ps, nothing) / stage2.objective > 1000)
+println("final loss within 10x of the noise floor: ", stage2.objective < 10 * noise_floor)
+learned = reduce(hcat, [first(nn(X[:, k], stage2.u, st)) for k in axes(X, 2)])
+exact = reduce(hcat, [[-β * x * y, δ * x * y] for (x, y) in eachcol(X)])
+println("learned term within 10% of the missing term on the training states: ",
+        maximum(abs.(learned .- exact)) / maximum(abs.(exact)) < 0.1)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The training example prints `true` for three facts instead of the final loss. Why?"
+  choices = [
+    "The final loss is always exactly zero after LBFGS, so printing it says nothing",
+    "Its digits vary between CPUs, while bounds with a margin hold on all of them",
+    "Optimization.jl does not report the loss, only the parameters",
+  ]
+  answer = 2
+  explain = "Hundreds of optimizer steps compound rounding differences (BLAS kernels, SIMD widths), so the last digits of the loss differ between machines. A statement with a wide margin, such as \"fell by more than 1000×\", is reproducible and says what matters."
+  misconceptions = [
+    "With noisy data the loss cannot reach zero: even the true model's loss is the noise floor.",
+    "",
+    "`stage2.objective` holds the final loss; the example reads it to check the 1000× drop.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A UDE's final training loss is 100 times the noise floor. What does that say?"
+  choices = [
+    "The network overfits: it follows the noise instead of the dynamics",
+    "Training stopped far from a good fit; restart before comparing models",
+    "The noise floor is wrong, since simulated data have no real noise",
+  ]
+  answer = 2
+  explain = "The true model scores the noise floor, so a loss 100 times higher means the fitted model is much worse than the truth on the training data itself. Training from other initial weights, or for longer, is the next step; any comparison with another model is premature."
+  misconceptions = [
+    "Overfitting the noise pushes the loss below the noise floor, not far above it.",
+    "",
+    "The noise was added on purpose with a known size; the floor is the loss the exact model gets on exactly these noisy data.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The learned term matches `(-β x y, δ x y)` within 10% on the training states. What does that tell you about states the data never visit?"
+  choices = [
+    "Nothing: the check covers only the states on the training trajectory",
+    "It matches there too, since the network learned the formula `x y`",
+    "It matches to 10% on any state with `x` and `y` between 0 and 10",
+  ]
+  answer = 1
+  explain = "The network is fitted where the data are. Between and beyond those states its output is whatever the weights produce; with `exp(-x²)` activations the hidden units fade far from the data, and the output tends toward a constant. The next section measures what this means over time."
+  misconceptions = [
+    "",
+    "The network is a sum of radial bumps, not the product `x y`; it agrees with that product only where it was fitted.",
+    "No such range was tested; the training states lie on part of one closed orbit, a thin curve in that square.",
+  ]
+
+[[section]]
+title = "Extrapolation: a UDE against a pure neural ODE"
+body = '''
+A model is useful when it predicts what was not in the data. The test here:
+train on `[0, 3]`, predict on `[3, 6]`, and compare with the true solution
+at the held-out times. The orbit's period is about 4.2, so for `3 < t < 4.2`
+the states lie on the part of the orbit the data never visited, and after
+that the orbit returns to states the network was fitted on. The held-out
+error therefore measures an unseen quarter-orbit plus the phase error the
+model carries out of it.
+
+Two models get the same data, network shape and training:
+
+* the **UDE**, `du/dt = known(u) + NN(u)`;
+* a **pure neural ODE**, `du/dt = NN(u)`, which must learn the whole
+  right-hand side (in the code, the same function with the known part
+  multiplied by 0).
+
+One run of each is not a comparison: the previous section's training ends
+in different places from different initial weights. The second example
+trains both models from five starts (seeds 1 to 5) and prints, per run, the
+final loss as a multiple of the noise floor and the two held-out errors. Its
+output is not compared between runs: a different CPU or thread count moves
+where each training run stops, and with it every number in the table.
+
+To see what holds beyond five runs, we ran the same comparison with seeds 1
+to 16 (Adam 300 iterations, then LBFGS 100, on this unit's data). What we
+found, as tendencies of that experiment rather than rules:
+
+* The UDE had the lower held-out error in 9 of the 16 runs; the median of
+  the neural ODE's error divided by the UDE's was about 1.7.
+* The model with the lower training loss had the lower held-out error in 13
+  of the 16 runs, not all of them.
+* The UDE stopped more than 30 times above the noise floor in 5 runs, the
+  neural ODE in 1. Those stalled UDE runs tended to extrapolate worse than
+  the UDE runs that reached the floor, though one of them still beat its
+  neural ODE, and two UDE runs near the floor lost to theirs.
+* A UDE given a wrong growth rate (`α = 0.6` instead of 1.3) had the lower
+  held-out error than the correct one in 5 of 8 seeds: a wrong known term
+  was not reliably worse. The next section looks at why.
+
+So the known terms tend to help, but the margin is not large next to the
+spread between runs. In practice, check each final loss against the noise
+floor before comparing models, train from several starts, and compare
+distributions of outcomes, not one run.
+'''
+
+  [[section.example]]
+  caption = "Which held-out states are new? For each held-out time, the distance from the true state to the nearest state of the true trajectory on `[0, 3]`, sampled densely. This depends only on the true solution, not on any training."
+  notice = "Notice that the four held-out states before `t ≈ 4.2` lie 0.2 to 0.6 away from anything the data visited, while the other eight lie within 0.001 of the training trajectory: the orbit has come round."
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
+truth(u, p, t) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+tall = 0.0:0.25:6.0
+Xall = Array(solve(ODEProblem(truth, [3.0, 1.0], (0.0, 6.0)), Vern7(); saveat = tall, abstol = 1e-12, reltol = 1e-12))
+seen = solve(ODEProblem(truth, [3.0, 1.0], (0.0, 3.0)), Vern7(); saveat = 0.001, abstol = 1e-12, reltol = 1e-12).u
+dist = [minimum(norm(Xall[:, j] - v) for v in seen) for j in 14:25]
+new = dist .> 0.05
+println("held-out times farther than 0.05 from the training trajectory: ", tall[14:25][new])
+println("their distances lie between 0.1 and 1: ", all(d -> 0.1 < d < 1, dist[new]))
+println("the other ", count(.!new), " lie within 0.01 of it: ", all(<(0.01), dist[.!new]))
+'''
+
+  [[section.example]]
+  caption = "UDE and pure neural ODE, each trained on `[0, 3]` from five initial weights (Adam then LBFGS, as before), then predicted on `[3, 6]`. The output is shown as recorded and not compared between runs: where each training run stops varies with the CPU and thread count."
+  check = false
+  notice = "When recorded, the UDE had the lower held-out error in seeds 2, 3 and 5, the neural ODE in seeds 1 and 4. The UDE of seed 1 stopped about 200 times above the noise floor and extrapolated worst; in seed 4 the neural ODE fitted better and won. Your run may differ; the 16-seed results in the text are the better guide."
+  code = '''
+using OrdinaryDiffEq, Lux, ComponentArrays, StableRNGs, Optimization, OptimizationOptimisers, OptimizationOptimJL, Statistics
+const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
+truth(u, p, t) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+tall = 0.0:0.25:6.0
+Xall = Array(solve(ODEProblem(truth, [3.0, 1.0], (0.0, 6.0)), Vern7(); saveat = tall, abstol = 1e-12, reltol = 1e-12))
+train_idx, test_idx = 1:13, 14:25                     # t ≤ 3 and t > 3
+data = Xall[:, train_idx] .+ 5e-3 .* mean(Xall[:, train_idx]; dims = 2) .* randn(StableRNG(1111), 2, 13)
+rbf(x) = exp(-x^2)
+nn = Chain(Dense(2 => 5, rbf), Dense(5 => 5, rbf), Dense(5 => 2))
+quiet = DEVerbosity(SciMLLogging.None())
+rms(A) = sqrt(mean(abs2, A))
+function fit_and_test(k, seed)            # k = 1: the UDE; k = 0: the pure neural ODE
+    ps, st = Lux.setup(StableRNG(seed), nn)
+    rhs(u, p, t) = k .* [α * u[1], -γ * u[2]] + first(nn(u, p, st))
+    prob = ODEProblem(rhs, data[:, 1], (0.0, 3.0), ComponentArray{Float64}(ps))
+    function loss(p, _)
+        sol = solve(remake(prob; p = p), Tsit5(); saveat = tall[train_idx], abstol = 1e-6, reltol = 1e-6, verbose = quiet)
+        SciMLBase.successful_retcode(sol) || return Inf
+        return mean(abs2, Array(sol) .- data)
+    end
+    optf = OptimizationFunction(loss, Optimization.AutoForwardDiff())
+    p1 = solve(OptimizationProblem(optf, prob.p), OptimizationOptimisers.Adam(0.05); maxiters = 300).u
+    fit = solve(OptimizationProblem(optf, p1), LBFGS(); maxiters = 100)
+    P = solve(remake(prob; p = fit.u, tspan = (0.0, 6.0)), Tsit5(); saveat = tall, abstol = 1e-8, reltol = 1e-8, verbose = quiet)
+    heldout = length(P.t) == length(tall) ? rms(Array(P)[:, test_idx] .- Xall[:, test_idx]) : Inf
+    return (loss = fit.objective, heldout = heldout)
+end
+ude = [fit_and_test(1.0, seed) for seed in 1:5]
+node = [fit_and_test(0.0, seed) for seed in 1:5]
+floor = mean(abs2, data .- Xall[:, train_idx])                     # the noise floor of section 2
+r2(x) = round(x; sigdigits = 2)
+println("seed  UDE loss/floor  NODE loss/floor  UDE held-out  NODE held-out  NODE/UDE")
+for s in 1:5
+    println(s, "     ", r2(ude[s].loss / floor), "    ", r2(node[s].loss / floor), "    ",
+            r2(ude[s].heldout), "    ", r2(node[s].heldout), "    ", r2(node[s].heldout / ude[s].heldout))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Both models reach the same small training loss. What does that tell you about their predictions after `t = 3`?"
+  choices = [
+    "They predict equally well, since they fit the same data equally well",
+    "Nothing yet: a training loss measures the fit only where the data are",
+    "The neural ODE predicts better, since it has no fixed terms to get wrong",
+  ]
+  answer = 2
+  explain = "The training loss is computed on `[0, 3]`. Outside it, each model's prediction depends on what its structure carries there: exact known terms plus a learned interaction for the UDE, an unfitted network for the neural ODE. Only a held-out window measures that, and in the 16-seed experiment the outcome changed from run to run."
+  misconceptions = [
+    "Equal fits on the training window leave the behaviour beyond it open; when recorded, the two models' held-out errors differed by factors of 1.3 to 12, in either direction.",
+    "",
+    "Right fixed terms carry no risk; whether they help depends on how well the learned part was fitted, which differed between the runs.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does the example train each model from five initial weights instead of one?"
+  choices = [
+    "One run compares two optimizer outcomes, not two model structures",
+    "Averaging five networks gives a better model than any one of them",
+    "Lux needs several initializations before its weights are reproducible",
+  ]
+  answer = 1
+  explain = "From one start, the comparison mixes the effect of the structure with where that start's training happened to stop: in the 16-seed experiment the UDE stopped more than 30 times above the noise floor in 5 runs and near it in others. Several starts show the spread, so a difference between the models can be judged against it."
+  misconceptions = [
+    "",
+    "The example never averages networks; it compares each run's held-out errors, run by run.",
+    "`StableRNG(seed)` makes a single initialization reproducible; the five starts are there to sample different outcomes of training.",
+  ]
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The data are saved every 0.25 on `[0, 6]` and the model is trained on `t ≤ 3`. How many times are held out?"
+  code = '''
+ts = 0.0:0.25:6.0
+count(>(3.0), ts)
+'''
+  choices = ["12", "13", "25", "24"]
+  answer = 1
+  explain = "The grid has 25 times; 13 of them (0, 0.25, ..., 3) are in the training window, so 12 are held out. The example's `test_idx = 14:25` is the same split. Of those 12, only the 4 before `t ≈ 4.2` lie on states the data never visited."
+  misconceptions = [
+    "",
+    "That counts `t = 3` as held out, but it is the last training time; `>` excludes it.",
+    "That is every saved time, training window included.",
+    "That counts the intervals of the whole grid, not the held-out points.",
+  ]
+
+[[section]]
+title = "A wrong known part is absorbed, not exposed"
+body = '''
+The UDE's structure can only help if the known terms are right. Suppose
+the growth rate in the known part is wrong: `α = 0.6` instead of the true
+1.3. The data constrain only the sum `known + NN`, so the best fit makes
+the network supply the missing interaction **plus** a correction `0.7 x`,
+and nothing in the loss says which part is which. A correction that is a
+smooth function of the state is something the network can learn, so the
+training fit can be as good as with the right `α`.
+
+The example fits the UDE with the right `α` and with `α = 0.6`, each from
+three starts keeping the lowest training loss (the remedy of the previous
+section), and then asks what the network learned: a least-squares fit
+(unit 32, "Least squares: QR, not the normal equations") of the network's
+first output on the training states, `NN₁ ≈ c₁ x + c₂ x y`. A true
+interaction term has `c₁ = 0`.
+
+Two lessons. A good training fit is consistent with wrong known terms, and
+a held-out window on the same orbit need not expose them either: after
+`t ≈ 4.2` it revisits the states where the network absorbed the
+correction. What exposes the error is the **form** of the learned term: an
+interaction should vanish when `x` or `y` does, and a linear `x` in it says
+the known growth rate is off by about that much. Right known terms are
+necessary for the structure to help where there are no data, not
+sufficient (the previous section). The next unit turns the learned term
+into an equation you can read.
+'''
+
+  [[section.example]]
+  caption = "UDE training with the correct known part (`α = 1.3`) and with a wrong one (`α = 0.6`), each the best of three starts, then a least-squares fit of the learned `NN₁` on `[x, x y]` at the training states."
+  notice = "Notice that both fits pass the same check against the data, and that the learned `NN₁` contains a term `c₁ x` with `c₁` within 0.3 of `1.3 - α`, near 0 for the right model and near 0.7 for `α = 0.6` (-0.11 and 0.60 when recorded). The fit hides the wrong `α`; the learned term shows it."
+  code = '''
+using OrdinaryDiffEq, Lux, ComponentArrays, StableRNGs, Optimization, OptimizationOptimisers, OptimizationOptimJL, Statistics
+const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
+truth(u, p, t) = [α * u[1] - β * u[1] * u[2], δ * u[1] * u[2] - γ * u[2]]
+ts = 0.0:0.25:3.0
+X = Array(solve(ODEProblem(truth, [3.0, 1.0], (0.0, 3.0)), Vern7(); saveat = ts, abstol = 1e-12, reltol = 1e-12))
+data = X .+ 5e-3 .* mean(X; dims = 2) .* randn(StableRNG(1111), size(X))
+rbf(x) = exp(-x^2)
+nn = Chain(Dense(2 => 5, rbf), Dense(5 => 5, rbf), Dense(5 => 2))
+quiet = DEVerbosity(SciMLLogging.None())
+function fit(α_known, seed)
+    ps, st = Lux.setup(StableRNG(seed), nn)
+    rhs(u, p, t) = [α_known * u[1], -γ * u[2]] + first(nn(u, p, st))
+    prob = ODEProblem(rhs, data[:, 1], (0.0, 3.0), ComponentArray{Float64}(ps))
+    function loss(p, _)
+        sol = solve(remake(prob; p = p), Tsit5(); saveat = ts, abstol = 1e-6, reltol = 1e-6, verbose = quiet)
+        SciMLBase.successful_retcode(sol) || return Inf
+        return mean(abs2, Array(sol) .- data)
+    end
+    optf = OptimizationFunction(loss, Optimization.AutoForwardDiff())
+    p1 = solve(OptimizationProblem(optf, prob.p), OptimizationOptimisers.Adam(0.05); maxiters = 300).u
+    res = solve(OptimizationProblem(optf, p1), LBFGS(); maxiters = 100)
+    return (loss = res.objective, nn1 = [first(nn(v, res.u, st))[1] for v in eachcol(X)])
+end
+x, y = X[1, :], X[2, :]
+for α_known in (1.3, 0.6)
+    best = argmin(r -> r.loss, [fit(α_known, seed) for seed in 1:3])      # the best of three starts
+    c = hcat(x, x .* y) \ best.nn1                                         # NN₁ ≈ c[1] x + c[2] x y
+    println("known α = ", α_known, ": RMS misfit to the data < 0.05: ", sqrt(best.loss) < 0.05,
+            ";  c₁ within 0.3 of 1.3 - α = ", round(1.3 - α_known; digits = 1), ": ", abs(c[1] - (1.3 - α_known)) < 0.3)
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A colleague's UDE fits years of training data closely and they conclude it will forecast well. What is missing from that argument?"
+  choices = [
+    "Nothing, as long as the network is large enough to fit the data",
+    "A check of the known terms, such as the form of the learned term",
+    "A longer training run, since a UDE needs more iterations to extrapolate",
+  ]
+  answer = 2
+  explain = "In the example the UDE with `α = 0.6` passes the same check against the data as the right one, with the error moved into the network as a `0.7 x` term. A close fit is consistent with wrong known terms; the learned term's form, or data from states the fit never saw, can tell them apart."
+  misconceptions = [
+    "A larger network absorbs a wrong known term even more easily on the training data; it does not make the term right.",
+    "",
+    "More iterations improve the fit on the training states, where the wrong term is already compensated; they do not correct the known part.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "With the wrong `α = 0.6`, what has the network learned on the training states, compared with the true missing term `(-β x y, δ x y)`?"
+  choices = [
+    "The true missing term, since the data determine it uniquely",
+    "The missing term plus a part that compensates for `-0.7 x`",
+    "Zero, because the wrong known term already fits the data",
+  ]
+  answer = 2
+  explain = "The data constrain only the sum `known + NN`. With `α` too small by 0.7, the best fit makes the network's first output about `-β x y + 0.7 x` on the training states; the example's least-squares fit finds an `x` coefficient of about 0.6, close to the 0.7 it compensates."
+  misconceptions = [
+    "The data fix the total right-hand side, not how it splits between the known part and the network.",
+    "",
+    "With `α = 0.6` and no network the model has no interaction at all and cannot fit the data; the network supplies the missing terms and the correction.",
+  ]
+
+[[problem]]
+id = "ude-rhs-lux"
+title = "A UDE right-hand side with a Lux network"
+difficulty = "core"
+kcs = ["universal-ode"]
+entry = "ude_rhs"
+packages = ["Lux", "ComponentArrays", "StableRNGs"]
+prompt = '''
+Write `ude_rhs(u, model, ps, st, α, γ)` that returns the UDE right-hand
+side of this unit as a `Vector{Float64}` of length 2:
+
+    dx/dt = α x + NN₁(x, y)
+    dy/dt = -γ y + NN₂(x, y)
+
+where `NN(u)` is the output of the Lux `model` with parameters `ps` and
+state `st` at `u = [x, y]` (remember what a Lux model returns). The grader
+passes a `Chain` of `Dense` layers with `Float64` `ComponentArray`
+parameters, and compares with `rtol = 1e-12`.
+
+```julia
+using Lux, ComponentArrays, StableRNGs
+model = Chain(Dense(2 => 5, tanh), Dense(5 => 2))
+ps, st = Lux.setup(StableRNG(1), model)
+ude_rhs([3.0, 1.0], model, ComponentArray{Float64}(ps), st, 1.3, 1.8)
+```
+'''
+starter = '''
+function ude_rhs(u, model, ps, st, α, γ)
+    # known terms plus the network's output
+end
+'''
+reference = '''
+using Lux, ComponentArrays, StableRNGs   # for the displayed sample calls
+
+function ude_rhs(u, model, ps, st, α, γ)
+    nn_out, _ = model(u, ps, st)
+    return [α * u[1] + nn_out[1], -γ * u[2] + nn_out[2]]
+end
+'''
+cases = [
+  "[3.0, 1.0], Chain(Dense(2 => 5, tanh), Dense(5 => 2)), ComponentArray{Float64}(first(Lux.setup(StableRNG(1), Chain(Dense(2 => 5, tanh), Dense(5 => 2))))), last(Lux.setup(StableRNG(1), Chain(Dense(2 => 5, tanh), Dense(5 => 2)))), 1.3, 1.8",
+  "[0.0, 0.0], Chain(Dense(2 => 5, tanh), Dense(5 => 2)), ComponentArray{Float64}(first(Lux.setup(StableRNG(2), Chain(Dense(2 => 5, tanh), Dense(5 => 2))))), last(Lux.setup(StableRNG(2), Chain(Dense(2 => 5, tanh), Dense(5 => 2)))), 1.3, 1.8",
+  "[1.5, 2.5], Chain(Dense(2 => 8, x -> exp(-x^2)), Dense(8 => 8, x -> exp(-x^2)), Dense(8 => 2)), ComponentArray{Float64}(first(Lux.setup(StableRNG(3), Chain(Dense(2 => 8), Dense(8 => 8), Dense(8 => 2))))), last(Lux.setup(StableRNG(3), Chain(Dense(2 => 8), Dense(8 => 8), Dense(8 => 2)))), 1.0, 0.5",
+]
+gen = "rng -> [(w = rand(rng, 2:10); m = Chain(Dense(2 => w, tanh), Dense(w => 2)); (ps, st) = Lux.setup(StableRNG(rand(rng, 1:10^6)), m); (3rand(rng, 2), m, ComponentArray{Float64}(ps), st, 0.5 + rand(rng), 0.5 + 2rand(rng))) for _ in 1:8]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "A Lux model called as `model(u, ps, st)` returns two things; the derivative needs only one of them.",
+  "Each equation adds one component of the network's output to its own known term, with the sign of the death term as in the model.",
+]
+
+  [problem.perf]
+  args = "3rand(rng, 2), Chain(Dense(2 => n, tanh), Dense(n => 2)), ComponentArray{Float64}(first(Lux.setup(StableRNG(1), Chain(Dense(2 => n, tanh), Dense(n => 2))))), last(Lux.setup(StableRNG(1), Chain(Dense(2 => n, tanh), Dense(n => 2)))), 1.3, 1.8"
+  sizes = [16]
+
+  [[problem.variant]]
+  label = "+γ y instead of -γ y"
+  code = '''
+function ude_rhs(u, model, ps, st, α, γ)
+    nn_out, _ = model(u, ps, st)
+    return [α * u[1] + nn_out[1], γ * u[2] + nn_out[2]]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "network output added to the prey equation only"
+  code = '''
+function ude_rhs(u, model, ps, st, α, γ)
+    nn_out, _ = model(u, ps, st)
+    return [α * u[1] + nn_out[1], -γ * u[2]]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the two network outputs swapped"
+  code = '''
+function ude_rhs(u, model, ps, st, α, γ)
+    nn_out, _ = model(u, ps, st)
+    return [α * u[1] + nn_out[2], -γ * u[2] + nn_out[1]]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "vector arithmetic with first"
+  code = '''
+ude_rhs(u, model, ps, st, α, γ) = [α, -γ] .* u .+ first(model(u, ps, st))
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "ude-heldout-error"
+title = "The error on a held-out window"
+difficulty = "warm-up"
+kcs = ["extrapolation"]
+entry = "heldout_rms"
+packages = ["StableRNGs"]
+prompt = '''
+Write `heldout_rms(pred, truth, ts, t_end)` that returns the root-mean-square
+error between a prediction and the true states over the **held-out** times,
+the times strictly after the end of the training window `t_end`:
+
+    sqrt( mean over all components i and held-out times k of (pred[i, k] - truth[i, k])² )
+
+`pred` and `truth` are matrices with one column per time in `ts` (sorted),
+of the same size. Return a `Float64`. If no time lies after `t_end`, return
+`NaN` (there is nothing to measure). Results are compared with `rtol = 1e-12`.
+
+```julia
+heldout_rms([1.0 2.0 3.0; 1.0 2.0 5.0], [1.0 2.0 4.0; 1.0 2.0 4.0], [0.0, 1.0, 2.0], 1.0)   # 1.0
+```
+'''
+starter = '''
+function heldout_rms(pred, truth, ts, t_end)
+    # select the columns with ts .> t_end
+end
+'''
+reference = '''
+function heldout_rms(pred, truth, ts, t_end)
+    cols = findall(>(t_end), ts)
+    isempty(cols) && return NaN
+    s = 0.0
+    for k in cols, i in axes(pred, 1)
+        s += (pred[i, k] - truth[i, k])^2
+    end
+    return sqrt(s / (size(pred, 1) * length(cols)))
+end
+'''
+cases = [
+  "[1.0 2.0 3.0; 1.0 2.0 5.0], [1.0 2.0 4.0; 1.0 2.0 4.0], [0.0, 1.0, 2.0], 1.0",
+  "[1.0 2.0; 3.0 4.0], [1.0 2.0; 3.0 4.0], [0.0, 1.0], 5.0",
+  "[0.0 1.0 2.0 3.0], [0.0 0.0 0.0 0.0], [0.0, 0.5, 1.0, 1.5], 0.5",
+]
+gen = "rng -> [(n = rand(rng, 2:30); ts = sort(10rand(rng, n)); (randn(rng, 2, n), randn(rng, 2, n), ts, 10rand(rng))) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "Only the columns whose time is after the end of training count, and the time `t_end` itself belongs to training.",
+  "The mean runs over every entry of the selected columns, both components, before the square root.",
+]
+
+  [problem.perf]
+  args = "randn(rng, 2, n), randn(rng, 2, n), collect(range(0, 10; length = n)), 5.0"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "includes t = t_end in the held-out window"
+  code = '''
+function heldout_rms(pred, truth, ts, t_end)
+    cols = findall(>=(t_end), ts)
+    isempty(cols) && return NaN
+    return sqrt(sum(abs2, pred[:, cols] .- truth[:, cols]) / (size(pred, 1) * length(cols)))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "averages over every time, not only the held-out ones"
+  code = '''
+function heldout_rms(pred, truth, ts, t_end)
+    cols = findall(>(t_end), ts)
+    isempty(cols) && return NaN
+    return sqrt(sum(abs2, pred[:, cols] .- truth[:, cols]) / length(pred))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "copies the selected columns twice"
+  code = '''
+using Statistics
+function heldout_rms(pred, truth, ts, t_end)
+    cols = findall(>(t_end), ts)
+    isempty(cols) && return NaN
+    return sqrt(mean(abs2, pred[:, cols] .- truth[:, cols]))
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "ude-missing-term"
+title = "What the network must learn"
+difficulty = "warm-up"
+kcs = ["universal-ode"]
+entry = "missing_term_targets"
+packages = ["StableRNGs"]
+prompt = '''
+Given states `X` (a `2 × N` matrix, one column `[x, y]` per time) and their
+time derivatives `dX` (same size), write `missing_term_targets(X, dX, α, γ)`
+that returns the `2 × N` matrix of what a UDE's network must output at each
+state: the derivative minus the known part `[α x, -γ y]`.
+
+For exact Lotka-Volterra derivatives the result is `[-β x y, δ x y]` column
+by column. The next unit fits an equation to such targets. Return a
+`Matrix{Float64}`; results are compared with `rtol = 1e-12`.
+
+```julia
+missing_term_targets([3.0 2.0; 1.0 1.5], [1.2 0.0; 0.6 0.0], 1.3, 1.8)
+# 2×2 Matrix: [-2.7 -2.6; 2.4 2.7]
+```
+'''
+starter = '''
+function missing_term_targets(X, dX, α, γ)
+    # subtract the known terms from the derivatives
+end
+'''
+reference = '''
+function missing_term_targets(X, dX, α, γ)
+    out = similar(dX, Float64)
+    for k in axes(X, 2)
+        out[1, k] = dX[1, k] - α * X[1, k]
+        out[2, k] = dX[2, k] + γ * X[2, k]
+    end
+    return out
+end
+'''
+cases = [
+  "[3.0 2.0; 1.0 1.5], [1.2 0.0; 0.6 0.0], 1.3, 1.8",
+  "[1.0 2.0 3.0; 1.0 1.0 1.0], zeros(2, 3), 1.0, 1.0",
+  "reshape([2.5, 0.5], 2, 1), reshape([0.1, -0.2], 2, 1), 1.3, 1.8",
+]
+gen = "rng -> [(n = rand(rng, 1:40); (3rand(rng, 2, n), randn(rng, 2, n), 0.5 + rand(rng), 0.5 + 2rand(rng))) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "The UDE says derivative = known part + network, so the network's target is the derivative with the known part taken away.",
+  "Mind the sign of the death term: the known part of the predator equation is `-γ y`.",
+]
+
+  [problem.perf]
+  args = "3rand(rng, 2, n), randn(rng, 2, n), 1.3, 1.8"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "subtracts +γ y instead of -γ y"
+  code = '''
+function missing_term_targets(X, dX, α, γ)
+    return vcat(dX[1:1, :] .- α .* X[1:1, :], dX[2:2, :] .- γ .* X[2:2, :])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "known part minus derivative (sign of the whole target flipped)"
+  code = '''
+function missing_term_targets(X, dX, α, γ)
+    return vcat(α .* X[1:1, :] .- dX[1:1, :], -γ .* X[2:2, :] .- dX[2:2, :])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "one broadcast with a column of rates"
+  code = '''
+missing_term_targets(X, dX, α, γ) = dX .- [α, -γ] .* X
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "builds a new 2-vector for every column"
+  code = '''
+missing_term_targets(X, dX, α, γ) = reduce(hcat, [dX[:, k] - [α * X[1, k], -γ * X[2, k]] for k in axes(X, 2)])
+'''
+  expect = ["correct", "allocates"]

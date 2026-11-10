@@ -1,0 +1,890 @@
+id = "36-daes"
+title = "DAEs and acausal modelling"
+track = "scicomp"
+env = "mtk"
+status = "ready"
+summary = "Differential-algebraic equations: the mass-matrix form, the differential index and why a high index breaks implicit solvers, the Cartesian pendulum (index 3) failing as written and working after the constraint is differentiated by hand, the drift that index reduction leaves and a projection that removes it, consistent initial conditions, and acausal circuit components compiled with ModelingToolkitBase and checked against the exact solution."
+kcs = ["dae", "differential-index", "index-reduction", "consistent-initialization", "acausal-modelling"]
+prerequisites = ["23-derivatives", "24-differential-equations", "35-stiffness"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+Unit 24 solved equations of the form `u' = f(u, p, t)`, where every unknown
+has a derivative. Physical models often also contain equations with no
+derivative at all: a rod of fixed length, Kirchhoff's current law. This
+unit is about those systems. It relies on four facts:
+
+* **An implicit step solves a linear system** with the matrix `I - hJ`
+  (Newton's method; unit 35, section "Backward Euler: an implicit step by
+  hand"). `Rodas5P` and `FBDF` do this at every step (unit 35, section "Why
+  Rodas5P wins: counting the work").
+* **Tolerances bound each step's error**, not the error at the end, so a
+  quantity that should stay constant is a check worth computing (unit 24,
+  section "Tolerances, and checking against an exact answer").
+* **Callbacks change the state between steps** (unit 24, section "Events
+  and callbacks: a bouncing ball"); here a `DiscreteCallback` projects the
+  state back onto a constraint.
+* **The condition number** `cond(A)` says how much a linear solve with `A`
+  can amplify errors (unit 20, section "LinearAlgebra: matrices and solving
+  systems").
+
+The environment holds OrdinaryDiffEq 7, ModelingToolkitBase and
+ModelingToolkitStandardLibrary. Every check in this unit is against an
+exact solution or an exact invariant.
+'''
+
+[[section]]
+title = "Algebraic equations beside differential ones: mass-matrix form"
+body = '''
+A **differential-algebraic equation** (DAE) mixes the two kinds:
+
+    x' = f(x, z)      differential equations for x
+    0  = g(x, z)      algebraic equations, which z must satisfy at every t
+
+Stack the unknowns as `u = [x; z]` and the system becomes `M u' = F(u)`
+with a **mass matrix** `M` that has ones for the differential rows and
+zeros for the algebraic ones. Because `M` is singular there is no
+`u' = M⁻¹ F(u)`, so an explicit method like `Tsit5` cannot take a step. An
+implicit method can: it solves `(M - hγJ) Δu = ...` at each step, and that
+matrix can be invertible even when `M` is not. In OrdinaryDiffEq you pass
+`ODEFunction(f; mass_matrix = M)` and pick a method that accepts it
+(`Rodas5P`, `Rosenbrock23`, `FBDF` in this environment).
+
+The algebraic equations also constrain the start: `u0` must satisfy
+`0 = g(x0, z0)`. OrdinaryDiffEq 7 checks this by default and refuses an
+inconsistent `u0` instead of silently changing it.
+
+The example uses `x' = -z`, `0 = 2z - x`: the algebraic equation gives
+`z = x / 2`, so `x' = -x / 2` and `x(t) = exp(-t / 2)`.
+'''
+
+  [[section.example]]
+  caption = "A two-equation DAE in mass-matrix form, solved with `Rodas5P` and compared with `exp(-t/2)` at t = 2; then the same problem with `Tsit5`, and with an inconsistent starting `z`."
+  notice = "Notice that the solver kept `z = x / 2` to rounding and matched the exact solution to about `1e-13`, that `Tsit5` refuses a mass matrix, and that a `z0` violating `0 = 2z - x` is an error (with the residual it measured) rather than a quietly repaired start."
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+dae!(du, u, p, t) = (du[1] = -u[2]; du[2] = 2u[2] - u[1])
+M = Diagonal([1.0, 0.0])                  # row 2 is algebraic
+prob = ODEProblem(ODEFunction(dae!; mass_matrix = M), [1.0, 0.5], (0.0, 2.0))
+sol = solve(prob, Rodas5P(); abstol = 1e-12, reltol = 1e-12)
+x, z = sol.u[end]
+println("error in x(2) below 1e-12: ", abs(x - exp(-1.0)) < 1e-12, ";  0 = 2z - x holds to 1e-14: ", abs(2z - x) < 1e-14)
+for (label, alg, u0) in (("Tsit5", Tsit5(), [1.0, 0.5]), ("Rodas5P, z0 = 3", Rodas5P(), [1.0, 3.0]))
+    try
+        solve(remake(prob; u0 = u0), alg; abstol = 1e-10, reltol = 1e-10)
+    catch e
+        println(label, ": ", first(split(sprint(showerror, e), '\n')))
+    end
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why can `Rodas5P` step a system `M u' = F(u)` with a singular `M` when `Tsit5` cannot?"
+  choices = [
+    "It solves with `M - hγJ`, which can be invertible when `M` is not",
+    "It applies a pseudo-inverse of `M`, then steps explicitly",
+    "It drops the algebraic rows and integrates only the differential ones",
+  ]
+  answer = 1
+  explain = "An explicit method needs `u'` itself, which would mean solving `M u' = F` for `u'`: impossible with a singular `M`. An implicit or Rosenbrock method solves for the step instead, with the matrix `M - hγJ`; the algebraic rows of `J` (here `∂(2z - x)/∂z = 2`) fill in what `M` lacks."
+  misconceptions = [
+    "",
+    "A pseudo-inverse would give some `u'`, but it would not enforce `0 = g(x, z)`; the algebraic rows are equations to satisfy, not derivatives to approximate.",
+    "Dropping the algebraic rows would leave `z` undetermined; the solver keeps them and satisfies them at every step, as `abs(2z - x) < 1e-14` shows.",
+  ]
+
+[[section]]
+title = "The differential index"
+body = '''
+The **differential index** is the number of times you must differentiate
+the algebraic equations (with respect to `t`) before the system can be
+rewritten as an ODE for all unknowns. It measures how hidden the
+algebraic variables are.
+
+* **Index 1**: the algebraic equations can be solved for `z` directly,
+  because `∂g/∂z` is invertible. In the last example `∂g/∂z = 2`.
+  Differentiating `0 = g` once gives `z'`.
+* **Index 2**: `g` does not contain `z` (so `∂g/∂z = 0`), but its first
+  derivative does. Example: `x' = z`, `0 = x - sin(t)`. Differentiating
+  once gives `0 = x' - cos(t) = z - cos(t)`, an index-1 equation; one more
+  differentiation gives `z'`.
+* **Index 3**: two differentiations are needed before `z` appears, as in
+  the pendulum of the next section.
+
+The index predicts how badly an implicit solver suffers. In its Newton
+matrix `M - hJ` the differential rows tend to `I` as `h → 0`, while the
+algebraic rows are `-h` times the derivatives of `g`: they shrink with `h`.
+As written, the condition number therefore grows like `h^-k` for index `k`,
+already `h^-1` for index 1. That part is only a matter of scale: dividing
+the algebraic rows by `h` (an equivalent linear system) removes one factor,
+leaving `h^-(k-1)`. For index 1 the scaled matrix stays well conditioned,
+because the block `∂g/∂z` is invertible. For a higher index that block is
+zero and the matrix is invertible only through the `h`-sized coupling, so
+even the scaled condition number grows. The example measures both for the
+pendulum written three ways (its equations are in the next section).
+
+Conditioning is not the only trouble. For index 2 and 3 the solver's error
+estimate for the algebraic variable (here `λ`) does not shrink with `h` as
+the method's order promises (**order reduction**), so the step-size control
+keeps cutting `h` and the step is rejected again and again.
+'''
+
+  [[section.example]]
+  caption = "`cond(M - hJ)` for the pendulum at one state on the circle, with the algebraic equation written at index 1, 2 and 3, first as it stands and then with the algebraic row divided by `h` (the Jacobians are written out by hand from the equations of the next section; rounded to 2 digits)."
+  notice = "Notice the growth per factor of 10 in `h` at the smallest steps: as written about 10, 100 and 1000 for index 1, 2 and 3; scaled, none for index 1 and 10 and 100 for index 2 and 3. At `h = 1e-3` the index-3 matrix as written has a condition number near `5e8`, so a Newton step can lose about 9 of its 16 digits; an adaptive solver that shrinks `h` to fix its error makes this worse, not better."
+  code = '''
+using LinearAlgebra
+g = 9.81
+x, y, u, v = 0.6, -0.8, 0.8, 0.6                     # on the unit circle, velocity tangent
+λ = (u^2 + v^2 - g * y) / (x^2 + y^2)
+top = [0 0 1 0 0; 0 0 0 1 0; -λ 0 0 0 -x; 0 -λ 0 0 -y]   # rows of x' = u, y' = v, u' = -λx, v' = -λy - g
+J1 = [top; 2x*λ 2y*λ+g -2u -2v x^2+y^2]              # λ(x² + y²) - (u² + v²) + g y = 0
+J2 = [top; u v x y 0]                                # x u + y v = 0
+J3 = [top; 2x 2y 0 0 0]                              # x² + y² - 1 = 0
+M = Diagonal([1.0, 1, 1, 1, 0])
+for (label, S) in (("as written", h -> I), ("row 5 / h", h -> Diagonal([1, 1, 1, 1, 1 / h])))
+    println(label)
+    for h in (1e-1, 1e-2, 1e-3)
+        c = [round(cond(S(h) * (M - h * J)); sigdigits = 2) for J in (J1, J2, J3)]
+        println("  h = ", rpad(h, 6), " index 1: ", rpad(c[1], 8), " index 2: ", rpad(c[2], 9), " index 3: ", c[3])
+    end
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The index-2 system `x' = z`, `0 = x` has `M = Diagonal([1, 0])` and `J = [0 1; 1 0]`, so `M - hJ = [1 -h; -h 0]`. What does this print?"
+  code = '''
+using LinearAlgebra
+c(h) = cond([1.0 -h; -h 0.0])
+round(c(1e-3) / c(1e-2); sigdigits = 2)
+'''
+  choices = ["10.0", "100.0", "1000.0", "1.0"]
+  answer = 2
+  explain = "The eigenvalues of `[1 -h; -h 0]` are about `1` and `-h^2`, so the condition number is about `1 / h^2`: index 2 gives `h^-2`, and dividing `h` by 10 multiplies it by 100."
+  misconceptions = [
+    "A factor of 10 per decade is the index-1 behaviour of the unscaled matrix (`h^-1`); here `g = x` does not contain `z`, which makes the index 2.",
+    "",
+    "A factor of 1000 is the index-3 growth; this system needs only two differentiations of `0 = x` before `z'` appears.",
+    "A constant condition number is what index 1 gives once the algebraic row is divided by `h`; this matrix is unscaled, and its `∂g/∂z = 0`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "What is the index of `x' = -x + z`, `0 = z^3 + z - x`?"
+  choices = [
+    "1, since `∂g/∂z = 3z^2 + 1` is never zero",
+    "3, since `z` appears in `g` to the third power",
+    "0, since every unknown has an equation",
+  ]
+  answer = 1
+  explain = "The algebraic equation can be solved for `z` (numerically, by Newton) at every `x` because `∂g/∂z = 3z^2 + 1 >= 1`. One differentiation gives `z' = x' / (3z^2 + 1)`, an ODE. The index counts differentiations, not powers."
+  misconceptions = [
+    "",
+    "The exponent of `z` has nothing to do with the index; what counts is how many differentiations of `g` it takes before `z'` can be solved for.",
+    "Index 0 is a plain ODE (no algebraic equations); having one equation per unknown makes a DAE square, not index 0.",
+  ]
+
+[[section]]
+title = "The pendulum in Cartesian coordinates is index 3"
+body = '''
+A point mass (`m = 1`) on a rod of length 1, in Cartesian coordinates
+`(x, y)` with velocities `(u, v)` and rod tension `λ` (per unit length):
+
+    x' = u,    y' = v
+    u' = -λ x, v' = -λ y - g
+    0  = x² + y² - 1                       (the rod)
+
+The constraint does not contain `λ`, so it is not index 1.
+Differentiating it once gives the **velocity constraint**
+`0 = x u + y v` (the velocity is tangent to the circle), which still lacks
+`λ`. Differentiating again and substituting `u'` and `v'`:
+
+    0 = u² + v² + x u' + y v' = u² + v² - λ (x² + y²) - g y
+
+which contains `λ`: an index-1 equation. One more differentiation would
+give `λ'`, so the original system has index 3. This is the textbook
+example of the ModelingToolkit documentation's page on [automated index
+reduction](https://docs.sciml.ai/ModelingToolkit/stable/examples/modelingtoolkitize_index_reduction/),
+which explains the failure the same way: Newton's matrix is singular, and
+the trouble is the formulation, not the solver.
+
+The example solves all three forms, starting horizontal and at rest
+(`λ = 0` there, consistent with all three).
+'''
+
+  [[section.example]]
+  caption = "The pendulum with the algebraic row at index 3, 2 and 1, solved by `Rodas5P` to t = 10 at `abstol = reltol = 1e-8`. The drift `x² + y² - 1` at the end is shown as a bound. Warnings are switched off with `verbose = DEVerbosity(SciMLLogging.None())` so that only the return code shows."
+  notice = "Notice that the index-3 form stops at the very start with `Unstable` (the solver forced its step below rounding level), and that the index-2 and index-1 forms finish within `1e-7` of the circle, a few times the tolerance `1e-8`."
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+const g = 9.81
+function pendulum!(du, z, row5)
+    x, y, u, v, λ = z
+    du[1] = u; du[2] = v; du[3] = -λ * x; du[4] = -λ * y - g
+    du[5] = row5(x, y, u, v, λ)
+end
+rows = (("index 3", (x, y, u, v, λ) -> x^2 + y^2 - 1),
+        ("index 2", (x, y, u, v, λ) -> x * u + y * v),
+        ("index 1", (x, y, u, v, λ) -> λ * (x^2 + y^2) - (u^2 + v^2) + g * y))
+quiet = DEVerbosity(SciMLLogging.None())
+for (name, row5) in rows
+    f = ODEFunction((du, z, p, t) -> pendulum!(du, z, row5); mass_matrix = Diagonal([1.0, 1, 1, 1, 0]))
+    sol = solve(ODEProblem(f, [1.0, 0.0, 0.0, 0.0, 0.0], (0.0, 10.0)), Rodas5P(); abstol = 1e-8, reltol = 1e-8, verbose = quiet)
+    x, y = sol.u[end]
+    println(name, ": ", sol.retcode, ", reached t = 10: ", sol.t[end] == 10.0,
+            sol.t[end] == 10.0 ? string(", |x² + y² - 1| < 1e-7: ", abs(x^2 + y^2 - 1) < 1e-7) : "")
+end
+'''
+
+  [[section.example]]
+  caption = "Where the steps go: accepted and rejected steps of `Rodas5P` for the three forms, and the time reached (same settings). Step counts depend on the machine's rounding, so this is not compared between runs."
+  notice = "Notice that the index-3 form rejects step after step before it gives up: its error estimate for `λ` does not shrink when `h` does. The index-2 form rejects few steps but needs a few hundred times as many as index 1: its error estimate shrinks only at a reduced order, so the accepted steps are tiny. Index 1 is what implicit solvers are built for."
+  check = false
+  code = '''
+using OrdinaryDiffEq, LinearAlgebra
+const g = 9.81
+function pendulum!(du, z, row5)
+    x, y, u, v, λ = z
+    du[1] = u; du[2] = v; du[3] = -λ * x; du[4] = -λ * y - g
+    du[5] = row5(x, y, u, v, λ)
+end
+for (name, row5) in (("index 3", (x, y, u, v, λ) -> x^2 + y^2 - 1),
+                     ("index 2", (x, y, u, v, λ) -> x * u + y * v),
+                     ("index 1", (x, y, u, v, λ) -> λ * (x^2 + y^2) - (u^2 + v^2) + g * y))
+    f = ODEFunction((du, z, p, t) -> pendulum!(du, z, row5); mass_matrix = Diagonal([1.0, 1, 1, 1, 0]))
+    sol = solve(ODEProblem(f, [1.0, 0.0, 0.0, 0.0, 0.0], (0.0, 10.0)), Rodas5P(); abstol = 1e-8, reltol = 1e-8,
+                verbose = DEVerbosity(SciMLLogging.None()))
+    println(name, ": ", sol.stats.naccept, " accepted, ", sol.stats.nreject, " rejected, reached t = ", round(sol.t[end]; sigdigits = 2))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The index-3 pendulum fails with `Unstable` at the very start. A colleague suggests tightening `abstol` and `reltol` to `1e-12`. What do you expect?"
+  choices = [
+    "The same failure, since shorter steps worsen the Newton matrix",
+    "Success, but with many more steps, as for any stiff problem",
+    "Success at about the same cost, since the start was consistent",
+  ]
+  answer = 1
+  explain = "The failure comes from the formulation: the error estimate for `λ` does not shrink with `h`, so a tighter tolerance only makes the solver cut `h` sooner, and `cond(M - hJ)` grows like `h^-3`, so each shorter step's Newton solve is less accurate. Reduce the index instead."
+  misconceptions = [
+    "",
+    "Stiffness is cured by implicit methods; a high index is not, because the implicit method's own linear solve is what degrades as `h` shrinks.",
+    "A consistent start is necessary but not sufficient: the solver also has to solve the singular-in-the-limit Newton system at every step.",
+  ]
+
+[[section]]
+title = "Index reduction by hand, and the drift it leaves"
+body = '''
+**Index reduction** replaces the original constraint by a differentiated
+one that a solver can handle. Solving the index-1 equation for `λ`,
+
+    λ = (u² + v² - g y) / (x² + y²)
+
+and substituting it turns the pendulum into a plain ODE in `(x, y, u, v)`
+that `Tsit5` solves. The price: the reduced system enforces only the
+**second derivative** of the rod constraint. Its solutions satisfy
+`d²/dt² (x² + y² - 1) = 0` exactly, so any error in `x² + y² - 1` or in
+`x u + y v` that a step introduces is never corrected. Each step adds a
+little to the error in `x u + y v`, so that error grows like `t`, and the
+length error, which integrates it, grows like `t²`. This is **drift**.
+
+Two standard cures:
+
+* **Projection** after each step: rescale `(x, y)` to length 1 and remove
+  the radial part of `(u, v)`. Both are explicit formulas here, done with a
+  `DiscreteCallback`.
+* **Keep the original constraint** in the system and drop a matching
+  differential equation (the dummy-derivative method). That is what
+  automated index reduction does; it needs the full ModelingToolkit, which
+  this environment does not include (see the last section).
+
+The example measures the drift and the energy `E = (u² + v²) / 2 + g y`,
+which is 0 at the start and stays 0 for the exact solution.
+'''
+
+  [[section.example]]
+  caption = "The index-reduced pendulum (a plain ODE) with `Tsit5`: drift `x² + y² - 1` at the end, for two end times and two tolerances (rounded to 1 digit)."
+  notice = "Notice that the drift grows about a hundredfold when the time grows tenfold (`t²`, as the error in `x u + y v` accumulates), and shrinks with the tolerance: the reduced ODE is solved accurately, but nothing pulls it back to the circle."
+  code = '''
+using OrdinaryDiffEq
+const g = 9.81
+function reduced!(du, z, p, t)
+    x, y, u, v = z
+    λ = (u^2 + v^2 - g * y) / (x^2 + y^2)
+    du[1] = u; du[2] = v; du[3] = -λ * x; du[4] = -λ * y - g
+end
+for T in (10.0, 100.0), tol in (1e-6, 1e-9)
+    sol = solve(ODEProblem(reduced!, [1.0, 0.0, 0.0, 0.0], (0.0, T)), Tsit5(); abstol = tol, reltol = tol)
+    x, y = sol.u[end]
+    println("T = ", rpad(T, 6), " tol = ", tol, ":  x² + y² - 1 ≈ ", round(x^2 + y^2 - 1; sigdigits = 1))
+end
+'''
+
+  [[section.example]]
+  caption = "The same ODE to t = 100 at `tol = 1e-6`, without and with a projection after every step: largest drift and largest energy error at the times 0, 1, ..., 100 (rounded to 1 digit)."
+  notice = "Notice that the projection cuts the drift by more than four orders of magnitude and the energy error by more than two, although it was not asked to conserve energy: keeping the state on the constraint keeps it closer to the true motion. The drift left is one step's worth, because `saveat` interpolates between the projected step ends."
+  code = '''
+using OrdinaryDiffEq
+const g = 9.81
+function reduced!(du, z, p, t)
+    x, y, u, v = z
+    λ = (u^2 + v^2 - g * y) / (x^2 + y^2)
+    du[1] = u; du[2] = v; du[3] = -λ * x; du[4] = -λ * y - g
+end
+function project!(integrator)
+    x, y, u, v = integrator.u
+    r = hypot(x, y)
+    x, y = x / r, y / r
+    s = x * u + y * v                        # radial velocity
+    integrator.u .= (x, y, u - s * x, v - s * y)
+end
+projection = DiscreteCallback((u, t, integrator) -> true, project!; save_positions = (false, false))
+prob = ODEProblem(reduced!, [1.0, 0.0, 0.0, 0.0], (0.0, 100.0))
+for (name, cb) in (("no projection  ", nothing), ("with projection", projection))
+    sol = solve(prob, Tsit5(); abstol = 1e-6, reltol = 1e-6, callback = cb, saveat = 1.0)
+    drift = maximum(abs(z[1]^2 + z[2]^2 - 1) for z in sol.u)
+    energy = maximum(abs((z[3]^2 + z[4]^2) / 2 + g * z[2]) for z in sol.u)
+    println(name, ": max drift ≈ ", round(drift; sigdigits = 1), ", max energy error ≈ ", round(energy; sigdigits = 1))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does the index-reduced pendulum drift off the circle even though `Tsit5` solves the reduced ODE to the requested tolerance?"
+  choices = [
+    "`Tsit5` is explicit, and explicit methods cannot hold a constraint",
+    "The reduced ODE only fixes the second derivative of the length",
+    "The formula for `λ` divides by `x² + y²`, which loses digits",
+  ]
+  answer = 2
+  explain = "Differentiating twice threw away the information that the length is 1 and the radial velocity is 0. Each step's small error in those quantities is a valid initial condition for the reduced ODE, which carries it forward forever, so the length error keeps growing."
+  misconceptions = [
+    "An implicit method on the same reduced equations has nothing to correct the length either; the cause is the lost constraint, not the method.",
+    "",
+    "`x² + y²` stays near 1, so that division is well conditioned; the drift comes from errors that the reduced equations never correct.",
+  ]
+
+[[section]]
+title = "Consistent initial conditions"
+body = '''
+A DAE's initial state must satisfy not only the algebraic equations but
+also the **hidden constraints** that differentiating them produced. For the
+pendulum those are three equations:
+
+    x² + y² = 1                         position on the circle
+    x u + y v = 0                       velocity tangent to it
+    λ = (u² + v² - g y) / (x² + y²)     the tension that keeps it there
+
+A state that satisfies all three is **consistent**. The index-1 formulation
+only checks the last one, and the reduced ODE checks none: started with a
+radial velocity, it integrates without complaint and the rod stretches.
+Because `d²/dt² (x² + y²) = 0` in the reduced system, the squared length
+changes linearly at the rate `2 (x u + y v)` it was started with.
+
+To build a consistent state from a guess, project in order: position onto
+the circle, velocity onto the tangent, then compute `λ`. Full
+ModelingToolkit generates such an initialization system automatically; by
+hand it is three lines.
+'''
+
+  [[section.example]]
+  caption = "The reduced ODE from `(1, 0)` with a radial velocity `u = 0.1` added to the swing `v = -1`: the squared length at t = 1, 2 and 3, then the same start after projecting the velocity onto the tangent."
+  notice = "Notice that the squared length grows by exactly `2 × 0.1 = 0.2` per unit time (`1.2`, `1.4`, `1.6`), as the second-derivative argument predicts, and that the projected start stays on the circle."
+  code = '''
+using OrdinaryDiffEq
+const g = 9.81
+function reduced!(du, z, p, t)
+    x, y, u, v = z
+    λ = (u^2 + v^2 - g * y) / (x^2 + y^2)
+    du[1] = u; du[2] = v; du[3] = -λ * x; du[4] = -λ * y - g
+end
+function consistent(x, y, u, v)
+    r = hypot(x, y)
+    x, y = x / r, y / r
+    s = x * u + y * v
+    return [x, y, u - s * x, v - s * y]
+end
+for (name, z0) in (("raw start      ", [1.0, 0.0, 0.1, -1.0]), ("consistent start", consistent(1.0, 0.0, 0.1, -1.0)))
+    sol = solve(ODEProblem(reduced!, z0, (0.0, 3.0)), Tsit5(); abstol = 1e-10, reltol = 1e-10)
+    println(name, ": x² + y² at t = 1, 2, 3: ", [round(sol(t)[1]^2 + sol(t)[2]^2; digits = 6) for t in 1:3])
+end
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "The reduced pendulum started at `(x, y) = (1, 0)` with velocity `(u, v) = (0.05, 0.0)`, entirely radial. What does this print?"
+  code = '''
+using OrdinaryDiffEq
+const g = 9.81
+function reduced!(du, z, p, t)
+    x, y, u, v = z
+    λ = (u^2 + v^2 - g * y) / (x^2 + y^2)
+    du[1] = u; du[2] = v; du[3] = -λ * x; du[4] = -λ * y - g
+end
+sol = solve(ODEProblem(reduced!, [1.0, 0.0, 0.05, 0.0], (0.0, 2.0)), Tsit5(); abstol = 1e-10, reltol = 1e-10)
+round(sol.u[end][1]^2 + sol.u[end][2]^2; digits = 3)
+'''
+  choices = ["1.0", "1.2", "1.21", "1.1"]
+  answer = 2
+  explain = "The squared length has zero second derivative in the reduced system, so it grows linearly at its initial rate `2(x u + y v) = 0.1`: after `t = 2` it is `1 + 0.2 = 1.2`."
+  misconceptions = [
+    "The reduced ODE does not contain the rod constraint any more; nothing forces the length back to 1.",
+    "",
+    "`1.21 = (1 + 0.05 × 2)²` assumes the length itself grows linearly; it is the squared length whose second derivative is zero.",
+    "The rate of change of `x² + y²` is `2(x u + y v) = 0.1`, twice the radial speed, so two time units add 0.2.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You start the index-1 pendulum DAE (with `λ` as an unknown) at `x = 0.6, y = -0.8`, `u = 1, v = 0`, and `λ` from the formula. OrdinaryDiffEq accepts the start. What is wrong with it?"
+  choices = [
+    "Nothing: the algebraic equation holds, so the start is consistent",
+    "The velocity is not tangent, so the squared length drifts from t = 0",
+    "The position is off the circle, so the solver will reject the first step",
+  ]
+  answer = 2
+  explain = "`x u + y v = 0.6` is not zero: the velocity has a radial component. The solver checks only the equations it was given (the index-1 row), so the hidden velocity constraint goes unchecked and the rod stretches from the first step."
+  misconceptions = [
+    "The index-1 row is satisfied, but consistency also requires the hidden constraints that the differentiations removed.",
+    "",
+    "`0.6² + 0.8² = 1`, so the position is on the circle; the violated hidden constraint is the velocity one, and no step is rejected for it.",
+  ]
+
+[[section]]
+title = "Acausal components: an RC circuit with ModelingToolkitBase"
+body = '''
+Writing `M u' = F(u)` by hand gets error-prone for a circuit with many
+parts. **Acausal** (equation-based) modelling describes each component by
+its own equations, with **connectors** (pins with a voltage and a current)
+and no notion of input or output. `connect(a, b)` adds the connection
+laws: equal voltages at joined pins, currents summing to zero
+(Kirchhoff). The tool assembles the system, simplifies it and generates
+the right-hand side.
+
+ModelingToolkitStandardLibrary provides `Resistor`, `Capacitor`,
+`Voltage`, `Ground` and many more, written with ModelingToolkitBase. A
+model is a `System(equations, t; systems = [...])`; `mtkcompile` expands
+the connections and produces something a solver accepts. Solutions are
+indexed **symbolically**: `sol[capacitor.v]` or `sol(t; idxs = capacitor.v)`,
+which keeps working when the compiler reorders the unknowns.
+
+For a source `V` charging a capacitor `C` through a resistor `R` from 0,
+the exact capacitor voltage is `V (1 - exp(-t / (RC)))`.
+'''
+
+  [[section.example]]
+  caption = "An RC circuit (R = 1, C = 1, V = 1) from library components, compiled with `mtkcompile` and solved with `Rodas5P`; the capacitor voltage is read symbolically and compared with `1 - exp(-t)`."
+  notice = "Notice that the compiled system still has 17 equations, 16 of them algebraic, so a mass-matrix solver is needed; only the 5 trivial equations went to the observed set. The result agrees with the exact charging curve to below `1e-11`, within the solver tolerance."
+  code = '''
+using ModelingToolkitBase, OrdinaryDiffEq
+using ModelingToolkitStandardLibrary.Electrical
+using ModelingToolkitStandardLibrary.Blocks: Constant
+using ModelingToolkitBase: t_nounits as t
+@named resistor = Resistor(R = 1.0)
+@named capacitor = Capacitor(C = 1.0, v = 0.0)
+@named source = Voltage()
+@named input = Constant(k = 1.0)
+@named ground = Ground()
+eqs = [connect(input.output, source.V),
+       connect(source.p, resistor.p),
+       connect(resistor.n, capacitor.p),
+       connect(capacitor.n, source.n, ground.g)]
+@named rc = System(eqs, t; systems = [resistor, capacitor, source, input, ground])
+sys = mtkcompile(rc)
+neq = length(equations(sys))
+println(neq, " equations, ", count(eq -> !ModelingToolkitBase.isdiffeq(eq), equations(sys)), " algebraic, ",
+        length(observed(sys)), " moved to observed")
+sol = solve(ODEProblem(sys, [], (0.0, 5.0)), Rodas5P(); abstol = 1e-12, reltol = 1e-12)
+err = maximum(abs(sol(τ; idxs = capacitor.v) - (1 - exp(-τ))) for τ in 0:0.5:5)
+println("max error against 1 - exp(-t): below 1e-11: ", err < 1e-11)
+println("current at t = 5 ≈ exp(-5): ", round(sol(5.0; idxs = resistor.i); digits = 6), " vs ", round(exp(-5); digits = 6))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why index the RC solution as `sol[capacitor.v]` rather than `sol[1, :]`?"
+  choices = [
+    "`mtkcompile` picks the order of the unknowns",
+    "Symbolic indexing is faster than integer indexing on a solution",
+    "`sol[1, :]` would return the time points, not a state",
+  ]
+  answer = 1
+  explain = "The compiler decides which variables become unknowns, which become observed (computed from the others) and in what order; `unknowns(sys)` shows its choice. A symbolic index asks for the variable by name, including observed ones such as `resistor.i` when it was eliminated."
+  misconceptions = [
+    "",
+    "Symbolic indexing is a lookup on top of the same arrays; the reason to use it is correctness when the layout changes, not speed.",
+    "`sol[1, :]` is the first state component over time; the times are `sol.t`. The trouble is that you do not know which variable is first.",
+  ]
+
+[[section]]
+title = "What ModelingToolkitBase does, and what it leaves to you"
+body = '''
+`mtkcompile` in ModelingToolkitBase (MIT-licensed, version 1.80 here) does
+the bookkeeping: it expands connections, turns second derivatives into
+pairs of first-order equations, and generates code. Its only
+simplification is **trivial alias removal**: equations such as `a ~ b` move
+to the observed set. There is **no tearing** (the remaining algebraic
+equations stay) and **no index reduction**. Do not expect a warning about a
+high index either: its message "This may also be a high-index DAE, which
+ModelingToolkitBase.jl cannot handle" appears only when there are fewer
+equations than unknowns, and a square high-index system compiles
+silently. So:
+
+* The RC circuit above kept 16 algebraic equations. The [ModelingToolkit
+  documentation](https://docs.sciml.ai/ModelingToolkit/stable/) lists
+  "alias elimination and tearing of nonlinear systems" among its
+  transformations; with them, this circuit would reduce to one ODE for the
+  capacitor voltage.
+* The Cartesian pendulum compiles (5 equations, 5 unknowns), but as the
+  index-3 system, and fails in the solver like the hand-written one. The
+  full package's `dae_index_lowering` (the Pantelides algorithm, in its
+  [index reduction example](https://docs.sciml.ai/ModelingToolkit/stable/examples/modelingtoolkitize_index_reduction/))
+  would differentiate the constraint for you. Here you do it by hand and
+  give ModelingToolkitBase the index-1 equation.
+
+The full ModelingToolkit is not part of this course's environments; with
+the hand reduction from this unit, ModelingToolkitBase is enough for the
+models here.
+'''
+
+  [[section.example]]
+  caption = "The pendulum written with `D(D(x))` in ModelingToolkitBase: first with the rod constraint (index 3), then with the hand-differentiated index-1 equation. The index-3 problem's initialization warning (all five values are given, so its initialization system is overdetermined) is switched off with `MTKVerbosity`."
+  notice = "Notice that `mtkcompile` accepts both and turns the second derivatives into first-order pairs (`xˍt` is `x'`), that the index-3 form fails exactly as by hand, and that the index-1 form solves, with results read by name: the drift stays below `1e-6`, and `λ` starts at 0 because the start has no speed and `y = 0`, so `λ = (u² + v² - g y) / (x² + y²)` is 0 (at rest at the bottom it would be `g`)."
+  code = '''
+using ModelingToolkitBase, OrdinaryDiffEq
+using ModelingToolkitBase: t_nounits as t, D_nounits as D
+@parameters g = 9.81
+@variables x(t) y(t) λ(t)
+quiet = MTKVerbosity(initialization = SciMLLogging.Silent())
+rod = [D(D(x)) ~ -λ * x, D(D(y)) ~ -λ * y - g]
+@named pend3 = System([rod; 0 ~ x^2 + y^2 - 1], t)
+sys3 = mtkcompile(pend3)
+println(length(equations(sys3)), " equations in ", join(string.(unknowns(sys3)), ", "))
+start = [x => 1.0, y => 0.0, D(x) => 0.0, D(y) => 0.0]
+sol3 = solve(ODEProblem(sys3, [start; λ => 0.0], (0.0, 10.0); verbose = quiet), Rodas5P(); verbose = DEVerbosity(SciMLLogging.None()))
+println("index 3: ", sol3.retcode)
+@named pend1 = System([rod; 0 ~ λ * (x^2 + y^2) - (D(x)^2 + D(y)^2) + g * y], t)
+sys1 = mtkcompile(pend1)
+sol1 = solve(ODEProblem(sys1, start, (0.0, 10.0); guesses = [λ => 0.0]), Rodas5P(); abstol = 1e-8, reltol = 1e-8)
+println("index 1: ", sol1.retcode, ", |x² + y² - 1| at t = 10 below 1e-6: ", abs(sol1(10.0; idxs = x^2 + y^2 - 1)) < 1e-6,
+        ", λ(0) = ", sol1[λ][1])
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You build a circuit from ModelingToolkitStandardLibrary components and call `mtkcompile` in ModelingToolkitBase. Which solver call do you expect to work?"
+  choices = [
+    "`solve(prob, Tsit5())`, since the compiler produced an ODE",
+    "`solve(prob, Rodas5P())`, since algebraic equations remain in it",
+    "Neither, since circuits need a `DAEProblem` and a special solver",
+  ]
+  answer = 2
+  explain = "Without tearing, the compiled system keeps the circuit's algebraic equations and comes with a singular mass matrix; `Tsit5` refuses a mass matrix, while `Rodas5P` and `FBDF` accept it. A `DAEProblem` (fully implicit form) is another route, not a requirement."
+  misconceptions = [
+    "That is what full ModelingToolkit's tearing would give; ModelingToolkitBase leaves the algebraic equations in place, as the 17-equation RC system shows.",
+    "",
+    "The mass-matrix `ODEProblem` that `mtkcompile` produces is a DAE already; `Rodas5P` solved the RC circuit in this form.",
+  ]
+
+[[problem]]
+id = "dae-pendulum-multiplier"
+title = "The multiplier from the differentiated constraint"
+difficulty = "warm-up"
+kcs = ["index-reduction", "dae"]
+entry = "pendulum_multiplier"
+packages = ["OrdinaryDiffEq"]
+prompt = '''
+A pendulum of mass `m` in Cartesian coordinates:
+
+    m x'' = -λ x,    m y'' = -λ y - m g,    0 = x² + y² - L²
+
+Differentiate the constraint twice, substitute `x''` and `y''`, and solve
+for `λ`. Write `pendulum_multiplier(x, y, u, v, m, g)` that returns the
+value of `λ` that makes the **second derivative of `x² + y²` zero** at the
+state `(x, y)` with velocity `(u, v) = (x', y')`. Return a `Float64`.
+
+The function is not given `L`: use `x² + y²` as it is at the given state.
+On a consistent state that equals `L²`, and the formula with `x² + y²` is
+the one the index-reduced system uses. The cases have radii between 0.5
+and 1.5.
+
+```julia
+pendulum_multiplier(1.0, 0.0, 0.0, 0.0, 1.0, 9.81)     # 0.0: horizontal, at rest
+pendulum_multiplier(0.0, -1.0, 2.0, 0.0, 1.0, 9.81)    # 13.81: bottom, moving
+```
+
+Results are compared with `rtol = 1e-10`: the formula has a handful of
+operations, so any correct arrangement agrees to a few `eps()`.
+'''
+starter = '''
+function pendulum_multiplier(x, y, u, v, m, g)
+    # d²/dt² (x² + y²) = 0, with x'' and y'' from the equations of motion
+end
+'''
+reference = '''
+function pendulum_multiplier(x, y, u, v, m, g)
+    # 0 = u² + v² + x x'' + y y''  with  x'' = -λx/m,  y'' = -λy/m - g
+    return m * (u^2 + v^2 - g * y) / (x^2 + y^2)
+end
+'''
+cases = [
+  "1.0, 0.0, 0.0, 0.0, 1.0, 9.81",
+  "0.0, -1.0, 2.0, 0.0, 1.0, 9.81",
+  "0.6, -0.8, 0.8, 0.6, 2.0, 9.81",
+  "1.5, 0.0, 0.0, -3.0, 0.5, 9.81",
+  "0.3, 0.95, -1.0, 0.2, 1.0, 1.62",
+]
+gen = "rng -> [(θ = 2pi * rand(rng); r = 0.5 + rand(rng); ω = 3randn(rng); (r * sin(θ), -r * cos(θ), r * ω * cos(θ) + 0.01randn(rng), r * ω * sin(θ), 0.1 + rand(rng), 9.81)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Differentiate `x² + y²` twice: you get `2(u² + v²) + 2(x x'' + y y'')`. Set it to zero.",
+  "Substitute `x'' = -λx/m` and `y'' = -λy/m - g` and collect the terms that contain `λ` on one side; what multiplies `λ` there is what you divide by.",
+]
+
+  [problem.perf]
+  args = "0.6, -0.8, 0.8, 0.6, 2.0, 9.81"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "divides by 1 (assumes L = 1 and x² + y² = 1)"
+  code = '''
+pendulum_multiplier(x, y, u, v, m, g) = m * (u^2 + v^2 - g * y)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "forgets the velocity terms (the statics of the pendulum)"
+  code = '''
+pendulum_multiplier(x, y, u, v, m, g) = -m * g * y / (x^2 + y^2)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "drops the mass"
+  code = '''
+pendulum_multiplier(x, y, u, v, m, g) = (u^2 + v^2 - g * y) / (x^2 + y^2)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "written with hypot"
+  code = '''
+function pendulum_multiplier(x, y, u, v, m, g)
+    speed2 = hypot(u, v)^2
+    return m * (speed2 - g * y) / hypot(x, y)^2
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "dae-consistent-state"
+title = "A consistent initial state for the pendulum"
+difficulty = "core"
+kcs = ["consistent-initialization", "dae"]
+entry = "consistent_state"
+packages = ["OrdinaryDiffEq"]
+prompt = '''
+The pendulum `x'' = -λx`, `y'' = -λy - g`, `0 = x² + y² - L²` (mass 1)
+needs a start that satisfies all its hidden constraints. Write
+`consistent_state(x, y, u, v, L, g)` that turns a guess into the
+consistent state `[x, y, u, v, λ]` (a `Vector{Float64}` of length 5):
+
+1. scale `(x, y)` along its direction to length `L`;
+2. remove the radial part of the velocity: subtract from `(u, v)` its
+   projection on the unit vector `(x, y) / L` of the new position;
+3. compute `λ = (u² + v² - g y) / L²` from the new position and velocity.
+
+```julia
+consistent_state(2.0, 0.0, 0.1, -1.0, 1.0, 9.81)   # [1.0, 0.0, 0.0, -1.0, 1.0]
+```
+
+The guess `(x, y)` is never the origin. Results are compared with
+`rtol = 1e-10`: each step is a few operations on values of size 1 to 10.
+'''
+starter = '''
+function consistent_state(x, y, u, v, L, g)
+    return [x, y, u, v, 0.0]
+end
+'''
+reference = '''
+function consistent_state(x, y, u, v, L, g)
+    r = hypot(x, y)
+    ex, ey = x / r, y / r                 # unit vector along the rod
+    x, y = L * ex, L * ey                 # position on the circle
+    s = ex * u + ey * v                   # radial speed
+    u, v = u - s * ex, v - s * ey         # tangent velocity
+    λ = (u^2 + v^2 - g * y) / L^2
+    return [x, y, u, v, λ]
+end
+'''
+cases = [
+  "2.0, 0.0, 0.1, -1.0, 1.0, 9.81",
+  "0.6, -0.8, 0.8, 0.6, 1.0, 9.81",
+  "0.3, -0.3, 0.0, 0.0, 2.0, 9.81",
+  "-1.0, 1.0, 1.0, 1.0, 1.5, 9.81",
+  "0.0, -0.5, 2.0, 0.7, 1.0, 1.62",
+]
+gen = "rng -> [(randn(rng), randn(rng) - 0.1, 2randn(rng), 2randn(rng), 0.5 + rand(rng), 9.81) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+check_type = true
+hints = [
+  "Do the three steps in order: the velocity projection must use the direction of the corrected position, and `λ` must use the corrected position and velocity.",
+  "The radial speed is the dot product of `(u, v)` with the unit vector `(x, y) / |(x, y)|`; subtract that speed times the unit vector.",
+]
+
+  [problem.perf]
+  args = "0.6, -0.8, 0.8, 0.6, 1.0, 9.81"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "keeps the radial velocity"
+  code = '''
+function consistent_state(x, y, u, v, L, g)
+    r = hypot(x, y)
+    x, y = L * x / r, L * y / r
+    return [x, y, u, v, (u^2 + v^2 - g * y) / L^2]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "computes λ from the guess before correcting it"
+  code = '''
+function consistent_state(x, y, u, v, L, g)
+    λ = (u^2 + v^2 - g * y) / (x^2 + y^2)
+    r = hypot(x, y)
+    ex, ey = x / r, y / r
+    s = ex * u + ey * v
+    return [L * ex, L * ey, u - s * ex, v - s * ey, λ]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "projects with the unnormalized position vector"
+  code = '''
+function consistent_state(x, y, u, v, L, g)
+    s = x * u + y * v
+    u, v = u - s * x, v - s * y
+    r = hypot(x, y)
+    x, y = L * x / r, L * y / r
+    return [x, y, u, v, (u^2 + v^2 - g * y) / L^2]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "with LinearAlgebra vectors"
+  code = '''
+using LinearAlgebra
+function consistent_state(x, y, u, v, L, g)
+    e = normalize([x, y])
+    w = [u, v] - dot([u, v], e) * e
+    p = L * e
+    return [p; w; (dot(w, w) - g * p[2]) / L^2]
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "dae-divider-rc"
+title = "A voltage divider charging a capacitor"
+difficulty = "stretch"
+kcs = ["dae", "acausal-modelling"]
+entry = "divider_voltage"
+packages = ["OrdinaryDiffEq"]
+prompt = '''
+A constant source `V` feeds a resistor `R1` into a node; from the node, a
+resistor `R2` and a capacitor `C` (uncharged at t = 0) both go to ground.
+Write `divider_voltage(V, R1, R2, C, ts)` that returns the capacitor
+voltage at each time in `ts` (a `Vector{Float64}`).
+
+The node equations, with unknowns `[v, i1, i2, iC]` (capacitor voltage,
+currents through `R1`, `R2`, `C`), form a mass-matrix DAE:
+
+    C v' = iC                    (capacitor)
+    0 = V - v - R1 i1            (R1)
+    0 = v - R2 i2                (R2)
+    0 = i1 - i2 - iC             (Kirchhoff at the node)
+
+Eliminate the three algebraic unknowns by hand (index 1: each algebraic
+row can be solved for one current) to get a scalar linear ODE for `v`,
+solve it exactly (it has the form `a (1 - exp(-t / τ))`), and return that.
+Before submitting, check your formula in the sandbox against a `Rodas5P`
+solve of the DAE with a **consistent** start (`v = 0` fixes the three
+currents) and `saveat = ts`.
+
+```julia
+divider_voltage(1.0, 1.0, 1.0, 1.0, [0.0, 1.0])   # [0.0, 0.5 (1 - exp(-2))]
+```
+
+Results are compared with `rtol = 1e-6`. The reference is the exact
+formula; a DAE solve at `abstol = reltol = 1e-10` agrees with it to about
+`1e-9` and would pass, but compiling `Rodas5P` takes most of the grading
+time limit, so a solution that calls the solver may time out. Submit the
+formula.
+'''
+starter = '''
+function divider_voltage(V, R1, R2, C, ts)
+    return zeros(length(ts))
+end
+'''
+reference = '''
+function divider_voltage(V, R1, R2, C, ts)
+    # i1 = (V - v)/R1, i2 = v/R2, iC = i1 - i2  =>  C v' = (V - v)/R1 - v/R2
+    vinf = V * R2 / (R1 + R2)            # steady state: the divider
+    τ = C * R1 * R2 / (R1 + R2)          # C times R1 and R2 in parallel
+    return [vinf * (1 - exp(-t / τ)) for t in ts]
+end
+'''
+cases = [
+  "1.0, 1.0, 1.0, 1.0, [0.0, 1.0]",
+  "5.0, 2.0, 3.0, 0.5, [0.0, 0.25, 0.5, 1.0, 2.0]",
+  "12.0, 100.0, 50.0, 0.01, collect(0.0:0.1:1.0)",
+  "1.0, 1.0, 10.0, 2.0, [0.5, 3.0, 10.0]",
+]
+compare = "isapprox"
+rtol = 1e-6
+hints = [
+  "Each algebraic row contains one current that it determines from `v`: solve the `R1` row for `i1` and the `R2` row for `i2`, then Kirchhoff gives `iC`.",
+  "Substitute `i1 = (V - v)/R1` and `i2 = v/R2` into Kirchhoff's row: you get `C v' = (V - v)/R1 - v/R2`, linear in `v`. Its steady state and its rate give `a` and `τ`.",
+]
+
+  [problem.perf]
+  args = "5.0, 2.0, 3.0, 0.5, collect(range(0.0, 5.0; length = n))"
+  sizes = [20]
+
+  [[problem.variant]]
+  label = "plain RC: ignores R2"
+  code = '''
+divider_voltage(V, R1, R2, C, ts) = [V * (1 - exp(-t / (R1 * C))) for t in ts]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "right final voltage, time constant R1 C"
+  code = '''
+divider_voltage(V, R1, R2, C, ts) = [V * R2 / (R1 + R2) * (1 - exp(-t / (R1 * C))) for t in ts]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "time constant from R1 and R2 in series"
+  code = '''
+divider_voltage(V, R1, R2, C, ts) = [V * R2 / (R1 + R2) * (1 - exp(-t / ((R1 + R2) * C))) for t in ts]
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the exact formula written as one expression"
+  code = '''
+divider_voltage(V, R1, R2, C, ts) = (V * R2 / (R1 + R2)) .* (1 .- exp.(-ts ./ (C * R1 * R2 / (R1 + R2))))
+'''
+  expect = ["correct", "fast"]

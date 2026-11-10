@@ -401,7 +401,9 @@ hints = [
 
   [problem.perf]
   args = "randstring(rng, \"ab\", n)"
-  sizes = [1000, 16000]
+  # 2000 to 32000: at the old 1000 to 16000 the CI runner measured the `*=`
+  # variant as slow but not as worse growth (fixed overhead hides n^2 at n = 1000).
+  sizes = [2000, 32000]
 
   [[problem.variant]]
   label = "forgets the last run"

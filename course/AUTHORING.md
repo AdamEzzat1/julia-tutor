@@ -247,7 +247,10 @@ costs tens of seconds.
 
 Correctness: the learner's function and the reference run on every case;
 results compare with `isequal` (or `isapprox`, applied element by element
-through tuples, pairs and arrays), result types must match when
+through tuples, pairs and arrays of non-numbers; an array of numbers is
+compared as a whole, `norm(a - b) <= rtol * max(norm(a), norm(b))`, so a
+near-zero entry next to large ones does not need its own tolerance; a scalar
+near zero does), result types must match when
 `check_type` is true (`3` vs `3.0` is a real bug in Julia), and when the
 reference throws, the learner must throw the same exception type.
 

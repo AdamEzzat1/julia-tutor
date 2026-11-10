@@ -889,7 +889,9 @@ end
 using Roots
 eccentric_anomaly(M, e) = only(find_zeros(E -> E - e * sin(E) - M, 0.0, 2π))
 '''
-  expect = ["correct", "slow"]
+  # Not "slow": one call at a fixed size; the CI runner measures it 2-5x the
+  # reference (slower, below the slow threshold), this host above 5x.
+  expect = ["correct", "allocates"]
 
 [[problem]]
 id = "opt-regularized-min"

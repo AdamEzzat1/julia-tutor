@@ -143,7 +143,8 @@ function call(f, args)
 end
 
 # isapprox element by element through tuples and arrays of non-numbers
-# (Base has no isapprox for tuples); exact `isequal` for anything else.
+# (Base has no isapprox for tuples); an array of numbers goes to Base's
+# isapprox as a whole, which is norm-wise; exact `isequal` for anything else.
 approx(a::Tuple, b::Tuple, rtol) = length(a) == length(b) && all(approx(x, y, rtol) for (x, y) in zip(a, b))
 approx(a::Pair, b::Pair, rtol) = approx(a.first, b.first, rtol) && approx(a.second, b.second, rtol)
 function approx(a::AbstractArray, b::AbstractArray, rtol)
@@ -387,7 +388,11 @@ end
 function grade_main(jobpath, outpath)
     job = TOML.parsefile(jobpath)
     res = Dict{String,Any}("status" => "ok", "phase" => "load")
-    save() = open(io -> TOML.print(io, res; sorted = true), outpath, "w")
+    # Write to a temporary file and rename: a child killed mid-write (timeout,
+    # out of memory) must leave no result or a whole one, never a partial file
+    # the parent would read without a "status" key.
+    save() = (open(io -> TOML.print(io, res; sorted = true), outpath * ".part", "w");
+              mv(outpath * ".part", outpath; force = true))
     # Named modules bound in Main, not `Module()`: an anonymous module is rooted
     # only by local variables, and once those are dead the GC may free it while
     # the function types defined in it still point at it (observed: an access

@@ -1,0 +1,825 @@
+id = "43-sensitivities"
+title = "Fitting ODE parameters: sensitivities and Optimization.jl"
+track = "sciml"
+env = "sciml"
+status = "ready"
+summary = "Fitting the parameters of an ODE to data: a loss computed through a solve, forward sensitivity equations written by hand and checked against ForwardDiff, gradients through `solve` with an explicit SciMLSensitivity `sensealg` cross-checked by finite differences, the fit itself with Optimization.jl compared with unit 25's Optim.jl calls, and why forward sensitivities get expensive as the number of parameters grows."
+kcs = ["ode-parameter-fitting", "forward-sensitivity", "sensealg", "optimization-jl"]
+prerequisites = ["23-derivatives", "24-differential-equations", "25-optimization", "26-machine-learning", "30-floating-point", "31-convergence"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit differentiates the solution of an ODE with respect to its
+parameters and then minimises a loss with those gradients. It relies on
+four facts from earlier units; revisit the section named if one is unclear.
+
+* **Dual numbers carry derivatives through ordinary code** (unit 23,
+  "Dual numbers: forward-mode AD by hand"). A generic function run on duals
+  returns its value and its derivative; `ForwardDiff.gradient` and
+  `ForwardDiff.jacobian` do this for you.
+* **Forward mode costs in proportion to the number of inputs** (unit 23,
+  "The cost of forward mode, and reverse mode"): one evaluation per chunk of
+  at most 12 partials, while reverse mode costs a few evaluations whatever
+  the number of inputs.
+* **`f!(du, u, p, t)` and `remake`** (unit 24, "In-place right-hand sides,
+  parameters and allocation"): parameters travel with the problem, and
+  `remake(prob; p = new_p)` re-solves with new values. Tight tolerances
+  (unit 24, "Tolerances, and checking against an exact answer") decide how
+  many digits of a solution you can trust.
+* **Gradient-based minimisation and its result object** (unit 25,
+  "Minimising with Optim.jl: Nelder-Mead and BFGS" and "Why gradients
+  matter: automatic differentiation and call counts"): BFGS needs a gradient,
+  the AD backend is an ADTypes object such as `AutoForwardDiff()`, and you
+  check convergence before trusting the minimizer.
+
+Every example here loads `OrdinaryDiffEq` (the ODE solvers that
+DifferentialEquations.jl re-exports in unit 24) rather than the whole
+DifferentialEquations package.
+'''
+
+[[section]]
+title = "A loss computed through a solve"
+body = '''
+Fitting means choosing parameters `p` so that the model's solution passes
+close to measurements. With data `d[:, k]` at times `t_k`, the usual loss is
+the sum of squared residuals
+
+    L(p) = Σ_k ‖u(t_k; p) - d[:, k]‖²
+
+where `u(t; p)` is the solution of `du/dt = f(u, p, t)`. Every evaluation of
+`L` is a full solve, and the solution enters only at the data times, which
+`saveat = ts` provides (unit 24).
+
+The data here are **simulated**: solve the Lotka-Volterra model of unit 24
+with known parameters `(α, β, γ, δ) = (1.5, 1, 3, 1)` and add Gaussian noise
+of standard deviation 0.05 from a `StableRNG`. StableRNGs.jl gives the same
+stream on every Julia version, which `Xoshiro` does not promise. Knowing the
+true parameters is what lets you check a fit: a method that does not find
+them on simulated data will not find them on real data.
+
+The loss is smooth in `p` but not convex: away from the truth the predicted
+cycles drift out of phase with the data, and the loss can rise and fall
+again. A gradient method started far from the truth can stop in such a
+local minimum.
+'''
+
+  [[section.example]]
+  caption = "Simulated data and the loss along one parameter: α varies, the other three stay at their true values (losses rounded to 2 significant digits)."
+  notice = "Notice that the smallest loss is at the true α = 1.5, and that it is not zero there: the noise is part of the data (about 42 values with variance 0.0025 sum to about 0.1)."
+  code = '''
+using OrdinaryDiffEq, StableRNGs
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = δ * u[1] * u[2] - γ * u[2]
+    return nothing
+end
+ts = 0.0:0.5:10.0
+prob = ODEProblem(lv!, [1.0, 1.0], (0.0, 10.0), [1.5, 1.0, 3.0, 1.0])
+clean = Array(solve(prob, Tsit5(); saveat = ts, abstol = 1e-10, reltol = 1e-10))
+data = clean .+ 0.05 .* randn(StableRNG(1), size(clean))
+loss(p) = sum(abs2, Array(solve(remake(prob; p = p), Tsit5(); saveat = ts, abstol = 1e-10, reltol = 1e-10)) .- data)
+println("data: ", size(data, 1), " species at ", size(data, 2), " times")
+for α in (1.0, 1.25, 1.5, 1.75, 2.0)
+    println("α = ", rpad(α, 5), " loss = ", round(loss([α, 1.0, 3.0, 1.0]); sigdigits = 2))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why fit the model to data simulated from known parameters before fitting real measurements?"
+  choices = [
+    "Simulated data have no noise, so the loss is exactly zero at the answer",
+    "The true parameters are known, so you can check what the fit recovers",
+    "Solvers are more accurate on simulated data than on measured data",
+  ]
+  answer = 2
+  explain = "On simulated data the right answer is known, so a failure (a wrong local minimum, a bug in the loss, a gradient that is off) shows up as a wrong parameter. On real data you cannot tell a bad fit from a bad model."
+  misconceptions = [
+    "The example adds noise on purpose, and its loss at the true parameters is about 0.1, not 0: noise keeps the minimum above zero.",
+    "",
+    "The solver integrates the model, not the data; the data only enter the loss, so their origin does not change the solver's accuracy.",
+  ]
+
+[[section]]
+title = "Forward sensitivities by hand"
+body = '''
+The gradient of `L` needs `∂u(t_k)/∂p`, the **sensitivity** of the solution
+to each parameter. Write `S(t)` for the `n × m` matrix with entries
+`S[i, j] = ∂u_i/∂p_j` (`n` states, `m` parameters). Differentiating
+`du/dt = f(u, p, t)` with respect to `p` and swapping the order of the
+derivatives gives another ODE for `S`:
+
+    dS/dt = J(t) S + F(t),    J = ∂f/∂u (n × n),   F = ∂f/∂p (n × m)
+
+with `S(0) = 0` when the initial state does not depend on `p`. These are the
+**forward sensitivity equations**. Solve them together with `u`, in one
+augmented state of length `n + n m`, and the gradient of the loss follows by
+the chain rule: `∂L/∂p_j = Σ_k 2 (u(t_k) - d_k) ⋅ S(t_k)[:, j]`.
+
+For Lotka-Volterra, `n = 2` and `m = 4`, so the augmented system has
+`2 + 8 = 10` states:
+
+    J = [α - βy   -βx      ]      F = [x   -xy   0    0 ]
+        [δy        δx - γ  ]          [0    0   -y   xy ]
+
+Running the solver on dual numbers (`ForwardDiff.jacobian` of the final
+state) computes the same matrix a different way: it differentiates the
+solver's arithmetic. Both answers are approximations of the exact `S` at the
+solver's tolerance, so they agree to about that tolerance, not to rounding.
+'''
+
+  [[section.example]]
+  caption = "The augmented system solved with `Tsit5`, against ForwardDiff through the solver, both at `abstol = reltol = 1e-10`."
+  notice = "Notice that the hand-written equations and the dual numbers give the same 2 × 4 matrix. The bound `1e-7` sits well above the solver tolerance `1e-10` on purpose: both results are solver approximations of `S`, and the tolerance bounds the error of each step, not the global error after ten time units (unit 31, \"Local error and global error\")."
+  code = '''
+using OrdinaryDiffEq, ForwardDiff
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = δ * u[1] * u[2] - γ * u[2]
+    return nothing
+end
+function lv_sensitivity!(dz, z, p, t)
+    α, β, γ, δ = p
+    x, y = z[1], z[2]
+    lv!(view(dz, 1:2), view(z, 1:2), p, t)
+    J = [α-β*y -β*x; δ*y δ*x-γ]
+    F = [x -x*y 0 0; 0 0 -y x*y]
+    S = reshape(view(z, 3:10), 2, 4)
+    dz[3:10] .= vec(J * S .+ F)
+    return nothing
+end
+p = [1.5, 1.0, 3.0, 1.0]
+z0 = vcat([1.0, 1.0], zeros(8))                 # S(0) = 0: u0 does not depend on p
+zT = solve(ODEProblem(lv_sensitivity!, z0, (0.0, 10.0), p), Tsit5(); abstol = 1e-10, reltol = 1e-10).u[end]
+S_hand = reshape(zT[3:10], 2, 4)
+prob = ODEProblem(lv!, [1.0, 1.0], (0.0, 10.0), p)
+final_state(q) = solve(remake(prob; p = q), Tsit5(); abstol = 1e-10, reltol = 1e-10, save_everystep = false).u[end]
+S_dual = ForwardDiff.jacobian(final_state, p)
+println("augmented states: ", length(z0))
+println("relative difference < 1e-7: ", maximum(abs.(S_hand .- S_dual)) / maximum(abs.(S_dual)) < 1e-7)
+round.(S_dual; digits = 2)
+'''
+
+  [[section.question]]
+  kind = "output"
+  prompt = "A model has 3 states and 5 parameters. How long is the augmented state of its forward sensitivity system?"
+  code = '''
+n, m = 3, 5
+u0 = ones(n)
+z0 = vcat(u0, vec(zeros(n, m)))
+length(z0)
+'''
+  choices = ["8", "15", "18", "28"]
+  answer = 3
+  explain = "The state itself (3) plus one sensitivity per state and parameter (3 × 5 = 15): `n + n m = 18`. Each new parameter adds `n` more equations."
+  misconceptions = [
+    "That adds the counts: a sensitivity is needed for every pair of a state and a parameter, not one per parameter.",
+    "That is the sensitivity matrix alone; the augmented system also carries the 3 states, since `J` and `F` depend on them.",
+    "",
+    "That is `n + m²`: the sensitivities pair each state with each parameter, an `n × m` matrix, not `m × m`.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "You now also fit the initial prey population `x0` as a fifth parameter. What changes in the sensitivity system?"
+  choices = [
+    "Nothing: initial values are not parameters of `f`",
+    "`S` gets a fifth column whose initial value is `[1, 0]`",
+    "`F` gets a fifth column equal to `[1, 0]` at every time",
+  ]
+  answer = 2
+  explain = "`f` does not contain `x0`, so the new column of `F` is zero, but `∂u(0)/∂x0 = [1, 0]`: the sensitivity starts at that value and the `J S` term carries it forward."
+  misconceptions = [
+    "The solution depends on `x0`, so its sensitivity is not zero; it enters through the initial condition instead of through `f`.",
+    "",
+    "`F = ∂f/∂p` and `f` has no `x0` in it, so that column of `F` is zero; the dependence enters through `S(0)`.",
+  ]
+
+[[section]]
+title = "Gradients through solve: SciMLSensitivity and an explicit sensealg"
+body = '''
+Writing the sensitivity equations by hand does not scale to every model.
+There are two automatic routes, and both appear in this course:
+
+* **ForwardDiff through the solver.** `ForwardDiff.gradient(loss, p)` runs
+  the whole solve on dual numbers, as the previous example did with
+  `ForwardDiff.jacobian`. Nothing special is needed beyond a generic `f`.
+* **Reverse-mode AD (Zygote) with a rule for `solve`.** Zygote cannot
+  differentiate the solver's internals (they mutate arrays, unit 26,
+  "Gradients with Zygote"). Loading
+  [SciMLSensitivity.jl](https://docs.sciml.ai/SciMLSensitivity/stable/)
+  gives `solve` a derivative rule, and the keyword `sensealg` chooses how
+  that rule computes the derivative.
+
+This course always passes `sensealg` explicitly, so that the method is a
+decision you can see. `ForwardDiffSensitivity()` computes the derivatives
+with dual numbers inside the rule (forward mode); the
+[sensitivity guide](https://docs.sciml.ai/SciMLSensitivity/stable/manual/differential_equation_sensitivities/)
+calls it the fastest choice for small numbers of parameters (it says under
+100). Unit 44 adds the adjoint methods for the other case.
+
+An AD gradient through a solve is the exact derivative of the solver's
+arithmetic, which approximates the derivative of the true solution only to
+the solver's tolerance. So check it by a second, independent method:
+central differences (unit 23, "Three ways to get a derivative") need only
+values of the loss. Their truncation error is of order `h²` (unit 31,
+"Richardson extrapolation: two steps make a better answer"), `1e-10`
+relative for `h = 1e-5`. Each loss value also carries the solver's error,
+which the step choice can change by about the tolerance from one `p` to the
+next, and the difference of two nearby loss values keeps that error while
+losing the shared leading digits (unit 30, "Cancellation is exact, and
+exposes earlier errors"). Dividing by `2h` turns `1e-10` into a few times
+`1e-6` absolute.
+'''
+
+  [[section.example]]
+  caption = "The gradient of the loss at a wrong guess, three ways: Zygote with `ForwardDiffSensitivity`, ForwardDiff through the solver, and central differences (`h = 1e-5`)."
+  notice = "Notice that the two AD gradients agree to better than `1e-8` relative, and central differences to better than `1e-7` relative and `1e-5` absolute, the size the tolerance argument above predicts; the gradient itself is printed rounded to 3 digits."
+  code = '''
+using OrdinaryDiffEq, SciMLSensitivity, ForwardDiff, Zygote, StableRNGs
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = δ * u[1] * u[2] - γ * u[2]
+    return nothing
+end
+ts = 0.0:0.5:10.0
+prob = ODEProblem(lv!, [1.0, 1.0], (0.0, 10.0), [1.5, 1.0, 3.0, 1.0])
+data = Array(solve(prob, Tsit5(); saveat = ts, abstol = 1e-10, reltol = 1e-10)) .+ 0.05 .* randn(StableRNG(1), 2, 21)
+function loss(p)
+    sol = solve(remake(prob; p = p), Tsit5(); saveat = ts, abstol = 1e-10, reltol = 1e-10,
+                sensealg = ForwardDiffSensitivity())
+    return sum(abs2, Array(sol) .- data)
+end
+function central_gradient(f, p, h)
+    g = similar(p)
+    q = copy(p)
+    for i in eachindex(p)
+        q[i] = p[i] + h; fp = f(q)
+        q[i] = p[i] - h; fm = f(q)
+        q[i] = p[i]
+        g[i] = (fp - fm) / (2h)
+    end
+    return g
+end
+p = [1.4, 1.0, 3.0, 1.0]
+g_zygote = Zygote.gradient(loss, p)[1]
+g_dual = ForwardDiff.gradient(loss, p)
+g_fd = central_gradient(loss, p, 1e-5)
+relerr(a, b) = maximum(abs.(a .- b) ./ abs.(b))
+println("gradient ≈ ", round.(g_zygote; sigdigits = 3))
+println("Zygote vs ForwardDiff < 1e-8: ", relerr(g_zygote, g_dual) < 1e-8)
+println("Zygote vs central differences < 1e-7 relative: ", relerr(g_zygote, g_fd) < 1e-7,
+        ", < 1e-5 absolute: ", maximum(abs.(g_zygote .- g_fd)) < 1e-5)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "What does the `sensealg` keyword of `solve` control?"
+  choices = [
+    "How the derivative rule for `solve` computes gradients for Zygote",
+    "Which ODE algorithm (`Tsit5` or `Rodas5P`) the forward solve itself uses",
+    "The tolerance at which the derivative of the solution is computed",
+  ]
+  answer = 1
+  explain = "The forward solve uses the algorithm you pass (`Tsit5()` here); `sensealg` selects the method SciMLSensitivity's rule for `solve` uses to produce derivatives: dual numbers (`ForwardDiffSensitivity`), forward sensitivity equations, or an adjoint (unit 44)."
+  misconceptions = [
+    "",
+    "The solver is the positional argument; `sensealg` picks the differentiation method on top of it.",
+    "Tolerances stay `abstol` and `reltol`; some sensitivity methods accept their own, but `sensealg` names a method.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Your AD gradient and a central-difference gradient of the same loss differ in the fifth digit. What is the first thing to check?"
+  choices = [
+    "Nothing: AD through a solver is always wrong in the last digits",
+    "Whether the solver tolerances are tight enough for the step `h`",
+    "Whether Zygote was replaced by ForwardDiff, which is more exact",
+  ]
+  answer = 2
+  explain = "The finite difference divides a change in the loss by `2h`, so solver error of size `tol` in each loss value becomes an error of up to about `tol / h` in the gradient. At `reltol = 1e-10` and `h = 1e-5` the example's gap stays below `1e-5` absolute and `1e-7` relative; at looser tolerances it grows in proportion, so tighten the tolerances (or enlarge `h`) before suspecting the AD result."
+  misconceptions = [
+    "In the example the two methods agree to better than `1e-7` relative at tight tolerances; a gap in the fifth digit has a cause to find.",
+    "",
+    "Both AD routes differentiate the same solver arithmetic and agreed to better than `1e-8` relative in the example; switching backends does not fix a finite-difference error.",
+  ]
+
+[[section]]
+title = "The fit with Optimization.jl, next to Optim.jl"
+body = '''
+Unit 25 called Optim.jl directly:
+`optimize(f, x0, BFGS(); autodiff = AutoForwardDiff())`.
+[Optimization.jl](https://docs.sciml.ai/Optimization/stable/) puts one
+interface in front of many optimizer packages, and the SciML tutorials use
+it. Three things change:
+
+* **The AD backend moves into the function.**
+  `OptimizationFunction(f, AutoForwardDiff())` pairs the objective with the
+  backend that differentiates it; `AutoZygote()` would use reverse mode.
+* **The objective takes two arguments**, `f(p, data)`. The second is fixed
+  data passed through `OptimizationProblem(optf, p0, data)`; with no data
+  it is `SciMLBase.NullParameters()`, which `_` ignores.
+* **The optimizer comes from a wrapper package.** `BFGS()` and `LBFGS()`
+  here come from OptimizationOptimJL (which calls Optim.jl), `Adam` from
+  OptimizationOptimisers. `solve(prob, optimizer; maxiters)` runs it and
+  returns a solution with `sol.u` (the minimizer), `sol.objective` (the
+  loss there) and `sol.retcode`.
+
+The first example runs the same BFGS through both interfaces from two
+starts. It also shows why a good start matters: from a start where α, β and
+δ are 20% low and γ is 7% low, BFGS ends in a local minimum with a loss 2000 times larger,
+and still reports `Success`, because its stopping test (a small gradient)
+holds at any minimum. Check the fit, not only the return code: compare with
+the truth on simulated data, plot the prediction against the data on real
+data.
+'''
+
+  [[section.example]]
+  caption = "BFGS through Optimization.jl and through Optim.jl (reached as `OptimizationOptimJL.Optim`), from two start points. Parameters rounded to 3 digits, losses to 2."
+  notice = "Notice that both interfaces return the same minimizer, that the good start recovers the parameters to within 0.1 but not exactly (the noise moves the minimum: the fitted loss 0.068 is below the 0.072 of the true parameters in the first example), and that the bad start ends far away with the same `Success`."
+  code = '''
+using OrdinaryDiffEq, ForwardDiff, StableRNGs, Optimization, OptimizationOptimJL
+const Optim = OptimizationOptimJL.Optim
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = δ * u[1] * u[2] - γ * u[2]
+    return nothing
+end
+ts = 0.0:0.5:10.0
+ptrue = [1.5, 1.0, 3.0, 1.0]
+prob = ODEProblem(lv!, [1.0, 1.0], (0.0, 10.0), ptrue)
+data = Array(solve(prob, Tsit5(); saveat = ts, abstol = 1e-10, reltol = 1e-10)) .+ 0.05 .* randn(StableRNG(1), 2, 21)
+function loss(p)
+    sol = solve(remake(prob; p = p), Tsit5(); saveat = ts, abstol = 1e-10, reltol = 1e-10,
+                verbose = DEVerbosity(SciMLLogging.None()))   # line searches try wild p; silence their warnings
+    SciMLBase.successful_retcode(sol) || return Inf           # a failed solve is a bad fit, not an error
+    return sum(abs2, Array(sol) .- data)
+end
+optf = OptimizationFunction((p, _) -> loss(p), Optimization.AutoForwardDiff())
+for p0 in ([1.4, 0.9, 3.2, 1.1], [1.2, 0.8, 2.8, 0.8])
+    sol = solve(OptimizationProblem(optf, p0), BFGS())
+    res = Optim.optimize(loss, p0, Optim.BFGS(); autodiff = Optim.ADTypes.AutoForwardDiff())
+    println("start ", p0, ": ", sol.retcode, ", p = ", round.(sol.u; digits = 3), ", loss = ", round(sol.objective; sigdigits = 2))
+    println("   same as Optim.jl: ", maximum(abs.(sol.u .- Optim.minimizer(res))) < 1e-8,
+            ", within 0.1 of the truth: ", maximum(abs.(sol.u .- ptrue)) < 0.1)
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In Optimization.jl, where do you choose ForwardDiff as the AD backend?"
+  choices = [
+    "As `autodiff = AutoForwardDiff()` in the call to `solve`",
+    "As the second argument of `OptimizationFunction(f, ...)`",
+    "As the `sensealg` keyword of the ODE solve inside the loss",
+  ]
+  answer = 2
+  explain = "`OptimizationFunction(f, AutoForwardDiff())` attaches the backend to the objective; `solve(prob, BFGS())` then asks it for gradients. Optim.jl's own `optimize` takes `autodiff` as a keyword instead, which is the main change from unit 25."
+  misconceptions = [
+    "That is Optim.jl's own keyword (unit 25); Optimization.jl's `solve` takes the optimizer and options such as `maxiters`.",
+    "",
+    "`sensealg` tells SciMLSensitivity how to differentiate the ODE solve when Zygote asks; the optimizer's backend is set on the objective.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "BFGS returns `ReturnCode.Success` with a loss 2000 times larger than at another start. What does `Success` mean here?"
+  choices = [
+    "The parameters are within the default tolerance of the best possible fit",
+    "Its gradient test held, which any local minimum also satisfies",
+    "The optimizer checked several starts and this was the best one",
+  ]
+  answer = 2
+  explain = "A gradient method stops where the gradient is (nearly) zero. It cannot know whether a lower valley exists elsewhere. On a non-convex loss, try several starts or start from a physically reasonable guess, and judge the fit by its loss and its prediction."
+  misconceptions = [
+    "No optimizer knows the best fit; it tests local conditions (gradient, step size, change in the loss).",
+    "",
+    "BFGS follows one path from the start you gave; trying several starts is something you do around it.",
+  ]
+
+[[section]]
+title = "What forward sensitivities cost as parameters grow"
+body = '''
+Forward mode carries one derivative direction per parameter. In the
+hand-written version that is visible in the state length, `n + n m`: every
+parameter adds `n` equations, and every step of the solver works on all of
+them. ForwardDiff through the solver does the same work in chunks: one
+solve per chunk of up to 12 partials (unit 23), and each of those solves
+carries every partial of its chunk through every operation. A gradient
+therefore costs about `m` times one plain solve, whether the partials come
+in one chunk or in several.
+
+The example below fits the entries of a matrix in the linear system
+`du/dt = A u`: with `n` states there are `m = n²` parameters, so doubling
+`n` multiplies the parameters by four. The time of one gradient grows
+faster than the time of one solve, because the solve gets more expensive
+with `n` and the gradient needs more chunks with `m`.
+
+For four Lotka-Volterra parameters none of this matters. For a model with
+hundreds of parameters (a neural network inside an ODE, unit 44) forward
+sensitivities become the bottleneck, and the adjoint method, whose cost
+does not grow with `m`, takes over.
+'''
+
+  [[section.example]]
+  caption = "One loss gradient by ForwardDiff through `Tsit5`, for `du/dt = A u` with `m = n²` parameters. Timings vary between machines, so they are recorded, not checked; the state and chunk counts are exact."
+  notice = "Notice that the forward sensitivity system grows like `n³` (`n + n · n²` states), and that the gradient time grows much faster than the solve time."
+  check = false
+  code = '''
+using OrdinaryDiffEq, ForwardDiff
+decay!(du, u, p, t) = (du .= p * u; nothing)               # p is the matrix A
+for n in (2, 4, 8)
+    A = -2.0 * [i == j ? 1.0 : 0.1 / n for i in 1:n, j in 1:n]
+    prob = ODEProblem(decay!, ones(n), (0.0, 1.0), A)
+    loss(a) = sum(abs2, solve(remake(prob; p = a), Tsit5(); saveat = 0.1, abstol = 1e-8, reltol = 1e-8))
+    loss(A); ForwardDiff.gradient(loss, A)                  # compile first
+    t_solve = minimum(@elapsed(loss(A)) for _ in 1:20)
+    t_grad = minimum(@elapsed(ForwardDiff.gradient(loss, A)) for _ in 1:5)
+    m = n^2
+    println("n = ", n, ", m = ", lpad(m, 2), ": sensitivity states ", lpad(n + n * m, 3), ", chunks ",
+            cld(m, ForwardDiff.pickchunksize(m)), ", gradient / solve time ≈ ", round(Int, t_grad / t_solve))
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A model has 3 states and 4 parameters, and you need the gradient of a scalar loss. A colleague says reverse mode is always cheaper for gradients. What do you use?"
+  choices = [
+    "Reverse mode, since a scalar loss always makes it the cheaper choice",
+    "`ForwardDiffSensitivity`: few parameters favour forward mode",
+    "Central differences, since 4 parameters need only 8 extra solves",
+  ]
+  answer = 2
+  explain = "With 4 parameters forward mode costs one solve on 4-wide duals; reverse mode through a solver needs a forward solve, a backward solve and the bookkeeping between them. The sensitivity guide's rule of thumb puts the switch around 100 parameters, and unit 44 measures both."
+  misconceptions = [
+    "Reverse mode's cost does not grow with the number of parameters, but it starts higher; for a handful of parameters forward mode wins.",
+    "",
+    "Eight solves are more work than one dual solve, and the result carries a step-size error that AD does not have.",
+  ]
+
+[[problem]]
+id = "sens-lv-loss"
+title = "The loss of a Lotka-Volterra fit"
+difficulty = "warm-up"
+kcs = ["ode-parameter-fitting"]
+entry = "lv_loss"
+packages = ["OrdinaryDiffEq"]
+prompt = '''
+Write `lv_loss(p, data, ts)` for the Lotka-Volterra model
+
+    dx/dt = α*x - β*x*y
+    dy/dt = δ*x*y - γ*y
+
+with `p = [α, β, γ, δ]` (a `Vector{Float64}`), starting from `[x, y] = [1, 1]`
+at `t = 0`. `ts` is a sorted vector of times starting at `0.0`, and `data` a
+`2 × length(ts)` matrix of measurements at those times (`data[:, k]` at
+`ts[k]`). Return the sum of squared differences between the solution at the
+times `ts` and `data`, a `Float64`.
+
+Solve with `Tsit5()` and `abstol = 1e-10, reltol = 1e-10`. Results are
+compared with `rtol = 1e-6`.
+
+```julia
+lv_loss([1.5, 1.0, 3.0, 1.0], ones(2, 5), collect(0.0:0.5:2.0))   # ≈ 55.69
+```
+'''
+starter = '''
+using OrdinaryDiffEq
+
+function lv_loss(p, data, ts)
+    # solve the model, save at ts, compare with data
+end
+'''
+reference = '''
+using OrdinaryDiffEq
+
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = δ * u[1] * u[2] - γ * u[2]
+    return nothing
+end
+
+function lv_loss(p, data, ts)
+    prob = ODEProblem(lv!, [1.0, 1.0], (0.0, ts[end]), p)
+    sol = solve(prob, Tsit5(); saveat = ts, abstol = 1e-10, reltol = 1e-10)
+    return sum(abs2, Array(sol) .- data)
+end
+'''
+cases = [
+  "[1.5, 1.0, 3.0, 1.0], ones(2, 5), collect(0.0:0.5:2.0)",
+  "[1.0, 0.5, 1.0, 0.5], [1.0 1.2 0.9; 1.0 0.8 1.1], [0.0, 1.0, 3.0]",
+  "[1.5, 1.0, 3.0, 1.0], zeros(2, 21), collect(0.0:0.5:10.0)",
+]
+gen = "rng -> [(n = rand(rng, 3:15); ([0.5 + rand(rng), 0.5 + rand(rng), 0.5 + 2rand(rng), 0.5 + rand(rng)], 0.5 .+ rand(rng, 2, n), collect(range(0.0, 1.0 + 9rand(rng); length = n)))) for _ in 1:8]"
+compare = "isapprox"
+# rtol: at abstol = reltol = 1e-10 the loss differs from a Vern9 solve at 1e-14 by at most 1.7e-10
+# relative over 300 random inputs from the gen ranges (measured). 1e-6 leaves a wide margin for any
+# accurate solver; default tolerances miss by 6e-4 and 1.5e-3 (relative) on cases 1 and 3.
+rtol = 1e-6
+hints = [
+  "The loss depends on the solution at the data times only: the solver keeps its own steps, and `saveat` gives the values you compare.",
+  "`Array(sol)` turns the saved states into a `2 × length(ts)` matrix with the same layout as `data`.",
+]
+
+  [problem.perf]
+  args = "[1.5, 1.0, 3.0, 1.0], ones(2, 21), collect(0.0:0.5:10.0)"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "the γ and δ terms swapped"
+  code = '''
+using OrdinaryDiffEq
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = γ * u[1] * u[2] - δ * u[2]
+    return nothing
+end
+lv_loss(p, data, ts) = sum(abs2, Array(solve(ODEProblem(lv!, [1.0, 1.0], (0.0, ts[end]), p), Tsit5(); saveat = ts, abstol = 1e-10, reltol = 1e-10)) .- data)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "default tolerances"
+  code = '''
+using OrdinaryDiffEq
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = δ * u[1] * u[2] - γ * u[2]
+    return nothing
+end
+lv_loss(p, data, ts) = sum(abs2, Array(solve(ODEProblem(lv!, [1.0, 1.0], (0.0, ts[end]), p), Tsit5(); saveat = ts)) .- data)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the mean of the squares instead of the sum"
+  code = '''
+using OrdinaryDiffEq
+function lv!(du, u, p, t)
+    α, β, γ, δ = p
+    du[1] = α * u[1] - β * u[1] * u[2]
+    du[2] = δ * u[1] * u[2] - γ * u[2]
+    return nothing
+end
+lv_loss(p, data, ts) = sum(abs2, Array(solve(ODEProblem(lv!, [1.0, 1.0], (0.0, ts[end]), p), Tsit5(); saveat = ts, abstol = 1e-10, reltol = 1e-10)) .- data) / length(data)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "out-of-place right-hand side with Vern9"
+  code = '''
+using OrdinaryDiffEq
+lv((x, y), (α, β, γ, δ), t) = [α * x - β * x * y, δ * x * y - γ * y]
+function lv_loss(p, data, ts)
+    sol = solve(ODEProblem(lv, [1.0, 1.0], (0.0, ts[end]), p), Vern9(); saveat = ts, abstol = 1e-10, reltol = 1e-10)
+    return sum(abs2, Array(sol) .- data)
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "sens-forward-rhs"
+title = "The forward sensitivity right-hand side"
+difficulty = "core"
+kcs = ["forward-sensitivity"]
+entry = "lv_sensitivity_rhs"
+packages = ["ForwardDiff"]
+prompt = '''
+Write `lv_sensitivity_rhs(z, p)` that returns the right-hand side (a
+`Vector{Float64}` of length 10) of the augmented Lotka-Volterra system from
+the section "Forward sensitivities by hand". The state `z` has length 10:
+
+* `z[1:2] = [x, y]`, the state;
+* `z[3:10] = vec(S)`, the 2 × 4 sensitivity matrix `S[i, j] = ∂u_i/∂p_j`
+  stored column by column (Julia's `vec` order), for `p = [α, β, γ, δ]`.
+
+The model is `dx/dt = α x - β x y`, `dy/dt = δ x y - γ y`, and the
+sensitivities obey `dS/dt = J S + F` with `J = ∂f/∂u` and `F = ∂f/∂p`.
+Results are compared with `rtol = 1e-12`: a correct solution differs from
+the reference only by the rounding of a few products and sums.
+
+```julia
+lv_sensitivity_rhs(vcat([1.0, 1.0], zeros(8)), [1.5, 1.0, 3.0, 1.0])
+# [0.5, -2.0, 1.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 1.0]
+```
+'''
+starter = '''
+function lv_sensitivity_rhs(z, p)
+    # the first two entries are the model itself; the other eight are vec(J * S + F)
+end
+'''
+reference = '''
+function lv_sensitivity_rhs(z, p)
+    α, β, γ, δ = p
+    x, y = z[1], z[2]
+    S = reshape(z[3:10], 2, 4)
+    J = [α-β*y -β*x; δ*y δ*x-γ]
+    F = [x -x*y 0.0 0.0; 0.0 0.0 -y x*y]
+    return vcat([α * x - β * x * y, δ * x * y - γ * y], vec(J * S + F))
+end
+'''
+cases = [
+  "vcat([1.0, 1.0], zeros(8)), [1.5, 1.0, 3.0, 1.0]",
+  "collect(1.0:10.0), [1.5, 1.0, 3.0, 1.0]",
+  "[2.0, 0.5, 0.1, -0.2, 0.3, 0.0, -1.0, 2.0, 0.5, 0.25], [1.1, 0.4, 0.4, 0.1]",
+]
+gen = "rng -> [(vcat(0.1 .+ 3rand(rng, 2), randn(rng, 8)), 0.1 .+ 2rand(rng, 4)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "Differentiate each of the two right-hand sides with respect to `x` and `y` (that gives `J`, 2 × 2) and with respect to each of the four parameters (that gives `F`, 2 × 4).",
+  "`reshape(z[3:10], 2, 4)` undoes `vec`; `J * S` is 2 × 4 like `F`, and `vec` of the sum puts the last eight entries in the right order.",
+]
+
+  [problem.perf]
+  args = "vcat(rand(rng, 2), randn(rng, 8)), rand(rng, 4)"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "forgets F: only J * S"
+  code = '''
+function lv_sensitivity_rhs(z, p)
+    α, β, γ, δ = p
+    x, y = z[1], z[2]
+    S = reshape(z[3:10], 2, 4)
+    J = [α-β*y -β*x; δ*y δ*x-γ]
+    return vcat([α * x - β * x * y, δ * x * y - γ * y], vec(J * S))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "uses the transposed Jacobian"
+  code = '''
+function lv_sensitivity_rhs(z, p)
+    α, β, γ, δ = p
+    x, y = z[1], z[2]
+    S = reshape(z[3:10], 2, 4)
+    J = [α-β*y δ*y; -β*x δ*x-γ]
+    F = [x -x*y 0.0 0.0; 0.0 0.0 -y x*y]
+    return vcat([α * x - β * x * y, δ * x * y - γ * y], vec(J * S + F))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "reads S row by row instead of column by column"
+  code = '''
+function lv_sensitivity_rhs(z, p)
+    α, β, γ, δ = p
+    x, y = z[1], z[2]
+    S = permutedims(reshape(z[3:10], 4, 2))
+    J = [α-β*y -β*x; δ*y δ*x-γ]
+    F = [x -x*y 0.0 0.0; 0.0 0.0 -y x*y]
+    return vcat([α * x - β * x * y, δ * x * y - γ * y], vec(J * S + F))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "J and F from ForwardDiff.jacobian on every call"
+  code = '''
+using ForwardDiff
+lv(u, p) = [p[1] * u[1] - p[2] * u[1] * u[2], p[4] * u[1] * u[2] - p[3] * u[2]]
+function lv_sensitivity_rhs(z, p)
+    u = z[1:2]
+    S = reshape(z[3:10], 2, 4)
+    J = ForwardDiff.jacobian(v -> lv(v, p), u)
+    F = ForwardDiff.jacobian(q -> lv(u, q), p)
+    return vcat(lv(u, p), vec(J * S + F))
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "sens-central-gradient"
+title = "A finite-difference gradient to check AD"
+difficulty = "core"
+kcs = ["forward-sensitivity", "ode-parameter-fitting"]
+entry = "central_gradient"
+packages = ["ForwardDiff"]
+prompt = '''
+Write `central_gradient(f, p, h)` that returns the central-difference
+approximation of the gradient of a scalar function `f` at the vector `p`
+(both `Vector{Float64}`), with step `h` in each coordinate:
+
+    g[i] = (f(p + h e_i) - f(p - h e_i)) / (2h)
+
+where `e_i` is the `i`-th unit vector. This is the second method that
+checks a gradient through a solve in this unit.
+
+Use one work vector for all coordinates instead of building `p + h e_i`
+anew for each one: the grader measures memory, and `f` may be an ODE solve
+that copies would only slow down. Results are compared with `rtol = 1e-10`;
+the same formula gives the same digits up to rounding.
+
+```julia
+central_gradient(p -> sum(abs2, p), [1.0, 2.0], 1e-3)   # [2.0, 4.0] up to rounding
+```
+'''
+starter = '''
+function central_gradient(f, p, h)
+    # one difference quotient per coordinate
+end
+'''
+reference = '''
+function central_gradient(f, p, h)
+    g = similar(p)
+    q = copy(p)
+    for i in eachindex(p)
+        q[i] = p[i] + h
+        fp = f(q)
+        q[i] = p[i] - h
+        fm = f(q)
+        q[i] = p[i]
+        g[i] = (fp - fm) / (2h)
+    end
+    return g
+end
+'''
+cases = [
+  "p -> sum(abs2, p), [1.0, 2.0], 1e-3",
+  "p -> p[1]^3 * sin(p[2]) + exp(p[3]), [0.5, 1.0, -1.0], 1e-4",
+  "p -> exp(-p[1] * p[2]), [0.7, 2.0], 1e-4",
+]
+gen = "rng -> [(n = rand(rng, 1:8); (p -> sum(sin.(p) .* (1:length(p))) + prod(p), randn(rng, n), 1e-5 * (1 + rand(rng)))) for _ in 1:15]"
+compare = "isapprox"
+rtol = 1e-10
+hints = [
+  "Each coordinate needs two values of `f`, at `p` moved by `+h` and by `-h` in that coordinate only.",
+  "Copy `p` once before the loop, change one entry of the copy, evaluate, and restore the entry before the next coordinate.",
+]
+
+  [problem.perf]
+  args = "p -> sum(abs2, p), randn(rng, n), 1e-5"
+  sizes = [200]
+
+  [[problem.variant]]
+  label = "forward differences, (f(p + h e_i) - f(p)) / h"
+  code = '''
+function central_gradient(f, p, h)
+    g = similar(p)
+    q = copy(p)
+    f0 = f(p)
+    for i in eachindex(p)
+        q[i] = p[i] + h
+        g[i] = (f(q) - f0) / h
+        q[i] = p[i]
+    end
+    return g
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "never restores the coordinate"
+  code = '''
+function central_gradient(f, p, h)
+    g = similar(p)
+    q = copy(p)
+    for i in eachindex(p)
+        q[i] = p[i] + h
+        fp = f(q)
+        q[i] = p[i] - h
+        g[i] = (fp - f(q)) / (2h)
+    end
+    return g
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "divides by h instead of 2h"
+  code = '''
+function central_gradient(f, p, h)
+    g = similar(p)
+    q = copy(p)
+    for i in eachindex(p)
+        q[i] = p[i] + h; fp = f(q)
+        q[i] = p[i] - h; fm = f(q)
+        q[i] = p[i]
+        g[i] = (fp - fm) / h
+    end
+    return g
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "two new vectors per coordinate"
+  code = '''
+function central_gradient(f, p, h)
+    n = length(p)
+    e(i) = [j == i ? h : 0.0 for j in 1:n]
+    return [(f(p .+ e(i)) - f(p .- e(i))) / (2h) for i in 1:n]
+end
+'''
+  expect = ["correct", "allocates"]
