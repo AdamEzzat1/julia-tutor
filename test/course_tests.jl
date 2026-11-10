@@ -22,6 +22,15 @@ end
     @test Course.validate_course(units) == String[]
     @test issorted([u.id for u in units])
     @test Course.example_key("x\r\n") == Course.example_key("x")   # line endings never change a key
+    # the sciml track assumes the whole earlier course
+    # (a planned unit: only its outline is checked, so it shares nothing with `eco`)
+    re(v; id = v.id, track = v.track, pre = v.prerequisites) = Course.Unit(id, v.title, track, v.env, "planned",
+        v.summary, v.kcs, pre, ["an outline"], String[], Course.Section[], Course.Problem[])
+    eco = units[findlast(v -> v.track == "ecosystem", units)]
+    sml = re(eco; id = "99-x", track = "sciml", pre = [eco.id])
+    @test Course.validate_course([units; sml]) == String[]
+    @test any(contains("must name the earlier units"), Course.validate_course([units; re(sml; pre = String[])]))
+    @test any(contains("must come before it"), Course.validate_course([sml; units]; strict = false))
     @test Course.example_key("x", "file") != Course.example_key("x")
     for u in units
         @test u.id == splitext(basename(Course.outputs_path(u)))[1]
@@ -184,6 +193,41 @@ end
     @test Practice.scrub("running in world age 31617, while current world is 31618.") ==
           "running in world age W, while current world is W+1."
     @test Practice.scrub("world age 5, while current world is 9") == "world age 5, while current world is 9"
+end
+
+@testset "verify compares what the course teaches" begin
+    # the two lists CI and the local image printed for the same MethodError
+    err(c) = "[1, 2]\nERROR: MethodError: no method matching +(::Vector{Int64}, ::Int64)\n\nClosest candidates are:\n$c  ...\n\n  @ top-level scope at line 5\n"
+    a = err("  +(!Matched::Missing, ::Number)\n   @ Base missing.jl:123\n")
+    b = err("  +(!Matched::BigInt, ::Union{Int16, Int32, Int64, Int8})\n   @ Base gmp.jl:555\n")
+    @test a != b && Practice.comparable(a) == Practice.comparable(b)
+    @test Practice.same_example(Dict("output" => a, "ok" => false), Dict("output" => b, "ok" => false))
+    @test !Practice.same_example(Dict("output" => a, "ok" => false), Dict("output" => a, "ok" => true))
+    # the error, the lines around it and the line number still count
+    @test Practice.comparable(a) != Practice.comparable(replace(b, "line 5" => "line 6"))
+    @test Practice.comparable(a) != Practice.comparable(replace(b, "[1, 2]" => "[1, 3]"))
+    @test Practice.comparable("x\nClosest candidates are:\n  f(::Int)\n") == Practice.comparable("x\nClosest candidates are:\n  f(::Float64)")
+
+    @test Practice.same_sample("0.4246224f0", "0.42462245f0")
+    @test Practice.same_sample("(3, 0.9166666666666666)", "(3, 0.9166666666666667)")
+    @test !Practice.same_sample("(3, 0.91)", "(2, 0.91)")
+    @test !Practice.same_sample("0.4246f0", "0.4247f0")
+    @test !Practice.same_sample("2//3", "2//5")
+    @test !Practice.same_sample("Float32[1.0]", "Float64[1.0]")
+    @test !Practice.same_sample("2-element Vector{Float32}:\n 1.0\n 2.0", "1-element Vector{Float32}:\n 1.0")
+    st = Dict("p" => Any[Dict("call" => "f(1)", "result" => "1.00000001")])
+    @test Practice.sample_problems("u", st, Dict("p" => Any[Dict("call" => "f(1)", "result" => "1.0")])) == String[]
+    pr = Practice.sample_problems("u", st, Dict("p" => Any[Dict("call" => "f(1)", "result" => "1.1")]))
+    @test length(pr) == 1 && occursin("--- recorded\n1.00000001\n--- now\n1.1", pr[1])
+    @test length(Practice.sample_problems("u", nothing, Dict())) == 1
+end
+
+@testset "a command that never answers does not block the sandbox check" begin
+    jl = Base.julia_cmd()
+    t = @elapsed r = Runner.ok_cmd(`$jl --startup-file=no -e "sleep(600)"`; timeout = 3)
+    @test !r && t < 60
+    @test Runner.ok_cmd(`$jl --startup-file=no -e "exit(0)"`)
+    @test !Runner.ok_cmd(`$jl --startup-file=no -e "exit(1)"`)
 end
 
 @testset "sandbox container: flags, protocol, staleness" begin

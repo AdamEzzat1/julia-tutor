@@ -186,12 +186,21 @@ function sandbox_hash()
     return bytes2hex(SHA.sha256(take!(io)))
 end
 
-ok_cmd(cmd) = success(pipeline(ignorestatus(cmd); stdout = devnull, stderr = devnull))
+"""
+Run `cmd` quietly: true if it succeeds within `timeout` seconds. A hung Docker
+engine never answers `docker info`, so without the limit every command that
+checks for the sandbox (the test suite included) would wait forever.
+"""
+function ok_cmd(cmd; timeout = 30)
+    p = run(pipeline(ignorestatus(cmd); stdout = devnull, stderr = devnull); wait = false)
+    timedwait(() -> process_exited(p), timeout) === :ok || (kill(p); return false)
+    return success(p)
+end
 
 """`nothing` if the sandbox image is usable, else a sentence saying what is missing."""
 function sandbox_problem()
     Sys.which("docker") === nothing && return "Docker is not installed (no `docker` on PATH)."
-    ok_cmd(`docker info`) || return "Docker is installed but not running (`docker info` failed). Start Docker Desktop or the daemon."
+    ok_cmd(`docker info`) || return "Docker is installed but not running (`docker info` failed or gave no answer within 30 s). Start or restart Docker Desktop or the daemon."
     ok_cmd(`docker image inspect $SANDBOX_IMAGE`) ||
         return "The sandbox image $SANDBOX_IMAGE is not built yet. Run `./tutor sandbox build` (downloads julia:1.10.13 and the course packages once)."
     label = try

@@ -412,7 +412,9 @@ end
 # Examples recorded at once. Containers may use up to Runner.CONTAINER_MEMORY
 # each and Docker Desktop's VM has a fixed total (8 GB here); examples peak
 # well under half of it, so two at a time; plain processes share the host.
-default_ntasks() = Runner.SANDBOX[] === :docker ? 2 : 4
+# TUTOR_NTASKS overrides it (for example when several recordings share a host).
+default_ntasks() = haskey(ENV, "TUTOR_NTASKS") ? max(1, parse(Int, ENV["TUTOR_NTASKS"])) :
+                   Runner.SANDBOX[] === :docker ? 2 : 4
 
 """
 Record every example output and problem sample of a unit (runs Julia). Code
@@ -448,6 +450,50 @@ function outputs_text(d)
 end
 
 """
+Output as `verify` compares it. A MethodError's "Closest candidates are:" list
+is ranked from every method loaded at the time, so a rebuilt image (or one
+more stdlib loaded) reorders it while the error itself is the same; the list
+is dropped for the comparison and kept in the recording that learners see.
+"""
+comparable(s::AbstractString) =
+    replace(rstrip(s), r"(?m)^Closest candidates are:\n(?:  .*\n?)*" => "Closest candidates are: …\n")
+
+same_example(a, b) = keys(a) == keys(b) &&
+    all(k -> k == "output" ? comparable(a[k]) == comparable(b[k]) : a[k] == b[k], keys(a))
+
+# Relative tolerance for numbers in problem samples. The last digits of a
+# Float32 training loop or an HMC chain move between CPUs (FMA and SIMD paths
+# in the BLAS and in LLVM's code), which is not a change in the course.
+const SAMPLE_RTOL = 1e-4
+const NUMBER = r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eEf][-+]?\d+)?"
+
+"""Two sample results agree: the same text around the numbers, numbers within `SAMPLE_RTOL`."""
+function same_sample(a::AbstractString, b::AbstractString)
+    a == b && return true
+    split(a, NUMBER) == split(b, NUMBER) || return false
+    na = [parse(Float64, replace(m.match, 'f' => 'e')) for m in eachmatch(NUMBER, a)]
+    nb = [parse(Float64, replace(m.match, 'f' => 'e')) for m in eachmatch(NUMBER, b)]
+    return length(na) == length(nb) && all(isapprox(x, y; rtol = SAMPLE_RTOL, atol = 1e-8) for (x, y) in zip(na, nb))
+end
+
+"""Problems with the recorded samples of a unit, each with the old and new result."""
+function sample_problems(uid, stored, now)
+    stored === nothing && return ["$uid: no recorded problem samples (re-record)"]
+    out = String[]
+    keys(stored) == keys(now) || push!(out, "$uid: problems with samples differ (re-record)")
+    for (pid, cases) in now
+        old = get(stored, pid, nothing)
+        old === nothing && continue
+        length(old) == length(cases) || (push!(out, "$uid: $pid has a different number of samples (re-record)"); continue)
+        for (o, c) in zip(old, cases)
+            o["call"] == c["call"] && same_sample(o["result"], c["result"]) && continue
+            push!(out, "$uid: sample $pid changed (re-record and review)\n--- call\n$(c["call"])\n--- recorded\n$(o["result"])\n--- now\n$(c["result"])")
+        end
+    end
+    return out
+end
+
+"""
 The key of an `output` question is the code's measured output: the right
 choice must equal it (trailing whitespace aside) and no other choice may.
 """
@@ -458,9 +504,9 @@ function question_key_problems(u::Course.Unit, rec)
         r = get(rec["examples"], Course.example_key(q.code, "repl"), nothing)
         r === nothing && (push!(out, "$(u.id) question $i: its code was not run"); continue)
         got = rstrip(r["output"])
-        rstrip(q.choices[q.answer]) == got ||
+        comparable(q.choices[q.answer]) == comparable(got) ||
             push!(out, "$(u.id) question $i: the answer is not the code's output\n--- answer\n$(q.choices[q.answer])\n--- output\n$got")
-        count(c -> rstrip(c) == got, q.choices) == 1 ||
+        count(c -> comparable(c) == comparable(got), q.choices) == 1 ||
             push!(out, "$(u.id) question $i: more than one choice equals the output")
     end
     return out
@@ -484,11 +530,11 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
                         any(q -> q.kind == "output" && Course.example_key(q.code, "repl") == k, Course.questions(u))
             if old === nothing
                 push!(problems, "$(u.id): example $k has no recorded output")
-            elseif checkable && old != v
+            elseif checkable && !same_example(old, v)
                 push!(problems, "$(u.id): example $k output changed:\n--- recorded\n$(old["output"])\n--- now\n$(v["output"])")
             end
         end
-        get(stored, "samples", nothing) == rec["samples"] || push!(problems, "$(u.id): problem samples changed (re-record and review)")
+        append!(problems, sample_problems(u.id, get(stored, "samples", nothing), rec["samples"]))
         length(get(stored, "examples", Dict())) == length(rec["examples"]) ||
             push!(problems, "$(u.id): recorded outputs have stale entries (re-record)")
         get(stored, "verified_on", "") == string(VERSION) || push!(problems, "$(u.id): outputs were recorded on another Julia")

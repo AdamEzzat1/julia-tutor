@@ -61,7 +61,9 @@ Manifest.toml. Current ones: `base` (stdlib), `data` (DataFrames, CSV),
 `calculus` (ForwardDiff, Symbolics), `diffeq` (DifferentialEquations),
 `optim` (JuMP, HiGHS, Optim, Roots, ForwardDiff), `ml` (Flux, MLJ, BetaML,
 DecisionTree, MLJDecisionTreeInterface, MLJLinearModels), `turing` (Turing),
-`python` (PythonCall, with the system Python and NumPy; no CondaPkg).
+`python` (PythonCall, with the system Python and NumPy; no CondaPkg),
+`sciml` (OrdinaryDiffEq, SciMLSensitivity, Lux, ComponentArrays, Optimization,
+OptimizationOptimisers, OptimizationOptimJL, ForwardDiff, Zygote, StableRNGs).
 Adding a package is a change to the Manifest: it rebuilds the sandbox image
 (`tutor sandbox build`) and must be justified in the PR.
 

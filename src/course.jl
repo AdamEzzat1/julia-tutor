@@ -21,10 +21,13 @@ module Course
 using TOML, SHA
 
 export Unit, Section, Example, Question, Problem, Perf, Variant, load_course, validate_course,
-       example_key, outputs_path, load_outputs, env_dir, TRACKS, find_problem
+       example_key, outputs_path, load_outputs, env_dir, TRACKS, TRACK_REQUIRES, find_problem
 
 const COURSE_DIR = normpath(joinpath(@__DIR__, "..", "course"))
-const TRACKS = ["foundations", "core", "advanced", "ecosystem"]
+const TRACKS = ["foundations", "core", "advanced", "ecosystem", "sciml"]
+# A track that assumes whole earlier tracks: every unit of those comes first in
+# the syllabus, and each of its units names the earlier units it builds on.
+const TRACK_REQUIRES = Dict("sciml" => ["foundations", "core", "advanced", "ecosystem"])
 const DIFFICULTIES = ["warm-up", "core", "stretch"]
 const VARIANT_EXPECT = ["correct", "incorrect", "load-error", "slow", "allocates", "unstable", "scaling", "fast"]
 
@@ -300,6 +303,14 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
         end
         for l in u.lessons
             l in lesson_ids || push!(problems, "$(u.id): no lesson $l")
+        end
+        if haskey(TRACK_REQUIRES, u.track)
+            isempty(u.prerequisites) &&
+                push!(problems, "$(u.id): a unit of the $(u.track) track must name the earlier units it builds on")
+            for v in units
+                v.track in TRACK_REQUIRES[u.track] && !(v.id in seen_order) &&
+                    push!(problems, "$(u.id): the $(u.track) track assumes $(v.id), which must come before it")
+            end
         end
         push!(seen_order, u.id)
         if u.status == "planned"

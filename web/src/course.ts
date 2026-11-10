@@ -59,7 +59,7 @@ export interface Problem {
   perf: { sizes: number[]; mutates: boolean } | null;
 }
 
-export type Track = "foundations" | "core" | "advanced" | "ecosystem";
+export type Track = "foundations" | "core" | "advanced" | "ecosystem" | "sciml";
 
 export interface Unit {
   id: string;
@@ -80,6 +80,8 @@ export interface CourseData {
   julia: string;
   generated_by: string;
   tracks: Track[];
+  /** whole earlier tracks a track assumes */
+  track_requires: Partial<Record<Track, Track[]>>;
   units: Unit[];
   envs: Record<string, { name: string; version: string }[]>;
 }
@@ -91,6 +93,7 @@ export const TRACK_LABEL: Record<Track, string> = {
   core: "Core language",
   advanced: "Advanced",
   ecosystem: "Ecosystem",
+  sciml: "Scientific ML",
 };
 
 export const TRACK_BLURB: Record<Track, string> = {
@@ -98,7 +101,17 @@ export const TRACK_BLURB: Record<Track, string> = {
   core: "Types, dispatch, errors, iteration, modules and I/O: how Julia programs are built.",
   advanced: "Performance, generic code, metaprogramming, interfaces, concurrency and the compiler.",
   ecosystem: "The standard library and the packages Julia is used for, in pinned environments.",
+  sciml: "Differential equations with learned parts: sensitivities, adjoints, neural and universal ODEs, SINDy and PINNs.",
 };
+
+/** "Assumes Foundations, Core language, Advanced and Ecosystem", or null. */
+export function trackRequirement(t: Track): string | null {
+  const req = course.track_requires?.[t];
+  if (!req || req.length === 0) return null;
+  const names = req.map((r) => TRACK_LABEL[r]);
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `Assumes the ${list} tracks; each unit names the earlier units it builds on.`;
+}
 
 /**
  * Where a learner stands on one question, from the choices picked so far (in

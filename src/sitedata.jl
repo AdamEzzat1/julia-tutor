@@ -174,7 +174,7 @@ function course_data()
     end
     envs = sort!(unique([u.env for u in units]))
     return Dict("julia" => string(VERSION), "generated_by" => "tutor site-data (do not edit; regenerate)",
-                "tracks" => Course.TRACKS, "units" => out,
+                "tracks" => Course.TRACKS, "track_requires" => Course.TRACK_REQUIRES, "units" => out,
                 "envs" => Dict(e => env_packages(e) for e in envs))
 end
 

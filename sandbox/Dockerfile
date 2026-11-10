@@ -48,6 +48,8 @@ COPY envs/ml /tutor/envs/ml
 RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/ml && rm -rf /depot/logs
 COPY envs/plots /tutor/envs/plots
 RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/plots && rm -rf /depot/logs
+COPY envs/sciml /tutor/envs/sciml
+RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/sciml && rm -rf /depot/logs
 # Offline loading needs no registry (and a stale one only misleads).
 RUN rm -rf /depot/registries
 

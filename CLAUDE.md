@@ -330,6 +330,16 @@ every role above has had the chance to object (recorded in the PR).
   lower. A host with less Docker memory may see such kills again.
 * Example `notice` text is shown under the output, `caption` above the code;
   an example without recorded output shows no notice.
+* `tutor course verify` defaults to plain processes; the recordings come from
+  the container, so verify with `--sandbox=docker` (verify_all.sh does). On
+  the CI runner a host run failed 49 checks (no NumPy, stdlib paths, log
+  order). Even in the container, verify is lenient in two places, found on CI
+  on 2026-11-10: a MethodError's "Closest candidates are:" list is ignored
+  (a rebuilt image ranks it differently), and numbers in problem samples
+  match within `Practice.SAMPLE_RTOL` (1e-4), since Float32 training and
+  MCMC digits in units 26/27 moved between CPUs. A sample that moves more is
+  printed with its old and new value. Whether the Turing samples stay inside
+  1e-4 on every CPU is not known; a diverging chain would exceed it.
 
 ## Required end-of-session report
 

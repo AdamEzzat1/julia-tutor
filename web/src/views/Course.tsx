@@ -5,9 +5,12 @@ import { Feedback } from "../components/Feedback";
 import { Markdown, md } from "../components/Markdown";
 import { ConnectPanel, Output, RunBox, ServerPill, useDraft } from "../components/Runner";
 import {
-  course, questionState, TRACK_BLURB, TRACK_LABEL, unitNumber, type Example, type Problem, type Question, type Unit,
+  course, questionState, TRACK_BLURB, TRACK_LABEL, trackRequirement, unitNumber, type Example, type Problem, type Question, type Unit,
 } from "../course";
 import { loadProgress, saveProgress, type Progress } from "../progress";
+
+// A track is listed once it has a unit (a new track appears with its first one).
+const shownTracks = course.tracks.filter((t) => course.units.some((u) => u.track === t));
 import { gradeCode, useServer, type GradeResult } from "../server";
 
 function readParams() {
@@ -55,7 +58,7 @@ export function CourseView() {
           <span className="s">{course.units.filter((u) => u.status === "ready").length} units ready · {course.units.reduce((n, u) => n + u.problems.length, 0)} problems</span>
           <span className="t">Course overview</span>
         </button>
-        {course.tracks.map((t) => (
+        {shownTracks.map((t) => (
           <div key={t}>
             <div className="jt-eyebrow" style={{ padding: "0.7rem 0.7rem 0.2rem" }}>{TRACK_LABEL[t]}</div>
             {course.units.filter((u) => u.track === t).map((u) => {
@@ -89,7 +92,7 @@ function Overview({ progress, go }: { progress: Progress; go: (u: string) => voi
         <div className="jt-toolbar">
           <div>
             <div className="jt-eyebrow">From your first expression to the compiler</div>
-            <h3 style={{ marginTop: "0.25rem" }}>{course.units.length} units in four tracks</h3>
+            <h3 style={{ marginTop: "0.25rem" }}>{course.units.length} units in {shownTracks.length} tracks</h3>
           </div>
           <ServerPill />
         </div>
@@ -100,12 +103,13 @@ function Overview({ progress, go }: { progress: Progress; go: (u: string) => voi
         </p>
       </section>
       <div className="jt-tracks">
-        {course.tracks.map((t) => {
+        {shownTracks.map((t) => {
           const units = course.units.filter((u) => u.track === t);
           return (
             <section key={t} className="jt-panel jt-pad">
               <div className="jt-eyebrow">{TRACK_LABEL[t]}</div>
               <p className="jt-small jt-muted" style={{ margin: "0.3rem 0 0.6rem" }}>{TRACK_BLURB[t]}</p>
+              {trackRequirement(t) && <p className="jt-small" style={{ margin: "0 0 0.6rem" }}>{trackRequirement(t)}</p>}
               <ol className="jt-unitlist">
                 {units.map((u) => {
                   const done = u.problems.filter((p) => progress.solved[p.id]).length;
