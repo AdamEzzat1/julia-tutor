@@ -572,7 +572,7 @@ println("index 3: ", sol3.retcode)
 sys1 = mtkcompile(pend1)
 sol1 = solve(ODEProblem(sys1, start, (0.0, 10.0); guesses = [λ => 0.0]), Rodas5P(); abstol = 1e-8, reltol = 1e-8)
 println("index 1: ", sol1.retcode, ", |x² + y² - 1| at t = 10 below 1e-6: ", abs(sol1(10.0; idxs = x^2 + y^2 - 1)) < 1e-6,
-        ", λ(0) = ", sol1[λ][1])
+        ", λ(0) = ", sol1[λ][1] + 0.0)                   # + 0.0 prints -0.0 as 0.0
 '''
 
   [[section.question]]

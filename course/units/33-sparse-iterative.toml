@@ -860,26 +860,11 @@ end
 '''
   expect = ["incorrect"]
 
-  [[problem.variant]]
-  label = "multiplies by the diagonal instead of dividing"
-  code = '''
-using LinearAlgebra
-function pcg_jacobi(A, b, tol)
-    n = length(b); d = diag(A)
-    x = zeros(n); r = copy(b); z = r .* d; p = copy(z); rz = dot(r, z)
-    for _ in 1:10n
-        Ap = A * p
-        α = rz / dot(p, Ap)
-        x .+= α .* p; r .-= α .* Ap
-        norm(r) <= tol * norm(b) && break
-        z = r .* d
-        rz_new = dot(r, z)
-        p = z .+ (rz_new / rz) .* p; rz = rz_new
-    end
-    return x
-end
-'''
-  expect = ["correct", "slow"]
+  # A "multiplies by the diagonal instead of dividing" variant was removed:
+  # M⁻¹ = D² is still SPD, so whether it reaches tol within 10n iterations on
+  # the generated cases depended on rounding (correct on Windows, incorrect in
+  # the Linux container, CI 2026-11-10). A variant's verdict must not depend on
+  # the platform.
 
   [[problem.variant]]
   label = "the right algorithm with d = diag(A) left as a SparseVector"
