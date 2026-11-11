@@ -1,8 +1,70 @@
 name: CI
-on: [push, pull_request]
+# Pull requests and main only: a branch pushed while its PR is open would
+# otherwise run twice at once, and two builds of the same inputs would push two
+# different digests under one tag.
+on:
+  push:
+    branches: [main]
+  pull_request:
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: false
+# Three jobs (docs/SANDBOX_IMAGES.md):
+# * images: each sandbox image for this checkout's inputs, pulled from GHCR when
+#   CI pushed it before, else built and pushed; then sizes and cold starts.
+# * verify: the definition-of-done check, in those images (pulled, not rebuilt),
+#   with the memory peaks of every contained run; then sandbox/images.toml must
+#   name exactly these images.
+# * clean-start: docs/START_CORE.md, timed on a fresh runner.
 jobs:
-  verify:
+  images:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      JULIA_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      # pushes only from this repository's own branches (a fork's token cannot)
+      PUSH: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install juliaup and the pinned Julia
+        run: |
+          curl -fsSL https://install.julialang.org | sh -s -- --yes --default-channel "$(cat JULIA_VERSION)"
+          echo "$HOME/.juliaup/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        with:
+          path: .depot
+          key: tutor-depot-${{ hashFiles('JULIA_VERSION', 'Manifest.toml') }}
+      - name: Instantiate the tutor environment (networked)
+        run: |
+          source scripts/env.sh
+          JULIA_PKG_OFFLINE=false julia_pinned --project=. -e 'using Pkg; Pkg.instantiate()'
+      - name: Log in to GHCR
+        if: env.PUSH == 'true'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Pull or build (and push) each image
+        run: |
+          flag=""; [ "$PUSH" = true ] && flag="--push"
+          ./tutor sandbox publish $flag | tee publish.out
+          # the images.toml these images would need, for the clean-start job
+          sed -n '/^# Published sandbox images/,$p' publish.out > images.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: images-toml
+          path: images.toml
+      - name: Self-test every image
+        run: ./tutor sandbox check
+      - name: Measure sizes, cold starts and load-time memory
+        run: ./tutor sandbox measure
+
+  verify:
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     env:
       JULIA_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
@@ -27,9 +89,43 @@ jobs:
               JULIA_PKG_OFFLINE=false julia_pinned --project="$e" -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
             fi
           done
-      - name: Build and self-test the sandbox container (networked build; runs are offline)
-        run: |
-          ./tutor sandbox build
-          ./tutor sandbox check
-      - name: Verify everything (the container tests run because the image now exists)
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: The images the images job made (pulled; built only if it could not push)
+        run: ./tutor sandbox publish
+      - name: Verify everything (the container tests run because the images now exist)
         run: scripts/verify_all.sh
+      - name: sandbox/images.toml names exactly these images
+        run: ./tutor sandbox digests --check
+
+  clean-start:
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      # Only the script and the images.toml come in; the guide's own steps
+      # (juliaup, clone, packages, pull) run from nothing in clean_start.sh.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/clean_start.sh
+          sparse-checkout-cone-mode: false
+          path: harness
+      - uses: actions/download-artifact@v4
+        with:
+          name: images-toml
+          path: published
+      - name: Are the images public? (a learner pulls without logging in)
+        run: |
+          ref=$(awk -F'"' '/^\[base\]/{b=1} b && /^digest/{print $2; exit}' published/images.toml)
+          if docker manifest inspect "ghcr.io/adamezzat1/julia-tutor-sandbox-base@$ref" > /dev/null 2>&1; then
+            echo "public: anonymous pulls work" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "NOT PUBLIC: anonymous pull of the base image failed; the package needs public visibility (timing below used a login)" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          fi
+      - name: Time docs/START_CORE.md
+        run: |
+          branch="${{ github.head_ref || github.ref_name }}"
+          bash harness/scripts/clean_start.sh "https://github.com/${{ github.repository }}" "$branch" "$PWD/published/images.toml"
