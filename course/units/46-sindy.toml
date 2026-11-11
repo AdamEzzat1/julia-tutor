@@ -5,7 +5,7 @@ env = "sciml"
 status = "ready"
 summary = "Sparse identification of nonlinear dynamics written by hand: a library of candidate terms, sequential thresholded least squares with LinearAlgebra, how noise in finite-difference derivatives and the threshold decide what is found, and how a UDE's learned term becomes a readable equation once the library is small enough for the data."
 kcs = ["sparse-regression", "equation-discovery", "finite-differences", "universal-ode"]
-prerequisites = ["30-floating-point", "31-convergence", "32-dense-linear-algebra", "45-universal-odes"]
+prerequisites = ["scicomp/30-floating-point", "scicomp/31-convergence", "scicomp/32-dense-linear-algebra", "45-universal-odes"]
 
 [[section]]
 title = "What you need from earlier units"

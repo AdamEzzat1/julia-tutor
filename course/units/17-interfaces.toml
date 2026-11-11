@@ -5,7 +5,7 @@ env = "base"
 status = "ready"
 summary = "Julia's interfaces are informal: implement a few documented methods and the rest of Base works with your type. Iteration, the AbstractArray interface, show for compact and REPL display, ordering and AbstractDict, and testing an interface with Test."
 kcs = ["iteration-interface", "abstractarray-interface", "show-methods", "ordering", "abstractdict", "testing"]
-prerequisites = ["16-metaprogramming"]
+prerequisites = ["15-generic-programming"]
 
 [[section]]
 title = "Informal interfaces: iteration"

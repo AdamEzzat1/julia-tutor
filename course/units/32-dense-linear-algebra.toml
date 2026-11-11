@@ -5,7 +5,7 @@ env = "base"
 status = "ready"
 summary = "Choosing and using dense solvers: what `\\` does for each matrix type and what each factorization costs, why `inv(A) * b` has a large backward error, why the normal equations square the condition number while QR does not (a Vandermonde fit), factoring once and solving many times without allocating, and the SVD as the tool for numerical rank."
 kcs = ["matrix-factorization", "least-squares", "factorization-reuse", "numerical-rank"]
-prerequisites = ["14-performance", "20-stdlib-tour", "30-floating-point"]
+prerequisites = ["core/14-performance", "core/20-stdlib-tour", "30-floating-point"]
 
 [[section]]
 title = "What you need from earlier units"

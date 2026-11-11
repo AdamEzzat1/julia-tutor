@@ -4,7 +4,7 @@ track = "advanced"
 env = "base"
 summary = "One method, many compiled specializations. Reading inferred code with @code_typed, constant propagation and inlining, world age and invokelatest, and where time-to-first-x comes from."
 kcs = ["specialization", "type-inference", "code-introspection", "world-age", "precompilation"]
-prerequisites = ["18-concurrency"]
+prerequisites = ["14-performance", "15-generic-programming", "16-metaprogramming"]
 
 [[section]]
 title = "One method, many specializations"

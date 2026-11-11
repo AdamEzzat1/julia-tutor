@@ -5,7 +5,7 @@ env = "sciml"
 status = "ready"
 summary = "Reverse mode through an ODE solver: the discrete adjoint of N Euler steps written by hand and checked against ForwardDiff, why its cost does not grow with the number of parameters, SciMLSensitivity's continuous adjoint (`GaussAdjoint` with `ZygoteVJP`) checked against forward mode, and a Lux network with explicit, Float64 `ComponentArray` parameters as the whole right-hand side of a neural ODE."
 kcs = ["adjoint-method", "reverse-mode", "neural-ode", "sensealg"]
-prerequisites = ["23-derivatives", "26-machine-learning", "43-sensitivities"]
+prerequisites = ["science/23-derivatives", "science/26-machine-learning", "43-sensitivities"]
 
 [[section]]
 title = "What you need from earlier units"

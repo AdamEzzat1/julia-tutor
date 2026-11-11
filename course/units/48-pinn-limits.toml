@@ -5,7 +5,7 @@ env = "sciml"
 status = "ready"
 summary = "Why physics-informed neural networks are hard to train and how to compare them with classical solvers: a small loss with a large error between collocation points, shown concretely; the imbalance between residual and boundary gradients and the annealed weight that rebalances it; causal weights for time-dependent problems; and what two surveys found when PINNs and other ML solvers were compared with strong baselines."
 kcs = ["pinn-failure-modes", "loss-balancing", "causal-training", "fair-benchmarks"]
-prerequisites = ["31-convergence", "34-pde-discretization", "47-pinns"]
+prerequisites = ["scicomp/31-convergence", "scicomp/34-pde-discretization", "47-pinns"]
 
 [[section]]
 title = "What you need from earlier units"

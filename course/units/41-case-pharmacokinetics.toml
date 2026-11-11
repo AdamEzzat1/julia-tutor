@@ -5,7 +5,7 @@ env = "scicomp"
 status = "ready"
 summary = "A two-compartment model of a drug taken by mouth, from equations to answers: the linear system and its three phases, repeated doses as callbacks checked against a matrix-exponential superposition, exposure (AUC) from the solution and from sampled data, a Gauss-Newton fit to simulated noisy concentrations that finds two equally good answers (and the same clearance in both), and an ensemble over patients with a Monte Carlo interval checked against an exact mean. A teaching model: real pharmacometrics uses dedicated population (NLME) tools."
 kcs = ["compartment-models", "dosing-callbacks", "auc", "nonlinear-least-squares", "parameter-identifiability", "population-variability"]
-prerequisites = ["24-differential-equations", "31-convergence", "32-dense-linear-algebra", "35-stiffness", "37-stochastic-delay-uq", "38-constrained-optimization"]
+prerequisites = ["science/24-differential-equations", "31-convergence", "32-dense-linear-algebra", "35-stiffness", "37-stochastic-delay-uq", "38-constrained-optimization"]
 
 [[section]]
 title = "What you need from earlier units"

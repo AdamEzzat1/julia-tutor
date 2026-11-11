@@ -5,7 +5,7 @@ env = "sciml"
 status = "ready"
 summary = "Fitting the parameters of an ODE to data: a loss computed through a solve, forward sensitivity equations written by hand and checked against ForwardDiff, gradients through `solve` with an explicit SciMLSensitivity `sensealg` cross-checked by finite differences, the fit itself with Optimization.jl compared with unit 25's Optim.jl calls, and why forward sensitivities get expensive as the number of parameters grows."
 kcs = ["ode-parameter-fitting", "forward-sensitivity", "sensealg", "optimization-jl"]
-prerequisites = ["23-derivatives", "24-differential-equations", "25-optimization", "26-machine-learning", "30-floating-point", "31-convergence"]
+prerequisites = ["science/23-derivatives", "science/24-differential-equations", "science/25-optimization", "science/26-machine-learning", "scicomp/30-floating-point", "scicomp/31-convergence"]
 
 [[section]]
 title = "What you need from earlier units"

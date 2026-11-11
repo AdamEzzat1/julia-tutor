@@ -5,7 +5,7 @@ env = "base"
 status = "planned"
 summary = "Turn code into a package: layout, environments, tests, docs, benchmarks and continuous integration."
 kcs = ["packages", "testing"]
-prerequisites = ["12-modules"]
+prerequisites = ["core/12-modules"]
 outline = [
   "Generating a package (PkgTemplates.jl or Pkg.generate) and its layout",
   "Project.toml, compat bounds and semantic versioning",

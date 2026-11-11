@@ -4,7 +4,7 @@ track = "core"
 env = "base"
 summary = "Abstract and concrete types, struct and mutable struct, constructors that validate, parametric types with concrete fields, Union, nothing and missing."
 kcs = ["type-hierarchy", "concrete-types", "structs", "constructors", "parametric-types", "union-types", "nothing-missing", "kwdef"]
-prerequisites = ["07-broadcasting"]
+prerequisites = ["06-collections", "07-broadcasting"]
 lessons = ["L02-concrete-types"]
 
 [[section]]

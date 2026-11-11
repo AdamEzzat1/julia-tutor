@@ -5,7 +5,7 @@ env = "scicomp"
 status = "ready"
 summary = "What a constrained optimum is and how to check one: the Lagrangian and the KKT conditions (stationarity, feasibility, sign of the multipliers, complementarity) solved by hand and checked at Ipopt's answers, the log-barrier idea behind interior-point methods written out in one dimension, why Ipopt's `LOCALLY_SOLVED` is a local statement (one nonconvex model, two starts, two answers), and multipliers as sensitivities, verified by perturbing a constraint."
 kcs = ["kkt-conditions", "lagrange-multipliers", "barrier-methods", "local-optimization", "sensitivity"]
-prerequisites = ["25-optimization", "32-dense-linear-algebra"]
+prerequisites = ["science/25-optimization", "32-dense-linear-algebra"]
 
 [[section]]
 title = "What you need from earlier units"

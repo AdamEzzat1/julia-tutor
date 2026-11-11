@@ -4,7 +4,7 @@ track = "ecosystem"
 env = "base"
 summary = "What ships with Julia: LinearAlgebra, Statistics, Random, Dates, Printf, Test and SparseArrays. Solving systems, summary statistics, reproducible random numbers, calendar arithmetic and unit tests."
 kcs = ["linear-algebra", "statistics", "random-numbers", "dates", "printf", "unit-testing", "sparse-arrays"]
-prerequisites = ["19-under-the-hood"]
+prerequisites = ["11-iteration"]
 
 [[section]]
 title = "LinearAlgebra: matrices and solving systems"
