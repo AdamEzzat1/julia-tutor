@@ -4,7 +4,7 @@ track = "core"
 env = "base"
 summary = "print versus show, building strings in an IOBuffer, Printf format specs, reading and writing files, and parsing simple text formats by hand."
 kcs = ["printing-vs-show", "iobuffer", "printf", "file-io", "text-parsing"]
-prerequisites = ["12-modules"]
+prerequisites = ["10-errors", "11-iteration"]
 
 [[section]]
 title = "print, show, string and repr"

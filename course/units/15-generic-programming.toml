@@ -5,7 +5,7 @@ env = "base"
 status = "ready"
 summary = "Write one method that is fast for every suitable type: parametric methods and structs, zero/one/eltype/similar/promote_type, your own number type with promotion rules, duck typing, Holy traits and Val."
 kcs = ["parametric-methods", "type-invariance", "generic-code", "parametric-structs", "promotion", "duck-typing", "traits", "val-types"]
-prerequisites = ["14-performance"]
+prerequisites = ["09-dispatch", "10-errors", "11-iteration"]
 
 [[section]]
 title = "Parametric methods"

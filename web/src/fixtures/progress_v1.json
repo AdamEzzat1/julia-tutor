@@ -1,0 +1,8 @@
+{
+  "solved": { "run-length-encoding": "excellent", "sparse-jacobi-pcg": "good", "sindy-recover-terms": "needs-work" },
+  "opened": { "03-strings": true, "33-sparse-iterative": true, "46-sindy": true, "21-dataframes": true },
+  "questions": {
+    "09-dispatch/0/1": "first-try",
+    "36-daes/2/0": "later"
+  }
+}

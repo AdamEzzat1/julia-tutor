@@ -5,7 +5,7 @@ env = "base"
 status = "ready"
 summary = "How to measure Julia code without fooling yourself, and the handful of habits that make it fast: type-stable functions, no untyped globals, concrete containers and fields, few allocations, memory-order loops and function barriers."
 kcs = ["benchmarking", "type-stability", "globals", "concrete-types", "allocations", "views", "broadcast-fusion", "in-place", "memory-layout", "inbounds-simd", "function-barriers"]
-prerequisites = ["13-io"]
+prerequisites = ["08-types"]
 
 [[section]]
 title = "Measuring without fooling yourself"

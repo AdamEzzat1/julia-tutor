@@ -5,7 +5,7 @@ env = "scicomp"
 status = "ready"
 summary = "Why explicit solvers crawl on stiff problems: forward Euler on the test equation and its stability limit, the Jacobian's eigenvalues and the stiffness ratio, the largest stable step for a discretized PDE (set by the grid, not by the tolerance), backward Euler written by hand with Newton's method and checked against OrdinaryDiffEq, what implicit methods do to fast modes, and the work counts that make Rodas5P win."
 kcs = ["stiffness", "stability", "implicit-methods", "jacobian"]
-prerequisites = ["23-derivatives", "24-differential-equations", "31-convergence", "32-dense-linear-algebra", "33-sparse-iterative", "34-pde-discretization"]
+prerequisites = ["science/23-derivatives", "science/24-differential-equations", "31-convergence", "32-dense-linear-algebra", "33-sparse-iterative", "34-pde-discretization"]
 
 [[section]]
 title = "What you need from earlier units"

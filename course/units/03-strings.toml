@@ -5,7 +5,7 @@ env = "base"
 status = "ready"
 summary = "String versus Char, building strings with * and interpolation, why indexing is by byte in UTF-8, iterating over characters, the everyday string functions, parsing numbers, and a first look at regular expressions."
 kcs = ["strings", "chars", "utf8-indexing", "string-functions", "parsing", "regex"]
-prerequisites = ["02-numbers"]
+prerequisites = ["01-first-steps"]
 
 [[section]]
 title = "String and Char, and building strings"

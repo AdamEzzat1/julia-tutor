@@ -14,9 +14,10 @@
 #   tutor lesson <id> [--state=path]          take a lesson interactively
 #   tutor rules                               list rules with FP risk and hints
 #   tutor site-data [--check]                 export site/data/{tutor,course}.json for the website
-#   tutor course list|verify|record|setup [unit...]  the course: example outputs, grader self-tests, envs
+#   tutor course list|verify|record|setup [unit...] [--course=id]  the course: example outputs, grader self-tests, envs
+#   tutor courses                              each course: status, units, envs, cross-course prerequisites
 #   tutor run <file.jl> [--env=E] [--file]    run code like the sandbox does (fresh process)
-#   tutor practice [list | <id> [file.jl]]     show a practice problem, or grade a solution
+#   tutor practice [list | <id> [file.jl]] [--course=id]  show a practice problem, or grade a solution
 #   tutor serve [--port=8765] [--allow-origin=URL]  local server for the website sandbox
 #   tutor guided list|show|start|deps|check|quiz|verify ...  guided build projects (docs/GUIDED.md)
 
@@ -102,10 +103,22 @@ function cmd_explain(args)
 end
 
 function cmd_site_data(args)
-    files = [("tutor.json", SiteData.to_json(SiteData.site_data())),
-             ("course.json", SiteData.to_json(SiteData.course_data())),
+    files = [("tutor.json", SiteData.to_json(SiteData.site_data()));
+             [(name, SiteData.to_json(d)) for (name, d) in SiteData.course_files()];
              ("guided.json", SiteData.to_json(JuliaTutor.Guided.site_data()))]
     stale = 0
+    # Course data is per course now: a leftover course.json, or a course file
+    # for a course that no longer exists, is stale too.
+    wanted = Set(first.(files))
+    datadir = joinpath(ROOT, "site", "data")
+    for f in (isdir(datadir) ? readdir(datadir) : String[])
+        (f == "course.json" || (startswith(f, "course-") && endswith(f, ".json"))) && !(f in wanted) || continue
+        if hasflag(args, "check")
+            println("site/data/$f is obsolete: run `tutor site-data`"); stale += 1
+        else
+            rm(joinpath(datadir, f)); println("removed site/data/$f")
+        end
+    end
     for (name, text) in files
         path = joinpath(ROOT, "site", "data", name)
         if hasflag(args, "check")
@@ -252,11 +265,21 @@ function cmd_course(args)
     pos = positional(args)
     isempty(pos) && (println("usage: tutor course <list|verify|record|setup> [unit...]"); return 2)
     sub, rest = pos[1], pos[2:end]
-    units = Course.load_course()
+    all_units = Course.load_course()
+    courses = Course.load_courses()
+    units = course_units(args, courses, all_units)
+    units === nothing && return 2
+    whole = isempty(rest) && flag(args, "course", "") == ""
     pick(us) = isempty(rest) ? us : filter(u -> u.id in rest || any(r -> startswith(u.id, r * "-"), rest), us)
     if sub == "list"
-        for u in units
-            println(rpad(u.id, 30), rpad(u.track, 12), rpad(u.status, 8), length(u.problems), " problems  ", u.title)
+        byid = Dict(u.id => u for u in units)
+        for c in courses
+            us = [byid[id] for id in c.units if haskey(byid, id)]
+            isempty(us) && continue
+            println(c.id, ": ", c.title, " (", c.status, ")")
+            for u in us
+                println("  ", rpad(u.id, 30), rpad(u.track, 12), rpad(u.status, 8), length(u.problems), " problems  ", u.title)
+            end
         end
         return 0
     elseif sub == "record"
@@ -273,7 +296,8 @@ function cmd_course(args)
     elseif sub == "verify"
         # Naming units checks only those (a missing prerequisite may still be
         # being written); a full verify also checks the syllabus as a whole.
-        problems = Course.validate_course(isempty(rest) ? units : pick(units); strict = isempty(rest))
+        problems = Course.validate_course(whole ? units : pick(units); strict = whole)
+        whole && append!(problems, Course.validate_courses(courses, all_units))
         foreach(p -> println("PROBLEM: ", p), problems)
         isempty(problems) || return 1
         for u in pick(units)
@@ -308,6 +332,36 @@ function cmd_course(args)
     println("unknown subcommand $sub"); return 2
 end
 
+"""
+The units `--course=<id>` selects (all units without the flag), or `nothing`
+after printing why the course is unknown.
+"""
+function course_units(args, courses, units)
+    id = flag(args, "course", "")
+    isempty(id) && return units
+    c = findfirst(c -> c.id == id, courses)
+    c === nothing && (println("no course $id; courses: ", join([c.id for c in courses], ", ")); return nothing)
+    keep = Set(courses[c].units)
+    return filter(u -> u.id in keep, units)
+end
+
+"""`tutor courses`: each course with its status, units, envs and what it requires."""
+function cmd_courses(args)
+    units = Course.load_course()
+    courses = Course.load_courses()
+    byid = Dict(u.id => u for u in units)
+    for c in courses
+        us = [byid[id] for id in c.units if haskey(byid, id)]
+        np = sum(length(u.problems) for u in us; init = 0)
+        println(rpad(c.id, 9), rpad(c.title, 22), rpad(c.status, 12), length(us), " units, ", np, " problems")
+        println("          envs: ", join(c.envs, ", "))
+        isempty(c.requires) || println("          requires: ", join(c.requires, ", "))
+        cross = sort!(unique([p for u in us for p in u.prerequisites if Course.prereq_course(p) !== nothing]))
+        isempty(cross) || println("          builds on: ", join(cross, ", "))
+    end
+    return 0
+end
+
 function cmd_run(args)
     use_sandbox!(args) || return 2
     pos = positional(args)
@@ -322,7 +376,8 @@ end
 function cmd_practice(args)
     use_sandbox!(args) || return 2
     pos = positional(args)
-    units = Course.load_course()
+    units = course_units(args, Course.load_courses(), Course.load_course())
+    units === nothing && return 2
     if isempty(pos) || pos[1] == "list"
         for u in units, p in u.problems
             println(rpad(p.id, 28), rpad(p.difficulty, 9), rpad(u.id, 26), p.title)
@@ -330,7 +385,13 @@ function cmd_practice(args)
         return 0
     end
     found = Course.find_problem(units, pos[1])
-    found === nothing && (println("no problem $(pos[1]); see `tutor practice list`"); return 2)
+    if found === nothing
+        elsewhere = Course.find_problem(Course.load_course(), pos[1])
+        elsewhere === nothing ? println("no problem $(pos[1]); see `tutor practice list`") :
+            println("problem $(pos[1]) is in course $(Course.course_of(Course.load_courses(), elsewhere[1].id)), " *
+                    "not $(flag(args, "course", "")); drop --course or pass that course")
+        return 2
+    end
     u, p = found
     if length(pos) == 1
         println(p.title, "  [", p.difficulty, ", unit ", u.id, "]\n\n", strip(p.prompt), "\n\nStarter:\n", p.starter)
@@ -511,7 +572,7 @@ const COMMANDS = Dict("guided" => cmd_guided, "check" => cmd_check, "scaffold" =
                       "test" => cmd_test, "explain" => cmd_explain, "holemap" => cmd_holemap,
                       "baseline" => cmd_baseline, "lessons" => cmd_lessons, "lesson" => cmd_lesson,
                       "rules" => cmd_rules, "progress" => cmd_progress, "fixtures" => cmd_fixtures,
-                      "site-data" => cmd_site_data, "course" => cmd_course, "run" => cmd_run,
+                      "site-data" => cmd_site_data, "course" => cmd_course, "courses" => cmd_courses, "run" => cmd_run,
                       "practice" => cmd_practice, "serve" => cmd_serve, "sandbox" => cmd_sandbox)
 
 function main(args)

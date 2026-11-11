@@ -5,7 +5,7 @@ env = "sciml"
 status = "ready"
 summary = "A physics-informed neural network (PINN) written by hand: a small Lux network as the trial function, its space derivatives by nested ForwardDiff, the loss as the PDE residual at collocation points plus boundary terms, training with Optimization.jl, and the same problem solved by finite differences beside it, with error and time for both. Then the time-dependent case, where the network takes (x, t)."
 kcs = ["pinn", "pinn-loss", "nested-ad", "lux"]
-prerequisites = ["23-derivatives", "26-machine-learning", "30-floating-point", "31-convergence", "34-pde-discretization", "43-sensitivities", "44-adjoints-neural-odes"]
+prerequisites = ["science/23-derivatives", "science/26-machine-learning", "scicomp/30-floating-point", "scicomp/31-convergence", "scicomp/34-pde-discretization", "43-sensitivities", "44-adjoints-neural-odes"]
 
 [[section]]
 title = "What you need from earlier units"

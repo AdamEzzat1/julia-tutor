@@ -106,7 +106,7 @@ function site_data()
 end
 
 
-# ---- course (site/data/course.json) ---------------------------------------------------
+# ---- courses (site/data/courses.json + course-<id>.json) ------------------------------
 #
 # Reference solutions and generated test cases stay out of the site data: the
 # browser gets prompts, starters, hints, the reference's output on the shown
@@ -138,6 +138,7 @@ end
 
 function course_data()
     units = Course.load_course()
+    cidx = Course.course_index(Course.load_courses())
     out = Any[]
     for u in units
         rec = Course.load_outputs(u)
@@ -167,15 +168,43 @@ function course_data()
                             "perf" => p.perf === nothing ? nothing :
                                 Dict("sizes" => p.perf.sizes, "mutates" => p.perf.mutates))
                        for p in u.problems]
+        # prerequisites as unit ids (unique across courses); each unit says its course
         push!(out, Dict("id" => u.id, "title" => u.title, "track" => u.track, "env" => u.env,
+                        "course" => get(cidx, u.id, nothing),
                         "status" => u.status, "summary" => strip(u.summary), "kcs" => u.kcs,
-                        "prerequisites" => u.prerequisites, "outline" => u.outline, "lessons" => u.lessons,
+                        "prerequisites" => Course.prereq_unit.(u.prerequisites), "outline" => u.outline, "lessons" => u.lessons,
                         "sections" => sections, "problems" => problems))
     end
     envs = sort!(unique([u.env for u in units]))
     return Dict("julia" => string(VERSION), "generated_by" => "tutor site-data (do not edit; regenerate)",
                 "tracks" => Course.TRACKS, "track_requires" => Course.TRACK_REQUIRES, "units" => out,
                 "envs" => Dict(e => env_packages(e) for e in envs))
+end
+
+"""
+The course site data as files: `courses.json` (every course's manifest, the
+tracks and the env package versions; no unit content) and one
+`course-<id>.json` per course with that course's units. `tutor site-data`
+writes them all and `--check` compares them all.
+"""
+function course_files()
+    d = course_data()
+    courses = Course.load_courses()
+    byid = Dict(u["id"] => u for u in d["units"])
+    gen = Dict("julia" => d["julia"], "generated_by" => d["generated_by"])
+    index = merge(gen, Dict("tracks" => d["tracks"], "track_requires" => d["track_requires"], "envs" => d["envs"],
+        "courses" => Any[Dict("id" => c.id, "title" => c.title, "order" => c.order, "status" => c.status,
+                              "summary" => c.summary, "requires" => c.requires, "envs" => c.envs, "units" => c.units,
+                              "projects" => c.projects, "guided" => c.guided,
+                              "problems" => sum(length(byid[u]["problems"]) for u in c.units; init = 0),
+                              "outcomes" => Any[Dict("text" => o.text, "assessed_by" => o.assessed_by,
+                                                     "planned" => o.planned) for o in c.outcomes])
+                         for c in courses]))
+    files = Pair{String,Any}["courses.json" => index]
+    for c in courses
+        push!(files, "course-$(c.id).json" => merge(gen, Dict("course" => c.id, "units" => Any[byid[u] for u in c.units])))
+    end
+    return files
 end
 
 end # module SiteData

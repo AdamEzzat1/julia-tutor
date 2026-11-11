@@ -5,7 +5,7 @@ env = "base"
 status = "ready"
 summary = "Conditionals, short-circuit operators, ranges and loops, and the scope rules that decide whether a loop can change a variable defined outside it: why the same loop works in the REPL and fails in a script."
 kcs = ["conditionals", "short-circuit", "ranges", "loops", "scope"]
-prerequisites = ["03-strings"]
+prerequisites = ["01-first-steps"]
 
 [[section]]
 title = "if, elseif, else and the ternary operator"

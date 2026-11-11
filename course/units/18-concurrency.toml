@@ -4,7 +4,7 @@ track = "advanced"
 env = "base"
 summary = "Tasks let one Julia process juggle several jobs; channels pass values between them; threads run tasks in parallel. How to get results back in a deterministic order, and how to avoid data races."
 kcs = ["tasks", "channels", "threads", "data-races", "atomics-and-locks"]
-prerequisites = ["17-interfaces"]
+prerequisites = ["10-errors"]
 
 [[section]]
 title = "Tasks: start now, collect the result later"
