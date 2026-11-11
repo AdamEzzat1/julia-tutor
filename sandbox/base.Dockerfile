@@ -15,8 +15,10 @@
 # Debian 13).
 FROM julia:1.10.13@sha256:6a34b77ca84c433310869ca85d774572bd24569c949fc867ed64ec90ae95526e AS runtime
 
-# Links the published packages (ghcr.io) to the repository, so CI's workflow
-# token may push to them. Inherited by every course image.
+# Links the published packages (ghcr.io) to the repository. Inherited by every
+# course image. It does not by itself let CI's workflow token push: each
+# package's "Manage Actions access" must give this repository the Write role
+# (docs/SANDBOX_IMAGES.md).
 LABEL org.opencontainers.image.source="https://github.com/AdamEzzat1/julia-tutor"
 
 ENV JULIA_DEPOT_PATH=/depot \

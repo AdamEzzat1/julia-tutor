@@ -558,12 +558,25 @@ function cmd_sandbox(args)
     elseif sub == "publish"
         nodocker() && return 1
         digests = Dict{String,String}()
+        failed = String[]
+        # Every image is tried even when one fails, so a single run reports
+        # (and, on GHCR, creates the package for) each one that needs attention.
         for img in Runner.images()
-            d = Runner.publish_image(img; push = hasflag(args, "push"))
+            d = try
+                Runner.publish_image(img; push = hasflag(args, "push"))
+            catch e
+                e isa InterruptException && rethrow()
+                println("  $img: FAILED: ", sprint(showerror, e))
+                push!(failed, img)
+                nothing
+            end
             d === nothing || (digests[img] = d)
         end
         print(Runner.images_toml(digests))
-        return 0
+        isempty(failed) && return 0
+        println("\nFailed: ", join(failed, ", "), ". On GHCR, a push the registry denies usually means the ",
+                "package's \"Manage Actions access\" lacks this repository with the Write role.")
+        return 1
     elseif sub == "digests"
         digests = Dict{String,String}()
         for img in Runner.images()

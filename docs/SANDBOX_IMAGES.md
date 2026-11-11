@@ -61,6 +61,12 @@ every course before the first Run. Now each course gets its own image.
   to pull without logging in. GHCR creates a package as private on its first
   push, and its visibility is changed in the repository owner's package
   settings. The `clean-start` CI job reports whether an anonymous pull works.
+* **Letting CI push (once per package):** the first push of a new image
+  creates its package and is then denied, even with `packages: write` and the
+  `org.opencontainers.image.source` label (observed on this repo, Nov 2026).
+  In the package's settings, under "Manage Actions access", add this
+  repository with the Write role, then re-run CI. `tutor sandbox publish`
+  tries every image before failing, so one run creates every missing package.
 
 ## `tutor serve --course=<id>`
 
