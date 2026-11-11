@@ -190,7 +190,7 @@ degree.
 
   [[section.example]]
   caption = "Fitting exact polynomial data (all coefficients 1, 50 points on [0, 1]) of degree 8 and 12: the condition numbers and the relative error of the recovered coefficients."
-  notice = "Notice that `cond(V'V)` equals `cond(V)²` at degree 8; at degree 12 the square is `5e17`, and the computed `cond(V'V)` is only known to be above `1e15`: the rounding made in forming `V'V` already exceeds its smallest singular value. Notice also that at degree 12 the normal equations return coefficients wrong by more than 100% while QR recovers them to about `κ(V) u`."
+  notice = "Notice that `cond(V'V)` equals `cond(V)²` at degree 8; at degree 12 the square is `5e17`, and the computed `cond(V'V)` is only known to be above `1e15`: the rounding made in forming `V'V` already exceeds its smallest singular value. Notice also that at degree 12 QR still recovers the coefficients to about `κ(V) u` while the normal equations have no correct digit left: how wrong they are is itself rounding noise (a relative error of 25 on one machine, below 1 on another), so the example prints only the comparison."
   code = '''
 using LinearAlgebra
 BLAS.set_num_threads(1)
@@ -203,8 +203,7 @@ for d in (8, 12)
     normal_err = norm((V'V) \ (V'y) - c) / norm(c)
     println("degree ", d, ": cond(V) ≈ ", round(cond(V); sigdigits = 1), ", cond(V)^2 ≈ ", round(cond(V)^2; sigdigits = 1),
             ", cond(V'V) ", d == 8 ? string("≈ ", round(cond(V'V); sigdigits = 1)) : string("above 1e15: ", cond(V'V) > 1e15))
-    println("   QR error below 1e-7: ", qr_err < 1e-7, "   normal-equations error > 1000 × QR error: ", normal_err > 1000 * qr_err,
-            "   above 1: ", normal_err > 1)
+    println("   QR error below 1e-7: ", qr_err < 1e-7, "   normal-equations error > 1000 × QR error: ", normal_err > 1000 * qr_err)
 end
 '''
 
