@@ -1,0 +1,19 @@
+# Published sandbox images, written from CI's `tutor sandbox publish` (see
+# docs/SANDBOX_IMAGES.md). `tutor sandbox pull <course>` fetches by digest and
+# refuses when `inputs` is not this checkout's hash. Never edit by hand.
+
+[base]
+inputs = "e2a041cefd5ad87e2808a163e0acfbd656af73b186b8f968f89486fbaee2b74b"
+digest = "sha256:5b2bbf10b166921c5f72f6ae79e0701c9205230f085532e79073e2f22e0319cf"
+
+[scicomp]
+inputs = "c46fa50a45c95831f1e0f031f0fdfb5a7f07d1e2c5dfc66c0bd0ae10d48cd788"
+digest = "sha256:e8189dbdbd7f4fd72b0c2ae3ecd6d23a63b0e0314f172aa8f1648bc39353ea1e"
+
+[science]
+inputs = "b5dd4fae728750b7afb50d4438a836f4814faaa573516486e98ed6c6418d6be7"
+digest = "sha256:a823f314ec2009c27bd29584acd400a86c7947ca6fddab06121f256a92056ec1"
+
+[sciml]
+inputs = "a962edaa1684faf8de68bb715d5c99cd4908fd881e4ace6c255324d84391a510"
+digest = "sha256:180bc2a6718dfda05e54da0b241c247c89f832e8ab7538ee02e1e388cbfbbc33"
