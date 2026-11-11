@@ -88,8 +88,9 @@ every course before the first Run. Now each course gets its own image.
 * the memory limit, now per image (`--memory`, `--memory-swap`, and
   `--heap-size-hint` at two thirds of it).
 
-Every image keeps the 6 GB limit until its peak is measured. These flags are
-unchanged:
+The memory limit is now 2 GB for base, 3 GB for scicomp and sciml, and
+stays 6 GB for science ("Revisiting the 6 GB limit" below). Lowering a limit
+only makes the container stricter. These flags are unchanged:
 * `--network=none`, `--read-only`, `--cap-drop=ALL`,
   `--security-opt=no-new-privileges`;
 * `--pids-limit=512`, `--cpus`;
@@ -111,8 +112,33 @@ container's cgroup `memory.peak`. It is a measurement only:
 
 ## Measurements
 
-**Not measured yet: Docker is not running on the authoring machine, so every
-number here comes from CI.** The jobs that produce them:
+Every number here comes from CI run 42976555361 (2026-11-11, GitHub-hosted
+ubuntu runner, 4 CPUs, cgroup v2), on the images of this PR. Docker is not
+running on the authoring machine apart from one local check, noted below.
+
+| Image | Compressed (a pull downloads) | Unpacked | Cold start, `using` the env (3 fresh containers) | Peak at load | Largest peak in `course verify` |
+|---|---|---|---|---|---|
+| base | 0.20 GiB | 0.67 GiB (local build, `du`) | 1.1, 1.0, 1.0 s | 0.18 GiB | 0.50 GiB |
+| scicomp | 0.56 GiB | next CI run | scicomp 7.4, 7.2, 7.5 s; mtk 8.0, 7.5, 7.4 s | 0.64; 0.88 GiB | 0.74; 0.88 GiB |
+| sciml | 0.64 GiB | next CI run | about 8.2 s | 0.54 GiB | 0.84 GiB |
+| science | 1.26 GiB | next CI run | 2.0 (python) to 6.7 s (plots) | 0.22 to 0.54 GiB | 4.78 GiB (ml); every other env ≤ 1.39 (diffeq) |
+
+* **Unpacked sizes:** the first CI run printed `docker image inspect .Size`
+  as the unpacked size, but with the containerd image store (CI's) that is
+  the compressed content again. The unpacked size is now counted inside the
+  image (`du -sxb /` in a container with the same flags as a run); the base
+  number above is from that command on a local build, the course images'
+  come with the next CI run.
+* **Science per environment:** cold start calculus 3.0, data 2.4, diffeq
+  about 4.5, ml about 5.7, optim about 2.5, plots about 6.7, python about
+  2.0, turing 3.1 s; largest verify peak calculus 0.44, data 0.33, diffeq
+  1.39, ml 4.78, optim 0.30, plots 0.65, python 0.30, turing 0.43 GiB.
+* **Pull time on a clean machine** (`clean-start` job, fresh runner): Core
+  in 107 s from nothing, of which `tutor sandbox pull core` 10 s; then
+  scicomp 18 s, sciml 24 s, science 32 s each. Anonymous pulls work, so the
+  packages are public. Datacenter network: a home connection will be slower.
+
+The jobs that produce them:
 
 * **Sizes:** `images` job, `tutor sandbox measure`. For each image, the
   uncompressed size on disk and the compressed bytes a pull downloads, from
@@ -132,6 +158,35 @@ number here comes from CI.** The jobs that produce them:
 
 ### Revisiting the 6 GB limit
 
-Recorded here once CI has measured the peaks. The expectation from the plan
-was that the SciML image needs 6 GB and Core does not. It is not acted on
-until the peaks are in.
+The plan expected SciML to need 6 GB and Core not to. The measurements
+agree about Core and disagree about SciML. Science is the course that needs
+6 GB:
+
+| Image | Largest measured peak | Limit now | Why |
+|---|---|---|---|
+| base | 0.50 GiB | 2g (was 6g) | 4x headroom; never below 2 GB |
+| scicomp | 0.88 GiB (mtk) | 3g (was 6g) | 3.4x headroom |
+| sciml | 0.84 GiB | 3g (was 6g) | 3.6x headroom |
+| science | 4.78 GiB (ml) | 6g (unchanged) | 1.25x headroom only; MLJ's `evaluate` compiled inside a function, and a wrong answer that compiles a second path was killed at 4 GB before |
+
+The rule (`Runner.IMAGE_MEMORY`): at least 3x the largest peak, rounded up
+to a whole GB, never below 2 GB. The margin is wide because:
+* a learner's own code is not measured, and can allocate more or compile
+  more than any recorded run;
+* one CI run measured the peaks, on one CPU type.
+
+The peak includes page cache, which the kernel reclaims before it kills, so
+it overstates what a run needs. A run that does hit the limit is reported as
+a kill for memory (exit 137), with the limit, not as a crash.
+
+**Not measured:**
+* **The guided projects:** `tutor guided verify` did not run in that CI
+  job, because course verify failed first, on a CPU-dependent example in
+  unit 32 (fixed in this PR). Every guided project runs in a science
+  environment, which keeps 6 GB.
+* **sciml in a long training run:** sciml's 0.84 GiB covers every recorded
+  example, problem sample, reference, starter and variant. A learner who
+  trains a much larger network than the units do may need more than 3 GB.
+
+What this buys a Core learner: Docker Desktop no longer needs 6 GB to spare
+for Core Julia (2 GB for the container).

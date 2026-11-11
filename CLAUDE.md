@@ -325,7 +325,7 @@ every role above has had the chance to object (recorded in the PR).
   vary across CPUs). They were verified on one machine only; a different CPU
   or a package bump may move them.
 * A problem with `packages = []` loads the whole env, not nothing.
-* Container memory is 6 GB for every image (`Runner.IMAGE_MEMORY`; per image since Phase 2, not lowered until CI measures each peak), raised from 4 GB on
+* Container memory is per image (`Runner.IMAGE_MEMORY`, measured on CI on 2026-11-11: docs/SANDBOX_IMAGES.md): base 2 GB, scicomp and sciml 3 GB, science 6 GB. Science's was raised from 4 GB on
   2026-11-09: compiling MLJ's `evaluate` inside a function peaks at 3.8 GB,
   mostly compiler memory, and grading `ml-best-depth` against a wrong answer
   that compiles a second path was killed in 5 of 6 tries. A kill for memory
