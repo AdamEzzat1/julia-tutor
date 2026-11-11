@@ -22,21 +22,21 @@ ENV JULIA_CONDAPKG_BACKEND=Null \
 # One layer per environment, smallest first, each copied on its own: changing
 # one Manifest rebuilds that layer and the ones after it, not all of them.
 COPY envs/data /tutor/envs/data
-RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/data && rm -rf /depot/logs
+RUN umask 022 && export JULIA_CPU_TARGET="$(cat /tutor/cpu-target)" && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/data && rm -rf /depot/logs
 COPY envs/python /tutor/envs/python
-RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/python && rm -rf /depot/logs
+RUN umask 022 && export JULIA_CPU_TARGET="$(cat /tutor/cpu-target)" && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/python && rm -rf /depot/logs
 COPY envs/calculus /tutor/envs/calculus
-RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/calculus && rm -rf /depot/logs
+RUN umask 022 && export JULIA_CPU_TARGET="$(cat /tutor/cpu-target)" && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/calculus && rm -rf /depot/logs
 COPY envs/optim /tutor/envs/optim
-RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/optim && rm -rf /depot/logs
+RUN umask 022 && export JULIA_CPU_TARGET="$(cat /tutor/cpu-target)" && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/optim && rm -rf /depot/logs
 COPY envs/turing /tutor/envs/turing
-RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/turing && rm -rf /depot/logs
+RUN umask 022 && export JULIA_CPU_TARGET="$(cat /tutor/cpu-target)" && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/turing && rm -rf /depot/logs
 COPY envs/diffeq /tutor/envs/diffeq
-RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/diffeq && rm -rf /depot/logs
+RUN umask 022 && export JULIA_CPU_TARGET="$(cat /tutor/cpu-target)" && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/diffeq && rm -rf /depot/logs
 COPY envs/ml /tutor/envs/ml
-RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/ml && rm -rf /depot/logs
+RUN umask 022 && export JULIA_CPU_TARGET="$(cat /tutor/cpu-target)" && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/ml && rm -rf /depot/logs
 COPY envs/plots /tutor/envs/plots
-RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/plots && rm -rf /depot/logs
+RUN umask 022 && export JULIA_CPU_TARGET="$(cat /tutor/cpu-target)" && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/plots && rm -rf /depot/logs
 # Offline loading needs no registry (and a stale one only misleads).
 RUN rm -rf /depot/registries
 

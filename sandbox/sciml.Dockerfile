@@ -8,7 +8,7 @@ ARG RUNTIME
 FROM ${RUNTIME}
 
 COPY envs/sciml /tutor/envs/sciml
-RUN umask 022 && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/sciml && rm -rf /depot/logs
+RUN umask 022 && export JULIA_CPU_TARGET="$(cat /tutor/cpu-target)" && julia --startup-file=no -e 'using Pkg; Pkg.activate(ARGS[1]); Pkg.instantiate(); Pkg.precompile()' /tutor/envs/sciml && rm -rf /depot/logs
 # Offline loading needs no registry (and a stale one only misleads).
 RUN rm -rf /depot/registries
 

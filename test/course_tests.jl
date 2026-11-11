@@ -410,6 +410,15 @@ end
         @test endswith(dfs[img], "COPY child /tutor/child\nUSER 1000:1000\nWORKDIR /tmp\n")
     end
     @test endswith(dfs["base"], "COPY child /tutor/child\nUSER 1000:1000\nWORKDIR /tmp\n")
+    # Package caches are compiled for a fixed list of CPUs, not the build
+    # machine's: every precompile step reads it (a cache built on one CI
+    # runner was rejected on the next, CI run 42998692738).
+    @test occursin("> /tutor/cpu-target\n", dfs["base"])
+    for img in Runner.images()
+        for line in filter(l -> occursin("Pkg.precompile()", l), split(dfs[img], '\n'))
+            @test occursin("export JULIA_CPU_TARGET=\"\$(cat /tutor/cpu-target)\" && julia", line)
+        end
+    end
     # nothing in any image is fetched at run time (the container has no network)
     @test !any(df -> occursin(r"\b(ADD|VOLUME|EXPOSE)\b", df), values(dfs))
 

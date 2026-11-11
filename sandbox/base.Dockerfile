@@ -27,6 +27,18 @@ ENV JULIA_DEPOT_PATH=/depot \
 # The depot is made readable by the run-time user as it grows (umask 022), with
 # no chmod pass at the end, which would copy every file into a new layer.
 RUN umask 022 && mkdir -p /depot /tutor/envs
+# The CPUs the course images' package caches are compiled for, read by every
+# precompile step (sandbox/<course>.Dockerfile). Without it, Pkg compiles for
+# the build machine's CPU, and a learner's CPU without its features (or CI's
+# next runner) rejects every cache and recompiles at run time: `using
+# DataFrames` took 84 s instead of 2 s (CI run 42998692738, 2026-11-11). This
+# is the target list of Julia's own x86_64 release builds: a baseline copy of
+# every function, plus faster copies for newer CPUs. Other architectures get
+# only the baseline (arm64 images are not published or tested).
+RUN case "$(uname -m)" in \
+      x86_64) echo 'generic;sandybridge,-xsaveopt,clone_all;haswell,-rdrnd,base(1)' ;; \
+      *) echo 'generic' ;; \
+    esac > /tutor/cpu-target
 COPY envs/base /tutor/envs/base
 
 FROM runtime AS base
