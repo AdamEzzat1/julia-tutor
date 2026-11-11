@@ -383,6 +383,15 @@ function validate_courses(courses::Vector{CourseInfo}, units::Vector{Unit};
         n = count(c -> g in c.guided, courses)
         n == 1 || push!(problems, "guided project $g belongs to $n courses (must be exactly 1)")
     end
+    # Each course has its own sandbox image (src/runner.jl, `image_envs`), and
+    # the environment picks the image, so an environment other than base may be
+    # in one course only (a unit elsewhere would run in an image without it).
+    for e in sort!(unique([e for c in courses for e in c.envs if e != "base"]))
+        owners = [c.id for c in courses if e in c.envs]
+        length(owners) == 1 ||
+            push!(problems, "environment $e is used by courses $(join(owners, ", ")); each sandbox image holds one " *
+                            "course's environments, so an environment other than base belongs to exactly one course")
+    end
     cyc = prereq_cycle(units)
     cyc === nothing || push!(problems, "prerequisite cycle: $(join(cyc, " -> "))")
     return problems

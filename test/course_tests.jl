@@ -71,6 +71,9 @@ end
     @test has("envs must be exactly", swap(3, C(scc; envs = ["base", "scicomp"])))          # missing mtk
     @test has("guided project epidemic belongs to 0 courses",
               swap(2, C(sci; guided = filter(!=("epidemic"), sci.guided), envs = sci.envs)))
+    # an environment in two courses could not pick one image (Phase 2)
+    @test has("environment plots is used by courses science, sciml", swap(4, C(sml; envs = ["base", "plots", "sciml"])))
+    @test !any(contains("environment base is used"), Course.validate_courses(courses, units))
     @test has("4 to 8 outcomes", swap(1, C(core; outcomes = core.outcomes[1:3])))
     @test has("is not a unit or project of this course",
               swap(1, C(core; outcomes = [Course.Outcome("x", ["46-sindy"], String[]); core.outcomes[2:end]])))
@@ -303,9 +306,23 @@ end
     for f in ("--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "-i", "--rm")
         @test f in a
     end
-    @test "--pids-limit=$(Runner.CONTAINER_PIDS)" in a && "--memory=$(Runner.CONTAINER_MEMORY)" in a
-    @test "--memory-swap=$(Runner.CONTAINER_MEMORY)" in a          # no swap beyond the memory limit
-    @test "--heap-size-hint=$(Runner.CONTAINER_HEAP_HINT)" in a       # GC collects before the kernel kills
+    mem = Runner.image_memory("science")
+    @test "--pids-limit=$(Runner.CONTAINER_PIDS)" in a && "--memory=$mem" in a
+    @test "--memory-swap=$mem" in a                                   # no swap beyond the memory limit
+    @test "--heap-size-hint=$(Runner.heap_hint(mem))" in a              # GC collects before the kernel kills
+    @test Runner.heap_hint("6g") == "4G" == Runner.CONTAINER_HEAP_HINT && Runner.heap_hint("3g") == "2G"
+    # The environment picks the image; every other flag is the same in every
+    # image (the Sandbox/security engineer reviews this list, Phase 2).
+    @test Runner.image_name("science") in a && Runner.env_image("data") == "science"
+    strip_img(x) = filter(f -> !(f in Runner.image_name.(Runner.images())) && !startswith(f, "--memory") &&
+                               !startswith(f, "--heap-size-hint") && !startswith(f, "--project="), x)
+    for e in ("base", "scicomp", "mtk", "sciml", "plots")
+        b = Runner.docker_args(; project_env = e, threads = 4, name = "julia-tutor-x")
+        @test strip_img(b) == strip_img(a)
+        @test Runner.image_name(Runner.env_image(e)) in b
+    end
+    @test Runner.env_image("base") == "base" && Runner.env_image("mtk") == "scicomp" && Runner.env_image("sciml") == "sciml"
+    @test_throws ErrorException Runner.env_image("nope")
     # a container killed for memory says so instead of "crashed" (docker only:
     # a plain process's 137 is any SIGKILL; a timeout's kill is reported as one)
     let old = Runner.SANDBOX[]
@@ -338,16 +355,78 @@ end
     @test collect(keys(files)) == ["result.toml"]
     @test Runner.split_files("crashed\n") == ("crashed\n", Dict{String,Vector{UInt8}}())
 
-    # the image label covers the child scripts and the environments
-    names = first.(Runner.sandbox_inputs())
-    @test "child/sandbox.jl" in names && "child/contained.jl" in names && "envs/data/Manifest.toml" in names
-    @test length(Runner.sandbox_hash()) == 64
-    # every course environment gets its own COPY in the Dockerfile (one layer each)
-    df = replace(read(joinpath(Runner.SANDBOX_DIR, "Dockerfile"), String), "\r\n" => "\n")
-    for e in readdir(joinpath(Course.COURSE_DIR, "envs"))
-        @test occursin("COPY envs/$e /tutor/envs/$e\n", df)
-        isfile(joinpath(Course.COURSE_DIR, "envs", e, "Manifest.toml")) && @test occursin("/tutor/envs/$e && rm", df)
+    # the memory peak comes after the files block only, so printing the prefix
+    # does not cut the learner's output
+    peakline = Runner.PEAK_PREFIX * "123456 cgroup\n"
+    o, n = Runner.split_peak(out * peakline)
+    @test n == (123456, "cgroup") && o == out
+    @test Runner.split_peak(out * Runner.PEAK_PREFIX * "77 maxrss\n")[2] == (77, "maxrss")
+    @test Runner.split_peak(out * Runner.PEAK_PREFIX * "77 lies\n") == (out, nothing)
+    let saved = copy(Runner.MEMORY_PEAKS)
+        empty!(Runner.MEMORY_PEAKS)
+        Runner.note_peak!("x", (5, "cgroup")); Runner.note_peak!("x", (3, "cgroup")); Runner.note_peak!("x", nothing)
+        @test Runner.MEMORY_PEAKS["x"] == (5, "cgroup")
+        empty!(Runner.MEMORY_PEAKS); merge!(Runner.MEMORY_PEAKS, saved)
     end
+    fake = "a\n" * Runner.PEAK_PREFIX * "9\nb\n" * out
+    @test Runner.split_peak(fake) == (fake, nothing)
+    @test Runner.split_peak("crashed\n" * peakline) == ("crashed\n" * peakline, nothing)
+
+    # one image per course with environments of its own; Core Julia runs in base
+    ie = Runner.image_envs()
+    courses = Course.load_courses()
+    @test Runner.images() == ["base", "scicomp", "science", "sciml"]                  # base, then by name
+    @test Runner.course_image("core") == "base" && Runner.image_course("base") == "core"
+    for c in courses
+        @test ie[Runner.course_image(c.id)] == sort(filter(!=("base"), c.envs))
+    end
+    # every environment is in exactly one image (base: in the base image)
+    all_envs = sort!(readdir(joinpath(Course.COURSE_DIR, "envs")))
+    @test sort!(["base"; reduce(vcat, values(ie))]) == all_envs
+    # each image's label covers its Dockerfiles, the child scripts and its environments only
+    names = first.(Runner.sandbox_inputs("science"))
+    @test "child/sandbox.jl" in names && "child/contained.jl" in names && "envs/data/Manifest.toml" in names
+    @test "base.Dockerfile" in names && "science.Dockerfile" in names && !any(startswith("envs/sciml/"), names)
+    @test !any(startswith("envs/data/"), first.(Runner.sandbox_inputs("base")))
+    @test all(length(Runner.sandbox_hash(i)) == 64 for i in Runner.images())
+    @test allunique(Runner.sandbox_hash.(Runner.images()))
+    # each course Dockerfile installs exactly its course's environments, one layer each
+    dfs = Dict(i => replace(read(joinpath(Runner.SANDBOX_DIR, "$i.Dockerfile"), String), "\r\n" => "\n") for i in Runner.images())
+    for (img, envs) in ie, e in all_envs
+        copied = occursin("COPY envs/$e /tutor/envs/$e\n", dfs[img])
+        @test copied == (e in envs || (img == "base" && e == "base"))
+        copied && isfile(joinpath(Course.COURSE_DIR, "envs", e, "Manifest.toml")) && @test occursin("/tutor/envs/$e && rm", dfs[img])
+    end
+    @test occursin(r"^FROM julia:1\.10\.13@sha256:[0-9a-f]{64} AS runtime$"m, dfs["base"])
+    for img in Runner.images()
+        img == "base" && continue
+        @test occursin("ARG RUNTIME\nFROM \${RUNTIME}\n", dfs[img])      # built on base's runtime stage
+        @test endswith(dfs[img], "COPY child /tutor/child\nUSER 1000:1000\nWORKDIR /tmp\n")
+    end
+    @test endswith(dfs["base"], "COPY child /tutor/child\nUSER 1000:1000\nWORKDIR /tmp\n")
+    # nothing in any image is fetched at run time (the container has no network)
+    @test !any(df -> occursin(r"\b(ADD|VOLUME|EXPOSE)\b", df), values(dfs))
+
+    # published images are pulled by digest, and only for these inputs
+    h = Runner.sandbox_hash("sciml"); dg = "sha256:" * "ab"^32
+    rec = Dict("sciml" => Dict("inputs" => h, "digest" => dg))
+    @test Runner.published_ref("sciml"; record = rec, hash = h) == ("$(Runner.REGISTRY)/julia-tutor-sandbox-sciml@$dg", nothing)
+    ref, why = Runner.published_ref("sciml"; record = rec, hash = "0"^64)
+    @test ref === nothing && occursin("tutor sandbox build sciml", why)
+    @test Runner.published_ref("base"; record = rec)[1] === nothing                   # nothing recorded
+    bad = Dict("sciml" => Dict("inputs" => h, "digest" => "latest; rm -rf /"))
+    @test Runner.published_ref("sciml"; record = bad, hash = h)[1] === nothing         # digests only
+    @test Runner.registry_tag("sciml", h) == "$(Runner.REGISTRY)/julia-tutor-sandbox-sciml:$(VERSION)-$(h[1:16])"
+    t = Runner.images_toml(Dict("base" => dg, "sciml" => dg))
+    parsed = TOML.parse(t)
+    @test sort!(collect(keys(parsed))) == ["base", "sciml"] && parsed["base"]["inputs"] == Runner.sandbox_hash("base")
+    @test Runner.published_ref("sciml"; record = parsed)[1] !== nothing
+    # the committed file, when there is one, is well formed
+    for (img, r) in Runner.published()
+        @test img in Runner.images() && Runner.valid_digest(r["digest"]) && length(r["inputs"]) == 64
+    end
+    @test Runner.manifest_bytes(Dict("layers" => [Dict("size" => 10), Dict("size" => 5)], "config" => Dict("size" => 1))) == 16
+    @test Runner.manifest_bytes(Dict("manifests" => [])) === nothing
 end
 
 @testset "sandbox server request policy" begin
@@ -392,6 +471,29 @@ end
     @test r.status == 200 && JSON.parse_json(r.body)["problem"] == "fahrenheit"
     @test req("GET", "/api/run"; h = auth).status == 405
     @test req("GET", "/etc/passwd"; h = auth).status == 404
+
+    # `tutor serve --course=core`: the same policy in front, then only Core's
+    # environments and problems, each refusal naming the course to restart with
+    ccfg = Server.ServerConfig(; port = 8765, token = tok, units = Course.load_course(), course = "core")
+    creq(m, path; body = "") = Server.handle(ccfg,
+        Server.Request(m, path, Dict("host" => "127.0.0.1:8765", "authorization" => "Bearer $tok"), body);
+        run = fake_run, gradefn = fake_grade)
+    h = JSON.parse_json(creq("GET", "/api/health").body)
+    @test h["envs"] == ["base"] && h["course"] == "core"
+    @test JSON.parse_json(req("GET", "/api/health"; h = auth).body)["course"] == ""
+    n = length(ran)
+    @test creq("POST", "/api/run"; body = "{\"code\": \"1+2\"}").status == 200 && length(ran) == n + 1
+    r = creq("POST", "/api/run"; body = "{\"code\": \"x\", \"env\": \"sciml\"}")
+    @test r.status == 403 && occursin("--course=sciml", JSON.parse_json(r.body)["error"]) && length(ran) == n + 1
+    @test creq("POST", "/api/run"; body = "{\"code\": \"x\", \"env\": \"nope\"}").status == 400
+    @test creq("POST", "/api/grade"; body = "{\"code\": \"x\", \"problem\": \"fahrenheit\"}").status == 200
+    _, sp = Course.find_problem(Course.load_course(), "sparse-jacobi-pcg")
+    r = creq("POST", "/api/grade"; body = "{\"code\": \"x\", \"problem\": \"$(sp.id)\"}")
+    @test r.status == 403 && occursin("--course=scicomp", JSON.parse_json(r.body)["error"])
+    @test Server.handle(ccfg, Server.Request("POST", "/api/run", Dict("host" => "127.0.0.1:8765"), "{\"code\": \"1\"}");
+                        run = fake_run).status == 401                                 # the token still comes first
+    scfg = Server.ServerConfig(; port = 8765, token = tok, units = Course.load_course(), course = "scicomp")
+    @test Server.served_envs(scfg) == ["base", "mtk", "scicomp"]
 
     # HTTP parsing limits
     io = IOBuffer("POST /api/run HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nContent-Length: 999999999\r\n\r\n")
@@ -459,8 +561,9 @@ if !FAST
         @test g["status"] == "failed" && occursin("data race", g["feedback"][1]["detail"])
     end
 
-    # The same child in the container, when Docker and an up-to-date image are here.
-    why = Runner.sandbox_problem()
+    # The same child in the container, when Docker and an up-to-date base image
+    # are here (everything below is Core Julia's: base env, core problems).
+    why = Runner.sandbox_problem(["base"])
     if why === nothing
         @testset "sandbox container: run and grade for real" begin
             Runner.SANDBOX[] = :docker
@@ -483,6 +586,11 @@ if !FAST
                 _, q = Course.find_problem(Course.load_course(), "parallel-chunk-sum")
                 g = Practice.grade(q, only(v for v in q.variants if startswith(v.label, "racy")).code)
                 @test g["status"] == "failed"
+                # the container reports its memory peak (cgroup, or Julia's RSS on older kernels)
+                @test haskey(Runner.MEMORY_PEAKS, "base") && Runner.MEMORY_PEAKS["base"][1] > 100 * 2^20
+                # output that imitates the peak line is the learner's, kept whole
+                r = Practice.run_code("println(\"$(Runner.PEAK_PREFIX)1 cgroup\"); println(\"after\")")
+                @test r.output == "$(Runner.PEAK_PREFIX)1 cgroup\nafter\n"
             finally
                 Runner.SANDBOX[] = :none
             end

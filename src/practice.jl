@@ -123,7 +123,7 @@ run_timeout(env::AbstractString) = env == "base" ? 60 : 180
 
 """A contained run the kernel stopped for using more than its memory limit."""
 out_of_memory(rc, timed_out) = Runner.SANDBOX[] === :docker && !timed_out && rc == Runner.OOM_EXIT
-const OOM_MESSAGE = "the run used more than the sandbox's $(Runner.CONTAINER_MEMORY) of memory and was stopped"
+oom_message(env) = "the run used more than the sandbox's $(Runner.image_memory(Runner.env_image(env))) of memory and was stopped"
 
 """Run `code` in a fresh process in the unit environment `env` (REPL-like display)."""
 function run_code(code::AbstractString; env::AbstractString = "base", mode::AbstractString = "repl",
@@ -137,7 +137,7 @@ function run_code(code::AbstractString; env::AbstractString = "base", mode::Abst
     try rm(dir; recursive = true, force = true) catch end
     out = clip(log)
     out_of_memory(rc, to) &&
-        (out *= (isempty(out) || endswith(out, "\n") ? "" : "\n") * "ERROR: " * OOM_MESSAGE * "\n")
+        (out *= (isempty(out) || endswith(out, "\n") ? "" : "\n") * "ERROR: " * oom_message(env) * "\n")
     to && (out *= (isempty(out) || endswith(out, "\n") ? "" : "\n") *
                   "ERROR: timed out after $(timeout) s (an infinite loop, or a very slow computation)\n")
     return RunResult(out, rc == 0 && !to, to, time() - t, images)
@@ -181,7 +181,7 @@ function grade(p::Course.Problem, code::AbstractString; env::AbstractString = "b
     raw = isfile(outpath) ? TOML.tryparsefile(outpath) : nothing
     raw isa Dict && haskey(raw, "status") || (raw = nothing)   # unreadable or partial: a crash
     rm(dir; recursive = true, force = true)
-    log = out_of_memory(rc, to) ? OOM_MESSAGE * "\n" * log : log
+    log = out_of_memory(rc, to) ? oom_message(env) * "\n" * log : log
     r = assess(p, raw; timed_out = to, log = clip(log, 4000), findings = static_findings(code))
     r["seconds"] = round(time() - t; digits = 1)
     return r
