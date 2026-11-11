@@ -5,7 +5,7 @@ env = "scicomp"
 status = "ready"
 summary = "The method of lines: replace the space derivatives of a partial differential equation by finite differences on a grid, and the PDE becomes a system of ODEs that OrdinaryDiffEq solves. Second differences and their error, the heat equation as an in-place right-hand side, the discrete Laplacian as a matrix and its eigenvalues, the 2D heat equation with a sparse Laplacian, boundary conditions, and residuals that measure how far a candidate is from solving the equation."
 kcs = ["finite-differences", "method-of-lines", "pde-residual", "boundary-conditions"]
-prerequisites = ["07-broadcasting", "14-performance", "23-derivatives", "24-differential-equations", "30-floating-point", "31-convergence", "32-dense-linear-algebra", "33-sparse-iterative"]
+prerequisites = ["core/07-broadcasting", "core/14-performance", "science/23-derivatives", "science/24-differential-equations", "30-floating-point", "31-convergence", "32-dense-linear-algebra", "33-sparse-iterative"]
 
 [[section]]
 title = "What you need from earlier units"

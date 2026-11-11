@@ -4,7 +4,7 @@ track = "ecosystem"
 env = "data"
 summary = "Tabular data in Julia: what a DataFrame is and why its columns are plain vectors, selecting rows and columns, the source => function => destination minilanguage, split-apply-combine with groupby, joins and missing values, reading and writing CSV with type inference, reshaping, and a tour of what else both packages do."
 kcs = ["dataframes", "split-apply-combine", "joins", "missing-values", "csv"]
-prerequisites = ["20-stdlib-tour"]
+prerequisites = ["core/20-stdlib-tour"]
 
 [[section]]
 title = "Building and inspecting a DataFrame"

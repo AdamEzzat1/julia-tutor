@@ -4,7 +4,7 @@ track = "core"
 env = "base"
 summary = "Modules as namespaces, export, using versus import, extending another module's functions, constants, submodules, and how packages and pinned environments make code reproducible."
 kcs = ["modules", "using-import", "name-resolution", "const-globals", "packages-environments"]
-prerequisites = ["11-iteration"]
+prerequisites = ["10-errors", "11-iteration"]
 
 [[section]]
 title = "A module is a namespace"

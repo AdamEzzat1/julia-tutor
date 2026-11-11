@@ -5,7 +5,7 @@ env = "scicomp"
 status = "ready"
 summary = "How the way you write a mixed-integer model decides whether the solver can solve it, and whether its answer is right: the LP relaxation bound and why a tighter formulation helps, sizing big-M from variable bounds, a big M that lets the integrality tolerance open a facility by a millionth, a small M that silently cuts off the optimum, indicator constraints and how HiGHS reformulates them, and linearizing products of binaries, all on a facility-location model with deterministic relaxation bounds."
 kcs = ["lp-relaxation", "big-m", "indicator-constraints", "linearization", "mip-tolerances"]
-prerequisites = ["25-optimization", "38-constrained-optimization"]
+prerequisites = ["science/25-optimization", "38-constrained-optimization"]
 
 [[section]]
 title = "What you need from earlier units"

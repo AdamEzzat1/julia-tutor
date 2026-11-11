@@ -4,7 +4,7 @@ track = "core"
 env = "base"
 summary = "Throwing and catching exceptions, the standard exception types, cleanup with finally, your own exception types, and when to return nothing instead of throwing."
 kcs = ["exceptions", "try-catch", "exception-types", "custom-exceptions", "assertions", "error-handling-design"]
-prerequisites = ["09-dispatch"]
+prerequisites = ["08-types"]
 
 [[section]]
 title = "Throwing an error"

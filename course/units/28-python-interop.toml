@@ -8,7 +8,7 @@ kcs = ["python-interop", "pyconvert", "shared-memory-wrappers", "language-bounda
 # The unit leans on type stability, concrete types and allocation verdicts
 # (PyArray's type parameters, pyconvert targets), taught in 14-performance;
 # pandas appears in one bullet only, so DataFrames is not a prerequisite.
-prerequisites = ["14-performance"]
+prerequisites = ["core/14-performance"]
 
 [[section]]
 title = "A Python interpreter inside Julia"

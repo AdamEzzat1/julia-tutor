@@ -4,7 +4,7 @@ track = "foundations"
 env = "base"
 summary = "Apply any function elementwise with a dot, fuse whole expressions into one loop, write into existing arrays with .=, and reduce collections with map, filter and reduce."
 kcs = ["broadcasting", "dot-fusion", "in-place-assignment", "broadcast-shapes", "higher-order-functions", "reductions"]
-prerequisites = ["06-collections"]
+prerequisites = ["05-functions"]
 
 [[section]]
 title = "The dot: any function, elementwise"

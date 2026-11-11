@@ -1,0 +1,44 @@
+# A course: an ordered list of existing units (ids unchanged) plus the projects
+# that assess it. Checked by `tutor course verify` (Course.validate_courses).
+# `assessed_by` names only things that exist (units of this course,
+# "project:<name>", "guided:<name>"); cases and programs not built yet are
+# listed under `planned`, as text.
+id = "core"
+title = "Core Julia"
+order = 1
+status = "ready"
+summary = "The language itself, from the first expression to performance, generic code, interfaces, threads and the compiler. The way into the scientific courses."
+requires = []
+envs = ["base"]
+units = ["01-first-steps", "02-numbers", "03-strings", "04-control-flow", "05-functions", "06-collections",
+         "07-broadcasting", "08-types", "09-dispatch", "10-errors", "11-iteration", "12-modules", "13-io",
+         "14-performance", "15-generic-programming", "16-metaprogramming", "17-interfaces", "18-concurrency",
+         "19-under-the-hood", "20-stdlib-tour"]
+projects = ["symdiff"]
+guided = []
+
+[[outcome]]
+text = "Write type-stable, allocation-aware functions and show both by measurement (@allocated, @inferred)."
+assessed_by = ["07-broadcasting", "08-types", "14-performance", "15-generic-programming"]
+
+[[outcome]]
+text = "Design with multiple dispatch and parametric types instead of if-chains."
+assessed_by = ["08-types", "09-dispatch", "15-generic-programming", "17-interfaces", "project:symdiff"]
+planned = ["dual-number forward AD case"]
+
+[[outcome]]
+text = "Implement a Base interface (iteration, indexing, show, promotion) so a custom type works with generic code."
+assessed_by = ["11-iteration", "17-interfaces"]
+planned = ["interval arithmetic program"]
+
+[[outcome]]
+text = "Handle errors deliberately, and read and write data safely."
+assessed_by = ["10-errors", "13-io"]
+
+[[outcome]]
+text = "Write and run tests, and fix a failing test from a deterministic explanation."
+assessed_by = ["project:symdiff"]
+
+[[outcome]]
+text = "Use threads without data races, and say when threads will not help."
+assessed_by = ["18-concurrency"]

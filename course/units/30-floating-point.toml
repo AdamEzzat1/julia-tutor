@@ -5,7 +5,7 @@ env = "base"
 status = "ready"
 summary = "Why a numerical answer can be wrong and whose fault it is. Every floating-point operation rounds by at most half an `eps`; cancellation is exact but exposes earlier rounding; the condition number measures how much the problem amplifies input errors, and backward error measures how much the algorithm adds. Forward error is at most their product, shown on scalar formulas and on a Hilbert matrix that a backward-stable LU solves to the wrong answer."
 kcs = ["floating-point-rounding", "cancellation", "condition-number", "backward-stability"]
-prerequisites = ["02-numbers", "14-performance", "20-stdlib-tour", "23-derivatives"]
+prerequisites = ["core/02-numbers", "core/14-performance", "core/20-stdlib-tour", "science/23-derivatives"]
 
 [[section]]
 title = "What you need from earlier units"

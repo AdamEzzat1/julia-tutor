@@ -5,7 +5,7 @@ env = "sciml"
 status = "ready"
 summary = "Universal differential equations: keep the terms of a model you know and let a small Lux network learn only the missing ones, train it on simulated Lotka-Volterra data with Optimization.jl, compare its extrapolation on a held-out time window with a pure neural ODE over several initial weights, and see that with this training budget the outcome varies from start to start: the UDE tends to win, a badly fitted run tends to extrapolate worse, and a wrong known term is absorbed by the network instead of showing up in the fit."
 kcs = ["universal-ode", "neural-ode", "extrapolation", "ode-parameter-fitting"]
-prerequisites = ["24-differential-equations", "32-dense-linear-algebra", "43-sensitivities", "44-adjoints-neural-odes"]
+prerequisites = ["science/24-differential-equations", "scicomp/32-dense-linear-algebra", "43-sensitivities", "44-adjoints-neural-odes"]
 
 [[section]]
 title = "What you need from earlier units"

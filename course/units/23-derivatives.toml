@@ -5,7 +5,7 @@ env = "calculus"
 status = "ready"
 summary = "Finite differences and their two kinds of error, forward-mode automatic differentiation with dual numbers (by hand, then with ForwardDiff.jl), what a function must look like for AD to work, the cost of forward mode in many inputs, and symbolic differentiation and code generation with Symbolics.jl."
 kcs = ["finite-differences", "dual-numbers", "forward-mode-ad", "generic-code-for-ad", "symbolic-differentiation", "code-generation"]
-prerequisites = ["15-generic-programming"]
+prerequisites = ["core/15-generic-programming"]
 
 [[section]]
 title = "Three ways to get a derivative"

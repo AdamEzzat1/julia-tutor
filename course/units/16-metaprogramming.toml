@@ -5,7 +5,7 @@ env = "base"
 status = "ready"
 summary = "Julia code is data: Symbols and Exprs, quoting and interpolation, eval and why it belongs at global scope, macros with esc and hygiene, @macroexpand, and generating methods with @eval loops."
 kcs = ["symbols", "expressions", "quoting", "interpolation", "eval", "macros", "hygiene", "code-generation"]
-prerequisites = ["15-generic-programming"]
+prerequisites = ["08-types"]
 
 [[section]]
 title = "Symbols and expressions"

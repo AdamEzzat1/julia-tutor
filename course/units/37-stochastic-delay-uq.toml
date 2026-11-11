@@ -5,7 +5,7 @@ env = "scicomp"
 status = "ready"
 summary = "Equations with noise and with memory: Brownian increments and the Euler-Maruyama step written by hand and matched with StochasticDiffEq, strong order 1/2 against weak order 1 measured on geometric Brownian motion under fixed paths, Monte Carlo error that shrinks like 1/sqrt(N) and the confidence interval that reports it, reproducible ensembles, why Itô and Stratonovich give different answers to the same equation, and delay equations by the method of steps checked against DelayDiffEq and the exact solution."
 kcs = ["sde", "euler-maruyama", "strong-weak-order", "monte-carlo-error", "ensembles", "dde"]
-prerequisites = ["24-differential-equations", "27-probabilistic-programming", "31-convergence"]
+prerequisites = ["science/24-differential-equations", "31-convergence"]
 
 [[section]]
 title = "What you need from earlier units"
@@ -17,9 +17,10 @@ them. It relies on four facts:
 * **Order from a log-log slope**: if an error behaves like `C h^p`, the
   slope of `log(error)` against `log(h)` is `p` (unit 31, section "Order of
   accuracy, read from a log-log slope").
-* **Monte Carlo error**: an average of `N` independent draws has standard
-  error `std / sqrt(N)` (unit 27, section "Checking the sampler against the
-  exact answer").
+* **Monte Carlo error**: the mean of `N` independent draws with standard
+  deviation `σ` has standard deviation `σ / sqrt(N)`, because the variances
+  of independent draws add, so the mean's variance is `σ² / N`. Its estimate,
+  `std / sqrt(N)`, is the standard error.
 * **Seeded generators**: pass an RNG to every random call, and use
   StableRNGs when numbers must stay the same across Julia versions (unit 20,
   section "Random: reproducible random numbers").

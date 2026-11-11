@@ -4,7 +4,7 @@ track = "core"
 env = "base"
 summary = "What a for loop really calls, how to make your own types iterable, lazy generators versus eager comprehensions, and the Iterators toolbox."
 kcs = ["iteration-protocol", "custom-iterators", "generators", "lazy-iterators", "iterator-utilities"]
-prerequisites = ["10-errors"]
+prerequisites = ["08-types"]
 
 [[section]]
 title = "The iteration protocol"

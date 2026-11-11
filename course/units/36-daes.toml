@@ -5,7 +5,7 @@ env = "mtk"
 status = "ready"
 summary = "Differential-algebraic equations: the mass-matrix form, the differential index and why a high index breaks implicit solvers, the Cartesian pendulum (index 3) failing as written and working after the constraint is differentiated by hand, the drift that index reduction leaves and a projection that removes it, consistent initial conditions, and acausal circuit components compiled with ModelingToolkitBase and checked against the exact solution."
 kcs = ["dae", "differential-index", "index-reduction", "consistent-initialization", "acausal-modelling"]
-prerequisites = ["23-derivatives", "24-differential-equations", "35-stiffness"]
+prerequisites = ["science/23-derivatives", "science/24-differential-equations", "35-stiffness"]
 
 [[section]]
 title = "What you need from earlier units"

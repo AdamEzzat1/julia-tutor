@@ -1,0 +1,38 @@
+id = "science"
+title = "Julia for science"
+order = 2
+status = "ready"
+summary = "The packages scientific work uses, each in a pinned environment: data, figures, derivatives, differential equations, optimisation, networks, probabilistic models, Python, and shipping a reproducible package."
+requires = ["core"]
+envs = ["base", "calculus", "data", "diffeq", "ml", "optim", "plots", "python", "turing"]
+units = ["21-dataframes", "22-plotting", "23-derivatives", "24-differential-equations", "25-optimization",
+         "26-machine-learning", "27-probabilistic-programming", "28-python-interop", "29-package-development"]
+projects = []
+# production is to be reframed as a scientific resource-allocation LP (Phase 4).
+guided = ["tidy", "figures", "derivcheck", "epidemic", "production", "classify", "bayesreg", "pybridge"]
+
+[[outcome]]
+text = "Load, clean and reshape measurement data without losing information."
+assessed_by = ["21-dataframes", "guided:tidy"]
+
+[[outcome]]
+text = "Produce a report figure whose content (axes, series, labels) is tested."
+assessed_by = ["22-plotting", "guided:figures"]
+
+[[outcome]]
+text = "Compute derivatives three ways and choose between them with a derived error bound."
+assessed_by = ["23-derivatives", "guided:derivcheck"]
+
+[[outcome]]
+text = "Solve an ODE model and check it against an invariant or an exact solution."
+assessed_by = ["24-differential-equations", "guided:epidemic"]
+
+[[outcome]]
+text = "Fit model parameters and report their uncertainty, by optimisation and by Bayesian inference."
+assessed_by = ["25-optimization", "27-probabilistic-programming", "guided:bayesreg"]
+planned = ["Bayesian calibration case"]
+
+[[outcome]]
+text = "Package a tool so that a clean environment reproduces its results."
+assessed_by = ["29-package-development"]
+planned = ["parameter-estimation program"]

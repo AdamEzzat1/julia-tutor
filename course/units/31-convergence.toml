@@ -5,7 +5,7 @@ env = "scicomp"
 status = "ready"
 summary = "How fast an approximation improves as the step shrinks, and what an adaptive ODE solver actually controls. Observed order from a log-log slope, Richardson extrapolation for a better answer and an error estimate, local against global error, the embedded-pair estimate scaled by `abstol + reltol * |u|` and the step-size controller, and a work-precision measurement with OrdinaryDiffEq in which the global error is compared with `reltol`."
 kcs = ["convergence-order", "richardson-extrapolation", "local-global-error", "adaptive-step-control"]
-prerequisites = ["24-differential-equations", "30-floating-point"]
+prerequisites = ["science/24-differential-equations", "30-floating-point"]
 
 [[section]]
 title = "What you need from earlier units"
