@@ -30,5 +30,5 @@ JULIA_PKG_OFFLINE=false julia_pinned --project=. -e 'using Pkg; Pkg.instantiate(
 
 Status: M1 slice + M2 (explain fixtures, learner model) + course (C1) + website. `tutor serve`, which runs
 code sent by the website, runs it in a Docker container with no network and no access to your files
-(`./tutor sandbox build` once; `--sandbox=none` opts out). The CLI test runner (`tutor test`) still runs plain
+(`./tutor sandbox pull <course>` once, or `build`; `--sandbox=none` opts out; [docs/START_CORE.md](docs/START_CORE.md)). The CLI test runner (`tutor test`) still runs plain
 processes: only run your own code with it.

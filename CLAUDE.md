@@ -23,8 +23,10 @@ source scripts/env.sh                       # pins depot, threads, offline Pkg; 
 ./tutor course setup [env]                  # install the pinned ecosystem envs (the only networked course step)
 ./tutor run file.jl [--env=base] [--file]   # run code exactly as the sandbox does (fresh process, --timeout=60, --sandbox=docker)
 ./tutor practice [list | <id> [file.jl]]    # show a practice problem / grade a solution (correctness + performance)
-./tutor sandbox build | check               # build the container image (julia:1.10.13 + course packages) / self-test it
-./tutor serve [--port=8749]                 # loopback server so the website can run code, in the container (--sandbox=none: plain processes)
+./tutor sandbox pull <course...>            # fetch the published per-course images by digest (sandbox/images.toml)
+./tutor sandbox build|check|measure [course...]  # build from this checkout / self-test / sizes, cold starts, memory peaks
+                                            # (core = the base image; docs/SANDBOX_IMAGES.md, docs/START_CORE.md)
+./tutor serve [--port=8749] [--course=id]    # loopback server so the website can run code, in the container (--sandbox=none: plain processes)
                                             # (--token-file=f: use another token file, e.g. for tests)
 npm --prefix web test && npm --prefix web run build && quarto render site   # website (see "Website")
 ./tutor guided list | show <p> [m]          # guided build projects (docs/GUIDED.md): student writes code + tests
@@ -52,7 +54,8 @@ src/syntax.jl                 JuliaSyntax helpers + hand-written scope resolver
 src/checker.jl, src/rules/    checker core + one file per rule (JT001-JT007)
 src/scaffold.jl               holes cut from reference by `# HOLE: id` markers
 src/runner.jl, src/child/     fresh-process runs; `run_contained` runs the child in the sandbox container
-sandbox/Dockerfile            the container image (`tutor sandbox build`; digest-pinned julia:1.10.13)
+sandbox/<img>.Dockerfile      one image per course: base (Julia + base env + child), science, scicomp, sciml on base's runtime;
+                              images.toml = published digests (CI); digest-pinned julia:1.10.13
 src/holemap.jl                measured test->hole map + mutation testing
 src/explain.jl                the explain step (deterministic text + timings + observations)
 src/progress.jl               learner model over time: hole-attempt evidence, BKT, `tutor progress`
@@ -322,7 +325,7 @@ every role above has had the chance to object (recorded in the PR).
   vary across CPUs). They were verified on one machine only; a different CPU
   or a package bump may move them.
 * A problem with `packages = []` loads the whole env, not nothing.
-* Container memory is 6 GB (`Runner.CONTAINER_MEMORY`), raised from 4 GB on
+* Container memory is 6 GB for every image (`Runner.IMAGE_MEMORY`; per image since Phase 2, not lowered until CI measures each peak), raised from 4 GB on
   2026-11-09: compiling MLJ's `evaluate` inside a function peaks at 3.8 GB,
   mostly compiler memory, and grading `ml-best-depth` against a wrong answer
   that compiles a second path was killed in 5 of 6 tries. A kill for memory
