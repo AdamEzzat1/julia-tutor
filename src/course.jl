@@ -21,7 +21,8 @@ module Course
 using TOML, SHA
 
 export Unit, Section, Example, Question, Problem, Perf, Variant, load_course, validate_course,
-       example_key, outputs_path, load_outputs, env_dir, TRACKS, TRACK_REQUIRES, find_problem
+       example_key, outputs_path, load_outputs, env_dir, TRACKS, TRACK_REQUIRES, find_problem,
+       CourseInfo, Outcome, load_courses, validate_courses, course_of, prereq_unit, prereq_course
 
 const COURSE_DIR = normpath(joinpath(@__DIR__, "..", "course"))
 const TRACKS = ["foundations", "core", "advanced", "ecosystem", "scicomp", "sciml"]
@@ -169,6 +170,224 @@ load_course(dir::String = COURSE_DIR) =
 
 find_problem(units, id) = (for u in units, p in u.problems; p.id == id && return (u, p); end; nothing)
 
+# ---- courses (course/courses/<id>.toml) ---------------------------------------
+#
+# A course is an ordered list of existing unit ids: unit ids are global and
+# never change, so recorded outputs (keyed by code), learner state (keyed by
+# unit, problem and KC ids) and links stay valid when units are regrouped.
+# A prerequisite in another course is written "<course>/<unit>"; one in the
+# same course is the bare unit id.
+
+const COURSE_STATUS = ["ready", "in-progress", "planned"]
+
+struct Outcome
+    text::String
+    assessed_by::Vector{String}   # units of the course, "project:<p>", "guided:<p>"
+    planned::Vector{String}       # cases and programs that will assess it (not built yet)
+end
+
+struct CourseInfo
+    id::String
+    title::String
+    order::Int
+    status::String
+    summary::String
+    requires::Vector{String}      # course ids this course assumes
+    envs::Vector{String}          # exactly the envs its units and guided projects run in
+    units::Vector{String}
+    projects::Vector{String}      # hole projects (projects/<p>/holes.toml)
+    guided::Vector{String}        # guided projects (projects/guided/<p>)
+    outcomes::Vector{Outcome}
+end
+
+function load_course_info(path::String)
+    d = normalize_nl(TOML.parsefile(path))
+    strs(k) = String.(get(d, k, String[]))
+    outs = [Outcome(o["text"], String.(get(o, "assessed_by", String[])), String.(get(o, "planned", String[])))
+            for o in get(d, "outcome", Any[])]
+    return CourseInfo(d["id"], d["title"], Int(d["order"]), getstr(d, "status", "ready"), d["summary"],
+                      strs("requires"), strs("envs"), strs("units"), strs("projects"), strs("guided"), outs)
+end
+
+"""All courses, in their declared order."""
+load_courses(dir::String = COURSE_DIR) =
+    sort!([load_course_info(joinpath(dir, "courses", f)) for f in readdir(joinpath(dir, "courses")) if endswith(f, ".toml")];
+          by = c -> c.order)
+
+"""The unit a prerequisite names: "scicomp/35-stiffness" -> "35-stiffness"."""
+prereq_unit(p::AbstractString) = String(last(split(p, '/'; limit = 2)))
+"""The course a prerequisite names explicitly, or `nothing` for a bare unit id."""
+prereq_course(p::AbstractString) = occursin('/', p) ? String(first(split(p, '/'; limit = 2))) : nothing
+
+"""unit id => course id."""
+course_index(courses) = Dict(u => c.id for c in courses for u in c.units)
+
+"""The course a unit belongs to (`nothing` if none)."""
+course_of(courses, unit_id) = get(course_index(courses), unit_id, nothing)
+
+"""Unit ids a unit depends on, directly or through other units."""
+function prereq_closure(units::Vector{Unit}, id::AbstractString)
+    pre = Dict(u.id => prereq_unit.(u.prerequisites) for u in units)
+    seen = Set{String}(); stack = copy(get(pre, id, String[]))
+    while !isempty(stack)
+        p = pop!(stack); p in seen && continue
+        push!(seen, p); append!(stack, get(pre, p, String[]))
+    end
+    return seen
+end
+
+"""A prerequisite cycle among the units, as a list of ids, or `nothing`."""
+function prereq_cycle(units::Vector{Unit})
+    pre = Dict(u.id => prereq_unit.(u.prerequisites) for u in units)
+    state = Dict{String,Int}()            # 1 = on the current path, 2 = finished
+    function visit(id, path)
+        get(state, id, 0) == 2 && return nothing
+        get(state, id, 0) == 1 && return [path[findfirst(==(id), path):end]; id]
+        state[id] = 1
+        for p in get(pre, id, String[])
+            c = visit(p, [path; id]); c === nothing || return c
+        end
+        state[id] = 2
+        return nothing
+    end
+    for u in units
+        c = visit(u.id, String[]); c === nothing || return c
+    end
+    return nothing
+end
+
+"""Envs a course actually needs: its units' envs, its guided projects' envs, and base."""
+function course_envs(c::CourseInfo, units::Vector{Unit}, guided_env::AbstractDict)
+    byid = Dict(u.id => u for u in units)
+    envs = Set(["base"])
+    for id in c.units; haskey(byid, id) && push!(envs, byid[id].env); end
+    for g in c.guided; haskey(guided_env, g) && push!(envs, guided_env[g]); end
+    return sort!(collect(envs))
+end
+
+const PROJECTS_DIR = normpath(joinpath(@__DIR__, "..", "projects"))
+
+"""Guided project name => env, from projects/guided/<p>/project.toml."""
+function guided_envs(dir::String = joinpath(PROJECTS_DIR, "guided"))
+    isdir(dir) || return Dict{String,String}()
+    return Dict(p => String(get(TOML.parsefile(joinpath(dir, p, "project.toml")), "env", "base"))
+                for p in readdir(dir) if isfile(joinpath(dir, p, "project.toml")))
+end
+
+"""Hole projects (projects/<p>/holes.toml)."""
+hole_projects(dir::String = PROJECTS_DIR) =
+    isdir(dir) ? [p for p in readdir(dir) if isfile(joinpath(dir, p, "holes.toml"))] : String[]
+
+"""
+Which course each entry of a learner's CLI state belongs to. Nothing in the
+state is keyed by course (holes are "<project>/<hole>", lesson checks
+"<lesson>/<check>", guided checks "<project>:<dir>", KCs are shared), so the
+course split needs no rewrite of `.tutor/state.toml` or `.tutor/guided.toml`:
+this maps the existing keys. Returns (course id => entry keys, unmapped keys).
+"""
+function state_by_course(state::AbstractDict, guided_state::AbstractDict, courses::Vector{CourseInfo},
+                         units::Vector{Unit})
+    cidx = course_index(courses)
+    lesson_course = Dict(l => cidx[u.id] for u in units for l in u.lessons if haskey(cidx, u.id))
+    project_course = Dict(p => c.id for c in courses for p in c.projects)
+    guided_course = Dict(g => c.id for c in courses for g in c.guided)
+    out = Dict(c.id => String[] for c in courses)
+    unmapped = String[]
+    put(c, k) = c === nothing ? push!(unmapped, k) : push!(out[c], k)
+    for k in keys(get(state, "holes", Dict()))
+        put(get(project_course, first(split(k, '/')), nothing), "holes/$k")
+    end
+    for k in keys(get(state, "items", Dict()))
+        put(get(lesson_course, first(split(k, '/')), nothing), "items/$k")
+    end
+    for k in keys(get(guided_state, "projects", Dict()))
+        put(get(guided_course, first(split(k, ':')), nothing), "guided/$k")
+    end
+    foreach(sort!, values(out))
+    return out, sort!(unmapped)
+end
+
+"""
+Structural checks across courses. Every unit belongs to exactly one course; a
+prerequisite is in the same course (bare id) or names another course the
+course requires ("<course>/<unit>"); no prerequisite cycle; each course's
+`envs` is exactly what its units and guided projects use; every guided
+project belongs to exactly one course. Returns a list of problems.
+"""
+function validate_courses(courses::Vector{CourseInfo}, units::Vector{Unit};
+                          guided_env::AbstractDict = guided_envs(), projects = hole_projects())
+    problems = String[]
+    byid = Dict(u.id => u for u in units)
+    cid = Dict(c.id => c for c in courses)
+    length(cid) == length(courses) || push!(problems, "duplicate course id")
+    allunique(c.order for c in courses) || push!(problems, "two courses share an order")
+    owner = Dict{String,Vector{String}}()
+    for c in courses, id in c.units
+        push!(get!(owner, id, String[]), c.id)
+    end
+    for u in units
+        cs = get(owner, u.id, String[])
+        isempty(cs) && push!(problems, "$(u.id): belongs to no course")
+        length(cs) > 1 && push!(problems, "$(u.id): belongs to more than one course ($(join(cs, ", ")))")
+    end
+    global_order = Dict(u.id => i for (i, u) in enumerate(units))
+    for c in courses
+        c.status in COURSE_STATUS || push!(problems, "course $(c.id): status must be one of $(COURSE_STATUS)")
+        isempty(c.units) && push!(problems, "course $(c.id): no units")
+        for id in c.units
+            haskey(byid, id) || push!(problems, "course $(c.id): no unit $id")
+        end
+        known = filter(id -> haskey(byid, id), c.units)
+        issorted(known; by = id -> global_order[id]) ||
+            push!(problems, "course $(c.id): units must be listed in syllabus order")
+        for r in c.requires
+            haskey(cid, r) || (push!(problems, "course $(c.id): requires unknown course $r"); continue)
+            cid[r].order < c.order || push!(problems, "course $(c.id): requires $r, which comes later")
+        end
+        for id in known, p in byid[id].prerequisites
+            pc, pu = prereq_course(p), prereq_unit(p)
+            if pc === nothing
+                pu in c.units || push!(problems,
+                    "$id: prerequisite $pu is not in course $(c.id); write it as \"<course>/$pu\"")
+            elseif pc == c.id
+                push!(problems, "$id: prerequisite $p is in the same course; write it as \"$pu\"")
+            elseif !haskey(cid, pc)
+                push!(problems, "$id: prerequisite $p names unknown course $pc")
+            elseif !(pu in cid[pc].units)
+                push!(problems, "$id: prerequisite $p: no unit $pu in course $pc")
+            elseif !(pc in c.requires)
+                push!(problems, "$id: prerequisite $p is in course $pc, which course $(c.id) does not require")
+            end
+        end
+        want = course_envs(c, units, guided_env)
+        sort(c.envs) == want ||
+            push!(problems, "course $(c.id): envs must be exactly what its units and guided projects use: $(want)")
+        for g in c.guided
+            haskey(guided_env, g) || push!(problems, "course $(c.id): no guided project $g")
+        end
+        for p in c.projects
+            p in projects || push!(problems, "course $(c.id): no project $p")
+        end
+        4 <= length(c.outcomes) <= 8 || push!(problems, "course $(c.id): needs 4 to 8 outcomes")
+        for (i, o) in enumerate(c.outcomes)
+            isempty(o.assessed_by) && isempty(o.planned) &&
+                push!(problems, "course $(c.id) outcome $i: nothing assesses it, not even a planned case")
+            for a in o.assessed_by
+                ok = startswith(a, "project:") ? a[9:end] in c.projects :
+                     startswith(a, "guided:") ? a[8:end] in c.guided : a in c.units
+                ok || push!(problems, "course $(c.id) outcome $i: '$a' is not a unit or project of this course")
+            end
+        end
+    end
+    for g in keys(guided_env)
+        n = count(c -> g in c.guided, courses)
+        n == 1 || push!(problems, "guided project $g belongs to $n courses (must be exactly 1)")
+    end
+    cyc = prereq_cycle(units)
+    cyc === nothing || push!(problems, "prerequisite cycle: $(join(cyc, " -> "))")
+    return problems
+end
+
 """Content-addressed key for an example's recorded output."""
 example_key(code::AbstractString, mode::AbstractString = "repl") =
     bytes2hex(sha1((mode == "repl" ? "" : mode * ":") * strip(code)))[1:16]
@@ -298,7 +517,7 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
         u.track in TRACKS || push!(problems, "$(u.id): track '$(u.track)' is not one of $(TRACKS)")
         u.status in ("ready", "planned") || push!(problems, "$(u.id): status must be ready or planned")
         isdir(env_dir(u.env, dir)) || push!(problems, "$(u.id): no environment course/envs/$(u.env)")
-        for pre in u.prerequisites
+        for pre in prereq_unit.(u.prerequisites)
             pre in seen_order || (!strict && !any(v -> v.id == pre, units)) ||
                 push!(problems, "$(u.id): prerequisite $pre is not an earlier unit")
         end

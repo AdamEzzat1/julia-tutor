@@ -14,7 +14,7 @@ claim is untested:
 ./tutor course verify 05 --no-grade   # examples and structure only (fast)
 ./tutor run file.jl               # run a file exactly as the sandbox does
 ./tutor practice <problem-id> file.jl # grade a solution as the website would
-./tutor site-data                 # regenerate site/data/course.json after recording
+./tutor site-data                 # regenerate site/data/ (courses.json, course-<id>.json) after recording
 ```
 
 Review the recorded outputs (`course/outputs/<unit>.toml`) before committing:
@@ -30,7 +30,7 @@ env = "base"                     # course/envs/<env>; base = Julia + stdlib only
 status = "ready"                 # or "planned" (then only `outline` is needed)
 summary = "One or two sentences."
 kcs = ["functions", "closures"]  # knowledge components (kebab-case)
-prerequisites = ["04-control-flow"]   # earlier unit ids only
+prerequisites = ["04-control-flow"]   # earlier units: bare id = same course; "core/20-stdlib-tour" = another course (must be in its `requires`)
 lessons = ["L01-dispatch"]       # optional: predict-the-output lessons in lessons/
 outline = []                     # planned units: bullet points of what they will cover
 

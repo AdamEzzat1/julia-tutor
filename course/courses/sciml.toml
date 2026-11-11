@@ -1,0 +1,40 @@
+id = "sciml"
+title = "Scientific ML"
+order = 4
+# In progress until milestones M4 (odeint) and M7 (latency) are done.
+status = "in-progress"
+summary = "Differential equations with learned parts: sensitivities and adjoints, neural and universal ODEs, equation discovery with SINDy, and physics-informed networks compared with classical solvers."
+requires = ["core", "science", "scicomp"]
+envs = ["base", "sciml"]
+units = ["43-sensitivities", "44-adjoints-neural-odes", "45-universal-odes", "46-sindy", "47-pinns",
+         "48-pinn-limits"]
+projects = []
+guided = []
+
+[[outcome]]
+text = "Compute gradients through an ODE solve two ways, cross-check them, and choose forward or adjoint sensitivity by parameter count."
+assessed_by = ["43-sensitivities", "44-adjoints-neural-odes"]
+
+[[outcome]]
+text = "Build a universal ODE that keeps the known physics, and test it inside the training range only."
+assessed_by = ["45-universal-odes"]
+planned = ["UDE missing-physics case"]
+
+[[outcome]]
+text = "Recover a readable model by sparse regression, and measure its false discoveries against noise."
+assessed_by = ["46-sindy"]
+planned = ["SINDy-under-noise case"]
+
+[[outcome]]
+text = "Pose a PINN loss and compare it fairly with a verified classical solver on accuracy and cost."
+assessed_by = ["47-pinns", "48-pinn-limits"]
+planned = ["Burgers capstone"]
+
+[[outcome]]
+text = "Report the validity range of a learned model and show where it fails."
+assessed_by = ["45-universal-odes", "48-pinn-limits"]
+
+[[outcome]]
+text = "Write a training loop with a hand-written adjoint checked against forward AD and finite differences."
+assessed_by = ["44-adjoints-neural-odes"]
+planned = ["neural-ODE program"]

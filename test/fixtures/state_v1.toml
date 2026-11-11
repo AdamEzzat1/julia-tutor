@@ -1,0 +1,32 @@
+# A learner's .tutor/state.toml as written before the course split (2026-11-10).
+# test/course_tests.jl checks that every entry still loads and maps to a course.
+[kc]
+dispatch-specificity = 0.71
+product-rule = 0.42
+
+[holes."symdiff/product_rule"]
+attempts = 3
+correct = 1
+last_correct = true
+last_hash = "4f0c2a1b"
+
+[holes."symdiff/pvar_binding"]
+attempts = 1
+correct = 0
+last_correct = false
+last_hash = "9a1e77d0"
+
+[items."L01-dispatch/specificity"]
+repetitions = 2
+interval_days = 6
+easiness = 2.5
+due = "2026-11-16"
+
+[items."L02-concrete-types/abstract-field"]
+repetitions = 1
+interval_days = 1
+easiness = 2.36
+due = "2026-11-11"
+
+[misconceptions]
+"first-method-wins" = 1

@@ -1,0 +1,11 @@
+# A learner's .tutor/guided.toml as written before the course split (2026-11-10).
+[projects."epidemic:C:/Users/learner/work/epidemic"]
+passed = [1, 2]
+
+[projects."epidemic:C:/Users/learner/work/epidemic".streaks]
+peak-condition = 1
+
+[projects."tidy:/home/learner/tidy"]
+passed = [1]
+
+[projects."tidy:/home/learner/tidy".streaks]

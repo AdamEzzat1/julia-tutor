@@ -38,6 +38,74 @@ end
     end
 end
 
+@testset "courses: manifests and cross-course prerequisites" begin
+    units = Course.load_course()
+    courses = Course.load_courses()
+    @test Course.validate_courses(courses, units) == String[]
+    @test [c.id for c in courses] == ["core", "science", "scicomp", "sciml"]
+    # every unit in exactly one course; the split keeps the syllabus order
+    @test sort!(vcat([c.units for c in courses]...)) == sort!([u.id for u in units])
+    @test vcat([c.units for c in courses]...) == [u.id for u in units]
+    @test Course.prereq_unit("scicomp/35-stiffness") == "35-stiffness" && Course.prereq_unit("35-stiffness") == "35-stiffness"
+    @test Course.prereq_course("scicomp/35-stiffness") == "scicomp" && Course.prereq_course("35-stiffness") === nothing
+    @test Course.course_of(courses, "46-sindy") == "sciml"
+
+    # one change at a time to the real data, each must be reported
+    C(c; units = c.units, requires = c.requires, envs = c.envs, guided = c.guided, outcomes = c.outcomes) =
+        Course.CourseInfo(c.id, c.title, c.order, c.status, c.summary, requires, envs, units, c.projects, guided, outcomes)
+    swap(i, c) = [j == i ? c : courses[j] for j in eachindex(courses)]
+    U(u; pre = u.prerequisites) = Course.Unit(u.id, u.title, u.track, u.env, u.status, u.summary, u.kcs, pre,
+                                               u.outline, u.lessons, u.sections, u.problems)
+    setpre(id, pre) = [u.id == id ? U(u; pre) : u for u in units]
+    has(msg, cs = courses, us = units) = any(contains(msg), Course.validate_courses(cs, us))
+    core, sci, scc, sml = courses
+    @test has("belongs to no course", swap(1, C(core; units = core.units[1:end-1])))
+    @test has("more than one course", swap(2, C(sci; units = ["20-stdlib-tour"; sci.units])))
+    @test has("is not in course scicomp", courses, setpre("35-stiffness", ["24-differential-equations"]))   # cross-course, bare
+    @test has("in the same course", courses, setpre("35-stiffness", ["scicomp/34-pde-discretization"]))
+    @test has("unknown course", courses, setpre("35-stiffness", ["physics/34-pde-discretization"]))
+    @test has("no unit 34-pde-discretization in course science", courses, setpre("35-stiffness", ["science/34-pde-discretization"]))
+    @test has("does not require", swap(3, C(scc; requires = ["core"])))
+    @test has("which comes later", swap(1, C(core; requires = ["sciml"])))
+    @test has("envs must be exactly", swap(4, C(sml; envs = ["base", "sciml", "plots"])))    # an image with an env it never uses
+    @test has("envs must be exactly", swap(3, C(scc; envs = ["base", "scicomp"])))          # missing mtk
+    @test has("guided project epidemic belongs to 0 courses",
+              swap(2, C(sci; guided = filter(!=("epidemic"), sci.guided), envs = sci.envs)))
+    @test has("4 to 8 outcomes", swap(1, C(core; outcomes = core.outcomes[1:3])))
+    @test has("is not a unit or project of this course",
+              swap(1, C(core; outcomes = [Course.Outcome("x", ["46-sindy"], String[]); core.outcomes[2:end]])))
+    @test has("nothing assesses it",
+              swap(1, C(core; outcomes = [Course.Outcome("x", String[], String[]); core.outcomes[2:end]])))
+    # a prerequisite cycle, even one the file order would not show
+    cyc = setpre("01-first-steps", ["03-strings"])
+    @test Course.prereq_cycle(cyc) == ["01-first-steps", "03-strings", "01-first-steps"]
+    @test has("prerequisite cycle", courses, cyc)
+    @test Course.prereq_cycle(units) === nothing
+    # the real dependencies: scicomp no longer reaches probabilistic programming (unit 37 states the fact itself)
+    @test !any(id -> "27-probabilistic-programming" in Course.prereq_closure(units, id), scc.units)
+    @test "35-stiffness" in Course.prereq_closure(units, "36-daes")
+end
+
+@testset "courses: learner state from before the split survives" begin
+    # State written before the split (test/fixtures/*_v1.toml) loads as it is
+    # and every entry maps to exactly one course: no key had to be renamed.
+    dir = joinpath(@__DIR__, "fixtures")
+    state = JuliaTutor.Progress.load_state(joinpath(dir, "state_v1.toml"))
+    guided = JuliaTutor.Guided.load_state(joinpath(dir, "guided_v1.toml"))
+    report = JuliaTutor.Progress.format_progress(state; today = Dates.Date(2026, 11, 12))
+    @test occursin("symdiff/product_rule", report) && occursin("L02-concrete-types/abstract-field", report)
+    by, unmapped = Course.state_by_course(state, guided, Course.load_courses(), Course.load_course())
+    @test unmapped == String[]
+    @test by["core"] == ["holes/symdiff/product_rule", "holes/symdiff/pvar_binding",
+                         "items/L01-dispatch/specificity", "items/L02-concrete-types/abstract-field"]
+    @test by["science"] == ["guided/epidemic:C:/Users/learner/work/epidemic", "guided/tidy:/home/learner/tidy"]
+    @test isempty(by["scicomp"]) && isempty(by["sciml"])
+    # an entry for something no course has is reported, never dropped silently
+    _, um = Course.state_by_course(Dict("holes" => Dict("qsim/apply_gate" => Dict())), Dict(),
+                                   Course.load_courses(), Course.load_course())
+    @test um == ["holes/qsim/apply_gate"]
+end
+
 P_with(; compare = "isequal", checker = "", packages = String[]) =
     Course.Problem("p", "t", "core", String[], "", "f", "f(x) = x", "", ["1"], "", compare, checker, 1e-8, true,
                    false, String[], nothing, [Course.Variant("v", "", ["incorrect"])], 1, 1, packages)
