@@ -166,11 +166,15 @@ const SANDBOX = Ref(:none)
 # predict_mode in a wrong answer) went past 4 GB and was killed (exit 137).
 # The server runs one container at a time (`ServerConfig.lock`).
 const CONTAINER_MEMORY = "6g"
-# Per image, so a course that needs less can say so. Every image keeps 6 GB
-# until its peak is measured in the container (`tutor sandbox measure`, and
-# the peaks `tutor course verify --sandbox=docker` prints): docs/SANDBOX_IMAGES.md.
-const IMAGE_MEMORY = Dict("base" => CONTAINER_MEMORY, "science" => CONTAINER_MEMORY,
-                          "scicomp" => CONTAINER_MEMORY, "sciml" => CONTAINER_MEMORY)
+# Per image, from the largest container memory.peak `tutor course verify
+# --sandbox=docker` measured on CI (run 42976555361, 2026-11-11; page cache
+# included), with at least 3x headroom, rounded up to whole GB, never below
+# 2 GB: a learner's own code is not measured and may allocate more than any
+# recorded run. base 0.5 GiB -> 2g; scicomp 0.88 (mtk) -> 3g; sciml 0.84 -> 3g.
+# science keeps 6g: ml peaked at 4.78 GiB, and its guided projects (all in
+# science's envs) have not had their peaks measured. docs/SANDBOX_IMAGES.md.
+const IMAGE_MEMORY = Dict("base" => "2g", "science" => CONTAINER_MEMORY,
+                          "scicomp" => "3g", "sciml" => "3g")
 # Julia 1.10's GC does not see the container's limit; the hint makes it collect
 # before garbage piles up to it. A GC target only: the hard limit stays the
 # image's memory. Two thirds of it, as 4G is of 6g.
@@ -381,7 +385,21 @@ end
 image; the second is nothing when the image was not published.
 """
 function image_sizes(img::AbstractString)
-    disk = tryparse(Int, strip(try read(pipeline(`docker image inspect --format "{{.Size}}" $(image_name(img))`; stderr = devnull), String) catch; "" end))
+    # `docker image inspect`'s .Size is the unpacked size with the classic
+    # image store but the stored (compressed) content with the containerd one
+    # (CI's runners), so the unpacked size is counted in the image itself: a
+    # fixed `du` over its root filesystem (-x: not /proc, /sys), with no
+    # network and a read-only root. No learner code runs in this container.
+    # As root without capabilities it still cannot enter apt's empty mode-700
+    # partial/ directory, so du exits 1 after printing the total: the status
+    # is ignored and the total kept.
+    du = Cmd(`docker run --rm --network=none --read-only --cap-drop=ALL --security-opt=no-new-privileges
+              --user=0:0 --entrypoint=du $(image_name(img)) -sxb /`; ignorestatus = true)
+    disk = try
+        tryparse(Int, first(split(read(pipeline(du; stderr = devnull), String))))
+    catch
+        nothing
+    end
     d = local_digest(img)
     d === nothing && return (disk, nothing)
     ref = "$(registry_repo(img))@$d"

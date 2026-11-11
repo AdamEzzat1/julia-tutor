@@ -91,8 +91,14 @@ for c in scicomp sciml science; do
   s=$(date +%s.%N)
   ./tutor sandbox pull "$c"
   e=$(date +%s.%N)
-  size=$(docker image inspect --format '{{.Size}}' "julia-tutor-sandbox-$c:1.10.13")
-  prow+=("| $c | $(secs "$s" "$e") | $(awk "BEGIN{printf \"%.2f\", $size / 1073741824}") GiB |")
+  # .Size is the compressed content with the containerd image store (this
+  # runner's), so the unpacked size is counted in the image, as `tutor sandbox
+  # measure` does (src/runner.jl, image_sizes); du exits 1 on apt's mode-700
+  # partial/ directory after printing the total, hence `|| true`.
+  comp=$(docker image inspect --format '{{.Size}}' "julia-tutor-sandbox-$c:1.10.13")
+  disk=$( (docker run --rm --network=none --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+            --user=0:0 --entrypoint=du "julia-tutor-sandbox-$c:1.10.13" -sxb / 2>/dev/null || true) | awk '{print $1}')
+  prow+=("| $c | $(secs "$s" "$e") | $(awk "BEGIN{printf \"%.2f\", $disk / 1073741824}") GiB | $(awk "BEGIN{printf \"%.2f\", $comp / 1073741824}") GiB |")
   # by id: the image also carries its registry name, which a tag removal would leave
   docker image rm -f "$(docker image inspect --format '{{.Id}}' "julia-tutor-sandbox-$c:1.10.13")" > /dev/null
 done
@@ -100,7 +106,7 @@ done
   echo
   echo "### Adding a course: \`tutor sandbox pull <course>\` after Core (same runner)"
   echo
-  echo "| course | seconds | size on disk |"
-  echo "|---|---|---|"
+  echo "| course | seconds | unpacked size | docker .Size (compressed content here) |"
+  echo "|---|---|---|---|"
   printf '%s\n' "${prow[@]}"
 } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"

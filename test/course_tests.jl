@@ -311,6 +311,12 @@ end
     @test "--memory-swap=$mem" in a                                   # no swap beyond the memory limit
     @test "--heap-size-hint=$(Runner.heap_hint(mem))" in a              # GC collects before the kernel kills
     @test Runner.heap_hint("6g") == "4G" == Runner.CONTAINER_HEAP_HINT && Runner.heap_hint("3g") == "2G"
+    @test Runner.heap_hint("2g") == "1G"
+    # Measured per image (Phase 2): every image has its own limit, at least 2 GB.
+    @test sort!(collect(keys(Runner.IMAGE_MEMORY))) == sort(Runner.images())
+    @test all(m -> Base.parse(Int, chop(m)) >= 2, values(Runner.IMAGE_MEMORY))
+    b = Runner.docker_args(; project_env = "base", threads = 1, name = "julia-tutor-x")
+    @test "--memory=2g" in b && "--memory-swap=2g" in b && "--heap-size-hint=1G" in b
     # The environment picks the image; every other flag is the same in every
     # image (the Sandbox/security engineer reviews this list, Phase 2).
     @test Runner.image_name("science") in a && Runner.env_image("data") == "science"
