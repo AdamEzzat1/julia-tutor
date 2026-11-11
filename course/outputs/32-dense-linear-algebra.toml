@@ -3,15 +3,15 @@ verified_on = "1.10.13"
 
 [examples.5417e7dc4fe6331e]
 ok = true
-output = """A \\ b each time: 8.986 s\nlu once:         0.104 s\n"""
+output = """A \\ b each time: 0.887 s\nlu once:         0.018 s\n"""
 
 [examples.67d0fcfedd4ab4c9]
 ok = true
 output = """backward error: A \\ b below 1e-15: true,  inv(A) * b above 1e-9: true\nratio of backward errors ≈ 1e10\nforward error:  A \\ b ≈ 1e-5,  inv(A) * b ≈ 1e-5,  both below κu = 1e-4: true\n"""
 
-[examples.71ef19436b889cce]
+[examples.bd3b2160162ce05d]
 ok = true
-output = """degree 8: cond(V) ≈ 600000.0, cond(V)^2 ≈ 4.0e11, cond(V'V) ≈ 4.0e11\n   QR error below 1e-7: true   normal-equations error > 1000 × QR error: true   above 1: false\ndegree 12: cond(V) ≈ 7.0e8, cond(V)^2 ≈ 5.0e17, cond(V'V) above 1e15: true\n   QR error below 1e-7: true   normal-equations error > 1000 × QR error: true   above 1: true\n"""
+output = """degree 8: cond(V) ≈ 600000.0, cond(V)^2 ≈ 4.0e11, cond(V'V) ≈ 4.0e11\n   QR error below 1e-7: true   normal-equations error > 1000 × QR error: true\ndegree 12: cond(V) ≈ 7.0e8, cond(V)^2 ≈ 5.0e17, cond(V'V) above 1e15: true\n   QR error below 1e-7: true   normal-equations error > 1000 × QR error: true\n"""
 
 [examples.c3d785117cb615b9]
 ok = true
@@ -23,7 +23,7 @@ output = """general      LU\nA'A + I      Cholesky\nA + A'       BunchKaufman\nt
 
 [examples.e91120ae4be6df19]
 ok = true
-output = """S \\ b  (LU):       490.4 ms\ncholesky(S) \\ b:   322.4 ms\ntriangular solve:  0.7 ms\n"""
+output = """S \\ b  (LU):       83.4 ms\ncholesky(S) \\ b:   54.8 ms\ntriangular solve:  0.76 ms\n"""
 
 [examples.ef72ad4fd4bc8428]
 ok = true
