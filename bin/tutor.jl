@@ -478,6 +478,24 @@ const SANDBOX_USAGE = """
       publish [--push]      CI: pull each image for these inputs from the registry, else build (and push) it
       digests [--check]     CI: print sandbox/images.toml for the local images, or check the committed one"""
 
+"""
+Code for `tutor sandbox check`: in the environment it runs in, start a second
+Julia that presents the most basic CPU of its architecture (`-C generic`) and
+list every package whose precompiled cache that CPU would reject. A cache
+compiled only for the build machine's CPU is rejected there on any machine, so
+the check does not depend on which CPU CI happens to get. Prints `:portable`
+when every cache loads.
+"""
+function portable_code(pkgs)
+    return """
+    let jl = joinpath(Sys.BINDIR, "julia"), pk = $(repr(String.(pkgs)))
+        script = "for p in ARGS; Base.isprecompiled(Base.identify_package(p)) || println(p); end"
+        out = read(`\$jl --startup-file=no -C generic --project=\$(Base.active_project()) -e \$script \$pk`, String)
+        isempty(out) ? :portable : Symbol("rejected: ", join(split(out), ", "))
+    end
+    """
+end
+
 function cmd_sandbox(args)
     pos = positional(args)
     sub = isempty(pos) ? "" : pos[1]
@@ -518,6 +536,13 @@ function cmd_sandbox(args)
             pkgs = Practice.env_deps(e)
             (e == "data" || isempty(pkgs)) && continue
             push!(checks, ("env $e loads ($img image)", "using " * join(pkgs, ", ") * "; :loaded", r"\A:loaded\s*\z", e))
+        end
+        # The caches must load on CPUs other than the build machine's (the
+        # images are built on one CI runner and run on any learner's machine).
+        for img in imgs, e in Runner.image_envs()[img]
+            pkgs = Practice.env_deps(e)
+            isempty(pkgs) && continue
+            push!(checks, ("env $e caches load on a baseline CPU ($img image)", portable_code(pkgs), r"\A:portable\s*\z", e))
         end
         bad = 0
         for (what, code, want, env) in checks
