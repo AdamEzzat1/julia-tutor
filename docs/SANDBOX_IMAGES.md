@@ -33,6 +33,37 @@ every course before the first Run. Now each course gets its own image.
   rebuilt on its own gets a rebuilt runtime, whose two small layers then have
   different digests from base's. The Julia layers are always shared.
 
+## Package caches for every CPU
+
+* **The problem:** Pkg compiles each package's cache for the CPU of the
+  machine that builds the image, unless told otherwise. A CPU without that
+  machine's features rejects every cache and recompiles on each Run (every
+  Run is a fresh container, so the recompiled code is thrown away). On CI
+  run 42998692738, the science image built on one runner made `using
+  DataFrames` take 84 s on this repository's authoring machine (2 s when
+  built locally), and verify on the next runner timed out at 120 s in unit
+  21, twice. The first CI run had passed only because its verify runner
+  happened to have a compatible CPU. Julia's debug log names the reason:
+  "Rejecting this target due to use of runtime-disabled features".
+* **The fix:** every precompile step sets `JULIA_CPU_TARGET` from
+  `/tutor/cpu-target`, which base.Dockerfile writes. On x86_64 it is the
+  target list of Julia's own release builds,
+  `generic;sandybridge,-xsaveopt,clone_all;haswell,-rdrnd,base(1)`: a
+  baseline copy of every function, plus faster copies that Julia picks at
+  load time on newer CPUs. Other architectures get `generic` only (arm64
+  images are not published or tested). Run-time code is still compiled for
+  the CPU it runs on (`julia_cmd` stays `-C native`).
+* **The cost:** the caches hold several copies of each function, so the
+  images are larger and the build slower. The sizes below were measured on
+  the images before this fix; the next CI run measures the new ones.
+* **The check:** `tutor sandbox check` (CI's `images` job) starts, in every
+  environment, a second Julia with `-C generic` and lists every package
+  whose cache it rejects. A cache compiled only for the build machine's CPU
+  fails this on any machine. Checked on the authoring machine, on Julia
+  1.10.13 outside the container: a cache built without the target was
+  rejected under `-C generic`, and one built with it loaded. The check has
+  not yet run in a container (Docker stopped on the authoring machine).
+
 ## Publishing and pulling
 
 * **Where CI pushes:** each image goes to
