@@ -402,7 +402,7 @@ version is short, and its every step can be inspected.
 
   [[section.example]]
   caption = "Train the UDE of unit 45 (same data, network, initial weights and two-stage training), then fit its learned term on the training states with two libraries. The condition numbers depend only on the data and are printed; coefficients are compared with bounds, since the trained weights vary between CPUs."
-  notice = "Notice the two condition numbers; that the 6-term first fit puts a coefficient above 1 on a term absent from the true model in both outputs (when recorded: a constant of 3.1 in `NN₁` and of -2.0 in `NN₂`), while the 4-term first fit does not; and that STLSQ on the 4-term library gives `x y` alone for every `λ` from 0.3 to 0.7, with coefficients within 0.05 of the true -0.9 and 0.8 (when recorded the plateau reached down to `λ = 0.2`, and the smallest kept coefficient was 0.80)."
+  notice = "Notice the two condition numbers; that the 6-term first fit puts a coefficient above 1 on a term absent from the true model in at least one output (when recorded: a constant of 3.1 in `NN₁`; `NN₂` had one of -2.0 on Windows but not in the Linux container, which is why only some output is checked), while the 4-term first fit does not; and that STLSQ on the 4-term library gives `x y` alone for every `λ` from 0.3 to 0.7, with coefficients within 0.05 of the true -0.9 and 0.8 (when recorded the plateau reached down to `λ = 0.2`, and the smallest kept coefficient was 0.80)."
   code = '''
 using OrdinaryDiffEq, Lux, ComponentArrays, StableRNGs, Optimization, OptimizationOptimisers, OptimizationOptimJL, Statistics, LinearAlgebra
 const α, β, δ, γ = 1.3, 0.9, 0.8, 1.8
@@ -441,8 +441,8 @@ for (label, names, Θ) in libraries
     println("library [", label, "]: condition number ", Int(round(cond(Θ); sigdigits = 2)),
             " (", Int(round(cond(Θ ./ sqrt.(sum(abs2, Θ; dims = 1))); sigdigits = 2)), " with unit-length columns)")
     absent = names .!= "x*y"                                  # terms the true missing term does not have
-    println("   first fit puts a coefficient above 1 on an absent term (NN₁, NN₂): ",
-            join([maximum(abs.((Θ \ Y[k, :])[absent])) > 1 for k in 1:2], ", "))
+    println("   first fit puts a coefficient above 1 on an absent term in some output: ",
+            any(maximum(abs.((Θ \ Y[k, :])[absent])) > 1 for k in 1:2))
 end
 Θ = libraries[2][3]
 sweep = [[["1", "x", "y", "x*y"][stlsq(Θ, Y[k, :], λ) .!= 0] for k in 1:2] for λ in (0.3, 0.5, 0.7)]
