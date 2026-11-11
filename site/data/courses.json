@@ -1,0 +1,642 @@
+{
+  "courses": [
+    {
+      "envs": [
+        "base"
+      ],
+      "guided": [],
+      "id": "core",
+      "order": 1,
+      "outcomes": [
+        {
+          "assessed_by": [
+            "07-broadcasting",
+            "08-types",
+            "14-performance",
+            "15-generic-programming"
+          ],
+          "planned": [],
+          "text": "Write type-stable, allocation-aware functions and show both by measurement (@allocated, @inferred)."
+        },
+        {
+          "assessed_by": [
+            "08-types",
+            "09-dispatch",
+            "15-generic-programming",
+            "17-interfaces",
+            "project:symdiff"
+          ],
+          "planned": [
+            "dual-number forward AD case"
+          ],
+          "text": "Design with multiple dispatch and parametric types instead of if-chains."
+        },
+        {
+          "assessed_by": [
+            "11-iteration",
+            "17-interfaces"
+          ],
+          "planned": [
+            "interval arithmetic program"
+          ],
+          "text": "Implement a Base interface (iteration, indexing, show, promotion) so a custom type works with generic code."
+        },
+        {
+          "assessed_by": [
+            "10-errors",
+            "13-io"
+          ],
+          "planned": [],
+          "text": "Handle errors deliberately, and read and write data safely."
+        },
+        {
+          "assessed_by": [
+            "project:symdiff"
+          ],
+          "planned": [],
+          "text": "Write and run tests, and fix a failing test from a deterministic explanation."
+        },
+        {
+          "assessed_by": [
+            "18-concurrency"
+          ],
+          "planned": [],
+          "text": "Use threads without data races, and say when threads will not help."
+        }
+      ],
+      "problems": 52,
+      "projects": [
+        "symdiff"
+      ],
+      "requires": [],
+      "status": "ready",
+      "summary": "The language itself, from the first expression to performance, generic code, interfaces, threads and the compiler. The way into the scientific courses.",
+      "title": "Core Julia",
+      "units": [
+        "01-first-steps",
+        "02-numbers",
+        "03-strings",
+        "04-control-flow",
+        "05-functions",
+        "06-collections",
+        "07-broadcasting",
+        "08-types",
+        "09-dispatch",
+        "10-errors",
+        "11-iteration",
+        "12-modules",
+        "13-io",
+        "14-performance",
+        "15-generic-programming",
+        "16-metaprogramming",
+        "17-interfaces",
+        "18-concurrency",
+        "19-under-the-hood",
+        "20-stdlib-tour"
+      ]
+    },
+    {
+      "envs": [
+        "base",
+        "calculus",
+        "data",
+        "diffeq",
+        "ml",
+        "optim",
+        "plots",
+        "python",
+        "turing"
+      ],
+      "guided": [
+        "tidy",
+        "figures",
+        "derivcheck",
+        "epidemic",
+        "production",
+        "classify",
+        "bayesreg",
+        "pybridge"
+      ],
+      "id": "science",
+      "order": 2,
+      "outcomes": [
+        {
+          "assessed_by": [
+            "21-dataframes",
+            "guided:tidy"
+          ],
+          "planned": [],
+          "text": "Load, clean and reshape measurement data without losing information."
+        },
+        {
+          "assessed_by": [
+            "22-plotting",
+            "guided:figures"
+          ],
+          "planned": [],
+          "text": "Produce a report figure whose content (axes, series, labels) is tested."
+        },
+        {
+          "assessed_by": [
+            "23-derivatives",
+            "guided:derivcheck"
+          ],
+          "planned": [],
+          "text": "Compute derivatives three ways and choose between them with a derived error bound."
+        },
+        {
+          "assessed_by": [
+            "24-differential-equations",
+            "guided:epidemic"
+          ],
+          "planned": [],
+          "text": "Solve an ODE model and check it against an invariant or an exact solution."
+        },
+        {
+          "assessed_by": [
+            "25-optimization",
+            "27-probabilistic-programming",
+            "guided:bayesreg"
+          ],
+          "planned": [
+            "Bayesian calibration case"
+          ],
+          "text": "Fit model parameters and report their uncertainty, by optimisation and by Bayesian inference."
+        },
+        {
+          "assessed_by": [
+            "29-package-development"
+          ],
+          "planned": [
+            "parameter-estimation program"
+          ],
+          "text": "Package a tool so that a clean environment reproduces its results."
+        }
+      ],
+      "problems": 32,
+      "projects": [],
+      "requires": [
+        "core"
+      ],
+      "status": "ready",
+      "summary": "The packages scientific work uses, each in a pinned environment: data, figures, derivatives, differential equations, optimisation, networks, probabilistic models, Python, and shipping a reproducible package.",
+      "title": "Julia for science",
+      "units": [
+        "21-dataframes",
+        "22-plotting",
+        "23-derivatives",
+        "24-differential-equations",
+        "25-optimization",
+        "26-machine-learning",
+        "27-probabilistic-programming",
+        "28-python-interop",
+        "29-package-development"
+      ]
+    },
+    {
+      "envs": [
+        "base",
+        "mtk",
+        "scicomp"
+      ],
+      "guided": [],
+      "id": "scicomp",
+      "order": 3,
+      "outcomes": [
+        {
+          "assessed_by": [
+            "30-floating-point",
+            "32-dense-linear-algebra"
+          ],
+          "planned": [],
+          "text": "Predict and measure the effect of conditioning and floating point on a result."
+        },
+        {
+          "assessed_by": [
+            "31-convergence",
+            "34-pde-discretization"
+          ],
+          "planned": [
+            "odeint case",
+            "heat-equation case"
+          ],
+          "text": "Measure the convergence order of a method and use it to verify code."
+        },
+        {
+          "assessed_by": [
+            "33-sparse-iterative",
+            "35-stiffness",
+            "36-daes"
+          ],
+          "planned": [
+            "Robertson case",
+            "Poisson capstone"
+          ],
+          "text": "Choose a linear solver, ODE method or preconditioner and justify the choice with measurements."
+        },
+        {
+          "assessed_by": [
+            "38-constrained-optimization",
+            "39-integer-modelling",
+            "42-case-circuit-market"
+          ],
+          "planned": [],
+          "text": "Formulate a constrained or integer model whose relaxation and duals mean something."
+        },
+        {
+          "assessed_by": [
+            "41-case-pharmacokinetics"
+          ],
+          "planned": [
+            "odeint case",
+            "heat-equation case",
+            "identifiability case"
+          ],
+          "text": "Separate verification (is the code right?) from validation (is the model right?), and do both."
+        },
+        {
+          "assessed_by": [
+            "37-stochastic-delay-uq",
+            "41-case-pharmacokinetics"
+          ],
+          "planned": [
+            "identifiability case"
+          ],
+          "text": "Quantify uncertainty and sensitivity in a quantity of interest, and say whether the conclusion survives it."
+        },
+        {
+          "assessed_by": [],
+          "planned": [
+            "Poisson capstone",
+            "finite-volume program"
+          ],
+          "text": "Carry a problem through all eight steps of the method with little scaffolding, in a report whose numbers are checked."
+        }
+      ],
+      "problems": 39,
+      "projects": [],
+      "requires": [
+        "core",
+        "science"
+      ],
+      "status": "ready",
+      "summary": "Numerical methods you can check: conditioning, convergence and error control, linear solvers, PDEs, stiffness, DAEs, stochastic models, constrained and integer optimisation, and the limits of parallel speedup.",
+      "title": "Scientific computing",
+      "units": [
+        "30-floating-point",
+        "31-convergence",
+        "32-dense-linear-algebra",
+        "33-sparse-iterative",
+        "34-pde-discretization",
+        "35-stiffness",
+        "36-daes",
+        "37-stochastic-delay-uq",
+        "38-constrained-optimization",
+        "39-integer-modelling",
+        "40-parallel",
+        "41-case-pharmacokinetics",
+        "42-case-circuit-market"
+      ]
+    },
+    {
+      "envs": [
+        "base",
+        "sciml"
+      ],
+      "guided": [],
+      "id": "sciml",
+      "order": 4,
+      "outcomes": [
+        {
+          "assessed_by": [
+            "43-sensitivities",
+            "44-adjoints-neural-odes"
+          ],
+          "planned": [],
+          "text": "Compute gradients through an ODE solve two ways, cross-check them, and choose forward or adjoint sensitivity by parameter count."
+        },
+        {
+          "assessed_by": [
+            "45-universal-odes"
+          ],
+          "planned": [
+            "UDE missing-physics case"
+          ],
+          "text": "Build a universal ODE that keeps the known physics, and test it inside the training range only."
+        },
+        {
+          "assessed_by": [
+            "46-sindy"
+          ],
+          "planned": [
+            "SINDy-under-noise case"
+          ],
+          "text": "Recover a readable model by sparse regression, and measure its false discoveries against noise."
+        },
+        {
+          "assessed_by": [
+            "47-pinns",
+            "48-pinn-limits"
+          ],
+          "planned": [
+            "Burgers capstone"
+          ],
+          "text": "Pose a PINN loss and compare it fairly with a verified classical solver on accuracy and cost."
+        },
+        {
+          "assessed_by": [
+            "45-universal-odes",
+            "48-pinn-limits"
+          ],
+          "planned": [],
+          "text": "Report the validity range of a learned model and show where it fails."
+        },
+        {
+          "assessed_by": [
+            "44-adjoints-neural-odes"
+          ],
+          "planned": [
+            "neural-ODE program"
+          ],
+          "text": "Write a training loop with a hand-written adjoint checked against forward AD and finite differences."
+        }
+      ],
+      "problems": 18,
+      "projects": [],
+      "requires": [
+        "core",
+        "science",
+        "scicomp"
+      ],
+      "status": "in-progress",
+      "summary": "Differential equations with learned parts: sensitivities and adjoints, neural and universal ODEs, equation discovery with SINDy, and physics-informed networks compared with classical solvers.",
+      "title": "Scientific ML",
+      "units": [
+        "43-sensitivities",
+        "44-adjoints-neural-odes",
+        "45-universal-odes",
+        "46-sindy",
+        "47-pinns",
+        "48-pinn-limits"
+      ]
+    }
+  ],
+  "envs": {
+    "base": [],
+    "calculus": [
+      {
+        "name": "ForwardDiff",
+        "version": "1.4.7"
+      },
+      {
+        "name": "Symbolics",
+        "version": "7.48.0"
+      }
+    ],
+    "data": [
+      {
+        "name": "CSV",
+        "version": "1.3.0"
+      },
+      {
+        "name": "DataFrames",
+        "version": "1.8.3"
+      }
+    ],
+    "diffeq": [
+      {
+        "name": "DifferentialEquations",
+        "version": "8.1.1"
+      }
+    ],
+    "ml": [
+      {
+        "name": "BetaML",
+        "version": "0.14.0"
+      },
+      {
+        "name": "DecisionTree",
+        "version": "0.12.4"
+      },
+      {
+        "name": "Flux",
+        "version": "0.16.15"
+      },
+      {
+        "name": "MLJ",
+        "version": "0.23.3"
+      },
+      {
+        "name": "MLJDecisionTreeInterface",
+        "version": "0.5.0"
+      },
+      {
+        "name": "MLJLinearModels",
+        "version": "0.10.4"
+      }
+    ],
+    "mtk": [
+      {
+        "name": "ModelingToolkitBase",
+        "version": "1.80.0"
+      },
+      {
+        "name": "ModelingToolkitStandardLibrary",
+        "version": "2.29.10"
+      },
+      {
+        "name": "OrdinaryDiffEq",
+        "version": "7.8.1"
+      }
+    ],
+    "optim": [
+      {
+        "name": "ForwardDiff",
+        "version": "1.4.7"
+      },
+      {
+        "name": "HiGHS",
+        "version": "1.26.1"
+      },
+      {
+        "name": "JuMP",
+        "version": "1.32.1"
+      },
+      {
+        "name": "Optim",
+        "version": "2.3.2"
+      },
+      {
+        "name": "Roots",
+        "version": "3.0.14"
+      }
+    ],
+    "plots": [
+      {
+        "name": "AlgebraOfGraphics",
+        "version": "0.13.2"
+      },
+      {
+        "name": "CairoMakie",
+        "version": "0.15.17"
+      },
+      {
+        "name": "DataFrames",
+        "version": "1.8.3"
+      },
+      {
+        "name": "Gadfly",
+        "version": "1.4.1"
+      },
+      {
+        "name": "Plots",
+        "version": "1.41.7"
+      },
+      {
+        "name": "StatsBase",
+        "version": "0.34.13"
+      }
+    ],
+    "python": [
+      {
+        "name": "PythonCall",
+        "version": "0.9.37"
+      }
+    ],
+    "scicomp": [
+      {
+        "name": "BenchmarkTools",
+        "version": "1.8.0"
+      },
+      {
+        "name": "DelayDiffEq",
+        "version": "6.4.6"
+      },
+      {
+        "name": "ForwardDiff",
+        "version": "1.4.7"
+      },
+      {
+        "name": "HiGHS",
+        "version": "1.26.1"
+      },
+      {
+        "name": "IncompleteLU",
+        "version": "0.2.1"
+      },
+      {
+        "name": "Ipopt",
+        "version": "1.16.0"
+      },
+      {
+        "name": "JuMP",
+        "version": "1.32.1"
+      },
+      {
+        "name": "KernelAbstractions",
+        "version": "0.9.45"
+      },
+      {
+        "name": "Krylov",
+        "version": "0.10.12"
+      },
+      {
+        "name": "LinearSolve",
+        "version": "5.18.3"
+      },
+      {
+        "name": "OhMyThreads",
+        "version": "0.8.9"
+      },
+      {
+        "name": "OrdinaryDiffEq",
+        "version": "7.8.1"
+      },
+      {
+        "name": "SparseArrays",
+        "version": "1.10.0"
+      },
+      {
+        "name": "StableRNGs",
+        "version": "1.1.0"
+      },
+      {
+        "name": "StochasticDiffEq",
+        "version": "7.2.0"
+      }
+    ],
+    "sciml": [
+      {
+        "name": "ComponentArrays",
+        "version": "0.15.50"
+      },
+      {
+        "name": "ForwardDiff",
+        "version": "1.4.7"
+      },
+      {
+        "name": "Lux",
+        "version": "1.31.5"
+      },
+      {
+        "name": "Optimization",
+        "version": "5.9.1"
+      },
+      {
+        "name": "OptimizationOptimJL",
+        "version": "0.4.23"
+      },
+      {
+        "name": "OptimizationOptimisers",
+        "version": "0.3.26"
+      },
+      {
+        "name": "OrdinaryDiffEq",
+        "version": "7.8.1"
+      },
+      {
+        "name": "SciMLSensitivity",
+        "version": "7.119.14"
+      },
+      {
+        "name": "StableRNGs",
+        "version": "1.1.0"
+      },
+      {
+        "name": "Zygote",
+        "version": "0.7.16"
+      }
+    ],
+    "turing": [
+      {
+        "name": "Turing",
+        "version": "0.49.0"
+      }
+    ]
+  },
+  "generated_by": "tutor site-data (do not edit; regenerate)",
+  "julia": "1.10.13",
+  "track_requires": {
+    "scicomp": [
+      "foundations",
+      "core",
+      "advanced",
+      "ecosystem"
+    ],
+    "sciml": [
+      "foundations",
+      "core",
+      "advanced",
+      "ecosystem",
+      "scicomp"
+    ]
+  },
+  "tracks": [
+    "foundations",
+    "core",
+    "advanced",
+    "ecosystem",
+    "scicomp",
+    "sciml"
+  ]
+}
