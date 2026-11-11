@@ -1,6 +1,7 @@
 # Plan: courses, scientific cases, interactivity (Phase 0, 2026-11-10)
 
-Status: **draft for approval.** Nothing below is built. Each number is
+Status: **approved 2026-11-10** with the recommended option on every
+decision (recorded in "Decisions" below). Nothing below is built yet. Each number is
 labelled *measured* (with where and how), *estimated*, or *not yet verified*.
 Phases 1 to 7 each get their own branch and PR, ending in a Role review.
 
@@ -392,6 +393,19 @@ The Lead re-decides after the slice's pilot.
 | `packages = []` | a problem with empty `packages` loads the whole env; in a smaller image that is faster, but it hides a missing declaration | the course verify checks each problem only imports from its course's envs |
 | Cross-course units | a learner on the `scicomp` image opens unit 23 | `serve --course` refuses with a message naming the course and its image |
 | Scope creep | 7 phases, each large | stop at the end of each phase; smaller and verified beats bigger and claimed |
+
+## Decisions (Adam, 2026-11-10: "take recommendations")
+
+1. §3.1: core's chain of prerequisites is replaced in Phase 1 by the real
+   dependencies. Each one is backed by a unit's text referring to an earlier
+   unit, and the Curriculum architect reviews them. This is its own commit.
+2. §3.3: unit 37 states the Monte Carlo standard error itself and drops 27
+   from its prerequisites (Phase 1, same commit).
+3. §1: the production guided project is reframed as a scientific
+   resource-allocation LP with the same checkable duals. Its content changes
+   with Phase 4's project work. Until then it stays in `science`, unchanged.
+4. §7: GHCR publishing is approved for Phase 2. The workflow change and image
+   visibility (public) are shown in the Phase 2 PR before its first push.
 
 ## 8. Phase order and what each needs from Adam
 
