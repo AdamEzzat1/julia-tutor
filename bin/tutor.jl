@@ -176,7 +176,19 @@ function cmd_fixtures(args)
         append!(problems, probs)
         path = Fixtures.golden_path(p, f)
         if hasflag(args, "check")
-            (isfile(path) && read(path, String) == text) || push!(stale, f.name)
+            old = isfile(path) ? read(path, String) : ""
+            if old != text
+                push!(stale, f.name)
+                # Show what differs: a STALE line alone is useless when the
+                # golden only breaks on another platform (CI).
+                a, b = split(old, '\n'), split(text, '\n')
+                for i in 1:max(length(a), length(b))
+                    la = i <= length(a) ? a[i] : "<none>"
+                    lb = i <= length(b) ? b[i] : "<none>"
+                    la == lb && continue
+                    println("  $(f.name) line $i\n    golden: ", la, "\n    now:    ", lb)
+                end
+            end
         else
             mkpath(dirname(path))
             write(path, text)
