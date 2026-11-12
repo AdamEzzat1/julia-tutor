@@ -96,9 +96,13 @@ function project_data(name::String)
                 "problems" => hm["problems"], "baseline" => base, "fixtures" => fixtures)
 end
 
+# The site's worked example: the front page, Explain and HoleMap views read
+# `projects[0]`, so it stays first; other hole projects follow by name.
+const SITE_EXAMPLE = "symdiff"
+
 function site_data()
     projects = sort!([d for d in readdir(joinpath(TUTOR_ROOT, "projects"))
-                      if isfile(joinpath(TUTOR_ROOT, "projects", d, "holes.toml"))])
+                      if isfile(joinpath(TUTOR_ROOT, "projects", d, "holes.toml"))]; by = n -> (n != SITE_EXAMPLE, n))
     return Dict("julia" => string(VERSION),
                 "generated_by" => "tutor site-data (do not edit; regenerate)",
                 "lessons" => lessons_data(), "rules" => rules_data(),

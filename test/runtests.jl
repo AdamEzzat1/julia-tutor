@@ -269,8 +269,11 @@ end
     end
     @test length(d["rules"]) == length(Checker.RULES)
     @test all(r -> r["example"] !== nothing && r["example"]["message"] !== nothing, d["rules"])
-    p = only(d["projects"])
-    @test all(h -> !isempty(h["spec"]) && !occursin("TODO(hole:", h["spec"]), p["holes"])
+    for p in d["projects"]
+        @test all(h -> !isempty(h["spec"]) && !occursin("TODO(hole:", h["spec"]), p["holes"])
+    end
+    @test d["projects"][1]["name"] == "symdiff"     # the web views read projects[0]
+    p = d["projects"][1]
     @test length(p["fixtures"]) == length(Fixtures.load_fixtures(SYMDIFF))
 end
 
