@@ -53,16 +53,26 @@ every course before the first Run. Now each course gets its own image.
   load time on newer CPUs. Other architectures get `generic` only (arm64
   images are not published or tested). Run-time code is still compiled for
   the CPU it runs on (`julia_cmd` stays `-C native`).
-* **The cost:** the caches hold several copies of each function, so the
-  images are larger and the build slower. The sizes below were measured on
-  the images before this fix; the next CI run measures the new ones.
+* **The cost:** the caches hold several copies of each function. On CI run
+  43035350960 the compressed images (what a pull downloads) grew by 7 to 11%:
+  scicomp 0.56 to 0.62 GiB, sciml 0.64 to 0.68, science 1.26 to 1.35; base
+  holds no package caches and stayed at 0.20. Building every image took 1 h
+  23 min. Cold starts measured slower on that run than on the one before
+  (table below); the two runs were on different runners, so how much of that
+  is the larger caches is not known.
 * **The check:** `tutor sandbox check` (CI's `images` job) starts, in every
   environment, a second Julia with `-C generic` and lists every package
   whose cache it rejects. A cache compiled only for the build machine's CPU
-  fails this on any machine. Checked on the authoring machine, on Julia
-  1.10.13 outside the container: a cache built without the target was
-  rejected under `-C generic`, and one built with it loaded. The check has
-  not yet run in a container (Docker stopped on the authoring machine).
+  fails this on any machine. On CI run 43035350960 it passed for all eleven
+  package environments in their images. Before that, on the authoring
+  machine (Julia 1.10.13, outside the container), a cache built without the
+  target was rejected under `-C generic`, and one built with it loaded.
+* **What it fixed:** `course verify --sandbox=docker` on the next runner then
+  finished every unit with no timeout (before: unit 21 timed out at 120 s,
+  twice). It also exposed three MCMC examples in unit 27 whose digits moved,
+  now recorded but not checked: the multi-CPU caches can run a different
+  copy of the same function, which may round differently (fused
+  multiply-add), and a sampler's chain carries that into the digits.
 
 ## Publishing and pulling
 
@@ -143,31 +153,37 @@ container's cgroup `memory.peak`. It is a measurement only:
 
 ## Measurements
 
-Every number here comes from CI run 42976555361 (2026-11-11, GitHub-hosted
-ubuntu runner, 4 CPUs, cgroup v2), on the images of this PR. Docker is not
-running on the authoring machine apart from one local check, noted below.
+The numbers here come from two CI runs on 2026-11-11 (GitHub-hosted ubuntu
+runners, 4 CPUs, cgroup v2): run 43035350960 on the current images (package
+caches for every CPU), and run 42976555361 on the images before that change,
+in brackets. Docker is not running on the authoring machine.
 
-| Image | Compressed (a pull downloads) | Unpacked | Cold start, `using` the env (3 fresh containers) | Peak at load | Largest peak in `course verify` |
+| Image | Compressed (a pull downloads) | Unpacked (`du` in the image) | Cold start, `using` the env (3 fresh containers) | Peak at load | Largest peak in `course verify` |
 |---|---|---|---|---|---|
-| base | 0.20 GiB | 0.67 GiB (local build, `du`) | 1.1, 1.0, 1.0 s | 0.18 GiB | 0.50 GiB |
-| scicomp | 0.56 GiB | next CI run | scicomp 7.4, 7.2, 7.5 s; mtk 8.0, 7.5, 7.4 s | 0.64; 0.88 GiB | 0.74; 0.88 GiB |
-| sciml | 0.64 GiB | next CI run | about 8.2 s | 0.54 GiB | 0.84 GiB |
-| science | 1.26 GiB | next CI run | 2.0 (python) to 6.7 s (plots) | 0.22 to 0.54 GiB | 4.78 GiB (ml); every other env ≤ 1.39 (diffeq) |
+| base | 0.20 GiB (0.20) | 0.67 GiB | 1.3, 1.2, 1.2 s (1.1, 1.0, 1.0) | 0.15 GiB | 0.50 GiB (0.50) |
+| scicomp | 0.62 GiB (0.56) | 2.33 GiB | scicomp 10.6, 9.9, 9.3 s (about 7.4); mtk 11.4, 10.1, 10.2 s (about 7.6) | 0.77; 0.86 GiB | 0.70; 0.88 GiB (0.74; 0.88) |
+| sciml | 0.68 GiB (0.64) | 2.47 GiB | 10.8, 11.2, 11.0 s (about 8.2) | 0.51 GiB | 0.83 GiB (0.84) |
+| science | 1.35 GiB (1.26) | 4.75 GiB | 2.6 (python) to 9.6 s (plots) (2.0 to 6.7) | 0.24 to 0.87 GiB | 3.85 GiB, ml (4.78); every other env ≤ 1.39 (diffeq) |
 
-* **Unpacked sizes:** the first CI run printed `docker image inspect .Size`
-  as the unpacked size, but with the containerd image store (CI's) that is
-  the compressed content again. The unpacked size is now counted inside the
-  image (`du -sxb /` in a container with the same flags as a run); the base
-  number above is from that command on a local build, the course images'
-  come with the next CI run.
-* **Science per environment:** cold start calculus 3.0, data 2.4, diffeq
-  about 4.5, ml about 5.7, optim about 2.5, plots about 6.7, python about
-  2.0, turing 3.1 s; largest verify peak calculus 0.44, data 0.33, diffeq
-  1.39, ml 4.78, optim 0.30, plots 0.65, python 0.30, turing 0.43 GiB.
+* **Unpacked sizes:** counted inside the image (`du -sxb /` in a container
+  with the same flags as a run). `docker image inspect .Size`, which the
+  first run printed, is the compressed content again under the containerd
+  image store (CI's), so there is no "before" number for the course images.
+* **Cold starts:** every one is slower on the later run, by 10 to 50%. The
+  two runs were on different runners, and each number is three containers
+  on one runner, so this does not separate the larger caches from the
+  runner. Each first container is the slowest: the image's files are not
+  yet in the page cache.
+* **Science per environment** (later run): cold start calculus 3.8 to 4.7,
+  data 3.2 to 4.2, diffeq 5.9 to 7.7, ml 8.4 to 8.7, optim 3.5 to 4.2, plots
+  9.3 to 9.6, python 2.6 to 3.2, turing 3.9 to 4.7 s; largest verify peak
+  calculus 0.39, data 0.32, diffeq 1.39, ml 3.85, optim 0.30, plots 0.61,
+  python 0.29, turing 0.43 GiB.
 * **Pull time on a clean machine** (`clean-start` job, fresh runner): Core
-  in 107 s from nothing, of which `tutor sandbox pull core` 10 s; then
-  scicomp 18 s, sciml 24 s, science 32 s each. Anonymous pulls work, so the
-  packages are public. Datacenter network: a home connection will be slower.
+  in 87 s from nothing (107 s on the earlier run), of which `tutor sandbox
+  pull core` 10 s; then scicomp 14 s (18), sciml 19 s (24), science 26 s
+  (32) each. Anonymous pulls work, so the packages are public. Datacenter
+  network: a home connection will be slower.
 
 The jobs that produce them:
 
@@ -211,9 +227,10 @@ it overstates what a run needs. A run that does hit the limit is reported as
 a kill for memory (exit 137), with the limit, not as a crash.
 
 **Not measured:**
-* **The guided projects:** `tutor guided verify` did not run in that CI
-  job, because course verify failed first, on a CPU-dependent example in
-  unit 32 (fixed in this PR). Every guided project runs in a science
+* **The guided projects:** `tutor guided verify` has not run in either CI
+  run, because course verify failed first: on a CPU-dependent example in
+  unit 32, then on three MCMC examples in unit 27 and a timed verdict in
+  unit 08 (each changed in this PR; the next CI run is their check). Every guided project runs in a science
   environment, which keeps 6 GB.
 * **sciml in a long training run:** sciml's 0.84 GiB covers every recorded
   example, problem sample, reference, starter and variant. A learner who

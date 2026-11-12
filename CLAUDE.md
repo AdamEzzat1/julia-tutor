@@ -323,7 +323,9 @@ every role above has had the chance to object (recorded in the PR).
   24 ("steps taken: 7", tolerance-table counts rounded to 2 digits), iteration
   and call counts in unit 25, MCMC digits in unit 27 (its prose says digits
   vary across CPUs). They were verified on one machine only; a different CPU
-  or a package bump may move them.
+  or a package bump may move them. Three unit 27 examples did move on CI
+  (2026-11-11) once the images' caches held copies for several CPUs, and
+  are now `check = false`; its other MCMC examples matched.
 * A problem with `packages = []` loads the whole env, not nothing.
 * Container memory is per image (`Runner.IMAGE_MEMORY`, measured on CI on 2026-11-11: docs/SANDBOX_IMAGES.md): base 2 GB, scicomp and sciml 3 GB, science 6 GB. Science's was raised from 4 GB on
   2026-11-09: compiling MLJ's `evaluate` inside a function peaks at 3.8 GB,

@@ -4,17 +4,21 @@ This gets you from nothing to running code from the course's website on your
 own machine. Every Run happens in a sandbox container with no network and a
 read-only file system.
 
-**Measured time: 107 seconds** for steps 1–5, on a fresh GitHub-hosted Linux
-runner (4 CPUs) on 2026-11-11 (CI run 42976555361, `clean-start` job, which
-runs `scripts/clean_start.sh`):
+**Measured time: 87 and 107 seconds** for steps 1–5, in two runs on fresh
+GitHub-hosted Linux runners (4 CPUs) on 2026-11-11 (the `clean-start` job,
+which runs `scripts/clean_start.sh`; CI runs 43035350960 and 42976555361):
 
-| Step | Seconds |
-|---|---|
-| 1. install juliaup and Julia 1.10.13 | 3 |
-| 2. git clone | 0 |
-| 3. install the tutor's packages | 80 |
-| 4. `tutor sandbox pull core` | 10 |
-| 5. `tutor serve --course=core`, first Run answered | 13 |
+| Step | Seconds (run 43035350960) | Seconds (run 42976555361) |
+|---|---|---|
+| 1. install juliaup and Julia 1.10.13 | 2 | 3 |
+| 2. git clone | 1 | 0 |
+| 3. install the tutor's packages | 63 | 80 |
+| 4. `tutor sandbox pull core` | 10 | 10 |
+| 5. `tutor serve --course=core`, first Run answered | 11 | 13 |
+
+The later run is the current base image (package caches for every CPU,
+docs/SANDBOX_IMAGES.md); the earlier one is the image before that change.
+Most of the difference is in step 3, which does not involve the image.
 
 That runner sits on a datacenter network, so the downloads in steps 1, 3 and
 4 were fast: expect them to take longer on a home connection. This time has
