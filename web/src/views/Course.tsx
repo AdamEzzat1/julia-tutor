@@ -5,22 +5,25 @@ import { Feedback } from "../components/Feedback";
 import { Markdown, md } from "../components/Markdown";
 import { ConnectPanel, Output, RunBox, ServerPill, useDraft } from "../components/Runner";
 import {
-  course, questionState, TRACK_BLURB, TRACK_LABEL, trackRequirement, unitNumber, type Example, type Problem, type Question, type Unit,
+  course, courseById, estimateText, landingHref, questionState, statusNote, TRACK_BLURB, TRACK_LABEL, trackRequirement, unitNumber,
+  type CourseInfo, type Example, type Problem, type Question, type Unit,
 } from "../course";
 import { loadProgress, saveProgress, type Progress } from "../progress";
-
-// A track is listed once it has a unit (a new track appears with its first one).
-const shownTracks = course.tracks.filter((t) => course.units.some((u) => u.track === t));
 import { gradeCode, useServer, type GradeResult } from "../server";
+
+// A course's tracks, in track order (a track is listed once it has a unit).
+const tracksOf = (c: CourseInfo) => course.tracks.filter((t) => course.units.some((u) => u.course === c.id && u.track === t));
 
 function readParams() {
   const q = new URLSearchParams(window.location.search);
-  return { unit: q.get("unit"), problem: q.get("problem") };
+  return { unit: q.get("unit"), problem: q.get("problem"), course: q.get("course") };
 }
 
-function writeParams(unit: string | null, problem: string | null) {
+// A unit names its course itself; ?course= matters only on a course's overview.
+function writeParams(unit: string | null, problem: string | null, courseId: string | null) {
   const q = new URLSearchParams();
   if (unit) q.set("unit", unit);
+  else if (courseId) q.set("course", courseId);
   if (problem) q.set("problem", problem);
   const s = q.toString();
   history.replaceState(null, "", window.location.pathname + (s ? `?${s}` : ""));
@@ -29,12 +32,20 @@ function writeParams(unit: string | null, problem: string | null) {
 export function CourseView() {
   const [unitId, setUnitId] = useState<string | null>(() => readParams().unit);
   const [problemId, setProblemId] = useState<string | null>(() => readParams().problem);
+  const [courseId, setCourseId] = useState<string>(() => readParams().course ?? course.courses[0].id);
   const [progress, setProgress] = useState<Progress>(loadProgress);
   const unit = course.units.find((u) => u.id === unitId) ?? null;
+  // The syllabus shows one course: the open unit's, else the chosen one.
+  const active = courseById(unit?.course ?? courseId) ?? course.courses[0];
+  const units = course.units.filter((u) => u.course === active.id);
   const top = useRef<HTMLDivElement>(null);
 
+  const pick = (c: string) => { setCourseId(c); setUnitId(null); setProblemId(null); writeParams(null, null, c); };
   const go = (u: string | null, p: string | null = null) => {
-    setUnitId(u); setProblemId(p); writeParams(u, p);
+    // following a unit into another course (a prerequisite) switches the syllabus to it
+    const uc = u ? course.units.find((x) => x.id === u)?.course : undefined;
+    if (uc) setCourseId(uc);
+    setUnitId(u); setProblemId(p); writeParams(u, p, uc ?? active.id);
     if (u) setProgress((s) => saveProgress({ ...s, opened: { ...s.opened, [u]: true } }));
     top.current?.scrollIntoView({ block: "start", behavior: "smooth" });
   };
@@ -54,14 +65,22 @@ export function CourseView() {
   return (
     <div className="jt-split jt-course" ref={top}>
       <nav className="jt-panel jt-nav jt-syllabus" aria-label="Syllabus">
+        <div className="jt-coursetabs" role="group" aria-label="Course">
+          {course.courses.map((c) => (
+            <button key={c.id} className={`jt-chip jt-chipbtn${c.id === active.id ? " kc" : ""}`} aria-pressed={c.id === active.id}
+              onClick={() => pick(c.id)}>
+              {c.title}{statusNote(c) ? ` · ${statusNote(c)}` : ""}
+            </button>
+          ))}
+        </div>
         <button aria-current={unit === null} onClick={() => go(null)}>
-          <span className="s">{course.units.filter((u) => u.status === "ready").length} units ready · {course.units.reduce((n, u) => n + u.problems.length, 0)} problems</span>
-          <span className="t">Course overview</span>
+          <span className="s">{units.filter((u) => u.status === "ready").length} units ready · {active.problems} problems{statusNote(active) ? ` · ${statusNote(active)}` : ""}</span>
+          <span className="t">{active.title}: overview</span>
         </button>
-        {shownTracks.map((t) => (
+        {tracksOf(active).map((t) => (
           <div key={t}>
             <div className="jt-eyebrow" style={{ padding: "0.7rem 0.7rem 0.2rem" }}>{TRACK_LABEL[t]}</div>
-            {course.units.filter((u) => u.track === t).map((u) => {
+            {units.filter((u) => u.track === t).map((u) => {
               const done = u.problems.filter((p) => progress.solved[p.id]).length;
               return (
                 <button key={u.id} aria-current={u.id === unit?.id} onClick={() => go(u.id)} className={u.status === "planned" ? "planned" : ""}>
@@ -76,26 +95,33 @@ export function CourseView() {
         ))}
       </nav>
       <div className="jt-grid" style={{ gap: "1.1rem" }}>
-        {unit === null ? <Overview progress={progress} go={go} /> :
+        {unit === null ? <Overview c={active} progress={progress} go={go} /> :
           <UnitPage key={unit.id} unit={unit} problemId={problemId} progress={progress}
-            openProblem={(p) => { setProblemId(p); writeParams(unit.id, p); }} onSolved={solved}
+            openProblem={(p) => { setProblemId(p); writeParams(unit.id, p, active.id); }} onSolved={solved}
             onAnswered={answered} go={go} />}
       </div>
     </div>
   );
 }
 
-function Overview({ progress, go }: { progress: Progress; go: (u: string) => void }) {
+function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: (u: string) => void }) {
+  const tracks = tracksOf(c);
+  const note = statusNote(c);
   return (
     <>
       <section className="jt-panel jt-pad">
         <div className="jt-toolbar">
           <div>
-            <div className="jt-eyebrow">From your first expression to the compiler</div>
-            <h3 style={{ marginTop: "0.25rem" }}>{course.units.length} units in {shownTracks.length} tracks</h3>
+            <div className="jt-eyebrow">Course {c.order} of {course.courses.length}{note && <> · <span className="jt-chip advice">{note}</span></>}</div>
+            <h3 style={{ marginTop: "0.25rem" }}>{c.title}: {c.units.length} units in {tracks.length} {tracks.length === 1 ? "track" : "tracks"}</h3>
           </div>
           <ServerPill />
         </div>
+        <p style={{ maxWidth: "50rem" }}>{c.summary}</p>
+        {note && <p className="jt-small" style={{ maxWidth: "50rem" }}><strong>Not finished.</strong> {c.status_note}</p>}
+        <p className="jt-small" style={{ maxWidth: "50rem" }}>
+          <a href={landingHref(c.id)}>Outcomes, prerequisites and setup</a> · {estimateText(c)}
+        </p>
         <p className="jt-muted" style={{ maxWidth: "50rem" }}>
           Every example's output on this site was produced by running it on Julia {course.julia}; none is typed by
           hand. Practice problems are graded by running your code in your own Julia against a hidden reference
@@ -103,8 +129,8 @@ function Overview({ progress, go }: { progress: Progress; go: (u: string) => voi
         </p>
       </section>
       <div className="jt-tracks">
-        {shownTracks.map((t) => {
-          const units = course.units.filter((u) => u.track === t);
+        {tracks.map((t) => {
+          const units = course.units.filter((u) => u.course === c.id && u.track === t);
           return (
             <section key={t} className="jt-panel jt-pad">
               <div className="jt-eyebrow">{TRACK_LABEL[t]}</div>
@@ -145,9 +171,11 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
   const qkeys = unit.sections.flatMap((s, i) => s.questions.map((_, k) => `${unit.id}/${i}/${k}`));
   const qdone = qkeys.filter((k) => progress.questions[k]);
   const qfirst = qdone.filter((k) => progress.questions[k] === "first-try");
-  const idx = course.units.indexOf(unit);
-  const prev = course.units[idx - 1];
-  const next = course.units[idx + 1];
+  const own = courseById(unit.course);
+  const siblings = course.units.filter((u) => u.course === unit.course);
+  const idx = siblings.indexOf(unit);
+  const prev = siblings[idx - 1];
+  const next = siblings[idx + 1];
   const [title, subtitle] = unit.title.split(/:\s/, 2);
   const problem = unit.problems.find((p) => p.id === problemId) ?? null;
   const practice = useRef<HTMLElement>(null);
@@ -156,7 +184,11 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
   return (
     <>
       <header className="jt-panel jt-pad">
-        <div className="jt-eyebrow">{TRACK_LABEL[unit.track]} · unit {unitNumber(unit.id)}</div>
+        <div className="jt-eyebrow">
+          {own ? <a href={landingHref(own.id)}>{own.title}</a> : null}
+          {TRACK_LABEL[unit.track] !== own?.title && <> · {TRACK_LABEL[unit.track]}</>} · unit {unitNumber(unit.id)}
+          {own && statusNote(own) && <> · <span className="jt-chip advice" title="This course is not finished">course {statusNote(own)}</span></>}
+        </div>
         <h2 style={{ margin: "0.3rem 0 0.2rem" }}>{title}</h2>
         {subtitle && <p className="jt-unit-sub">{subtitle}</p>}
         <p style={{ maxWidth: "48rem" }}>{md(unit.summary)}</p>
