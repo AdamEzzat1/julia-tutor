@@ -226,12 +226,15 @@ The peak includes page cache, which the kernel reclaims before it kills, so
 it overstates what a run needs. A run that does hit the limit is reported as
 a kill for memory (exit 137), with the limit, not as a crash.
 
+**The guided projects** (measured later, on CI run 43127818869): every
+guided project runs in a science environment, and `tutor guided verify`
+(reference, mutants, exemplary tests, fixtures) peaked at plots 1.17, ml
+0.85, calculus 0.72, diffeq 0.67, turing 0.55, data 0.51, optim 0.46 and
+python 0.43 GiB, well under science's 6 GB. That run's `course verify` peaks
+in the science environments were within 0.1 GiB of the later run above,
+except ml (3.72 GiB, against 3.85).
+
 **Not measured:**
-* **The guided projects:** `tutor guided verify` has not run in either CI
-  run, because course verify failed first: on a CPU-dependent example in
-  unit 32, then on three MCMC examples in unit 27 and a timed verdict in
-  unit 08 (each changed in this PR; the next CI run is their check). Every guided project runs in a science
-  environment, which keeps 6 GB.
 * **sciml in a long training run:** sciml's 0.84 GiB covers every recorded
   example, problem sample, reference, starter and variant. A learner who
   trains a much larger network than the units do may need more than 3 GB.
