@@ -12,32 +12,50 @@ project:
 
 website:
   title: "julia-tutor"
-  description: "A symbolic, deterministic tutor for Julia: verified lessons, measured explain reports, and checker rules with honest false-positive notes."
+  description: "Courses in scientific computing and scientific ML in Julia, with rule-based, deterministic feedback: recorded example outputs, sandboxed grading on your own machine, no LLM in the feedback loop."
   site-url: "https://adamezzat1.github.io/julia-tutor/"
   repo-url: "https://github.com/AdamEzzat1/julia-tutor"
   page-navigation: true
   navbar:
     logo: assets/mark.svg
     logo-alt: "julia-tutor"
+    # Learn: what a learner uses. How it works: how the feedback is produced
+    # (author-facing). A course's label carries its status unless it is ready
+    # (web/src/site.test.ts checks this against course/courses/*.toml).
     left:
       - href: index.qmd
-        text: Overview
-      - href: course.qmd
-        text: Course
-      - href: projects.qmd
-        text: Projects
-      - href: sandbox.qmd
-        text: Sandbox
-      - href: lessons.qmd
-        text: Quizzes
-      - href: explain.qmd
-        text: Explain
-      - href: holemap.qmd
-        text: Hole map
-      - href: rules.qmd
-        text: Rules
-      - href: design.qmd
-        text: Design
+        text: Home
+      - text: Learn
+        menu:
+          - href: course-core.qmd
+            text: "Core Julia"
+          - href: course-science.qmd
+            text: "Julia for science"
+          - href: course-scicomp.qmd
+            text: "Scientific computing"
+          - href: course-sciml.qmd
+            text: "Scientific ML (in progress)"
+          - text: "---"
+          - href: course.qmd
+            text: Units and practice
+          - href: projects.qmd
+            text: Projects
+          - href: cases.qmd
+            text: Cases
+          - href: sandbox.qmd
+            text: Sandbox
+          - href: lessons.qmd
+            text: Quizzes
+      - text: How it works
+        menu:
+          - href: explain.qmd
+            text: Explain
+          - href: holemap.qmd
+            text: Hole map
+          - href: rules.qmd
+            text: Rules
+          - href: design.qmd
+            text: Design
     right:
       - icon: github
         href: "https://github.com/AdamEzzat1/julia-tutor"

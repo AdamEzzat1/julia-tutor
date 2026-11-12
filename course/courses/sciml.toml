@@ -1,8 +1,8 @@
 id = "sciml"
 title = "Scientific ML"
 order = 4
-# In progress until milestones M4 (odeint) and M7 (latency) are done.
 status = "in-progress"
+status_note = "It stays in progress until milestones M4 (the odeint case project) and M7 (shorter package load times) are done; the planned universal-ODE project needs both (CLAUDE.md, M10)."
 summary = "Differential equations with learned parts: sensitivities and adjoints, neural and universal ODEs, equation discovery with SINDy, and physics-informed networks compared with classical solvers."
 requires = ["core", "science", "scicomp"]
 envs = ["base", "sciml"]
@@ -38,3 +38,8 @@ assessed_by = ["45-universal-odes", "48-pinn-limits"]
 text = "Write a training loop with a hand-written adjoint checked against forward AD and finite differences."
 assessed_by = ["44-adjoints-neural-odes"]
 planned = ["neural-ODE program"]
+
+# What `tutor sandbox pull sciml` downloads, shown on the course's landing page.
+[setup]
+download = "up to 0.68 GiB, after Core's image; layers they share are downloaded once"
+measured = "compressed image layers, CI run 43035350960 (2026-11-11); docs/SANDBOX_IMAGES.md"

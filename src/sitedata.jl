@@ -190,15 +190,22 @@ writes them all and `--check` compares them all.
 function course_files()
     d = course_data()
     courses = Course.load_courses()
+    units = Course.load_course()
     byid = Dict(u["id"] => u for u in d["units"])
+    estimate(c) = let (lo, hi, basis) = Course.time_estimate(c, units)
+        Dict("low_hours" => lo, "high_hours" => hi, "basis" => basis)
+    end
     gen = Dict("julia" => d["julia"], "generated_by" => d["generated_by"])
     index = merge(gen, Dict("tracks" => d["tracks"], "track_requires" => d["track_requires"], "envs" => d["envs"],
         "courses" => Any[Dict("id" => c.id, "title" => c.title, "order" => c.order, "status" => c.status,
+                              "status_note" => c.status_note,
                               "summary" => c.summary, "requires" => c.requires, "envs" => c.envs, "units" => c.units,
                               "projects" => c.projects, "guided" => c.guided,
                               "problems" => sum(length(byid[u]["problems"]) for u in c.units; init = 0),
                               "outcomes" => Any[Dict("text" => o.text, "assessed_by" => o.assessed_by,
-                                                     "planned" => o.planned) for o in c.outcomes])
+                                                     "planned" => o.planned) for o in c.outcomes],
+                              "estimate" => estimate(c),
+                              "setup" => Dict("download" => c.download, "measured" => c.download_measured))
                          for c in courses]))
     files = Pair{String,Any}["courses.json" => index]
     for c in courses

@@ -1,0 +1,8 @@
+---
+title: "Julia for science"
+---
+
+<!-- The landing page of course/courses/science.toml; everything on it comes from that manifest (web/src/views/CourseLanding.tsx). -->
+
+::: {.jt-mount data-view="course-landing" data-course="science"}
+:::
