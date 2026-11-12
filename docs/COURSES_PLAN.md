@@ -381,6 +381,51 @@ The Lead re-decides after the slice's pilot.
   solutions out of the learner's copy.
 * **CI mode:** decided in Phase 7, either a private submodule or a CI secret.
 
+## 6a. Concept diagrams (Phase 5 addition)
+
+Added by Adam on 2026-11-11. The brief's Phase 5 list has no diagrams that
+explain a scientific idea; today the site shows only plots that examples
+produce when they are recorded. This item adds them, under the same rules
+as every Phase 5 feature: a stated learning purpose that the Learning
+scientist signs off, deterministic, and one PR per diagram family with a
+review stop after each.
+
+Rules for every diagram:
+
+* **Generated, not drawn.** Julia code in the repo draws the SVG at record
+  time from real numbers, such as a solver's stages, a measured error table
+  or a trained model's output. CI re-records it, so a diagram that disagrees
+  with the numbers fails CI the same way a stale example output does.
+* **States what it shows.** Each diagram names the computation that drew it
+  and is labelled "precomputed by the reference" when it is.
+* **Interactive only where that teaches.** A slider or click must change
+  something the learner can check, such as a predicted slope or the step
+  size where a method goes unstable. No animation for its own sake.
+* **Accessible.** Each diagram has a text description of what it shows and
+  a table of the numbers behind it. Interactive diagrams work with the
+  keyboard.
+
+Planned diagrams, in build order. The Course column says where each one is
+used:
+
+| Diagram | Course | Learning purpose |
+|---|---|---|
+| A Runge–Kutta step: where each stage is evaluated and how the stages combine | scicomp (odeint case) | see why a 5th-order method needs 6 or 7 function evaluations, and where the embedded error estimate comes from |
+| Error against step size on log-log axes, with the slope read as the convergence order | scicomp | read the order off a plot, and spot round-off taking over at small steps |
+| Stability regions of explicit and implicit methods, with a test problem's eigenvalues | scicomp | predict which step sizes blow up, and why stiff problems need implicit methods |
+| Julia's type tree, and how dispatch picks a method for a call | core | predict which method runs, and see why an ambiguity error happens |
+| A neural network inside an ODE: the state goes in and its derivative comes out | sciml | see that the network learns the right-hand side, not the trajectory |
+| A universal differential equation: known physics plus a learned term | sciml | see which part is trusted and which part is fitted |
+| A physics-informed loss: collocation points over the domain, the PDE residual at each point, and the boundary and initial terms | sciml | see what the loss measures and what it does not (no data needed in the interior; residual small is not error small) |
+| A PINN's residual against its true error over the domain, next to a verified classical solver | sciml | see that a small residual can coexist with a large error, the basis for a fair comparison |
+| Forward vs adjoint sensitivity: one forward solve, then a backward adjoint solve; cost against parameter count | sciml | choose forward or adjoint mode by parameter count |
+| Sparse regression (SINDy): candidate-term library times sparse coefficients, and which terms survive as noise grows | sciml | see why noise causes false discoveries |
+| Validity range: a learned model inside and outside its training range | sciml | report where a learned model can be trusted |
+
+The Numerical analyst checks every diagram whose numbers come from a
+solver. The Interaction designer checks the interactive ones. The site's
+precomputed explorers (brief, Phase 5) reuse the same drawing code.
+
 ## 7. Risks
 
 | Risk | What could break | Mitigation |
@@ -416,7 +461,7 @@ The Lead re-decides after the slice's pilot.
 | 2 images | `phase2/course-images` | approve GHCR publishing; Docker running somewhere for local timing |
 | 3 front door | `phase3/front-door` | approve copy changes |
 | 4 cases | `phase4/odeint-case` | one pilot learner for the slice |
-| 5 interactivity | one PR per feature | review after each |
+| 5 interactivity | one PR per feature; concept diagrams (§6a) one PR per diagram family | review after each |
 | 6 pilot | `phase6/pilot` | recruit 3–5 + 2–3 learners |
 | 7 programs | `phase7/programs` | private-solutions mode decision |
 
