@@ -1,0 +1,475 @@
+# The odeint case project (docs/CASES.md). It builds on the hole project in
+# projects/odeint (milestone M4): milestones 1 and 2 are its two starter
+# stages, milestone 3 is the study and the report.
+
+name = "odeint"
+project = "odeint"
+course = "scicomp"
+env = "base"
+title = "Long orbits: write Dormand-Prince 5(4), then choose between Runge-Kutta and a symplectic method"
+summary = "Write an adaptive Runge-Kutta solver from its tableau and verify it. Then decide, by measurement, which method keeps a planet's energy error within budget over a thousand orbits at the lower cost."
+
+question = """
+A planet moves on an eccentric orbit (eccentricity 0.5) around a star. You
+must simulate 1000 orbits and keep the relative energy error below 1e-6 at
+every step. Which integrator does that with fewer force evaluations:
+adaptive Dormand-Prince 5(4), or fixed-step Stormer-Verlet? By how much?
+And does the answer survive a more eccentric orbit?
+"""
+qoi = "The cost ratio: force evaluations Stormer-Verlet needs divided by those Dormand-Prince 5(4) needs, each at its cheapest setting that meets the energy budget."
+accuracy = "A factor of 2 in the cost ratio decides the question whenever the ratio is far from 1. The search grid you use must bound the ratio, and you state that bound next to the ratio."
+emphasised = ["method", "verification"]
+estimate_prompt = "Before you run anything, estimate how many Stormer-Verlet steps per orbit the budget needs. Use one short run and the method's order to get it. Write the estimate in the report with an {estimate:verlet_nper} tag."
+
+[data]
+kind = "exact solutions"
+description = """
+No dataset. The ground truth is analytic: polynomial integrands and a
+nilpotent linear system, which Dormand-Prince 5(4) solves without truncation
+error; the Kepler orbit, from Kepler's equation; and the conserved energy
+(-1/2 on every orbit with semi-major axis 1). Units: GM = 1, semi-major axis
+1, period 2*pi. Nothing is random and nothing is downloaded.
+"""
+
+[[data.difficulty]]
+what = "Convergence fits bend at both ends: pre-asymptotic error for large steps, rounding for small ones. The fit range is part of the result."
+kc = "convergence-order-fit"
+
+[[data.difficulty]]
+what = "Near perihelion the orbit is fast, so the adaptive solver has to shrink its steps there and lengthen them at aphelion."
+kc = "step-size-control"
+
+[[data.difficulty]]
+what = "The energy error of the first orbits is a transient that hides the long-time drift unless the drift fit starts later."
+kc = "energy-drift"
+
+[[data.difficulty]]
+what = "The energy error is not monotone in the tolerance: over 1000 orbits 3.16e-9 meets the budget while the tighter 1e-9 does not. The cheapest setting is defined by the search grid, and a search that starts too tight misses it."
+kc = "step-size-control"
+
+[[data.difficulty]]
+what = "A bounded energy error does not make the orbit accurate: the phase error grows anyway. Energy is a proxy for accuracy, and the validation step tests that proxy."
+kc = "validation-proxy"
+
+[[milestone]]
+id = 1
+title = "The method: one step, its error estimate, the exact orbit, Stormer-Verlet"
+stage = 1
+goal = "Fill the four stage-1 holes (`tutor start odeint 1 <dir>`) until the visible tests pass, then run `tutor case check <dir> 1`. The hidden acceptance tests use other problems, so code that fits the visible tests only does not pass."
+acceptance = "acceptance/m1.jl"
+steps = ["verification"]
+
+[[milestone]]
+id = 2
+title = "Error control: the controller, the starting step, the adaptive loop, the order fit"
+stage = 2
+goal = "Start stage 2 (`tutor case start odeint <dir>`). It opens all eight holes and adds study.jl and report.qmd. Then run `tutor case check <dir> 2`."
+acceptance = "acceptance/m2.jl"
+steps = ["method", "verification"]
+
+[[milestone]]
+id = 3
+title = "The study and the report"
+stage = 2
+goal = "Write study.jl (its docstrings are the spec) and report.qmd, then run `tutor case check <dir> 3`. This runs the hidden acceptance tests on your study, runs `study()` twice in fresh processes, and checks every tagged number in the report against what your code computed."
+acceptance = "acceptance/m3.jl"
+steps = ["question", "scales", "model", "method", "verification", "validation", "uncertainty", "report"]
+report = true
+
+# ---- the report's checked claims ---------------------------------------------------------------
+#
+# A claim is a value written in report.qmd immediately before a tag:
+# `5.18{claim:conv_order}`, `dp54{claim:choice}`. The value must equal what
+# your `study()` returns for that id.
+# Tolerance (numbers): study() is deterministic, so no tolerance is needed
+# beyond the rounding of what you wrote. A written value w with its last
+# digit in the 10^k place matches the computed c when |w - c| <= 0.5 * 10^k
+# (5.18 matches 5.1829...; 5.2 does too, but `min_digits` asks for at
+# least that many significant digits unless w equals c exactly). Integers
+# written without a decimal point must be exact. A claim with a nonzero
+# rtol says why in `why`.
+
+[report]
+tolerance = "deterministic study: half a unit in the last written digit, nothing more"
+
+[[claim]]
+id = "eccentricity"
+section = "question"
+text = "the orbit's eccentricity"
+
+[[claim]]
+id = "norbits"
+section = "question"
+text = "the horizon in orbits"
+
+[[claim]]
+id = "target"
+section = "question"
+text = "the energy budget (max relative energy error)"
+
+[[claim]]
+id = "tol_dp54"
+section = "method"
+text = "the loosest DP5(4) tolerance on your grid that meets the budget"
+
+[[claim]]
+id = "err_dp54"
+section = "method"
+text = "DP5(4)'s max relative energy error at that tolerance"
+
+[[claim]]
+id = "nf_dp54"
+section = "method"
+text = "DP5(4)'s right-hand-side evaluations at that tolerance"
+
+[[claim]]
+id = "nper_verlet"
+section = "method"
+text = "the fewest Stormer-Verlet steps per orbit you found that meet the budget"
+
+[[claim]]
+id = "err_verlet"
+section = "method"
+text = "Stormer-Verlet's max relative energy error at that step"
+
+[[claim]]
+id = "nf_verlet"
+section = "method"
+text = "Stormer-Verlet's force evaluations at that step"
+
+[[claim]]
+id = "choice"
+section = "method"
+kind = "word"
+words = ["dp54", "verlet"]
+text = "the cheaper method"
+
+[[claim]]
+id = "cost_ratio"
+section = "method"
+min_digits = 2
+text = "the QoI: nf_verlet / nf_dp54"
+
+[[claim]]
+id = "cost_ratio_lo"
+section = "method"
+text = "lower bound on the ratio from your search grid"
+
+[[claim]]
+id = "cost_ratio_hi"
+section = "method"
+text = "upper bound on the ratio from your search grid"
+
+[[claim]]
+id = "conv_order"
+section = "verification"
+min_digits = 3
+text = "fitted order of DP5 (fixed steps, one period)"
+
+[[claim]]
+id = "conv_fit_hmin"
+section = "verification"
+text = "smallest step in the DP5 fit range"
+
+[[claim]]
+id = "conv_fit_hmax"
+section = "verification"
+text = "largest step in the DP5 fit range"
+
+[[claim]]
+id = "verlet_order"
+section = "verification"
+min_digits = 3
+text = "fitted order of Stormer-Verlet"
+
+[[claim]]
+id = "verlet_fit_hmin"
+section = "verification"
+text = "smallest step in the Verlet fit range"
+
+[[claim]]
+id = "verlet_fit_hmax"
+section = "verification"
+text = "largest step in the Verlet fit range"
+
+[[claim]]
+id = "tol_slope"
+section = "verification"
+min_digits = 3
+text = "slope of log(global error) on log(tolerance): tolerance proportionality"
+
+[[claim]]
+id = "exact_linear_err"
+section = "verification"
+text = "max error on the nilpotent linear system (an exact solution: rounding only)"
+
+[[claim]]
+id = "pos_err_dp54"
+section = "validation"
+text = "DP5(4)'s position error after the horizon, against the exact orbit"
+
+[[claim]]
+id = "pos_err_verlet"
+section = "validation"
+text = "Stormer-Verlet's position error after the horizon, against the exact orbit"
+
+[[claim]]
+id = "drift_exp_dp54"
+section = "uncertainty"
+min_digits = 2
+text = "fitted growth exponent of DP5(4)'s energy error"
+
+[[claim]]
+id = "drift_exp_verlet"
+section = "uncertainty"
+text = "fitted growth exponent of Stormer-Verlet's energy error"
+
+[[claim]]
+id = "drift_fit_kmin"
+section = "uncertainty"
+text = "first orbit count in the drift fit"
+
+[[claim]]
+id = "drift_fit_kmax"
+section = "uncertainty"
+text = "last orbit count in the drift fit"
+
+[[claim]]
+id = "robust_e"
+section = "uncertainty"
+text = "the perturbed eccentricity"
+
+[[claim]]
+id = "robust_cost_ratio"
+section = "uncertainty"
+min_digits = 2
+text = "the cost ratio at the perturbed eccentricity"
+
+[[claim]]
+id = "robust_choice"
+section = "uncertainty"
+kind = "word"
+words = ["dp54", "verlet"]
+text = "the cheaper method at the perturbed eccentricity"
+
+[[claim]]
+id = "robust_holds"
+section = "uncertainty"
+kind = "word"
+words = ["holds", "fails"]
+text = "whether the conclusion holds under the perturbed assumption"
+
+[[claim]]
+id = "valid_e_min"
+section = "report"
+text = "smallest eccentricity the conclusion was tested at"
+
+[[claim]]
+id = "valid_e_max"
+section = "report"
+text = "largest eccentricity the conclusion was tested at"
+
+[[claim]]
+id = "valid_norbits_max"
+section = "report"
+text = "longest horizon the conclusion was tested at"
+
+# ---- required evidence ---------------------------------------------------------------------
+
+[[evidence]]
+id = "fitted-order-with-range"
+text = "a fitted convergence order with its fit range"
+claims = ["conv_order", "conv_fit_hmin", "conv_fit_hmax"]
+same_paragraph = true
+
+[[evidence]]
+id = "verification-result"
+text = "a verification result against an exact solution, and tolerance proportionality"
+claims = ["exact_linear_err", "tol_slope"]
+
+[[evidence]]
+id = "qoi-with-uncertainty"
+text = "the quantity of interest stated with its uncertainty"
+claims = ["cost_ratio", "cost_ratio_lo", "cost_ratio_hi"]
+same_paragraph = true
+
+[[evidence]]
+id = "robustness"
+text = "the conclusion re-checked under a perturbed assumption, and whether it holds"
+claims = ["robust_e", "robust_choice", "robust_holds"]
+same_paragraph = true
+
+[[evidence]]
+id = "validity-range"
+text = "the range where the conclusion was tested"
+claims = ["valid_e_min", "valid_e_max", "valid_norbits_max"]
+same_paragraph = true
+
+[[estimate]]
+id = "verlet_nper"
+section = "scales"
+compare_with = "nper_verlet"
+
+[robustness]
+assumption = "the orbit's eccentricity is 0.5"
+perturbed = "eccentricity 0.6: a faster perihelion passage, harder for both methods"
+claims = ["robust_e", "robust_cost_ratio", "robust_choice", "robust_holds"]
+
+# ---- discussion --------------------------------------------------------------------------------
+# kind = "prediction": has a measured answer (the claim named in
+# `measured_by`); graded as a prediction once Phase 5 exists. kind =
+# "rubric": discussed and judged with the rubric, never by software.
+
+[[discussion]]
+kind = "prediction"
+text = "Before measuring: if you halve Stormer-Verlet's step, by what factor does its maximum energy error change? If you run DP5(4) at a fixed tolerance for ten times as many orbits?"
+measured_by = "verlet_order"
+
+[[discussion]]
+kind = "prediction"
+text = "At the settings you chose, which method ends the 1000 orbits closer to the true position of the planet?"
+measured_by = "pos_err_verlet"
+
+[[discussion]]
+kind = "rubric"
+text = "Stormer-Verlet's energy error stays bounded. Does that make its orbit accurate? What did your validation measure, and what does it say about energy as a proxy for accuracy?"
+
+[[discussion]]
+kind = "rubric"
+text = "At what horizon or energy budget would you expect the choice to flip, and why is any number you give for it an extrapolation beyond what you measured?"
+
+[[discussion]]
+kind = "rubric"
+text = "What bends your convergence-fit line at each end of the range you did not use? How did you choose the range?"
+
+[[discussion]]
+kind = "rubric"
+text = "When would energy be the wrong quantity to watch (a dissipative force, a perturbation that changes the energy on purpose)?"
+
+# ---- rubric (no software grades these) --------------------------------------------------------
+
+[[rubric]]
+step = "question"
+criterion = "States the question, the QoI and the accuracy that would answer it, before any result."
+levels = ["missing or vague", "stated, but the accuracy is not tied to the decision", "stated, and the accuracy is justified by the decision it has to support"]
+
+[[rubric]]
+step = "scales"
+criterion = "Nondimensionalises (GM = 1, a = 1, T = 2 pi) and commits an estimate before computing; compares it with the measurement afterwards."
+levels = ["no estimate", "an estimate without a method", "an estimate from a stated scaling argument, compared with the result and the gap explained"]
+
+[[rubric]]
+step = "model"
+criterion = "Lists the model's assumptions (two point masses, no perturbations, Newtonian gravity) and the proxy (energy error for accuracy)."
+levels = ["none listed", "listed", "listed, with which ones could change the conclusion"]
+
+[[rubric]]
+step = "method"
+criterion = "Justifies the choice by cost at equal accuracy, measured, not by the method's order or reputation."
+levels = ["asserted", "measured at one setting", "measured at the cheapest passing setting of each method, with the search's resolution stated"]
+
+[[rubric]]
+step = "verification"
+criterion = "Shows the code is right: an exact solution, fitted orders with fit ranges, tolerance proportionality; keeps this separate from validation."
+levels = ["none, or mixed with validation", "some checks, ranges not stated", "all three, each with its range and the theoretical value"]
+
+[[rubric]]
+step = "validation"
+criterion = "Tests the proxy against the ground truth (positions against the exact orbit) and says what it shows."
+levels = ["absent", "numbers without interpretation", "the proxy's limit is identified and its effect on the conclusion stated"]
+
+[[rubric]]
+step = "uncertainty"
+criterion = "States the uncertainty of the QoI (from the search grid), the drift law with its fit range, and whether the conclusion survives the perturbed assumption."
+levels = ["absent", "stated without the robustness re-check", "stated, re-checked, and the outcome stated plainly"]
+
+[[rubric]]
+step = "report"
+criterion = "Every claim has its evidence; limitations and the validity range are stated; nothing is extrapolated beyond the tested range. Length, code volume and the number of plots earn nothing."
+levels = ["claims without evidence", "evidence for most claims", "every claim supported, limits and range stated, no extrapolation"]
+
+[pilot]
+status = "not run"
+needs = [
+  "one learner who knows some numerical methods (has met Runge-Kutta and convergence order) and has not seen this case",
+  "the learner works from `tutor case start` and the brief only; the observer records time per milestone, where they got stuck, every `tutor case check` output and every claim-checker finding",
+  "an instructor scores the finished report with the rubric, blind to the time data",
+  "a transfer task afterwards on an unseen problem (e.g. a pendulum's energy over 1000 periods): does the learner verify before trusting, choose the method by measurement, and report uncertainty?",
+  "decision rule: if the learner cannot finish milestone 3 in two sessions, or the rubric score on the transfer task is at the lowest level for verification or uncertainty, the scaffolding is revised before more cases are built",
+]
+
+# ---- study mutants: each must fail milestone 3's acceptance tests -----------------------------
+
+[[mutant]]
+id = "energy-error-absolute"
+file = "study.jl"
+find = "abs(kepler_energy(q, p) - E0) / abs(E0)"
+replace = "abs(kepler_energy(q, p) - E0)"
+description = "absolute instead of relative energy error"
+
+[[mutant]]
+id = "verlet-total-steps"
+file = "study.jl"
+find = "(0.0, tf), norbits * setting;"
+replace = "(0.0, tf), setting;"
+description = "`setting` used as the total number of steps, not steps per orbit"
+
+[[mutant]]
+id = "choice-inverted"
+file = "study.jl"
+find = "out[\"choice\"] = nf_d <= nf_v ? \"dp54\" : \"verlet\""
+replace = "out[\"choice\"] = nf_d >= nf_v ? \"dp54\" : \"verlet\""
+description = "the costlier method is chosen"
+
+[[mutant]]
+id = "cost-ratio-inverted"
+file = "study.jl"
+find = "out[\"cost_ratio\"] = nf_v / nf_d"
+replace = "out[\"cost_ratio\"] = nf_d / nf_v"
+description = "the ratio upside down"
+
+[[mutant]]
+id = "drift-fit-from-start"
+file = "study.jl"
+find = "orbits = [40 * 2^j for j in 0:5]"
+replace = "orbits = [1 * 2^j for j in 0:10]"
+description = "the drift fit starts at orbit 1, where the first orbit's transient hides the drift"
+
+[[mutant]]
+id = "dp54-search-too-fine"
+file = "study.jl"
+find = "for j in 24:64"
+replace = "for j in 36:64"
+description = "the tolerance search starts at 1e-9, finer than needed, so the cheapest DP5(4) setting is never tried"
+
+# ---- what each hidden acceptance testset checks (shown when it fails; the test code is not) ----
+
+[behaviours]
+step-exact-cubic-system = "One step on a system whose solution is a cubic is exact, and its error estimate is zero."
+step-error-estimate-scale = "On y' = 5t^4 the error estimate is the difference of the two solutions, (71/54000) h^5: it carries its factor h."
+step-order-nonautonomous = "Fixed steps converge at order 5 on y' = cos(t) y, a problem where the stage times matter."
+step-evaluation-count = "One step calls f! exactly 6 times (k1 is the caller's) and does not modify y."
+norm-homogeneous-and-scaled = "error_norm scales each component by atol + rtol * max(|y|, |ynew|), and doubling err doubles the norm."
+kepler-high-eccentricity = "kepler_exact solves Kepler's equation and keeps energy and angular momentum at e = 0.9."
+kepler-solves-the-ode = "kepler_exact agrees with an accurate numerical solution at e = 0.6."
+verlet-order-and-bounded-energy = "Stormer-Verlet converges at order 2 and its energy error does not grow over 50 orbits."
+verlet-one-force-evaluation = "A Verlet step calls accel! once, leaves the new acceleration in a, and matches the exact map on an oscillator."
+controller-keywords = "propose_step honours safety, facmin and facmax, and accepts an error norm below 1."
+starting-step-two-components = "initial_step follows the DOPRI5 starting-step algorithm on a two-component problem."
+adaptive-lands-on-odd-tf = "The adaptive solver ends exactly at tf when tf is not a sum of its steps, and counts its evaluations."
+adaptive-tolerance-proportionality = "The adaptive solver's global error falls in proportion to the tolerance."
+adaptive-eccentric-orbit = "On an eccentric orbit the solver meets its tolerance and its step size varies along the orbit."
+adaptive-step-limit = "The adaptive solver throws an ErrorException when maxsteps is exceeded."
+order-fit-least-squares = "fit_order is the least-squares slope through all the points, not the slope between the end points."
+energy-error-definition = "max_energy_error is the largest relative energy error over every step, with the solver's own evaluation count."
+verlet-energy-law = "Stormer-Verlet's energy error falls with the square of the step and does not grow with the horizon."
+dp54-energy-law = "DP5(4)'s energy error at a fixed tolerance grows in proportion to the horizon."
+drift-exponents = "drift_exponent gives the growth exponents theory predicts for each method."
+study-returns-every-claim = "study() returns a Dict with every claim id of the case."
+operating-point = "study() reports the question's operating point (eccentricity, horizon, budget) unchanged."
+settings-meet-the-budget = "The settings study() reports meet the energy budget, and their costs are what the solvers count."
+settings-are-near-the-cheapest = "The settings are the cheapest within your search's resolution: a coarser one fails the budget."
+the-answer = "The choice and the cost ratio agree with the measured answer within what your search's resolution allows."
+verification-numbers = "The verification numbers are in their theoretical ranges, and each fit range is a range."
+drift-and-robustness = "The drift exponents are in range, and the perturbed assumption was really changed and checked."
+validation-positions = "The position errors are measured against the exact orbit, and the validity range contains the operating point."

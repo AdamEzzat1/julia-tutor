@@ -214,10 +214,10 @@
         {
           "assessed_by": [
             "31-convergence",
-            "34-pde-discretization"
+            "34-pde-discretization",
+            "project:odeint"
           ],
           "planned": [
-            "odeint case",
             "heat-equation case"
           ],
           "text": "Measure the convergence order of a method and use it to verify code."
@@ -226,7 +226,8 @@
           "assessed_by": [
             "33-sparse-iterative",
             "35-stiffness",
-            "36-daes"
+            "36-daes",
+            "project:odeint"
           ],
           "planned": [
             "Robertson case",
@@ -245,10 +246,10 @@
         },
         {
           "assessed_by": [
-            "41-case-pharmacokinetics"
+            "41-case-pharmacokinetics",
+            "project:odeint"
           ],
           "planned": [
-            "odeint case",
             "heat-equation case",
             "identifiability case"
           ],
@@ -257,7 +258,8 @@
         {
           "assessed_by": [
             "37-stochastic-delay-uq",
-            "41-case-pharmacokinetics"
+            "41-case-pharmacokinetics",
+            "project:odeint"
           ],
           "planned": [
             "identifiability case"
@@ -274,7 +276,9 @@
         }
       ],
       "problems": 39,
-      "projects": [],
+      "projects": [
+        "odeint"
+      ],
       "requires": [
         "core",
         "science"

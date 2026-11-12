@@ -9,7 +9,7 @@ units = ["30-floating-point", "31-convergence", "32-dense-linear-algebra", "33-s
          "34-pde-discretization", "35-stiffness", "36-daes", "37-stochastic-delay-uq",
          "38-constrained-optimization", "39-integer-modelling", "40-parallel", "41-case-pharmacokinetics",
          "42-case-circuit-market"]
-projects = []
+projects = ["odeint"]
 guided = []
 
 [[outcome]]
@@ -18,12 +18,12 @@ assessed_by = ["30-floating-point", "32-dense-linear-algebra"]
 
 [[outcome]]
 text = "Measure the convergence order of a method and use it to verify code."
-assessed_by = ["31-convergence", "34-pde-discretization"]
-planned = ["odeint case", "heat-equation case"]
+assessed_by = ["31-convergence", "34-pde-discretization", "project:odeint"]
+planned = ["heat-equation case"]
 
 [[outcome]]
 text = "Choose a linear solver, ODE method or preconditioner and justify the choice with measurements."
-assessed_by = ["33-sparse-iterative", "35-stiffness", "36-daes"]
+assessed_by = ["33-sparse-iterative", "35-stiffness", "36-daes", "project:odeint"]
 planned = ["Robertson case", "Poisson capstone"]
 
 [[outcome]]
@@ -32,12 +32,12 @@ assessed_by = ["38-constrained-optimization", "39-integer-modelling", "42-case-c
 
 [[outcome]]
 text = "Separate verification (is the code right?) from validation (is the model right?), and do both."
-assessed_by = ["41-case-pharmacokinetics"]
-planned = ["odeint case", "heat-equation case", "identifiability case"]
+assessed_by = ["41-case-pharmacokinetics", "project:odeint"]
+planned = ["heat-equation case", "identifiability case"]
 
 [[outcome]]
 text = "Quantify uncertainty and sensitivity in a quantity of interest, and say whether the conclusion survives it."
-assessed_by = ["37-stochastic-delay-uq", "41-case-pharmacokinetics"]
+assessed_by = ["37-stochastic-delay-uq", "41-case-pharmacokinetics", "project:odeint"]
 planned = ["identifiability case"]
 
 [[outcome]]
