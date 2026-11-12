@@ -5069,8 +5069,8 @@
               "output": "┌ Info: Found initial step size\n└   ϵ = 1.6\nexact mean   0.6667   exact std 0.1307\nsampled mean 0.6671   sampled std 0.1292\ngap          0.0005\nESS          561 of 1000\nMCSE         0.0057\n"
             },
             {
-              "caption": "Ten seeds, ten estimates: their spread is the Monte Carlo error.",
-              "check": true,
+              "caption": "Ten seeds, ten estimates: their spread is the Monte Carlo error. Recorded, not checked: the sampler's digits depend on the CPU's rounding (fused multiply-add).",
+              "check": false,
               "code": "using Turing, Random, Statistics\n@model function coin(y)\n    p ~ Beta(1, 1)\n    y .~ Bernoulli(p)\nend\ny = [1, 0, 1, 1, 0, 1, 1, 1, 0, 1]\nest = [mean(sample(Xoshiro(seed), coin(y), NUTS(), 1000; progress = false, verbose = false)[@varname(p)])\n       for seed in 1:10]\nprintln(round.(est; digits = 4))\nprintln(\"spread (std of the 10 estimates): \", round(std(est); digits = 4))",
               "images": [],
               "mode": "repl",
@@ -5221,8 +5221,8 @@
           "body": "Linear regression as a generative model: an intercept `α`, a slope `β` and a\nnoise level `σ` get priors, and each `y[i]` is normal around `α + β * x[i]`.\n`MvNormal(μ, σ^2 * I)` scores the whole vector at once (`I` is the identity\nmatrix, re-exported by Turing). `σ` must be positive, so its prior is\n`truncated(Normal(0, 2); lower = 0)`; NUTS samples it on an unconstrained\nscale (log σ) and maps back, which you never see.\n\nTwo checks use the model's ability to generate data:\n\n* **Prior predictive check**, before seeing data: sample the parameters from\n  the prior (`Prior()` as the sampler, or `rand`) and simulate `y`. If the\n  simulated data are absurd (heights of 10 km), the priors are wrong.\n* **Posterior predictive**: for each posterior draw, simulate new `y` at\n  new inputs. `predict(rng, model(x_new, missing), chain)` does exactly that:\n  passing `missing` for `y` turns it from data into something to generate.\n  The spread of the predictions includes both the uncertainty in `α, β, σ`\n  and the noise `σ`, which is why it is wider than the spread of `α + β x`.",
           "examples": [
             {
-              "caption": "Fitting simulated data with known parameters (α = 1, β = 2, σ = 0.5).",
-              "check": true,
+              "caption": "Fitting simulated data with known parameters (α = 1, β = 2, σ = 0.5). Recorded, not checked: the sampler's digits depend on the CPU's rounding (fused multiply-add).",
+              "check": false,
               "code": "using Turing, Random, LinearAlgebra\n@model function linreg(x, y)\n    α ~ Normal(0, 10)\n    β ~ Normal(0, 10)\n    σ ~ truncated(Normal(0, 2); lower = 0)\n    y ~ MvNormal(α .+ β .* x, σ^2 * I)\nend\nrng = Xoshiro(10)\nx = collect(range(0, 5; length = 30))\ny = 1.0 .+ 2.0 .* x .+ 0.5 .* randn(rng, 30)       # true α = 1, β = 2, σ = 0.5\nchain = sample(Xoshiro(11), linreg(x, y), NUTS(), 1000; progress = false)\nfor v in (@varname(α), @varname(β), @varname(σ))\n    d = vec(chain[v])\n    println(v, \"  mean \", round(mean(d); digits = 2), \"  90% interval \",\n            round.(quantile(d, [0.05, 0.95]); digits = 2))\nend",
               "images": [],
               "mode": "repl",
@@ -5241,8 +5241,8 @@
               "output": "3-element Vector{Float64}:\n -84.1\n   1.2\n  77.9\n"
             },
             {
-              "caption": "Posterior predictive at new inputs (the data stop at x = 5).",
-              "check": true,
+              "caption": "Posterior predictive at new inputs (the data stop at x = 5). Recorded, not checked: the sampler's digits depend on the CPU's rounding (fused multiply-add).",
+              "check": false,
               "code": "using Turing, Random, LinearAlgebra\n@model function linreg(x, y)\n    α ~ Normal(0, 10)\n    β ~ Normal(0, 10)\n    σ ~ truncated(Normal(0, 2); lower = 0)\n    y ~ MvNormal(α .+ β .* x, σ^2 * I)\nend\nrng = Xoshiro(10)\nx = collect(range(0, 5; length = 30))\ny = 1.0 .+ 2.0 .* x .+ 0.5 .* randn(rng, 30)\nchain = sample(Xoshiro(11), linreg(x, y), NUTS(), 1000; progress = false, verbose = false)\nx_new = [6.0, 10.0]\npred = predict(Xoshiro(13), linreg(x_new, missing), chain)\nynew = reduce(hcat, vec(pred[@varname(y)]))           # 2 × 1000 matrix\nlines = vec(chain[@varname(α)]) .+ vec(chain[@varname(β)]) .* x_new'   # α + β x, 1000 × 2\nfor j in 1:2\n    println(\"x = \", x_new[j], \"  line 90%: \", round.(quantile(lines[:, j], [0.05, 0.95]); digits = 2),\n            \"  new y 90%: \", round.(quantile(ynew[j, :], [0.05, 0.95]); digits = 2))\nend",
               "images": [],
               "mode": "repl",
