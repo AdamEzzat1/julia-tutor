@@ -37,6 +37,7 @@ include("lessons.jl")
 include("course.jl")
 include("practice.jl")
 include("guided.jl")
+include("cases.jl")
 include("server.jl")
 include("sitedata.jl")
 

@@ -346,5 +346,6 @@ end
 
 include("course_tests.jl")
 include("guided_tests.jl")
+include("case_tests.jl")
 
 end # JuliaTutor
