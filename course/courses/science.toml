@@ -36,3 +36,8 @@ planned = ["Bayesian calibration case"]
 text = "Package a tool so that a clean environment reproduces its results."
 assessed_by = ["29-package-development"]
 planned = ["parameter-estimation program"]
+
+# What `tutor sandbox pull science` downloads, shown on the course's landing page.
+[setup]
+download = "up to 1.35 GiB, after Core's image; layers they share are downloaded once"
+measured = "compressed image layers, CI run 43035350960 (2026-11-11); docs/SANDBOX_IMAGES.md"
