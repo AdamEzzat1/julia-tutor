@@ -13,12 +13,13 @@
 #   tutor lessons verify                      run every lesson snippet, check keys
 #   tutor lesson <id> [--state=path]          take a lesson interactively
 #   tutor rules                               list rules with FP risk and hints
-#   tutor site-data [--check]                 export site/data/{tutor,course}.json for the website
+#   tutor site-data [--check]                 export site/data/ (tutor, courses, course-<id>, guided) for the website
 #   tutor course list|verify|record|setup [unit...] [--course=id]  the course: example outputs, grader self-tests, envs
 #   tutor courses                              each course: status, units, envs, cross-course prerequisites
 #   tutor run <file.jl> [--env=E] [--file]    run code like the sandbox does (fresh process)
 #   tutor practice [list | <id> [file.jl]] [--course=id]  show a practice problem, or grade a solution
-#   tutor serve [--port=8765] [--allow-origin=URL]  local server for the website sandbox
+#   tutor serve [--port=8749] [--allow-origin=URL] [--course=id]  local server for the website sandbox
+#   tutor sandbox pull|build|check|measure [course...]  the per-course container images (docs/SANDBOX_IMAGES.md)
 #   tutor guided list|show|start|deps|check|quiz|verify ...  guided build projects (docs/GUIDED.md)
 
 using JuliaTutor
@@ -307,6 +308,7 @@ function cmd_course(args)
         end
         foreach(p -> println("PROBLEM: ", p), problems)
         println(isempty(problems) ? "course verified on Julia $(VERSION)" : "$(length(problems)) problem(s)")
+        print_peaks()
         return isempty(problems) ? 0 : 1
     elseif sub == "setup"
         # The only networked course step: install and precompile the pinned
@@ -410,7 +412,14 @@ function cmd_serve(args)
     return Server.serve(; port, origins = vcat(Server.DEFAULT_ORIGINS, extra),
                         site = flag(args, "site", "https://adamezzat1.github.io/julia-tutor/"),
                         token_file = flag(args, "token-file", Server.TOKEN_FILE),
-                        sandbox = Symbol(flag(args, "sandbox", "docker")))
+                        sandbox = Symbol(flag(args, "sandbox", "docker")),
+                        course = flag(args, "course", ""))
+end
+
+"""The images a command needs: those of `--course=<id>`, or all of them."""
+function needed_images(args)
+    c = flag(args, "course", "")
+    return isempty(c) ? Runner.images() : unique(["base", Runner.course_image(c)])
 end
 
 # `--sandbox=docker` on run/practice/course: the same container `tutor serve` uses
@@ -419,37 +428,121 @@ function use_sandbox!(args)
     s = flag(args, "sandbox", "none")
     s in ("none", "docker") || (println("--sandbox must be docker or none"); return false)
     if s == "docker"
-        why = Runner.sandbox_problem()
+        why = Runner.sandbox_problem(needed_images(args))
         why === nothing || (println(why); return false)
     end
     Runner.SANDBOX[] = Symbol(s)
     return true
 end
 
+gib(b) = string(round(b / 2^30; digits = 2), " GiB")
+peak_source(s) = s == "cgroup" ? "cgroup memory.peak (all processes, page cache included)" :
+                                   "Julia's peak RSS (kernel has no memory.peak; no page cache, child processes not counted)"
+
+"""The memory peaks the contained runs of this process reached, per environment (markdown)."""
+function print_peaks(what = "tutor course verify")
+    (Runner.SANDBOX[] === :docker && !isempty(Runner.MEMORY_PEAKS)) || return
+    io = IOBuffer()
+    println(io, "\n### Memory peaks per environment ($what, largest container)\n")
+    println(io, "| environment | image | memory limit | peak | measured as |")
+    println(io, "|---|---|---|---|---|")
+    for (e, (b, src)) in sort!(collect(Runner.MEMORY_PEAKS))
+        img = Runner.env_image(e)
+        println(io, "| $e | $img | $(Runner.image_memory(img)) | $(gib(b)) | $(peak_source(src)) |")
+    end
+    report(String(take!(io)))
+end
+
+"""Print a markdown report, and add it to the CI job summary when there is one."""
+function report(s::AbstractString)
+    print(s)
+    f = get(ENV, "GITHUB_STEP_SUMMARY", "")
+    isempty(f) || open(io -> print(io, s), f, "a")
+end
+
+"""Images named on the command line by course (core = base), or all of them."""
+function images_arg(pos)
+    isempty(pos) && return (Runner.images(), nothing)
+    courses = [c.id for c in Course.load_courses()]
+    bad = filter(c -> !(c in courses), pos)
+    isempty(bad) || return (String[], "no course $(join(bad, ", ")); courses: $(join(courses, ", "))")
+    return (unique(Runner.course_image.(pos)), nothing)
+end
+
+const SANDBOX_USAGE = """
+    usage: tutor sandbox <command> [course...]   (no course: every image; core uses the base image)
+      pull <course...>      fetch the published images (sandbox/images.toml, by digest)
+      build [course...]     build the images from this checkout (offline or audited setups)
+      check [course...]     self-test the images: network, read-only root, every environment loads
+      measure [course...]   image sizes, cold-start times and memory peaks (markdown)
+      publish [--push]      CI: pull each image for these inputs from the registry, else build (and push) it
+      digests [--check]     CI: print sandbox/images.toml for the local images, or check the committed one"""
+
+"""
+Code for `tutor sandbox check`: in the environment it runs in, start a second
+Julia that presents the most basic CPU of its architecture (`-C generic`) and
+list every package whose precompiled cache that CPU would reject. A cache
+compiled only for the build machine's CPU is rejected there on any machine, so
+the check does not depend on which CPU CI happens to get. Prints `:portable`
+when every cache loads.
+"""
+function portable_code(pkgs)
+    return """
+    let jl = joinpath(Sys.BINDIR, "julia"), pk = $(repr(String.(pkgs)))
+        script = "for p in ARGS; Base.isprecompiled(Base.identify_package(p)) || println(p); end"
+        out = read(`\$jl --startup-file=no -C generic --project=\$(Base.active_project()) -e \$script \$pk`, String)
+        isempty(out) ? :portable : Symbol("rejected: ", join(split(out), ", "))
+    end
+    """
+end
+
 function cmd_sandbox(args)
     pos = positional(args)
     sub = isempty(pos) ? "" : pos[1]
+    imgs, bad = images_arg(pos[2:end])
+    bad === nothing || (println(bad); return 2)
+    nodocker() = Sys.which("docker") === nothing && (println("Docker is not installed (no `docker` on PATH)."); true)
     if sub == "build"
-        Sys.which("docker") === nothing && (println("Docker is not installed (no `docker` on PATH)."); return 1)
-        println("building $(Runner.SANDBOX_IMAGE) (downloads julia:1.10.13 and the course packages the first time) ...")
-        Runner.build_sandbox()
+        nodocker() && return 1
+        for img in imgs
+            println("building $(Runner.image_name(img)) (downloads julia:$(VERSION) and the course packages the first time) ...")
+            Runner.build_sandbox(img)
+        end
+        return 0
+    elseif sub == "pull"
+        length(pos) > 1 || (println("usage: tutor sandbox pull <course...>  (courses: ",
+                                    join([c.id for c in Course.load_courses()], ", "), ")"); return 2)
+        nodocker() && return 1
+        for img in unique(["base"; imgs])
+            println("pulling $(Runner.image_course(img)) ($(Runner.image_name(img))) ...")
+            t = @elapsed why = Runner.pull_image(img)
+            why === nothing || (println(why); return 1)
+            println("  ready in $(round(t; digits = 1)) s")
+        end
         return 0
     elseif sub == "check"
-        why = Runner.sandbox_problem()
+        why = Runner.sandbox_problem(unique(["base"; imgs]))
         why === nothing || (println(why); return 1)
         Runner.SANDBOX[] = :docker
-        checks = [("runs Julia", "VERSION", r"1\.10\.13"),
-                  ("no network", "using Sockets; try connect(\"1.1.1.1\", 53); \"connected\" catch e; \"blocked\" end", r"blocked"),
-                  ("read-only system", "try touch(\"/usr/x\"); \"wrote\" catch e; \"blocked\" end", r"blocked"),
-                  ("ecosystem packages", "using DataFrames; nrow(DataFrame(a = 1:3))", r"^3$"m)]
-        checks = [(w, c, x, w == "ecosystem packages" ? "data" : "base") for (w, c, x) in checks]
+        checks = [("runs Julia", "VERSION", r"1\.10\.13", "base"),
+                  ("no network", "using Sockets; try connect(\"1.1.1.1\", 53); \"connected\" catch e; \"blocked\" end", r"blocked", "base"),
+                  ("read-only system", "try touch(\"/usr/x\"); \"wrote\" catch e; \"blocked\" end", r"blocked", "base")]
+        "science" in imgs &&
+            push!(checks, ("ecosystem packages", "using DataFrames; nrow(DataFrame(a = 1:3))", r"^3$"m, "data"))
         # Every environment loads, as the run-time user, printing nothing else:
         # no "Precompiling" (nothing may compile at run time) and no "WARNING:
         # using X.f in module Main conflicts" (a child helper shadowing an export).
-        for e in sort!(readdir(joinpath(Course.COURSE_DIR, "envs")))
+        for img in imgs, e in Runner.image_envs()[img]
             pkgs = Practice.env_deps(e)
-            (e in ("base", "data") || isempty(pkgs)) && continue
-            push!(checks, ("env $e loads", "using " * join(pkgs, ", ") * "; :loaded", r"\A:loaded\s*\z", e))
+            (e == "data" || isempty(pkgs)) && continue
+            push!(checks, ("env $e loads ($img image)", "using " * join(pkgs, ", ") * "; :loaded", r"\A:loaded\s*\z", e))
+        end
+        # The caches must load on CPUs other than the build machine's (the
+        # images are built on one CI runner and run on any learner's machine).
+        for img in imgs, e in Runner.image_envs()[img]
+            pkgs = Practice.env_deps(e)
+            isempty(pkgs) && continue
+            push!(checks, ("env $e caches load on a baseline CPU ($img image)", portable_code(pkgs), r"\A:portable\s*\z", e))
         end
         bad = 0
         for (what, code, want, env) in checks
@@ -459,8 +552,71 @@ function cmd_sandbox(args)
             bad += !ok
         end
         return bad == 0 ? 0 : 1
+    elseif sub == "measure"
+        why = Runner.sandbox_problem(unique(["base"; imgs]))
+        why === nothing || (println(why); return 1)
+        Runner.SANDBOX[] = :docker
+        io = IOBuffer()
+        println(io, "\n### Sandbox images (tutor sandbox measure)\n")
+        println(io, "| image | size on disk (uncompressed) | layers a pull downloads (compressed) |")
+        println(io, "|---|---|---|")
+        for img in imgs
+            s, d = Runner.image_sizes(img)
+            println(io, "| $img | $(s === nothing ? "?" : gib(s)) | $(d === nothing ? "not published" : gib(d)) |")
+        end
+        # Every run is a fresh container, so each one is a cold start of the
+        # container and of Julia; the first after a pull also reads the image
+        # from disk. Three runs each, all shown.
+        println(io, "\n| image | environment | what runs | seconds (3 fresh containers) | memory peak |")
+        println(io, "|---|---|---|---|---|")
+        for img in imgs, e in (img == "base" ? ["base"] : Runner.image_envs()[img])
+            pkgs = Practice.env_deps(e)
+            code = isempty(pkgs) || e == "base" ? "1 + 1" : "using " * join(pkgs, ", ") * "; :loaded"
+            empty!(Runner.MEMORY_PEAKS)
+            ts = [round(Practice.run_code(code; env = e, timeout = 600).seconds; digits = 1) for _ in 1:3]
+            peak = get(Runner.MEMORY_PEAKS, e, nothing)
+            println(io, "| $img | $e | `$(length(code) > 40 ? code[1:37] * "..." : code)` | $(join(ts, ", ")) | ",
+                    peak === nothing ? "?" : "$(gib(peak[1])) ($(peak_source(peak[2])))", " |")
+        end
+        report(String(take!(io)))
+        return 0
+    elseif sub == "publish"
+        nodocker() && return 1
+        digests = Dict{String,String}()
+        failed = String[]
+        # Every image is tried even when one fails, so a single run reports
+        # (and, on GHCR, creates the package for) each one that needs attention.
+        for img in Runner.images()
+            d = try
+                Runner.publish_image(img; push = hasflag(args, "push"))
+            catch e
+                e isa InterruptException && rethrow()
+                println("  $img: FAILED: ", sprint(showerror, e))
+                push!(failed, img)
+                nothing
+            end
+            d === nothing || (digests[img] = d)
+        end
+        print(Runner.images_toml(digests))
+        isempty(failed) && return 0
+        println("\nFailed: ", join(failed, ", "), ". On GHCR, a push the registry denies usually means the ",
+                "package's \"Manage Actions access\" lacks this repository with the Write role.")
+        return 1
+    elseif sub == "digests"
+        digests = Dict{String,String}()
+        for img in Runner.images()
+            d = Runner.local_digest(img)
+            d === nothing || (digests[img] = d)
+        end
+        want = Runner.images_toml(digests)
+        hasflag(args, "check") || (print(want); return 0)
+        have = isfile(Runner.IMAGES_FILE) ? replace(read(Runner.IMAGES_FILE, String), "\r\n" => "\n") : ""
+        have == want && (println("sandbox/images.toml matches the published images"); return 0)
+        println("sandbox/images.toml does not match the images for this checkout. Commit this as sandbox/images.toml:\n")
+        print(want)
+        return 1
     end
-    println("usage: tutor sandbox <build|check>"); return 2
+    println(SANDBOX_USAGE); return 2
 end
 
 # ---- guided build projects (docs/GUIDED.md) -------------------------------------------
@@ -563,6 +719,7 @@ function cmd_guided(args)
             bad += length(problems)
         end
         println(bad == 0 ? "guided projects verified" : "$bad problem(s)")
+        print_peaks("tutor guided verify")
         return bad == 0 ? 0 : 1
     end
     println(GUIDED_USAGE); return 2

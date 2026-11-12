@@ -277,7 +277,8 @@ println("MCSE         ", round(mcse(chain)[@varname(p)]; digits = 4))
 '''
 
   [[section.example]]
-  caption = "Ten seeds, ten estimates: their spread is the Monte Carlo error."
+  caption = "Ten seeds, ten estimates: their spread is the Monte Carlo error. Recorded, not checked: the sampler's digits depend on the CPU's rounding (fused multiply-add)."
+  check = false
   notice = "Notice that the standard deviation of the ten means is close to the MCSE that `mcse` estimated from a single chain in the previous example."
   code = '''
 using Turing, Random, Statistics
@@ -499,7 +500,8 @@ Two checks use the model's ability to generate data:
 '''
 
   [[section.example]]
-  caption = "Fitting simulated data with known parameters (α = 1, β = 2, σ = 0.5)."
+  caption = "Fitting simulated data with known parameters (α = 1, β = 2, σ = 0.5). Recorded, not checked: the sampler's digits depend on the CPU's rounding (fused multiply-add)."
+  check = false
   notice = "Notice that each posterior mean is close to the true value and each 90% interval contains it."
   code = '''
 using Turing, Random, LinearAlgebra
@@ -538,7 +540,8 @@ round.(quantile(y_at_5, [0.05, 0.5, 0.95]); digits = 1)
 '''
 
   [[section.example]]
-  caption = "Posterior predictive at new inputs (the data stop at x = 5)."
+  caption = "Posterior predictive at new inputs (the data stop at x = 5). Recorded, not checked: the sampler's digits depend on the CPU's rounding (fused multiply-add)."
+  check = false
   notice = "Notice that at each x the new-`y` interval is wider than the line's, and that both are wider at x = 10 than at x = 6: the posterior is less certain the farther you extrapolate."
   code = '''
 using Turing, Random, LinearAlgebra

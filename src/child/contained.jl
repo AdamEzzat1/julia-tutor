@@ -9,6 +9,7 @@
 
 const FILES_BEGIN = "<<<julia-tutor-files-begin>>>"
 const FILES_END = "<<<julia-tutor-files-end>>>"
+const PEAK_PREFIX = "<<<julia-tutor-memory-peak>>> "
 
 import Base64     # `import`, not `using`: nothing exported lands in the learner's Main
 include(joinpath(@__DIR__, "sandbox.jl"))   # defines `TutorChild`; does not run it (not the program file)
@@ -37,6 +38,14 @@ function contained_main()
     print(stdout, "\n", FILES_BEGIN, "\n")
     TutorChild.TOML.print(stdout, out)
     print(stdout, FILES_END, "\n")
+    # The container's memory peak so far, for `tutor sandbox measure` and
+    # verify's peak table: cgroup v2's memory.peak (every process in the
+    # container, page cache included, which the kernel reclaims before it kills
+    # for memory), or, on kernels before 5.19 that lack it, this process's peak
+    # resident set (Sys.maxrss: no page cache, no other processes).
+    peak = try strip(read("/sys/fs/cgroup/memory.peak", String)) catch; "" end
+    occursin(r"^[0-9]+$", peak) ? print(stdout, PEAK_PREFIX, peak, " cgroup\n") :
+                                  print(stdout, PEAK_PREFIX, Int(Sys.maxrss()), " maxrss\n")
     flush(stdout)
     return rc
 end

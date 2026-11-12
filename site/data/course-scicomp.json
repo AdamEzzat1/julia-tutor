@@ -1057,7 +1057,7 @@
               "mode": "repl",
               "notice": "Notice that Cholesky is faster than the LU that a plain `\\` uses on the same matrix (the operation counts, `n³/3` against `2n³/3`, predict a factor of 2, which a single run on a shared machine need not show), and that a triangular solve, `O(n²)`, costs a small fraction of either.",
               "ok": true,
-              "output": "S \\ b  (LU):       490.4 ms\ncholesky(S) \\ b:   322.4 ms\ntriangular solve:  0.7 ms\n"
+              "output": "S \\ b  (LU):       83.4 ms\ncholesky(S) \\ b:   54.8 ms\ntriangular solve:  0.76 ms\n"
             }
           ],
           "questions": [
@@ -1122,12 +1122,12 @@
             {
               "caption": "Fitting exact polynomial data (all coefficients 1, 50 points on [0, 1]) of degree 8 and 12: the condition numbers and the relative error of the recovered coefficients.",
               "check": true,
-              "code": "using LinearAlgebra\nBLAS.set_num_threads(1)\nfor d in (8, 12)\n    x = range(0, 1; length = 50)\n    c = ones(d + 1)\n    V = [xi^j for xi in x, j in 0:d]\n    y = V * c\n    qr_err = norm(qr(V) \\ y - c) / norm(c)\n    normal_err = norm((V'V) \\ (V'y) - c) / norm(c)\n    println(\"degree \", d, \": cond(V) ≈ \", round(cond(V); sigdigits = 1), \", cond(V)^2 ≈ \", round(cond(V)^2; sigdigits = 1),\n            \", cond(V'V) \", d == 8 ? string(\"≈ \", round(cond(V'V); sigdigits = 1)) : string(\"above 1e15: \", cond(V'V) > 1e15))\n    println(\"   QR error below 1e-7: \", qr_err < 1e-7, \"   normal-equations error > 1000 × QR error: \", normal_err > 1000 * qr_err,\n            \"   above 1: \", normal_err > 1)\nend",
+              "code": "using LinearAlgebra\nBLAS.set_num_threads(1)\nfor d in (8, 12)\n    x = range(0, 1; length = 50)\n    c = ones(d + 1)\n    V = [xi^j for xi in x, j in 0:d]\n    y = V * c\n    qr_err = norm(qr(V) \\ y - c) / norm(c)\n    normal_err = norm((V'V) \\ (V'y) - c) / norm(c)\n    println(\"degree \", d, \": cond(V) ≈ \", round(cond(V); sigdigits = 1), \", cond(V)^2 ≈ \", round(cond(V)^2; sigdigits = 1),\n            \", cond(V'V) \", d == 8 ? string(\"≈ \", round(cond(V'V); sigdigits = 1)) : string(\"above 1e15: \", cond(V'V) > 1e15))\n    println(\"   QR error below 1e-7: \", qr_err < 1e-7, \"   normal-equations error > 1000 × QR error: \", normal_err > 1000 * qr_err)\nend",
               "images": [],
               "mode": "repl",
-              "notice": "Notice that `cond(V'V)` equals `cond(V)²` at degree 8; at degree 12 the square is `5e17`, and the computed `cond(V'V)` is only known to be above `1e15`: the rounding made in forming `V'V` already exceeds its smallest singular value. Notice also that at degree 12 the normal equations return coefficients wrong by more than 100% while QR recovers them to about `κ(V) u`.",
+              "notice": "Notice that `cond(V'V)` equals `cond(V)²` at degree 8; at degree 12 the square is `5e17`, and the computed `cond(V'V)` is only known to be above `1e15`: the rounding made in forming `V'V` already exceeds its smallest singular value. Notice also that at degree 12 QR still recovers the coefficients to about `κ(V) u` while the normal equations have no correct digit left: how wrong they are is itself rounding noise (a relative error of 25 on one machine, below 1 on another), so the example prints only the comparison.",
               "ok": true,
-              "output": "degree 8: cond(V) ≈ 600000.0, cond(V)^2 ≈ 4.0e11, cond(V'V) ≈ 4.0e11\n   QR error below 1e-7: true   normal-equations error > 1000 × QR error: true   above 1: false\ndegree 12: cond(V) ≈ 7.0e8, cond(V)^2 ≈ 5.0e17, cond(V'V) above 1e15: true\n   QR error below 1e-7: true   normal-equations error > 1000 × QR error: true   above 1: true\n"
+              "output": "degree 8: cond(V) ≈ 600000.0, cond(V)^2 ≈ 4.0e11, cond(V'V) ≈ 4.0e11\n   QR error below 1e-7: true   normal-equations error > 1000 × QR error: true\ndegree 12: cond(V) ≈ 7.0e8, cond(V)^2 ≈ 5.0e17, cond(V'V) above 1e15: true\n   QR error below 1e-7: true   normal-equations error > 1000 × QR error: true\n"
             }
           ],
           "questions": [
@@ -1174,7 +1174,7 @@
               "mode": "repl",
               "notice": "Notice the factor of roughly 50 to 100: the loop with `A \\ b` spends almost all its time redoing the same LU.",
               "ok": true,
-              "output": "A \\ b each time: 8.986 s\nlu once:         0.104 s\n"
+              "output": "A \\ b each time: 0.887 s\nlu once:         0.018 s\n"
             }
           ],
           "questions": [

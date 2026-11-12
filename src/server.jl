@@ -23,6 +23,11 @@
 # except its own work directory, no capabilities and memory/CPU/process limits
 # (src/runner.jl, `run_contained`). `serve` refuses to start without the image
 # unless given `--sandbox=none`, which runs plain processes as the learner.
+#
+# `--course=<id>` serves one course: only its image is needed, /api/health lists
+# only its environments, and a run in another course's environment or a grade of
+# another course's problem is refused (403) with the course to restart with. The
+# checks above still come first.
 
 module Server
 
@@ -55,9 +60,29 @@ struct ServerConfig
     origins::Vector{String}
     units::Vector{Course.Unit}
     lock::ReentrantLock
+    # `tutor serve --course=<id>`: only that course's units and environments
+    # are served (its image is the only one it needs); "" serves every course.
+    course::String
+    courses::Vector{Course.CourseInfo}
 end
-ServerConfig(; port = DEFAULT_PORT, token, origins = DEFAULT_ORIGINS, units = Course.load_course()) =
-    ServerConfig(port, token, origins, units, ReentrantLock())
+ServerConfig(; port = DEFAULT_PORT, token, origins = DEFAULT_ORIGINS, units = Course.load_course(),
+             course::AbstractString = "", courses = Course.load_courses()) =
+    ServerConfig(port, token, origins, units, ReentrantLock(), String(course), courses)
+
+"""The environments this server runs: all of them, or the course's (`--course`)."""
+function served_envs(cfg::ServerConfig)
+    isempty(cfg.course) && return envs()
+    c = cfg.courses[findfirst(c -> c.id == cfg.course, cfg.courses)]
+    return sort!([e for e in c.envs if e in envs()])
+end
+
+"""The first course (in course order) whose environments include `env`."""
+function env_course(cfg::ServerConfig, env)
+    i = findfirst(c -> env in c.envs, cfg.courses)
+    return i === nothing ? "" : cfg.courses[i].id
+end
+
+restart_hint(course) = "Restart it with `tutor serve --course=$course`, or with no --course to serve every course."
 
 const REASONS = Dict(200 => "OK", 204 => "No Content", 400 => "Bad Request", 401 => "Unauthorized",
                      403 => "Forbidden", 404 => "Not Found", 405 => "Method Not Allowed",
@@ -113,8 +138,8 @@ function handle(cfg::ServerConfig, req::Request; run = Practice.run_code, gradef
         return err(cfg, req, 401, "missing or wrong token: open the link `tutor serve` printed")
     if req.path == "/api/health"
         req.method == "GET" || return err(cfg, req, 405, "use GET")
-        return json_response(cfg, req, 200, Dict("ok" => true, "julia" => string(VERSION), "envs" => envs(),
-                                                    "sandbox" => string(Runner.SANDBOX[])))
+        return json_response(cfg, req, 200, Dict("ok" => true, "julia" => string(VERSION), "envs" => served_envs(cfg),
+                                                    "sandbox" => string(Runner.SANDBOX[]), "course" => cfg.course))
     end
     req.path in ("/api/run", "/api/grade") || return err(cfg, req, 404, "no such endpoint")
     req.method == "POST" || return err(cfg, req, 405, "use POST")
@@ -129,6 +154,9 @@ function handle(cfg::ServerConfig, req::Request; run = Practice.run_code, gradef
     if req.path == "/api/run"
         env = get(body, "env", "base")
         env isa String && env in envs() || return err(cfg, req, 400, "unknown environment")
+        env in served_envs(cfg) ||
+            return err(cfg, req, 403, "environment $env belongs to the course $(env_course(cfg, env)); this server " *
+                                      "serves only $(cfg.course). " * restart_hint(env_course(cfg, env)))
         mode = get(body, "mode", "repl")
         mode in ("repl", "file") || return err(cfg, req, 400, "mode must be repl or file")
         r = lock(cfg.lock) do
@@ -142,6 +170,12 @@ function handle(cfg::ServerConfig, req::Request; run = Practice.run_code, gradef
         found = pid isa String ? Course.find_problem(cfg.units, pid) : nothing
         found === nothing && return err(cfg, req, 404, "unknown problem")
         u, p = found
+        if !isempty(cfg.course)
+            c = something(Course.course_of(cfg.courses, u.id), "")
+            c == cfg.course ||
+                return err(cfg, req, 403, "problem $(p.id) is in unit $(u.id) of the course $c; this server serves " *
+                                          "only $(cfg.course). " * restart_hint(c))
+        end
         r = lock(cfg.lock) do
             gradefn(p, code; env = u.env)
         end
@@ -229,9 +263,15 @@ end
 
 """Serve until interrupted. Prints the link that hands the token to the website."""
 function serve(; port::Int = DEFAULT_PORT, origins = DEFAULT_ORIGINS, site::String = "https://adamezzat1.github.io/julia-tutor/",
-               token_file::String = TOKEN_FILE, sandbox::Symbol = :docker)
+               token_file::String = TOKEN_FILE, sandbox::Symbol = :docker, course::AbstractString = "")
+    courses = Course.load_courses()
+    if !isempty(course) && !any(c -> c.id == course, courses)
+        println(stderr, "No course $course. Courses: ", join([c.id for c in courses], ", ")); return 2
+    end
+    # only the images this server will start containers from
+    imgs = isempty(course) ? Runner.images() : unique(["base", Runner.course_image(course)])
     if sandbox === :docker
-        why = Runner.sandbox_problem()
+        why = Runner.sandbox_problem(imgs)
         if why !== nothing
             println(stderr, "Cannot start the sandbox: ", why, "
 
@@ -245,7 +285,7 @@ function serve(; port::Int = DEFAULT_PORT, origins = DEFAULT_ORIGINS, site::Stri
         println(stderr, "--sandbox must be docker or none"); return 2
     end
     Runner.SANDBOX[] = sandbox
-    cfg = ServerConfig(; port, token = load_or_create_token(token_file), origins)
+    cfg = ServerConfig(; port, token = load_or_create_token(token_file), origins, course, courses)
     server = try
         listen(Sockets.localhost, port)
     catch e
@@ -256,8 +296,11 @@ function serve(; port::Int = DEFAULT_PORT, origins = DEFAULT_ORIGINS, site::Stri
     end
     println("julia-tutor sandbox server: http://127.0.0.1:$port  (Julia $(VERSION), loopback only)")
     println("Allowed origins: ", join(cfg.origins, ", "))
+    println(isempty(course) ? "Courses: all" : "Course: $course only (environments: $(join(served_envs(cfg), ", ")))")
     println(sandbox === :docker ?
-            "Sandbox: each run in a fresh container ($(Runner.SANDBOX_IMAGE)): no network, read-only files, $(Runner.CONTAINER_MEMORY) memory" :
+            "Sandbox: each run in a fresh container (" *
+            join(["$(Runner.image_name(i)), $(Runner.image_memory(i)) memory" for i in imgs], "; ") *
+            "): no network, read-only files" :
             "Sandbox: NONE. Code runs as plain processes with your account's access to files and the network (--sandbox=none).")
     println()
     println("Open this link to connect the website (the token stays in the URL fragment, never sent anywhere):")
