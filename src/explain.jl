@@ -234,9 +234,11 @@ function explain(p::Scaffold.ProjectSpec, dir::String; hints::Int = 1, run_measu
         println(io, "  unavailable: $(meas["error"])")
     else
         # The bench is built by the student's own code; numbers on a different
-        # tree are not comparable with the reference, so say so instead.
+        # tree are not comparable with the reference, so say so instead. A
+        # project whose bench is fixed by measure.jl (odeint) reports no
+        # `bench_nodecount` on either side: then the benches are the same.
         same_bench = baseline !== nothing &&
-                     get(meas, "bench_nodecount", nothing) == get(baseline, "bench_nodecount", missing)
+                     isequal(get(meas, "bench_nodecount", nothing), get(baseline, "bench_nodecount", nothing))
         if baseline !== nothing && !same_bench
             println(io, "  the benchmark term differs from the reference's " *
                         "($(get(meas, "bench_nodecount", "not built")) vs $(get(baseline, "bench_nodecount", "?")) nodes): " *
