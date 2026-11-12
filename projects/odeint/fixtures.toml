@@ -1,0 +1,162 @@
+# Explain fixtures for odeint: realistic buggy student versions, one bug each.
+#
+# Each fixture is the reference with exactly one hole replaced by `body`, at
+# starter `stage`. `tutor fixtures odeint` runs explain on each and writes
+# fixtures/<name>.golden.txt; `--check` re-runs and diffs (verify_all.sh).
+# expect_start: the hole explain's "Start here" must name.
+
+[[fixture]]
+name = "dp54_step-stage-times-ignored"
+hole = "dp54_step"
+stage = 1
+expect_start = "dp54_step"
+misconception = "stage-times-do-not-matter"
+description = "evaluates every stage at t: invisible on the (autonomous) Kepler problem, wrong for y' = f(t)"
+body = """
+@. c.ytmp = y + h * (A21 * c.k1)
+f!(c.k2, c.ytmp, t)
+@. c.ytmp = y + h * (A31 * c.k1 + A32 * c.k2)
+f!(c.k3, c.ytmp, t)
+@. c.ytmp = y + h * (A41 * c.k1 + A42 * c.k2 + A43 * c.k3)
+f!(c.k4, c.ytmp, t)
+@. c.ytmp = y + h * (A51 * c.k1 + A52 * c.k2 + A53 * c.k3 + A54 * c.k4)
+f!(c.k5, c.ytmp, t)
+@. c.ytmp = y + h * (A61 * c.k1 + A62 * c.k2 + A63 * c.k3 + A64 * c.k4 + A65 * c.k5)
+f!(c.k6, c.ytmp, t)
+@. c.ynew = y + h * (A71 * c.k1 + A73 * c.k3 + A74 * c.k4 + A75 * c.k5 + A76 * c.k6)
+f!(c.k7, c.ynew, t + h)
+@. c.err = h * (E1 * c.k1 + E3 * c.k3 + E4 * c.k4 + E5 * c.k5 + E6 * c.k6 + E7 * c.k7)
+return nothing
+"""
+
+[[fixture]]
+name = "error_norm-absolute"
+hole = "error_norm"
+stage = 1
+expect_start = "error_norm"
+misconception = "error-is-absolute"
+description = "the largest absolute error component: the tolerances never scale it"
+body = """
+m = 0.0
+for i in eachindex(err)
+    m = max(m, abs(err[i]))
+end
+return m
+"""
+
+[[fixture]]
+name = "kepler_exact-mean-anomaly"
+hole = "kepler_exact"
+stage = 1
+expect_start = "kepler_exact"
+misconception = "eccentric-anomaly-is-mean-anomaly"
+description = "uses the mean anomaly as the eccentric anomaly: right only for circular orbits"
+body = """
+E = rem2pi(float(t), RoundNearest)
+s, c = sincos(E)
+w = sqrt(1 - e^2)
+d = 1 - e * c
+return [c - e, w * s, -s / d, w * c / d]
+"""
+
+[[fixture]]
+name = "verlet_step-symplectic-euler"
+hole = "verlet_step"
+stage = 1
+expect_start = "verlet_step"
+misconception = "any-splitting-is-second-order"
+description = "full kick then full drift: symplectic, so the energy stays bounded, but only first order"
+body = """
+@. p += h * a
+@. q += h * p
+accel!(a, q)
+return nothing
+"""
+
+[[fixture]]
+name = "propose_step-exponent-one-sixth"
+hole = "propose_step"
+stage = 2
+expect_start = "propose_step"
+misconception = "controller-exponent-from-propagated-order"
+description = "exponent 1/(p+1) with p = 5, the propagated order, instead of the estimate's O(h^5)"
+body = """
+fac = iszero(en) ? facmax : clamp(safety * en^(-1 / 6), facmin, facmax)
+return (en <= 1, h * fac)
+"""
+
+[[fixture]]
+name = "solve_adaptive-overshoots-tf"
+hole = "solve_adaptive"
+stage = 2
+expect_start = "solve_adaptive"
+misconception = "last-step-lands-by-itself"
+description = "never shortens the last step, so the solution is returned at some t > tf"
+body = """
+t, tf = float.(tspan)
+y = Vector{Float64}(y0)
+c = DP54Cache(length(y))
+f!(c.k1, y, t)
+nf = 1
+if h0 === nothing
+    h = initial_step(f!, t, y, c.k1, atol, rtol)
+    nf += 1
+else
+    h = float(h0)
+end
+observe === nothing || observe(t, y)
+naccept = nreject = 0
+facmax = 5.0
+while t < tf
+    naccept + nreject >= maxsteps && error("solve_adaptive: more than $maxsteps steps")
+    dp54_step!(c, f!, t, y, h)
+    nf += 6
+    en = error_norm(c.err, y, c.ynew, atol, rtol)
+    accept, hnew = propose_step(h, en; facmax)
+    if accept
+        t += h
+        copyto!(y, c.ynew)
+        copyto!(c.k1, c.k7)
+        naccept += 1
+        facmax = 5.0
+        observe === nothing || observe(t, y)
+    else
+        nreject += 1
+        facmax = 1.0
+    end
+    h = hnew
+end
+return (y = y, t = t, nf = nf, naccept = naccept, nreject = nreject)
+"""
+
+[[fixture]]
+name = "initial_step-unscaled"
+hole = "initial_step"
+stage = 2
+expect_start = "initial_step"
+misconception = "norms-need-no-scaling"
+description = "plain RMS norms: the starting step no longer depends on the tolerances"
+body = """
+nrm(v) = sqrt(sum(abs2, v) / length(v))
+d0, d1 = nrm(y0), nrm(f0)
+h0 = (d0 < 1e-5 || d1 < 1e-5) ? 1e-6 : 0.01 * d0 / d1
+y1 = @. y0 + h0 * f0
+f1 = similar(y0)
+f!(f1, y1, t0 + h0)
+d2 = nrm(f1 .- f0) / h0
+m = max(d1, d2)
+h1 = m <= 1e-15 ? max(1e-6, h0 * 1e-3) : (0.01 / m)^(1 / 5)
+return min(100 * h0, h1)
+"""
+
+[[fixture]]
+name = "fit_order-endpoints"
+hole = "fit_order"
+stage = 2
+expect_start = "fit_order"
+misconception = "two-points-make-a-fit"
+description = "the slope through the first and last points only: right for an exact power law, not for real data"
+body = """
+length(hs) == length(errs) >= 2 || throw(ArgumentError("need at least two (h, error) pairs"))
+return log(errs[end] / errs[1]) / log(hs[end] / hs[1])
+"""

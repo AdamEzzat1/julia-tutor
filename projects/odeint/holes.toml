@@ -1,0 +1,306 @@
+# Holes for the odeint project (milestone M4), in teaching order.
+# stage: a hole is opened in every starter stage >= its stage. Stage 1 is the
+# method itself (one step, the error measure, the exact solution, Verlet);
+# stage 2 opens everything: the student also writes the controller, the
+# adaptive loop, the starting step and the order fit.
+# trivial: plausible-but-wrong bodies; `tutor holemap odeint --check`
+#   requires each to make at least one test fail.
+
+project = "odeint"
+package = "ODEInt"
+stages = [1, 2]
+
+[[hole]]
+id = "dp54_step"
+stage = 1
+kc = "runge-kutta-stages"
+file = "src/ODEInt.jl"
+summary = "dp54_step!(c, f!, t, y, h): one Dormand-Prince 5(4) step with its error estimate"
+trivial = [
+  # explicit Euler with no error estimate
+  """
+  @. c.ynew = y + h * c.k1
+  f!(c.k7, c.ynew, t + h)
+  fill!(c.err, 0.0)
+  return nothing
+  """,
+  # every stage at time t (correct on autonomous problems only)
+  """
+  @. c.ytmp = y + h * (A21 * c.k1)
+  f!(c.k2, c.ytmp, t)
+  @. c.ytmp = y + h * (A31 * c.k1 + A32 * c.k2)
+  f!(c.k3, c.ytmp, t)
+  @. c.ytmp = y + h * (A41 * c.k1 + A42 * c.k2 + A43 * c.k3)
+  f!(c.k4, c.ytmp, t)
+  @. c.ytmp = y + h * (A51 * c.k1 + A52 * c.k2 + A53 * c.k3 + A54 * c.k4)
+  f!(c.k5, c.ytmp, t)
+  @. c.ytmp = y + h * (A61 * c.k1 + A62 * c.k2 + A63 * c.k3 + A64 * c.k4 + A65 * c.k5)
+  f!(c.k6, c.ytmp, t)
+  @. c.ynew = y + h * (A71 * c.k1 + A73 * c.k3 + A74 * c.k4 + A75 * c.k5 + A76 * c.k6)
+  f!(c.k7, c.ynew, t + h)
+  @. c.err = h * (E1 * c.k1 + E3 * c.k3 + E4 * c.k4 + E5 * c.k5 + E6 * c.k6 + E7 * c.k7)
+  return nothing
+  """,
+  # error estimate without the factor h
+  """
+  @. c.ytmp = y + h * (A21 * c.k1)
+  f!(c.k2, c.ytmp, t + C2 * h)
+  @. c.ytmp = y + h * (A31 * c.k1 + A32 * c.k2)
+  f!(c.k3, c.ytmp, t + C3 * h)
+  @. c.ytmp = y + h * (A41 * c.k1 + A42 * c.k2 + A43 * c.k3)
+  f!(c.k4, c.ytmp, t + C4 * h)
+  @. c.ytmp = y + h * (A51 * c.k1 + A52 * c.k2 + A53 * c.k3 + A54 * c.k4)
+  f!(c.k5, c.ytmp, t + C5 * h)
+  @. c.ytmp = y + h * (A61 * c.k1 + A62 * c.k2 + A63 * c.k3 + A64 * c.k4 + A65 * c.k5)
+  f!(c.k6, c.ytmp, t + h)
+  @. c.ynew = y + h * (A71 * c.k1 + A73 * c.k3 + A74 * c.k4 + A75 * c.k5 + A76 * c.k6)
+  f!(c.k7, c.ynew, t + h)
+  @. c.err = E1 * c.k1 + E3 * c.k3 + E4 * c.k4 + E5 * c.k5 + E6 * c.k6 + E7 * c.k7
+  return nothing
+  """,
+]
+
+[[hole]]
+id = "error_norm"
+stage = 1
+kc = "error-norm-scaling"
+file = "src/ODEInt.jl"
+summary = "error_norm(err, y, ynew, atol, rtol): the scaled RMS norm a step is judged by"
+trivial = [
+  "return maximum(abs, err)",
+  """
+  s = 0.0
+  for i in eachindex(err, y)
+      s += (err[i] / (atol + rtol * abs(y[i])))^2
+  end
+  return sqrt(s / length(err))
+  """,
+  """
+  s = 0.0
+  for i in eachindex(err, y, ynew)
+      s += (err[i] / (atol + rtol * max(abs(y[i]), abs(ynew[i]))))^2
+  end
+  return sqrt(s)
+  """,
+]
+
+[[hole]]
+id = "kepler_exact"
+stage = 1
+kc = "exact-solutions"
+file = "src/ODEInt.jl"
+summary = "kepler_exact(e, t): the exact Kepler orbit from Kepler's equation"
+trivial = [
+  "return kepler_initial(e)",
+  """
+  E = rem2pi(float(t), RoundNearest)
+  s, c = sincos(E)
+  w = sqrt(1 - e^2)
+  d = 1 - e * c
+  return [c - e, w * s, -s / d, w * c / d]
+  """,
+  """
+  M = rem2pi(float(t), RoundNearest)
+  E = M + 0.85 * e * sign(sin(M))
+  for _ in 1:50
+      dE = (E - e * sin(E) - M) / (1 - e * cos(E))
+      E -= dE
+      abs(dE) <= 4 * eps() && break
+  end
+  s, c = sincos(E)
+  w = sqrt(1 - e^2)
+  d = 1 - e * c
+  return [c - e, w * s, s / d, w * c / d]
+  """,
+]
+
+[[hole]]
+id = "verlet_step"
+stage = 1
+kc = "symplectic-splitting"
+file = "src/ODEInt.jl"
+summary = "verlet_step!(q, p, a, h, accel!): one kick-drift-kick Stormer-Verlet step"
+trivial = [
+  # symplectic Euler: symplectic but first order
+  """
+  @. p += h * a
+  @. q += h * p
+  accel!(a, q)
+  return nothing
+  """,
+  # forgets to refresh the acceleration
+  """
+  @. p += (h / 2) * a
+  @. q += h * p
+  @. p += (h / 2) * a
+  return nothing
+  """,
+  # explicit Euler on (q, p)
+  """
+  @. q += h * p
+  @. p += h * a
+  accel!(a, q)
+  return nothing
+  """,
+]
+
+[[hole]]
+id = "propose_step"
+stage = 2
+kc = "step-size-control"
+file = "src/ODEInt.jl"
+summary = "propose_step(h, en; ...): accept or reject, and the next step size"
+trivial = [
+  "return (en <= 1, h)",
+  """
+  fac = iszero(en) ? facmax : clamp(safety * en^(-1 / 6), facmin, facmax)
+  return (en <= 1, h * fac)
+  """,
+  """
+  fac = iszero(en) ? facmax : safety * en^(-1 / 5)
+  return (en <= 1, h * fac)
+  """,
+  """
+  fac = iszero(en) ? facmax : clamp(safety * en^(-1 / 5), facmin, facmax)
+  return (en < 1, h * fac)
+  """,
+]
+
+[[hole]]
+id = "solve_adaptive"
+stage = 2
+kc = "adaptive-loop"
+file = "src/ODEInt.jl"
+summary = "solve_adaptive(f!, y0, tspan; ...): the accept/reject loop that lands on tf"
+trivial = [
+  # never shortens the last step: overshoots tf
+  """
+  t, tf = float.(tspan)
+  y = Vector{Float64}(y0)
+  c = DP54Cache(length(y))
+  f!(c.k1, y, t)
+  nf = 1
+  h = h0 === nothing ? (nf += 1; initial_step(f!, t, y, c.k1, atol, rtol)) : float(h0)
+  observe === nothing || observe(t, y)
+  naccept = nreject = 0
+  while t < tf
+      naccept + nreject >= maxsteps && error("too many steps")
+      dp54_step!(c, f!, t, y, h)
+      nf += 6
+      accept, hnew = propose_step(h, error_norm(c.err, y, c.ynew, atol, rtol))
+      if accept
+          t += h
+          copyto!(y, c.ynew)
+          copyto!(c.k1, c.k7)
+          naccept += 1
+          observe === nothing || observe(t, y)
+      else
+          nreject += 1
+      end
+      h = hnew
+  end
+  return (y = y, t = t, nf = nf, naccept = naccept, nreject = nreject)
+  """,
+  # accepts every step
+  """
+  t, tf = float.(tspan)
+  y = Vector{Float64}(y0)
+  c = DP54Cache(length(y))
+  f!(c.k1, y, t)
+  nf = 1
+  h = h0 === nothing ? (nf += 1; initial_step(f!, t, y, c.k1, atol, rtol)) : float(h0)
+  observe === nothing || observe(t, y)
+  naccept = 0
+  while t < tf
+      naccept >= maxsteps && error("too many steps")
+      last = h >= tf - t
+      last && (h = tf - t)
+      dp54_step!(c, f!, t, y, h)
+      nf += 6
+      _, hnew = propose_step(h, error_norm(c.err, y, c.ynew, atol, rtol))
+      t = last ? tf : t + h
+      copyto!(y, c.ynew)
+      copyto!(c.k1, c.k7)
+      naccept += 1
+      observe === nothing || observe(t, y)
+      h = hnew
+  end
+  return (y = y, t = t, nf = nf, naccept = naccept, nreject = 0)
+  """,
+  # forgets first-same-as-last: k1 stays f(t0, y0)
+  """
+  t, tf = float.(tspan)
+  y = Vector{Float64}(y0)
+  c = DP54Cache(length(y))
+  f!(c.k1, y, t)
+  nf = 1
+  h = h0 === nothing ? (nf += 1; initial_step(f!, t, y, c.k1, atol, rtol)) : float(h0)
+  observe === nothing || observe(t, y)
+  naccept = nreject = 0
+  while t < tf
+      naccept + nreject >= maxsteps && error("too many steps")
+      last = h >= tf - t
+      last && (h = tf - t)
+      dp54_step!(c, f!, t, y, h)
+      nf += 6
+      accept, hnew = propose_step(h, error_norm(c.err, y, c.ynew, atol, rtol))
+      if accept
+          t = last ? tf : t + h
+          copyto!(y, c.ynew)
+          naccept += 1
+          observe === nothing || observe(t, y)
+      else
+          nreject += 1
+      end
+      h = hnew
+  end
+  return (y = y, t = t, nf = nf, naccept = naccept, nreject = nreject)
+  """,
+]
+
+[[hole]]
+id = "initial_step"
+stage = 2
+kc = "initial-step-heuristics"
+file = "src/ODEInt.jl"
+summary = "initial_step(f!, t0, y0, f0, atol, rtol): Hairer's starting step size"
+trivial = [
+  "return 0.01",
+  # unscaled norms: the tolerances never enter
+  """
+  nrm(v) = sqrt(sum(abs2, v) / length(v))
+  d0, d1 = nrm(y0), nrm(f0)
+  h0 = (d0 < 1e-5 || d1 < 1e-5) ? 1e-6 : 0.01 * d0 / d1
+  y1 = @. y0 + h0 * f0
+  f1 = similar(y0)
+  f!(f1, y1, t0 + h0)
+  d2 = nrm(f1 .- f0) / h0
+  m = max(d1, d2)
+  h1 = m <= 1e-15 ? max(1e-6, h0 * 1e-3) : (0.01 / m)^(1 / 5)
+  return min(100 * h0, h1)
+  """,
+  # the Euler-step estimate alone
+  """
+  sc = @. atol + rtol * abs(y0)
+  nrm(v) = sqrt(sum(abs2, v ./ sc) / length(v))
+  d0, d1 = nrm(y0), nrm(f0)
+  return (d0 < 1e-5 || d1 < 1e-5) ? 1e-6 : 0.01 * d0 / d1
+  """,
+]
+
+[[hole]]
+id = "fit_order"
+stage = 2
+kc = "convergence-order-fit"
+file = "src/ODEInt.jl"
+summary = "fit_order(hs, errs): least-squares slope of log(error) on log(h)"
+trivial = [
+  "return log(errs[end] / errs[1]) / log(hs[end] / hs[1])",
+  """
+  x = log.(hs)
+  y = log10.(errs)
+  xm, ym = sum(x) / length(x), sum(y) / length(y)
+  return sum((x .- xm) .* (y .- ym)) / sum(abs2, x .- xm)
+  """,
+  "return 5.0",
+]

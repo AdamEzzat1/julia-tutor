@@ -1,0 +1,9 @@
+name = "ODEInt"
+uuid = "7d1c4e2a-9b3f-4e85-a6d0-2f8c5b1e9a47"
+version = "0.1.0"
+
+[deps]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+julia = "=1.10.13"

@@ -1,0 +1,30 @@
+== tutor explain: odeint, stage 2 ==
+
+Start here: hole `fit_order` at src/ODEInt.jl:395
+  why: 1 of the 1 failing testsets depend on it (Ochiai 0.41); 5 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: convergence-order-fit.
+
+Tests: 16/17 testsets pass
+  FAIL fit_order: least squares on log-log  [2 failed, 0 errored; depends on: fit_order]
+       test/runtests.jl:353 FAIL isapprox(fit_order(2.0 .^ (0:3), 2.0 .^ [0, 3, 3, 3]), 0.9; rtol = 64 * EPS)  evaluated: isapprox(1.0, 0.9; rtol = 1.4210854715202004e-14)
+       test/runtests.jl:355 FAIL fit_order([0.1, 0.2], [0.0, 0.1])  evaluated: ArgumentError
+
+Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
+  1. fit_order          0.41  implemented  failing-deps=1 passing-deps=5  src/ODEInt.jl:395
+  2. dp54_step          0.0   implemented  failing-deps=0 passing-deps=9  src/ODEInt.jl:80
+  3. error_norm         0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:109
+  4. kepler_exact       0.0   implemented  failing-deps=0 passing-deps=5  src/ODEInt.jl:370
+  5. verlet_step        0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:283
+  6. propose_step       0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:131
+  7. solve_adaptive     0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:226
+  8. initial_step       0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:154
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)
+  allocations error_norm(4 components): 0  (reference 0)
+  allocations solve_adaptive(kepler, one period, tol 1e-8): 18  (reference 18)
+  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)
+  JET: not used by this project's measurements
