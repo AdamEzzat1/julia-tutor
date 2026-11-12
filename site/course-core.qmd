@@ -1,0 +1,8 @@
+---
+title: "Core Julia"
+---
+
+<!-- The landing page of course/courses/core.toml; everything on it comes from that manifest (web/src/views/CourseLanding.tsx). -->
+
+::: {.jt-mount data-view="course-landing" data-course="core"}
+:::

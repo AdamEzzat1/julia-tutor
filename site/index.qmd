@@ -1,13 +1,13 @@
 ---
-pagetitle: "julia-tutor · a symbolic tutor for Julia"
+pagetitle: "julia-tutor · scientific computing and scientific ML in Julia"
 ---
 
 ::: {.jt-mount data-view="hero"}
 :::
 
-## What makes the feedback trustworthy
+## Where each piece of feedback comes from
 
-Each kind of feedback names where it came from, so you can check it.
+Each kind of feedback names its source, so you can check it yourself.
 
 | Feedback | Comes from | How it is kept honest |
 |---|---|---|

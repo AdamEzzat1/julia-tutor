@@ -44,3 +44,8 @@ planned = ["identifiability case"]
 text = "Carry a problem through all eight steps of the method with little scaffolding, in a report whose numbers are checked."
 assessed_by = []
 planned = ["Poisson capstone", "finite-volume program"]
+
+# What `tutor sandbox pull scicomp` downloads, shown on the course's landing page.
+[setup]
+download = "up to 0.62 GiB, after Core's image; layers they share are downloaded once"
+measured = "compressed image layers, CI run 43035350960 (2026-11-11); docs/SANDBOX_IMAGES.md"

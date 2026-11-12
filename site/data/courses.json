@@ -4,6 +4,11 @@
       "envs": [
         "base"
       ],
+      "estimate": {
+        "basis": "30–60 min per ready unit (20), 10–25 min per practice problem (52), 2–4 h per guided project (0), 4–8 h per hole project (1); guessed rates, not measured",
+        "high_hours": 50,
+        "low_hours": 22
+      },
       "guided": [],
       "id": "core",
       "order": 1,
@@ -69,7 +74,12 @@
         "symdiff"
       ],
       "requires": [],
+      "setup": {
+        "download": "0.20 GiB",
+        "measured": "compressed image layers, CI run 43035350960 (2026-11-11); docs/SANDBOX_IMAGES.md"
+      },
       "status": "ready",
+      "status_note": "",
       "summary": "The language itself, from the first expression to performance, generic code, interfaces, threads and the compiler. The way into the scientific courses.",
       "title": "Core Julia",
       "units": [
@@ -107,6 +117,11 @@
         "python",
         "turing"
       ],
+      "estimate": {
+        "basis": "30–60 min per ready unit (8), 10–25 min per practice problem (32), 2–4 h per guided project (8), 4–8 h per hole project (0); guessed rates, not measured",
+        "high_hours": 54,
+        "low_hours": 25
+      },
       "guided": [
         "tidy",
         "figures",
@@ -178,7 +193,12 @@
       "requires": [
         "core"
       ],
+      "setup": {
+        "download": "up to 1.35 GiB, after Core's image; layers they share are downloaded once",
+        "measured": "compressed image layers, CI run 43035350960 (2026-11-11); docs/SANDBOX_IMAGES.md"
+      },
       "status": "ready",
+      "status_note": "",
       "summary": "The packages scientific work uses, each in a pinned environment: data, figures, derivatives, differential equations, optimisation, networks, probabilistic models, Python, and shipping a reproducible package.",
       "title": "Julia for science",
       "units": [
@@ -199,6 +219,11 @@
         "mtk",
         "scicomp"
       ],
+      "estimate": {
+        "basis": "30–60 min per ready unit (13), 10–25 min per practice problem (39), 2–4 h per guided project (0), 4–8 h per hole project (0); guessed rates, not measured",
+        "high_hours": 30,
+        "low_hours": 13
+      },
       "guided": [],
       "id": "scicomp",
       "order": 3,
@@ -283,7 +308,12 @@
         "core",
         "science"
       ],
+      "setup": {
+        "download": "up to 0.62 GiB, after Core's image; layers they share are downloaded once",
+        "measured": "compressed image layers, CI run 43035350960 (2026-11-11); docs/SANDBOX_IMAGES.md"
+      },
       "status": "ready",
+      "status_note": "",
       "summary": "Numerical methods you can check: conditioning, convergence and error control, linear solvers, PDEs, stiffness, DAEs, stochastic models, constrained and integer optimisation, and the limits of parallel speedup.",
       "title": "Scientific computing",
       "units": [
@@ -307,6 +337,11 @@
         "base",
         "sciml"
       ],
+      "estimate": {
+        "basis": "30–60 min per ready unit (6), 10–25 min per practice problem (18), 2–4 h per guided project (0), 4–8 h per hole project (0); guessed rates, not measured",
+        "high_hours": 14,
+        "low_hours": 6
+      },
       "guided": [],
       "id": "sciml",
       "order": 4,
@@ -372,7 +407,12 @@
         "science",
         "scicomp"
       ],
+      "setup": {
+        "download": "up to 0.68 GiB, after Core's image; layers they share are downloaded once",
+        "measured": "compressed image layers, CI run 43035350960 (2026-11-11); docs/SANDBOX_IMAGES.md"
+      },
       "status": "in-progress",
+      "status_note": "It stays in progress until milestones M4 (the odeint case project) and M7 (shorter package load times) are done; the planned universal-ODE project needs both (CLAUDE.md, M10).",
       "summary": "Differential equations with learned parts: sensitivities and adjoints, neural and universal ODEs, equation discovery with SINDy, and physics-informed networks compared with classical solvers.",
       "title": "Scientific ML",
       "units": [

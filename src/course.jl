@@ -198,15 +198,50 @@ struct CourseInfo
     projects::Vector{String}      # hole projects (projects/<p>/holes.toml)
     guided::Vector{String}        # guided projects (projects/guided/<p>)
     outcomes::Vector{Outcome}
+    download::String              # [setup] download: what `tutor sandbox pull <id>` fetches, e.g. "up to 0.62 GiB"
+    download_measured::String     # [setup] measured: where that number was measured (a CI run, a date)
+    status_note::String           # why a course is not ready; shown wherever its status is ("" when ready)
 end
+CourseInfo(id, title, order, status, summary, requires, envs, units, projects, guided, outcomes) =
+    CourseInfo(id, title, order, status, summary, requires, envs, units, projects, guided, outcomes, "", "", "")
 
 function load_course_info(path::String)
     d = normalize_nl(TOML.parsefile(path))
     strs(k) = String.(get(d, k, String[]))
     outs = [Outcome(o["text"], String.(get(o, "assessed_by", String[])), String.(get(o, "planned", String[])))
             for o in get(d, "outcome", Any[])]
+    setup = get(d, "setup", Dict{String,Any}())
     return CourseInfo(d["id"], d["title"], Int(d["order"]), getstr(d, "status", "ready"), d["summary"],
-                      strs("requires"), strs("envs"), strs("units"), strs("projects"), strs("guided"), outs)
+                      strs("requires"), strs("envs"), strs("units"), strs("projects"), strs("guided"), outs,
+                      getstr(setup, "download"), getstr(setup, "measured"), getstr(d, "status_note"))
+end
+
+# Guessed hours per item, (low, high). Not measured: nobody has taken a course
+# yet. The pilot (docs/COURSES_PLAN.md, Phase 6) measures real times, and until
+# then everything that shows the estimate labels it as one.
+const ESTIMATE_RATES = (unit = (0.5, 1.0), problem = (10 / 60, 25 / 60), guided = (2.0, 4.0), project = (4.0, 8.0))
+
+"""
+A course's time estimate from its counts: ready units, their practice
+problems, guided projects and hole projects, at `ESTIMATE_RATES`. Returns
+(low hours, high hours, basis), rounded out to whole hours; the basis says
+what was counted and at what rate, so the number can be checked by hand.
+"""
+function time_estimate(c::CourseInfo, units::Vector{Unit})
+    byid = Dict(u.id => u for u in units)
+    ready = [byid[id] for id in c.units if haskey(byid, id) && byid[id].status == "ready"]
+    n = (unit = length(ready), problem = sum(length(u.problems) for u in ready; init = 0),
+         guided = length(c.guided), project = length(c.projects))
+    r = ESTIMATE_RATES
+    low = sum(n[k] * r[k][1] for k in keys(n))
+    high = sum(n[k] * r[k][2] for k in keys(n))
+    mins(h) = round(Int, 60h)
+    basis = "$(mins(r.unit[1]))–$(mins(r.unit[2])) min per ready unit ($(n.unit)), " *
+            "$(mins(r.problem[1]))–$(mins(r.problem[2])) min per practice problem ($(n.problem)), " *
+            "$(Int(r.guided[1]))–$(Int(r.guided[2])) h per guided project ($(n.guided)), " *
+            "$(Int(r.project[1]))–$(Int(r.project[2])) h per hole project ($(n.project)); " *
+            "guessed rates, not measured"
+    return floor(Int, low), ceil(Int, high), basis
 end
 
 """All courses, in their declared order."""
@@ -369,6 +404,12 @@ function validate_courses(courses::Vector{CourseInfo}, units::Vector{Unit};
             p in projects || push!(problems, "course $(c.id): no project $p")
         end
         4 <= length(c.outcomes) <= 8 || push!(problems, "course $(c.id): needs 4 to 8 outcomes")
+        # The landing page shows the download size; a size is shown only with where it was measured.
+        c.status == "planned" || (!isempty(c.download) && !isempty(c.download_measured)) ||
+            push!(problems, "course $(c.id): [setup] needs download and measured (where the size was measured)")
+        # A course that is not ready says why, wherever its status is shown.
+        c.status == "ready" || !isempty(strip(c.status_note)) ||
+            push!(problems, "course $(c.id): status $(c.status) needs a status_note saying why")
         for (i, o) in enumerate(c.outcomes)
             isempty(o.assessed_by) && isempty(o.planned) &&
                 push!(problems, "course $(c.id) outcome $i: nothing assesses it, not even a planned case")

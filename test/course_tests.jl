@@ -51,8 +51,10 @@ end
     @test Course.course_of(courses, "46-sindy") == "sciml"
 
     # one change at a time to the real data, each must be reported
-    C(c; units = c.units, requires = c.requires, envs = c.envs, guided = c.guided, outcomes = c.outcomes) =
-        Course.CourseInfo(c.id, c.title, c.order, c.status, c.summary, requires, envs, units, c.projects, guided, outcomes)
+    C(c; units = c.units, requires = c.requires, envs = c.envs, guided = c.guided, outcomes = c.outcomes,
+      status = c.status, download = c.download, measured = c.download_measured, note = c.status_note) =
+        Course.CourseInfo(c.id, c.title, c.order, status, c.summary, requires, envs, units, c.projects, guided, outcomes,
+                          download, measured, note)
     swap(i, c) = [j == i ? c : courses[j] for j in eachindex(courses)]
     U(u; pre = u.prerequisites) = Course.Unit(u.id, u.title, u.track, u.env, u.status, u.summary, u.kcs, pre,
                                                u.outline, u.lessons, u.sections, u.problems)
@@ -79,6 +81,28 @@ end
               swap(1, C(core; outcomes = [Course.Outcome("x", ["46-sindy"], String[]); core.outcomes[2:end]])))
     @test has("nothing assesses it",
               swap(1, C(core; outcomes = [Course.Outcome("x", String[], String[]); core.outcomes[2:end]])))
+    # a download size is shown only with where it was measured; a planned course needs neither
+    @test has("[setup] needs download and measured", swap(1, C(core; measured = "")))
+    @test has("[setup] needs download and measured", swap(2, C(sci; download = "")))
+    @test !has("course core: [setup]", swap(1, C(core; status = "planned", download = "", measured = "")))
+    # a course that is not ready says why
+    @test has("needs a status_note", swap(4, C(sml; note = "")))
+    @test has("needs a status_note", swap(1, C(core; status = "in-progress")))
+    @test !isempty(sml.status_note) && isempty(core.status_note)
+    # the time estimate is a range from counts at stated rates, and says so
+    lo, hi, basis = Course.time_estimate(core, units)
+    nready = count(id -> any(u -> u.id == id && u.status == "ready", units), core.units)
+    nprob = sum(length(u.problems) for u in units if u.id in core.units && u.status == "ready")
+    r = Course.ESTIMATE_RATES
+    @test lo == floor(Int, nready * r.unit[1] + nprob * r.problem[1] + length(core.projects) * r.project[1])
+    @test hi == ceil(Int, nready * r.unit[2] + nprob * r.problem[2] + length(core.projects) * r.project[2])
+    @test 0 < lo < hi
+    @test occursin("($nready)", basis) && occursin("($nprob)", basis) && endswith(basis, "not measured")
+    # planned units count for nothing: a course of planned units only estimates 0
+    planned_only = [Course.Unit(u.id, u.title, u.track, u.env, "planned", u.summary, u.kcs, u.prerequisites,
+                                u.outline, u.lessons, u.sections, u.problems) for u in units]
+    @test Course.time_estimate(C(core; guided = String[]), planned_only)[1:2] == (floor(Int, length(core.projects) * r.project[1]),
+                                                                                  ceil(Int, length(core.projects) * r.project[2]))
     # a prerequisite cycle, even one the file order would not show
     cyc = setpre("01-first-steps", ["03-strings"])
     @test Course.prereq_cycle(cyc) == ["01-first-steps", "03-strings", "01-first-steps"]
