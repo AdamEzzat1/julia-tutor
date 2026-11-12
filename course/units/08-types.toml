@@ -218,9 +218,8 @@ function mean_present(v)
     s = 0
     n = 0
     for x in v
-        ismissing(x) && continue
-        s += x
-        n += 1
+        s += coalesce(x, 0)    # a missing value adds 0 ...
+        n += !ismissing(x)     # ... and is not counted
     end
     return s / n
 end
