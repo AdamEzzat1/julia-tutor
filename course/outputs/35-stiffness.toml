@@ -13,6 +13,10 @@ output = """Tsit5    naccept 4520  njacs 0   nw 0   nf 27159  error 8.0e-6\nRoda
 ok = true
 output = """h = 0.001   1 + hλ = 0.9     u after 100 steps = 2.66e-5\nh = 0.019   1 + hλ = -0.9    u after 100 steps = 2.66e-5\nh = 0.021   1 + hλ = -1.1    u after 100 steps = 13800.0\nh = 0.03    1 + hλ = -2.0    u after 100 steps = 1.27e30\n"""
 
+[examples.601c5d3dce0d71ca]
+ok = true
+output = """h = 0.1    |1 + hλ| = 0.806   |u| after 100 steps = 4.42e-10\nh = 0.2    |1 + hλ| = 0.894   |u| after 100 steps = 1.43e-5\nh = 0.22   |1 + hλ| = 0.943   |u| after 100 steps = 0.00295\nh = 0.23   |1 + hλ| = 0.971   |u| after 100 steps = 0.0518\nh = 0.25   |1 + hλ| = 1.031   |u| after 100 steps = 20.7\nh = 0.26   |1 + hλ| = 1.063   |u| after 100 steps = 451.0\nh = 0.3    |1 + hλ| = 1.204   |u| after 100 steps = 1.17e8\nh = 0.4    |1 + hλ| = 1.612   |u| after 100 steps = 5.61e20\n"""
+
 [examples.8e4727ca1268e628]
 ok = true
 output = """hλ = -0.5    forward Euler 0.5      backward Euler 0.6667  trapezoid 0.6\nhλ = -1.9    forward Euler -0.9     backward Euler 0.3448  trapezoid 0.0256\nhλ = -2.1    forward Euler -1.1     backward Euler 0.3226  trapezoid -0.0244\nhλ = -10.0   forward Euler -9.0     backward Euler 0.0909  trapezoid -0.6667\nhλ = -1000.0 forward Euler -999.0   backward Euler 0.001   trapezoid -0.996\n"""
