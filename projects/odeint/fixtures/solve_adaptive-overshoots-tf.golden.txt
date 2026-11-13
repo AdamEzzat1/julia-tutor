@@ -6,14 +6,14 @@ Start here: hole `solve_adaptive` at src/ODEInt.jl:226
 
 Tests: 14/17 testsets pass
   FAIL solve_adaptive: lands on tf and counts its work  [4 failed, 0 errored; depends on: dp54_step, error_norm, initial_step, propose_step, solve_adaptive]
-       test/runtests.jl:195 FAIL r.t === tf  evaluated: 3.0113068229662483 === 3.0
-       test/runtests.jl:200 FAIL isapprox(r.y[1], exp(-tf); atol = 1000.0 * 1.0e-8)  evaluated: isapprox(0.04922730755020636, 0.049787068367863944; atol = 1.0e-5)
+       test/runtests.jl:195 FAIL r.t === tf  evaluated: 3.0113068 === 3.0
+       test/runtests.jl:200 FAIL isapprox(r.y[1], exp(-tf); atol = 1000.0 * 1.0e-8)  evaluated: isapprox(0.049227308, 0.049787068; atol = 1.0e-5)
   FAIL solve_adaptive: error is proportional to the tolerance  [2 failed, 0 errored; depends on: dp54_step, error_norm, fit_order, initial_step, kepler_exact, propose_step, solve_adaptive]
-       test/runtests.jl:226 FAIL 0.85 <= fit_order(tols, errs) <= 1.2  evaluated: 0.85 <= 0.18899021023137388 <= 1.2
+       test/runtests.jl:226 FAIL 0.85 <= fit_order(tols, errs) <= 1.2  evaluated: 0.85 <= 0.18899021 <= 1.2
        test/runtests.jl:227 FAIL all(errs .<= 1000.0 .* tols)
   FAIL kepler_exact: agrees with an accurate numerical solution  [2 failed, 0 errored; depends on: dp54_step, error_norm, initial_step, kepler_exact, propose_step, solve_adaptive]
-       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-0.1367287974337117, 0.9778327488505194, -1.0107871134415196, 0.06278739143440665], [-0.12875586215058638, 0.977306145437145, -1.0118769682793023, 0.07081372653723773]; atol = 1.0e-9, norm = var"#39#40"())
-       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-1.0773605177103804, 0.6613437156540453, -0.7325591924493042, -0.21317787389502071], [-1.0703813408064535, 0.6633528531747119, -0.7376353341274634, -0.21004695316246555]; atol = 1.0e-9, norm = var"#39#40"())
+       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-0.1367288, 0.97783275, -1.0107871, 0.062787391], [-0.12875586, 0.97730615, -1.011877, 0.070813727]; atol = 1.0e-9, norm = var"#39#40"())
+       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-1.0773605, 0.66134372, -0.73255919, -0.21317787], [-1.0703813, 0.66335285, -0.73763533, -0.21004695]; atol = 1.0e-9, norm = var"#39#40"())
 
 Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
   1. solve_adaptive     1.0   implemented  failing-deps=3 passing-deps=0  src/ODEInt.jl:226

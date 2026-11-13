@@ -6,10 +6,10 @@ Start here: hole `verlet_step` at src/ODEInt.jl:283
 
 Tests: 15/17 testsets pass
   FAIL verlet_step: the exact map on the harmonic oscillator  [4 failed, 0 errored; depends on: verlet_step]
-       test/runtests.jl:272 FAIL isapprox([q[1], p[1]], M * [q0, p0]; atol = 8 * EPS)  evaluated: isapprox([0.91, -0.3], [0.955, -0.29325]; atol = 1.7763568394002505e-15)
-       test/runtests.jl:272 FAIL isapprox([q[1], p[1]], M * [q0, p0]; atol = 8 * EPS)  evaluated: isapprox([0.3, 1.0], [0.3, 0.955]; atol = 1.7763568394002505e-15)
+       test/runtests.jl:272 FAIL isapprox([q[1], p[1]], M * [q0, p0]; atol = 8 * EPS)  evaluated: isapprox([0.91, -0.3], [0.955, -0.29325]; atol = 1.7763568e-15)
+       test/runtests.jl:272 FAIL isapprox([q[1], p[1]], M * [q0, p0]; atol = 8 * EPS)  evaluated: isapprox([0.3, 1.0], [0.3, 0.955]; atol = 1.7763568e-15)
   FAIL energy: DP5 drifts linearly, Stormer-Verlet stays bounded  [1 failed, 0 errored; depends on: dp54_step, verlet_step]
-       test/runtests.jl:342 FAIL 3.8 <= v[1] / v2[1] <= 4.2  evaluated: 3.8 <= 2.1836407278266856 <= 4.2
+       test/runtests.jl:342 FAIL 3.8 <= v[1] / v2[1] <= 4.2  evaluated: 3.8 <= 2.1836407 <= 4.2
 
 Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
   1. verlet_step        0.82  implemented  failing-deps=2 passing-deps=1  src/ODEInt.jl:283

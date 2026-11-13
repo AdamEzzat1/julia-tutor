@@ -6,8 +6,8 @@ Start here: hole `dp54_step` at src/ODEInt.jl:80
 
 Tests: 16/17 testsets pass
   FAIL dp54_step: stage times on a polynomial integrand  [9 failed, 0 errored; depends on: dp54_step]
-       test/runtests.jl:84 FAIL isapprox(c.ynew[1], (t0 + h) ^ 5; atol = (64 * EPS) * (1 + abs(t0) + h) ^ 5)  evaluated: isapprox(0.0, 1.0; atol = 4.547473508864641e-13)
-       test/runtests.jl:85 FAIL isapprox(c.err[1], (71 / 54000) * h ^ 5; atol = (64 * EPS) * (1 + abs(t0) + h) ^ 5)  evaluated: isapprox(-0.125, 0.0013148148148148149; atol = 4.547473508864641e-13)
+       test/runtests.jl:84 FAIL isapprox(c.ynew[1], (t0 + h) ^ 5; atol = (64 * EPS) * (1 + abs(t0) + h) ^ 5)  evaluated: isapprox(0.0, 1.0; atol = 4.5474735e-13)
+       test/runtests.jl:85 FAIL isapprox(c.err[1], (71 / 54000) * h ^ 5; atol = (64 * EPS) * (1 + abs(t0) + h) ^ 5)  evaluated: isapprox(-0.125, 0.0013148148; atol = 4.5474735e-13)
 
 Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
   1. dp54_step          0.33  implemented  failing-deps=1 passing-deps=8  src/ODEInt.jl:80
