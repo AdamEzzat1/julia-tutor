@@ -53,6 +53,41 @@ struct Prediction
     explain::String                          # shown with the output, whatever was picked
 end
 
+"""
+Method-choice checkpoint (Phase 5): the learner picks a method (a solver, a
+step size, a preconditioner) and writes a one-line reason before the
+example's work-precision output is shown; then the choice is scored against
+that output. Nothing is typed as a key: `rows[i]` is a regex matched in the
+output, its numbered capture groups are numbers summed into choice `i`'s cost
+(steps, calls, iterations: counts, never wall time), and an optional group
+named `ok` must capture `true` for the choice to meet the accuracy the
+example asks for. Among the choices that meet it, those within `band` times
+the cheapest cost are *good*; the rest are *costly*, and a choice that misses
+the accuracy *fails*. `tutor course verify` re-runs the example and fails
+unless the measured good set equals `good`, and unless every cost ratio is at
+least `CHOICE_MARGIN` away from the band's edge, so the verdict cannot be
+flipped by a few percent of drift in the counts. That second rule is why a
+checkpoint may sit on a `check = false` example (counts that move a little
+between CPUs): its digits are not compared, its verdict is, on every verify.
+The reason is never graded (there is no model of free text here); it is
+stored in the browser and shown back next to the measurements.
+"""
+struct Checkpoint
+    kc::String
+    prompt::String
+    choices::Vector{String}
+    rows::Vector{String}            # one regex per choice: summed numeric captures, optional `ok` group
+    cost::String                    # what the cost counts, shown in the table ("right-hand-side calls")
+    band::Float64                   # good = within `band` times the cheapest choice that meets the accuracy
+    good::Vector{Int}               # declared good choices (1-based); must equal the measured set
+    explain::String                 # shown with the measurements, whatever was picked
+    misconceptions::Vector{String}  # one per choice; required for every choice that is not good
+end
+
+# A cost ratio this close to the band's edge (within this factor either way)
+# could change verdict with a small drift in the counts; verify refuses it.
+const CHOICE_MARGIN = 1.5
+
 struct Example
     code::String
     check::Bool          # false: output varies run to run (timings, threads); recorded, not compared
@@ -60,9 +95,11 @@ struct Example
     mode::String         # "repl" (default: REPL soft scope, like the sandbox) or "file" (include semantics)
     notice::String       # what to look at in the result; shown under the output (and figures)
     predict::Union{Nothing,Prediction}   # commit a prediction before the output is shown
+    choose::Union{Nothing,Checkpoint}    # pick a method and give a reason before the output is shown
 end
-Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing)
-Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing)
+Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing, nothing)
+Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing, nothing)
+Example(code, check, caption, mode, notice, predict) = Example(code, check, caption, mode, notice, predict, nothing)
 
 """
 A concept question shown after a section's examples. `choice`: pick the
@@ -182,11 +219,20 @@ function load_prediction(p)
                       ranges, String.(get(p, "values", String[])), Int(get(p, "answer", 0)), getstr(p, "explain"))
 end
 
+function load_checkpoint(c)
+    c === nothing && return nothing
+    choices = String.(get(c, "choices", String[]))
+    return Checkpoint(getstr(c, "kc"), getstr(c, "prompt"), choices, String.(get(c, "rows", String[])),
+                      getstr(c, "cost"), Float64(get(c, "band", 2.0)), Int.(get(c, "good", Int[])),
+                      getstr(c, "explain"), String.(get(c, "misconceptions", fill("", length(choices)))))
+end
+
 function load_unit(path::String)
     d = normalize_nl(TOML.parsefile(path))
     sections = [Section(s["title"], s["body"],
                         [Example(e["code"], get(e, "check", true), getstr(e, "caption"), getstr(e, "mode", "repl"),
-                                 getstr(e, "notice"), load_prediction(get(e, "predict", nothing)))
+                                 getstr(e, "notice"), load_prediction(get(e, "predict", nothing)),
+                                 load_checkpoint(get(e, "choose", nothing)))
                          for e in get(s, "example", Any[])],
                         [load_question(q) for q in get(s, "question", Any[])]) for s in get(d, "section", Any[])]
     return Unit(d["id"], d["title"], d["track"], getstr(d, "env", "base"), getstr(d, "status", "ready"),
@@ -576,6 +622,117 @@ function prediction_key_problems(u::Unit, rec)
     return out
 end
 
+"""Index of the capture group named `ok` in `re`, or 0."""
+ok_group(re::Regex) = something(findfirst(==("ok"), Base.PCRE.capture_names(re.regex)), 0)
+capture_count(re::Regex) = Int(Base.PCRE.info(re.regex, Base.PCRE.INFO_CAPTURECOUNT, UInt32))
+
+"""What is structurally wrong with an example's method-choice checkpoint (empty = nothing)."""
+function checkpoint_problems(c::Checkpoint, e::Example, kcs)
+    out = String[]
+    c.kc in kcs || push!(out, "kc '$(c.kc)' is not one of the unit's kcs $(kcs)")
+    isempty(strip(c.prompt)) && push!(out, "no prompt")
+    isempty(strip(c.explain)) && push!(out, "no explanation")
+    isempty(strip(c.cost)) && push!(out, "no cost label (what the measured cost counts)")
+    e.predict === nothing || push!(out, "an example carries a prediction or a checkpoint, not both")
+    n = length(c.choices)
+    2 <= n <= 6 || push!(out, "needs 2 to 6 choices")
+    allunique(strip.(c.choices)) || push!(out, "choices must differ")
+    length(c.rows) == n || push!(out, "one row regex per choice")
+    for (i, r) in enumerate(c.rows)
+        re = compile_measure(r)
+        re === nothing && (push!(out, "row $i is not a regular expression"); continue)
+        capture_count(re) - (ok_group(re) > 0) >= 1 || push!(out, "row $i has no capture group for the cost")
+    end
+    c.band > 1 || push!(out, "band must be greater than 1")
+    isempty(c.good) && push!(out, "name the good choices (good = [...])")
+    allunique(c.good) || push!(out, "good lists a choice twice")
+    all(i -> 1 <= i <= n, c.good) || push!(out, "good must index choices (1-based)")
+    length(unique(c.good)) < n || push!(out, "every choice is good: there is nothing to choose")
+    length(c.misconceptions) == n || push!(out, "one misconception per choice (\"\" for a good one)")
+    for (i, m) in enumerate(c.misconceptions)
+        !(i in c.good) && isempty(strip(m)) && push!(out, "choice $i is not good and has no misconception")
+    end
+    return out
+end
+
+"""
+The measured row of each choice in `output`: `(cost, ok)`, or `nothing` when
+its regex does not match or a cost capture is not a number. `ok` is `true`
+when the row has no `ok` group.
+"""
+function checkpoint_rows(c::Checkpoint, output::AbstractString)
+    rows = Union{Nothing,Tuple{Float64,Bool}}[]
+    for r in c.rows
+        re = compile_measure(r)
+        m = re === nothing ? nothing : match(re, output)
+        m === nothing && (push!(rows, nothing); continue)
+        k = ok_group(re)
+        nums = [tryparse(Float64, x) for (j, x) in enumerate(m.captures) if j != k && x !== nothing]
+        if isempty(nums) || any(isnothing, nums) || (k > 0 && m.captures[k] === nothing)
+            push!(rows, nothing)
+        else
+            push!(rows, (sum(nums), k == 0 || lowercase(m.captures[k]) == "true"))
+        end
+    end
+    return rows
+end
+
+"""
+Score a checkpoint against an output: per choice its cost, whether it meets
+the accuracy, its ratio to the cheapest choice that does, and its verdict
+(`good`, `costly` or `fails`). Returns a String saying what is wrong when the
+output cannot be scored.
+"""
+function score_checkpoint(c::Checkpoint, output::AbstractString)
+    rows = checkpoint_rows(c, output)
+    bad = findall(isnothing, rows)
+    isempty(bad) || return "row $(join(bad, ", ")) does not match the output with a numeric cost"
+    costs = [r[1] for r in rows]; oks = [r[2] for r in rows]
+    any(oks) || return "no choice meets the accuracy (`ok` is false in every row)"
+    best = minimum(costs[oks])
+    best > 0 || return "the cheapest cost is $best: costs must be positive counts"
+    ratios = costs ./ best
+    verdicts = [!oks[i] ? "fails" : ratios[i] <= c.band ? "good" : "costly" for i in eachindex(costs)]
+    return (; costs, oks, ratios, verdicts, good = findall(==("good"), verdicts))
+end
+
+"""
+The key of each checkpoint is measured: in `rec` (a fresh `record` in verify,
+the stored outputs in the fast tests and the site export) the good set must
+equal `good`, and every ratio of a choice that meets the accuracy must lie at
+least `CHOICE_MARGIN` away from the band's edge.
+"""
+function checkpoint_key_problems(u::Unit, rec)
+    out = String[]
+    exs = get(rec, "examples", Dict())
+    for s in u.sections, e in s.examples
+        c = e.choose
+        c === nothing && continue
+        where = "$(u.id) '$(s.title)' checkpoint"
+        r = get(exs, example_key(e.code, e.mode), nothing)
+        r === nothing && (push!(out, "$where: its example has no recorded output"); continue)
+        append!(out, ["$where: $m" for m in checkpoint_output_problems(c, r["output"])])
+    end
+    return out
+end
+
+"""Why `output` does not support the checkpoint's declared verdicts (empty = it does)."""
+function checkpoint_output_problems(c::Checkpoint, output::AbstractString)
+    sc = score_checkpoint(c, output)
+    sc isa String && return [sc]
+    out = String[]
+    sort(sc.good) == sort(c.good) ||
+        push!(out, "the measurements make choice(s) $(sc.good) good, but good = $(sort(c.good))")
+    for i in eachindex(sc.ratios)
+        sc.oks[i] || continue
+        x = sc.ratios[i]
+        c.band / CHOICE_MARGIN < x < c.band * CHOICE_MARGIN &&
+            push!(out, "choice $i costs $(round(x; sigdigits = 3)) times the cheapest, within a factor $CHOICE_MARGIN " *
+                       "of the band ($(c.band)): a small drift in the counts could flip its verdict")
+    end
+    return out
+end
+
 # Phrases that carry no information in teaching prose (marketing words, filler
 # transitions, chatbot openers). The course says what a thing does and shows
 # it; `prose_problems` keeps that mechanical. Matched case-insensitively on
@@ -633,6 +790,12 @@ function unit_prose(u::Unit)
             p = e.predict
             p === nothing && continue
             push!(out, ("'$(s.title)' prediction", strip_code(join(vcat(p.prompt, p.choices, p.explain), "\n"))))
+        end
+        for e in s.examples
+            c = e.choose
+            c === nothing && continue
+            push!(out, ("'$(s.title)' checkpoint",
+                        strip_code(join(vcat(c.prompt, c.choices, c.cost, c.explain, c.misconceptions), "\n"))))
         end
         for q in s.questions
             txt = join(vcat(q.prompt, q.explain, q.misconceptions, q.kind == "choice" ? q.choices : String[]), "\n")
@@ -703,6 +866,8 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
             e.mode in ("repl", "file") || push!(problems, "$(u.id): example mode must be repl or file")
             e.predict === nothing ||
                 append!(problems, ["$(u.id) '$(s.title)' prediction: $m" for m in prediction_problems(e.predict, e, u.kcs)])
+            e.choose === nothing ||
+                append!(problems, ["$(u.id) '$(s.title)' checkpoint: $m" for m in checkpoint_problems(e.choose, e, u.kcs)])
         end
         for s in u.sections, (i, q) in enumerate(s.questions)
             append!(problems, ["$(u.id) '$(s.title)' question $i: $m" for m in question_problems(q)])

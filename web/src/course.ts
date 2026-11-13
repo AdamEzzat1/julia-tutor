@@ -18,6 +18,30 @@ export interface Example {
   ok: boolean | null;
   images: string[]; // recorded figures, as site paths (assets/figures/<unit>/<file>)
   predict?: Prediction; // commit a prediction before the output is shown (see predict.ts); absent for most examples
+  choose?: Checkpoint; // pick a method and give a reason before the output is shown (see choose.ts)
+}
+
+export type ChoiceVerdict = "good" | "costly" | "fails";
+
+/**
+ * A method-choice checkpoint. The table (`costs`, `ok`, `ratios`, `verdicts`,
+ * one entry per choice) is measured: `tutor site-data` reads it from the
+ * recorded output with the author's row regexes and exports the checkpoint
+ * only when the measured good set is the declared one, with every ratio well
+ * clear of the band's edge (src/course.jl, `checkpoint_output_problems`).
+ */
+export interface Checkpoint {
+  kc: string;
+  prompt: string;
+  choices: string[];
+  cost: string; // what the cost counts
+  band: number; // good = within `band` times the cheapest choice that meets the accuracy
+  explain: string;
+  misconceptions: string[]; // one per choice; "" for a good one
+  costs: number[];
+  ok: boolean[]; // meets the accuracy the example asks for
+  ratios: number[]; // cost / cheapest acceptable cost (3 digits)
+  verdicts: ChoiceVerdict[];
 }
 
 /**

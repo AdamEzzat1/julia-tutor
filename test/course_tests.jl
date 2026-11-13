@@ -208,6 +208,55 @@ end
     @test length(site) == length(preds) && all(p -> p["measured"] isa String, site)
 end
 
+@testset "method-choice checkpoints: scored against the measured work" begin
+    rows = [raw"A +calls (\d+) +ok: (?<ok>\w+)", raw"B +calls (\d+) jacs (\d+) +ok: (?<ok>\w+)", raw"C +calls (\d+) +ok: (?<ok>\w+)"]
+    Ck(; kc = "k", choices = ["A", "B", "C"], rows = rows, band = 2.0, good = [2], cost = "calls",
+       mis = ["slow", "", "inaccurate"]) = Course.Checkpoint(kc, "Which?", choices, rows, cost, band, good, "why", mis)
+    E(c; predict = nothing, check = false) = Course.Example("println(1)", check, "c", "repl", "", predict, c)
+    bad(c; kw...) = Course.checkpoint_problems(c, E(c; kw...), ["k"])
+    @test bad(Ck()) == String[]                       # check = false is allowed: the verdict is checked, not the digits
+    @test any(contains("not one of the unit's kcs"), bad(Ck(; kc = "x")))
+    @test any(contains("one row regex per choice"), bad(Ck(; rows = rows[1:2])))
+    @test any(contains("not a regular expression"), bad(Ck(; rows = ["(", rows[2], rows[3]])))
+    @test any(contains("no capture group for the cost"), bad(Ck(; rows = [raw"A ok: (?<ok>\w+)", rows[2], rows[3]])))
+    @test any(contains("every choice is good"), bad(Ck(; good = [1, 2, 3])))
+    @test any(contains("index choices"), bad(Ck(; good = [4])))
+    @test any(contains("no misconception"), bad(Ck(; mis = ["", "", "x"])))
+    @test any(contains("band must be"), bad(Ck(; band = 1.0)))
+    @test any(contains("no cost label"), bad(Ck(; cost = " ")))
+    P = Course.Prediction("k", "p", raw"(\d)", ["a", "b"], [(0.0, 1.0), (1.0, 2.0)], String[], 1, "e")
+    @test any(contains("not both"), bad(Ck(); predict = P))
+
+    out = "A calls 900 ok: true\nB calls 100 jacs 20 ok: true\nC calls 50 ok: false\n"
+    sc = Course.score_checkpoint(Ck(), out)
+    @test sc.costs == [900.0, 120.0, 50.0]             # captures summed; the `ok` group is not a cost
+    @test sc.oks == [true, true, false]
+    @test sc.verdicts == ["costly", "good", "fails"]   # the cheapest row misses the accuracy: it does not set the bar
+    @test sc.ratios[1] ≈ 7.5
+    @test Course.checkpoint_output_problems(Ck(), out) == String[]
+    @test any(contains("make choice(s) [1, 2] good"), Course.checkpoint_output_problems(Ck(), replace(out, "900" => "200")))
+    # 300 / 120 = 2.5: outside the band, but within CHOICE_MARGIN of its edge, so a drift could flip it
+    @test any(contains("could flip"), Course.checkpoint_output_problems(Ck(), replace(out, "900" => "300")))
+    @test Course.score_checkpoint(Ck(), "nothing here") isa String
+    @test Course.score_checkpoint(Ck(), replace(out, "true" => "false")) isa String   # no choice meets the accuracy
+
+    unit(c) = Course.Unit("99-x", "x", "core", "base", "ready", "s", ["k"], String[], String[], String[],
+                          [Course.Section("s", "b", [E(c)], Course.Question[])], Course.Problem[])
+    rec(o) = Dict("examples" => Dict(Course.example_key("println(1)", "repl") => Dict("output" => o)))
+    @test Course.checkpoint_key_problems(unit(Ck()), rec(out)) == String[]
+    @test any(contains("no recorded output"), Course.checkpoint_key_problems(unit(Ck()), Dict("examples" => Dict())))
+
+    # the course's own checkpoints, against the outputs recorded in the repository
+    units = Course.load_course()
+    cks = [e for u in units for s in u.sections for e in s.examples if e.choose !== nothing]
+    @test length(cks) >= 3
+    @test all(u -> Course.checkpoint_key_problems(u, Course.load_outputs(u)) == String[], units)
+    site = [e["choose"] for s in SiteData.course_data()["units"] for sec in s["sections"] for e in sec["examples"]
+            if haskey(e, "choose")]
+    @test length(site) == length(cks)
+    @test all(c -> length(c["costs"]) == length(c["choices"]) == length(c["verdicts"]), site)
+end
+
 @testset "course prose: no filler phrases" begin
     u = Course.Unit("99-x", "x", "core", "base", "ready", "A seamless way to do it.", String[], String[], String[],
                     String[], [Course.Section("s", "Plain text, with `robust` in code and an em dash — here.", Course.Example[],

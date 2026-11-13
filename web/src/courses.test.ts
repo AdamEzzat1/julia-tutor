@@ -41,13 +41,13 @@ describe("progress saved before the split", () => {
   it("maps every stored key to a course, with nothing renamed", () => {
     const { byCourse, unmapped } = progressByCourse(saved as unknown as Progress, course.courses, course.units);
     expect(unmapped).toEqual([]);
-    expect(byCourse.core).toEqual({ solved: 1, opened: 1, questions: 1, predictions: 0 });
-    expect(byCourse.science).toEqual({ solved: 0, opened: 1, questions: 0, predictions: 0 });
-    expect(byCourse.scicomp).toEqual({ solved: 1, opened: 1, questions: 1, predictions: 0 });
-    expect(byCourse.sciml).toEqual({ solved: 1, opened: 1, questions: 0, predictions: 0 });
+    expect(byCourse.core).toEqual({ solved: 1, opened: 1, questions: 1, predictions: 0, choices: 0 });
+    expect(byCourse.science).toEqual({ solved: 0, opened: 1, questions: 0, predictions: 0, choices: 0 });
+    expect(byCourse.scicomp).toEqual({ solved: 1, opened: 1, questions: 1, predictions: 0, choices: 0 });
+    expect(byCourse.sciml).toEqual({ solved: 1, opened: 1, questions: 0, predictions: 0, choices: 0 });
   });
   it("reports keys no course has instead of dropping them", () => {
-    const p: Progress = { solved: { "gone-problem": "good" }, opened: {}, questions: { "99-x/0/0": "later" }, predictions: {} };
+    const p: Progress = { solved: { "gone-problem": "good" }, opened: {}, questions: { "99-x/0/0": "later" }, predictions: {}, choices: {} };
     expect(progressByCourse(p, course.courses, course.units).unmapped).toEqual(["questions/99-x/0/0", "solved/gone-problem"]);
   });
 });
