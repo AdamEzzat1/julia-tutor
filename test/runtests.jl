@@ -277,6 +277,20 @@ end
     @test length(p["fixtures"]) == length(Fixtures.load_fixtures(SYMDIFF))
 end
 
+@testset "explain fixtures: goldens round long floats only" begin
+    g = Fixtures.golden_text
+    # the measured CPU-dependent pair from the odeint fixture rounds to one value
+    @test g("evaluated: 0.85 <= 0.18899021023137388 <= 1.2") == "evaluated: 0.85 <= 0.18899021 <= 1.2"
+    @test g("evaluated: 0.85 <= 0.1889902102315128 <= 1.2") == "evaluated: 0.85 <= 0.18899021 <= 1.2"
+    @test g("[-0.1367287974337117, 3.0113068229662483]") == "[-0.1367288, 3.0113068]"
+    @test g("x = 1.2345678901234e-15") == "x = 1.2345679e-15"
+    # short floats, integers, versions, paths and Ochiai scores are untouched
+    for s in ("atol = 1000.0 * 1.0e-8", "Julia 1.10.13", "src/ODEInt.jl:226", "Ochiai 0.87",
+              "0.000123", "14/17 testsets", "x1.234567890123")
+        @test g(s) == s
+    end
+end
+
 @testset "explain fixtures: structure" begin
     fx = Fixtures.load_fixtures(SYMDIFF)
     @test Fixtures.validate_fixtures(SYMDIFF, fx) == String[]
