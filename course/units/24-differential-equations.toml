@@ -240,6 +240,26 @@ for alg in (Tsit5(), Vern9())
 end
 '''
 
+    [section.example.choose]
+    kc = "ode-tolerances"
+    prompt = "The oscillator up to t = 20 at `abstol = reltol = 1e-12`, and the end point must be right to `1e-11`. Which method costs fewer right-hand-side calls?"
+    choices = [
+      "`Tsit5`: order 5, about 6 right-hand-side calls per step",
+      "`Vern9`: order 9, about 16 right-hand-side calls per step",
+    ]
+    rows = [
+      'Tsit5 +steps ≈ \d+ +f calls ≈ (\d+) +error < 1e-11: (?<ok>true|false)',
+      'Vern9 +steps ≈ \d+ +f calls ≈ (\d+) +error < 1e-11: (?<ok>true|false)',
+    ]
+    cost = "right-hand-side calls (rounded to two digits), for a method whose end point is within 1e-11"
+    band = 2.0
+    good = [2]
+    explain = "The steps of an order-p method grow like `tol^(-1/p)`. At `1e-12` that is far more for p = 5 than for p = 9, so `Vern9` needs about a tenth of the steps, and its larger cost per step still leaves it several times ahead. At loose tolerances the order matters less and `Tsit5`'s cheaper steps win, which is why the solver guide splits the two by tolerance."
+    misconceptions = [
+      "Each `Tsit5` step is cheaper, but at a tolerance this tight its lower order needs about ten times the steps, which more than cancels the cheaper step.",
+      "",
+    ]
+
   [[section.question]]
   kind = "choice"
   prompt = "You solve with `reltol = 1e-6`. What can you conclude about the relative error of `sol.u[end]`?"
