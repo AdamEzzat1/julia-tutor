@@ -8,6 +8,7 @@ import {
   course, courseById, estimateText, landingHref, questionState, statusNote, TRACK_BLURB, TRACK_LABEL, trackRequirement, unitNumber,
   type CourseInfo, type Example, type Problem, type Question, type Unit,
 } from "../course";
+import { predictionKey, predictionRates, settlePrediction, unitPredictionKeys, type PredictionRecord } from "../predict";
 import { loadProgress, saveProgress, type Progress } from "../progress";
 import { gradeCode, useServer, type GradeResult } from "../server";
 
@@ -61,6 +62,9 @@ export function CourseView() {
   const answered = (key: string, firstTry: boolean) =>
     setProgress((s) => s.questions[key] ? s :
       saveProgress({ ...s, questions: { ...s.questions, [key]: firstTry ? "first-try" : "later" } }));
+  // A prediction is committed once: the first record is kept, never replaced.
+  const predicted = (key: string, r: PredictionRecord) =>
+    setProgress((s) => s.predictions[key] ? s : saveProgress({ ...s, predictions: { ...s.predictions, [key]: r } }));
 
   return (
     <div className="jt-split jt-course" ref={top}>
@@ -98,7 +102,7 @@ export function CourseView() {
         {unit === null ? <Overview c={active} progress={progress} go={go} /> :
           <UnitPage key={unit.id} unit={unit} problemId={problemId} progress={progress}
             openProblem={(p) => { setProblemId(p); writeParams(unit.id, p, active.id); }} onSolved={solved}
-            onAnswered={answered} go={go} />}
+            onAnswered={answered} onPredicted={predicted} go={go} />}
       </div>
     </div>
   );
@@ -128,6 +132,7 @@ function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: 
           solution: first on correctness, then on speed, memory, growth and type stability relative to that reference.
         </p>
       </section>
+      <PredictionRates c={c} progress={progress} />
       <div className="jt-tracks">
         {tracks.map((t) => {
           const units = course.units.filter((u) => u.course === c.id && u.track === t);
@@ -159,15 +164,19 @@ function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: 
   );
 }
 
-function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, go }: {
+function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, onPredicted, go }: {
   unit: Unit;
   problemId: string | null;
   progress: Progress;
   openProblem: (p: string | null) => void;
   onSolved: (pid: string, r: GradeResult) => void;
   onAnswered: (key: string, firstTry: boolean) => void;
+  onPredicted: (key: string, r: PredictionRecord) => void;
   go: (u: string) => void;
 }) {
+  const pkeys = unitPredictionKeys(unit);
+  const pmade = pkeys.filter((k) => progress.predictions[k]?.pick);
+  const phits = pmade.filter((k) => progress.predictions[k].hit);
   const qkeys = unit.sections.flatMap((s, i) => s.questions.map((_, k) => `${unit.id}/${i}/${k}`));
   const qdone = qkeys.filter((k) => progress.questions[k]);
   const qfirst = qdone.filter((k) => progress.questions[k] === "first-try");
@@ -206,6 +215,11 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               concept questions: {qdone.length}/{qkeys.length}{qdone.length ? ` · ${qfirst.length} first try` : ""}
             </span>
           )}
+          {pkeys.length > 0 && (
+            <span className="jt-chip" title="Predictions committed in this browser before seeing the output, and how many were right">
+              predictions: {pmade.length}/{pkeys.length}{pmade.length ? ` · ${phits.length} right` : ""}
+            </span>
+          )}
         </div>
       </header>
 
@@ -225,7 +239,11 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
             <div className="jt-eyebrow">{unitNumber(unit.id)}.{i + 1}</div>
             <h3 style={{ marginTop: "0.2rem" }}>{s.title}</h3>
             <Markdown text={s.body} />
-            {s.examples.map((e, j) => <ExampleBlock key={j} ex={e} env={unit.env} id={`${unit.id}/${i}/${j}`} />)}
+            {s.examples.map((e, j) => {
+              const key = predictionKey(unit.id, i, j);
+              return <ExampleBlock key={j} ex={e} env={unit.env} id={key}
+                record={progress.predictions[key] ?? null} onPredicted={(r) => onPredicted(key, r)} />;
+            })}
             {s.questions.map((q, k) => (
               <QuestionBlock key={k} q={q} number={k + 1} total={s.questions.length}
                 onSettled={(firstTry) => onAnswered(`${unit.id}/${i}/${k}`, firstTry)} />
@@ -264,8 +282,65 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
   );
 }
 
-function ExampleBlock({ ex, env, id }: { ex: Example; env: string; id: string }) {
+/**
+ * Hits per knowledge component over this course's predictions, from this
+ * browser's records. Nothing is sent anywhere.
+ */
+function PredictionRates({ c, progress }: { c: CourseInfo; progress: Progress }) {
+  const units = course.units.filter((u) => u.course === c.id);
+  const total = units.reduce((n, u) => n + unitPredictionKeys(u).length, 0);
+  if (total === 0) return null;
+  const rates = predictionRates(progress.predictions, units);
+  return (
+    <section className="jt-panel jt-pad" aria-labelledby="jt-pred-rates">
+      <div className="jt-eyebrow">Predict, then run</div>
+      <h3 id="jt-pred-rates" style={{ marginTop: "0.25rem" }}>Your predictions, by knowledge component</h3>
+      <p className="jt-small" style={{ maxWidth: "50rem" }}>
+        {total} examples in this course ask for a prediction before their output is shown. Each answer was read from
+        the recorded output, not written by hand. Only your first pick counts, and the record stays in this browser.
+      </p>
+      {rates.length === 0 ? <p className="jt-small jt-muted">No predictions committed yet.</p> : (
+        <table className="jt-table jt-small">
+          <thead><tr><th scope="col">Knowledge component</th><th scope="col">Right before seeing the output</th></tr></thead>
+          <tbody>
+            {rates.map((r) => <tr key={r.kc}><td><code>{r.kc}</code></td><td>{r.hits} of {r.total}</td></tr>)}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+function ExampleBlock({ ex, env, id, record, onPredicted }: {
+  ex: Example; env: string; id: string; record: PredictionRecord | null; onPredicted: (r: PredictionRecord) => void;
+}) {
   const [editing, setEditing] = useState(false);
+  const p = ex.predict;
+  // The output (and the figures and notice, which describe it) stay hidden until a pick is committed.
+  if (p && !record) {
+    return (
+      <figure className="jt-example">
+        {ex.caption && <figcaption>{md(ex.caption)}</figcaption>}
+        <Code src={ex.code} />
+        <div className="jt-question" aria-live="polite">
+          <div className="jt-eyebrow">Predict, then run · one pick, scored once</div>
+          <div className="jt-question-prompt"><Markdown text={p.prompt} /></div>
+          <div className="jt-options" role="group" aria-label="Prediction options">
+            {p.choices.map((c, k) => (
+              <button key={k} className="jt-option" onClick={() => onPredicted(settlePrediction(p, k + 1))}>
+                <span className="letter">{LETTERS[k]}</span><span>{md(c)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="jt-example-bar">
+          <button className="jt-btn ghost jt-small" onClick={() => onPredicted(settlePrediction(p, 0))}>
+            Show the output without predicting
+          </button>
+        </div>
+      </figure>
+    );
+  }
   return (
     <figure className="jt-example">
       {ex.caption && <figcaption>{md(ex.caption)}</figcaption>}
@@ -282,6 +357,18 @@ function ExampleBlock({ ex, env, id }: { ex: Example; env: string; id: string })
               alt={`Figure produced by this example when it was recorded (${src.split("/").pop()})`} />
           ))}
           {ex.notice && ex.output !== null && <p className="jt-notice">{md(ex.notice)}</p>}
+          {p && record && (
+            <div className={`jt-callout ${record.pick === 0 ? "reveal" : record.hit ? "ok" : "mis"}`}>
+              <span className="tag">{record.pick === 0 ? "Not predicted" : record.hit ? "Your prediction held" : "Not this time"}</span>
+              <div>
+                <div className="jt-small">
+                  {record.pick > 0 && <>You picked {LETTERS[record.pick - 1]}. </>}
+                  Measured in the output above: <code>{p.measured}</code>, so the answer is {LETTERS[p.answer - 1]} ({md(p.choices[p.answer - 1])}).
+                </div>
+                <div style={{ marginTop: "0.3rem" }}>{md(p.explain)}</div>
+              </div>
+            </div>
+          )}
         </>
       )}
       <div className="jt-example-bar">

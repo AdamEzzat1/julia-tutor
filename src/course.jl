@@ -33,14 +33,36 @@ const TRACK_REQUIRES = Dict("scicomp" => ["foundations", "core", "advanced", "ec
 const DIFFICULTIES = ["warm-up", "core", "stretch"]
 const VARIANT_EXPECT = ["correct", "incorrect", "load-error", "slow", "allocates", "unstable", "scaling", "fast"]
 
+"""
+Predict, then run (Phase 5): a prediction the learner commits before an
+example's output is shown. The key is not typed: `measure` is a regex with one
+capture group, read from the example's recorded output, and choice `i` holds
+when the captured number lies in `ranges[i]` (half-open, `lo <= x < hi`) or the
+captured word equals `values[i]` (case-insensitive). `tutor course verify`
+fails unless exactly one choice holds and it is `answer`, so a re-recorded
+output that changes the result also breaks the key.
+"""
+struct Prediction
+    kc::String                               # the unit's knowledge component the hit rate counts for
+    prompt::String
+    measure::String
+    choices::Vector{String}
+    ranges::Vector{Tuple{Float64,Float64}}   # numeric predictions (empty for word predictions)
+    values::Vector{String}                   # word predictions (empty for numeric ones)
+    answer::Int                              # 1-based; must be the choice the measurement selects
+    explain::String                          # shown with the output, whatever was picked
+end
+
 struct Example
     code::String
     check::Bool          # false: output varies run to run (timings, threads); recorded, not compared
     caption::String      # introduces the example; shown above the code
     mode::String         # "repl" (default: REPL soft scope, like the sandbox) or "file" (include semantics)
     notice::String       # what to look at in the result; shown under the output (and figures)
+    predict::Union{Nothing,Prediction}   # commit a prediction before the output is shown
 end
-Example(code, check, caption, mode) = Example(code, check, caption, mode, "")
+Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing)
+Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing)
 
 """
 A concept question shown after a section's examples. `choice`: pick the
@@ -152,10 +174,19 @@ normalize_nl(x::AbstractDict) = Dict{String,Any}(k => normalize_nl(v) for (k, v)
 normalize_nl(x::AbstractVector) = Any[normalize_nl(v) for v in x]
 normalize_nl(x) = x
 
+function load_prediction(p)
+    p === nothing && return nothing
+    ranges = Tuple{Float64,Float64}[(Float64(r[1]), Float64(r[2])) for r in get(p, "ranges", Any[]) if length(r) == 2]
+    length(ranges) == length(get(p, "ranges", Any[])) || (ranges = [(NaN, NaN)])   # malformed: validation says so
+    return Prediction(getstr(p, "kc"), getstr(p, "prompt"), getstr(p, "measure"), String.(get(p, "choices", String[])),
+                      ranges, String.(get(p, "values", String[])), Int(get(p, "answer", 0)), getstr(p, "explain"))
+end
+
 function load_unit(path::String)
     d = normalize_nl(TOML.parsefile(path))
     sections = [Section(s["title"], s["body"],
-                        [Example(e["code"], get(e, "check", true), getstr(e, "caption"), getstr(e, "mode", "repl"), getstr(e, "notice"))
+                        [Example(e["code"], get(e, "check", true), getstr(e, "caption"), getstr(e, "mode", "repl"),
+                                 getstr(e, "notice"), load_prediction(get(e, "predict", nothing)))
                          for e in get(s, "example", Any[])],
                         [load_question(q) for q in get(s, "question", Any[])]) for s in get(d, "section", Any[])]
     return Unit(d["id"], d["title"], d["track"], getstr(d, "env", "base"), getstr(d, "status", "ready"),
@@ -473,6 +504,78 @@ function question_problems(q::Question)
     return out
 end
 
+compile_measure(s) = isempty(s) ? nothing : try Regex(s) catch; nothing end
+
+"""What is structurally wrong with an example's prediction (empty = nothing)."""
+function prediction_problems(p::Prediction, e::Example, kcs)
+    out = String[]
+    p.kc in kcs || push!(out, "kc '$(p.kc)' is not one of the unit's kcs $(kcs)")
+    isempty(strip(p.prompt)) && push!(out, "no prompt")
+    isempty(strip(p.explain)) && push!(out, "no explanation")
+    2 <= length(p.choices) <= 6 || push!(out, "needs 2 to 6 choices")
+    allunique(strip.(p.choices)) || push!(out, "choices must differ")
+    1 <= p.answer <= length(p.choices) || push!(out, "answer must index a choice (1-based)")
+    # A key read from an output that is recorded but never compared could change unnoticed.
+    e.check || push!(out, "the example has check = false: a prediction needs an output that verify compares")
+    compile_measure(p.measure) === nothing && push!(out, "measure is not a regular expression")
+    if isempty(p.ranges) == isempty(p.values)
+        push!(out, "give either ranges (a numeric prediction) or values (a word prediction), not both or neither")
+    elseif !isempty(p.ranges)
+        length(p.ranges) == length(p.choices) || push!(out, "one range per choice")
+        all(((lo, hi),) -> lo < hi, p.ranges) || push!(out, "each range is [lo, hi) with lo < hi")
+        r = sort(p.ranges)
+        all(i -> r[i][2] <= r[i+1][1], 1:length(r)-1) || push!(out, "ranges overlap: a value would select two choices")
+    else
+        length(p.values) == length(p.choices) || push!(out, "one value per choice")
+        allunique(lowercase.(p.values)) || push!(out, "values must differ")
+    end
+    return out
+end
+
+"""
+The choices a recorded output selects, and the text `measure` captured from it
+(`nothing` if it does not match, or has no single capture group).
+"""
+function measured_choices(p::Prediction, output::AbstractString)
+    re = compile_measure(p.measure)
+    re === nothing && return (Int[], nothing)
+    m = match(re, output)
+    (m === nothing || length(m.captures) != 1 || m.captures[1] === nothing) && return (Int[], nothing)
+    cap = String(m.captures[1])
+    if !isempty(p.ranges)
+        x = tryparse(Float64, cap)
+        x === nothing && return (Int[], cap)
+        return ([i for (i, (lo, hi)) in enumerate(p.ranges) if lo <= x < hi], cap)
+    end
+    return ([i for (i, v) in enumerate(p.values) if lowercase(v) == lowercase(cap)], cap)
+end
+
+"""
+The key of each prediction is measured: in the recorded output (`rec`, as
+`tutor course record` writes it), `measure` must capture a value that selects
+exactly one choice, and that choice must be the declared `answer`.
+"""
+function prediction_key_problems(u::Unit, rec)
+    out = String[]
+    exs = get(rec, "examples", Dict())
+    for s in u.sections, e in s.examples
+        p = e.predict
+        p === nothing && continue
+        where = "$(u.id) '$(s.title)' prediction"
+        r = get(exs, example_key(e.code, e.mode), nothing)
+        r === nothing && (push!(out, "$where: its example has no recorded output"); continue)
+        hold, cap = measured_choices(p, r["output"])
+        if cap === nothing
+            push!(out, "$where: `measure` does not match the recorded output with one capture group")
+        elseif length(hold) != 1
+            push!(out, "$where: the measured value $cap selects $(length(hold)) choices (exactly one must hold)")
+        elseif only(hold) != p.answer
+            push!(out, "$where: the measured value $cap selects choice $(only(hold)), but the answer is $(p.answer)")
+        end
+    end
+    return out
+end
+
 # Phrases that carry no information in teaching prose (marketing words, filler
 # transitions, chatbot openers). The course says what a thing does and shows
 # it; `prose_problems` keeps that mechanical. Matched case-insensitively on
@@ -526,6 +629,11 @@ function unit_prose(u::Unit)
     for s in u.sections
         push!(out, ("'$(s.title)'", s.title * "\n" * strip_code(s.body)))
         append!(out, [("'$(s.title)' caption", e.caption * "\n" * e.notice) for e in s.examples])
+        for e in s.examples
+            p = e.predict
+            p === nothing && continue
+            push!(out, ("'$(s.title)' prediction", strip_code(join(vcat(p.prompt, p.choices, p.explain), "\n"))))
+        end
         for q in s.questions
             txt = join(vcat(q.prompt, q.explain, q.misconceptions, q.kind == "choice" ? q.choices : String[]), "\n")
             push!(out, ("'$(s.title)' question", strip_code(txt)))
@@ -593,6 +701,8 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
         for s in u.sections, e in s.examples
             isempty(strip(e.code)) && push!(problems, "$(u.id): empty example in '$(s.title)'")
             e.mode in ("repl", "file") || push!(problems, "$(u.id): example mode must be repl or file")
+            e.predict === nothing ||
+                append!(problems, ["$(u.id) '$(s.title)' prediction: $m" for m in prediction_problems(e.predict, e, u.kcs)])
         end
         for s in u.sections, (i, q) in enumerate(s.questions)
             append!(problems, ["$(u.id) '$(s.title)' question $i: $m" for m in question_problems(q)])

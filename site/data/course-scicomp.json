@@ -632,7 +632,19 @@
               "mode": "repl",
               "notice": "Notice the orders: Euler sits at 1, Heun approaches 2, and RK4 climbs towards 4 only as `h` shrinks (2.8 at the coarsest pair): the `C h^p` model is a statement about small `h`.",
               "ok": true,
-              "output": "Euler errors [0.014, 0.0066, 0.0033, 0.0016, 0.00082]\n      orders [1.02, 1.01, 1.01, 1.0]\nHeun  errors [0.0014, 0.00037, 9.6e-5, 2.4e-5, 6.1e-6]\n      orders [1.89, 1.96, 1.98, 1.99]\nRK4   errors [1.3e-7, 1.9e-8, 2.0e-9, 1.5e-10, 9.9e-12]\n      orders [2.79, 3.29, 3.76, 3.9]\n"
+              "output": "Euler errors [0.014, 0.0066, 0.0033, 0.0016, 0.00082]\n      orders [1.02, 1.01, 1.01, 1.0]\nHeun  errors [0.0014, 0.00037, 9.6e-5, 2.4e-5, 6.1e-6]\n      orders [1.89, 1.96, 1.98, 1.99]\nRK4   errors [1.3e-7, 1.9e-8, 2.0e-9, 1.5e-10, 9.9e-12]\n      orders [2.79, 3.29, 3.76, 3.9]\n",
+              "predict": {
+                "answer": 3,
+                "choices": [
+                  "About 4 (3.95 or more)",
+                  "Between 3.5 and 3.95",
+                  "Below 3.5"
+                ],
+                "explain": "The order describes small `h`. At `h = 0.2` the higher terms of RK4's error still count, so the first pair gives 2.79, and the order climbs towards 4 as `h` shrinks. A slope from coarse steps alone can make a correct method look wrong.",
+                "kc": "convergence-order",
+                "measured": "2.79",
+                "prompt": "RK4 is a fourth-order method. Before the output is shown: what observed order does it give between 10 and 20 steps (`h = 0.2` and `h = 0.1`)?"
+              }
             },
             {
               "caption": "RK4 with a thousand times more steps: the error at 100 steps, and the error at 100,000 steps against what `C h^4` predicts from it (a ratio, since the digits near the rounding floor depend on the CPU).",
@@ -776,7 +788,20 @@
               "mode": "repl",
               "notice": "Notice that the global error falls with the tolerance and stays below it here (about 0.4 times `tol`), on a problem whose nearby solutions converge (`u' = -u + ...` damps old errors).",
               "ok": true,
-              "output": "tol = 0.001   global error at t = 10: 0.0004\ntol = 1.0e-5  global error at t = 10: 4.0e-6\ntol = 1.0e-7  global error at t = 10: 4.0e-8\n"
+              "output": "tol = 0.001   global error at t = 10: 0.0004\ntol = 1.0e-5  global error at t = 10: 4.0e-6\ntol = 1.0e-7  global error at t = 10: 4.0e-8\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "Below `1e-6`",
+                  "Between `1e-6` and `tol`",
+                  "Between `tol` and `1e-4`",
+                  "Above `1e-4`"
+                ],
+                "explain": "The controller keeps each step's scaled error estimate below 1, and this problem damps old errors (`u' = -u + ...`), so they do not pile up: the global error ends at about 0.4 times `tol`. On a problem whose nearby solutions do not converge, the same controller ends above `tol`, as the limit cycle later in this unit shows.",
+                "kc": "adaptive-step-control",
+                "measured": "4.0e-6",
+                "prompt": "The tolerance bounds each step's error estimate. Before the output is shown: at `tol = 1e-5`, where will the global error at `t = 10` be?"
+              }
             }
           ],
           "questions": [
@@ -2263,7 +2288,19 @@
               "mode": "repl",
               "notice": "Notice the jump between `h = 0.019` and `h = 0.021`: a 10% longer step turns a decay into growth by a factor of 13,800. Notice also that `h = 0.019` gives the same size as `h = 0.001`, because `(-0.9)^100 = 0.9^100`: stable, with the sign flipping each step.",
               "ok": true,
-              "output": "h = 0.001   1 + hλ = 0.9     u after 100 steps = 2.66e-5\nh = 0.019   1 + hλ = -0.9    u after 100 steps = 2.66e-5\nh = 0.021   1 + hλ = -1.1    u after 100 steps = 13800.0\nh = 0.03    1 + hλ = -2.0    u after 100 steps = 1.27e30\n"
+              "output": "h = 0.001   1 + hλ = 0.9     u after 100 steps = 2.66e-5\nh = 0.019   1 + hλ = -0.9    u after 100 steps = 2.66e-5\nh = 0.021   1 + hλ = -1.1    u after 100 steps = 13800.0\nh = 0.03    1 + hλ = -2.0    u after 100 steps = 1.27e30\n",
+              "predict": {
+                "answer": 3,
+                "choices": [
+                  "Within `0.001` of zero: it still decays",
+                  "Between `0.001` and `100`: it hardly moves",
+                  "Above `100`: it grows"
+                ],
+                "explain": "Each step multiplies `u` by `1 + hλ = -1.1`, so 100 steps give `1.1^100`, about 13,800. Crossing `|1 + hλ| = 1` does not make the result a little worse: the growth compounds at every step.",
+                "kc": "stability",
+                "measured": "13800.0",
+                "prompt": "The limit is `h = 0.02`, and `h = 0.021` is 5% above it. Before the output is shown: where is `u` after 100 steps from `u = 1`?"
+              }
             }
           ],
           "questions": [
@@ -2444,7 +2481,18 @@
               "mode": "repl",
               "notice": "Notice that the trapezoidal rule, the more accurate method for small steps, here produces negative temperatures and a large error: the fast modes of the sharp block are multiplied by nearly -1 each step. Backward Euler damps them and stays close.",
               "ok": true,
-              "output": "backward Euler: min = 0.007, max error = 0.017\ntrapezoidal:    min = -0.138, max error = 0.38\n"
+              "output": "backward Euler: min = 0.007, max error = 0.017\ntrapezoidal:    min = -0.138, max error = 0.38\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "Yes: a stable method keeps the solution's sign",
+                  "No: it goes below zero"
+                ],
+                "explain": "Stable means no mode grows, not that each mode is damped. The trapezoidal factor for the block's fast modes is close to `-1`, so they survive and flip sign each step, and the sum dips below zero. Backward Euler's factor for them is close to 0: it damps them (L-stability).",
+                "kc": "implicit-methods",
+                "measured": "-0.138",
+                "prompt": "The heat equation never makes a temperature negative, and both methods are stable at this step. Before the output is shown: does the trapezoidal rule's solution stay at or above zero?"
+              }
             }
           ],
           "questions": [

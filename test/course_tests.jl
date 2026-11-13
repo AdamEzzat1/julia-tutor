@@ -162,6 +162,52 @@ P_with(; compare = "isequal", checker = "", packages = String[]) =
     @test any(contains("not in course/envs"), bad(P_with(packages = ["Flux"])))
 end
 
+@testset "predict, then run: the key is read from the recorded output" begin
+    Pr(; kc = "k", measure = raw"order (\S+)", choices = ["about 4", "below 3.5"], ranges = [(3.95, Inf), (-Inf, 3.5)],
+       values = String[], answer = 2) = Course.Prediction(kc, "What order?", measure, choices, ranges, values, answer, "why")
+    E(p; check = true) = Course.Example("println(1)", check, "c", "repl", "", p)
+    ok(p; check = true) = Course.prediction_problems(p, E(p; check), ["k"])
+    @test ok(Pr()) == String[]
+    @test any(contains("not one of the unit's kcs"), ok(Pr(; kc = "other")))
+    @test any(contains("check = false"), ok(Pr(); check = false))       # an uncompared output cannot carry a key
+    @test any(contains("not a regular expression"), ok(Pr(; measure = "(")))
+    @test any(contains("either ranges"), ok(Pr(; values = ["a", "b"])))
+    @test any(contains("either ranges"), ok(Pr(; ranges = Tuple{Float64,Float64}[])))
+    @test any(contains("one range per choice"), ok(Pr(; ranges = [(0.0, 1.0)])))
+    @test any(contains("lo < hi"), ok(Pr(; ranges = [(2.0, 1.0), (3.0, 4.0)])))
+    @test any(contains("overlap"), ok(Pr(; ranges = [(0.0, 2.0), (1.0, 3.0)])))
+    @test any(contains("index"), ok(Pr(; answer = 3)))
+
+    # half-open ranges: the boundary belongs to the upper choice only
+    @test Course.measured_choices(Pr(), "order 2.79\n") == ([2], "2.79")
+    @test Course.measured_choices(Pr(), "order 3.95\n") == ([1], "3.95")
+    @test Course.measured_choices(Pr(), "order 3.7\n") == (Int[], "3.7")          # in the gap: no choice holds
+    @test Course.measured_choices(Pr(), "order NaNx\n") == (Int[], "NaNx")        # not a number
+    @test Course.measured_choices(Pr(), "no match\n") == (Int[], nothing)
+    @test Course.measured_choices(Pr(; measure = raw"order \S+"), "order 2\n") == (Int[], nothing)   # no capture group
+    w = Pr(; ranges = Tuple{Float64,Float64}[], values = ["true", "false"], measure = raw"holds: (\w+)", answer = 1)
+    @test Course.measured_choices(w, "holds: TRUE") == ([1], "TRUE")              # words: case-insensitive
+
+    unit(p) = Course.Unit("99-x", "x", "core", "base", "ready", "s", ["k"], String[], String[], String[],
+                          [Course.Section("s", "b", [E(p)], Course.Question[])], Course.Problem[])
+    rec(out) = Dict("examples" => Dict(Course.example_key("println(1)", "repl") => Dict("output" => out)))
+    @test Course.prediction_key_problems(unit(Pr()), rec("order 2.79\n")) == String[]
+    @test any(contains("selects choice 1, but the answer is 2"), Course.prediction_key_problems(unit(Pr()), rec("order 4.01\n")))
+    @test any(contains("selects 0 choices"), Course.prediction_key_problems(unit(Pr()), rec("order 3.7\n")))
+    @test any(contains("does not match"), Course.prediction_key_problems(unit(Pr()), rec("changed\n")))
+    @test any(contains("no recorded output"), Course.prediction_key_problems(unit(Pr()), Dict("examples" => Dict())))
+
+    # the course's own predictions, against the outputs recorded in the repository
+    units = Course.load_course()
+    preds = [(u, e) for u in units for s in u.sections for e in s.examples if e.predict !== nothing]
+    @test length(preds) >= 4
+    @test all(u -> Course.prediction_key_problems(u, Course.load_outputs(u)) == String[], units)
+    @test length(unique(e.predict.kc for (_, e) in preds)) >= 4               # hit rates over several KCs
+    site = [e["predict"] for s in SiteData.course_data()["units"] for sec in s["sections"] for e in sec["examples"]
+            if haskey(e, "predict")]
+    @test length(site) == length(preds) && all(p -> p["measured"] isa String, site)
+end
+
 @testset "course prose: no filler phrases" begin
     u = Course.Unit("99-x", "x", "core", "base", "ready", "A seamless way to do it.", String[], String[], String[],
                     String[], [Course.Section("s", "Plain text, with `robust` in code and an em dash — here.", Course.Example[],

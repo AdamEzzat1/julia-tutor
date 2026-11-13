@@ -17,6 +17,21 @@ export interface Example {
   output: string | null; // null: not recorded yet
   ok: boolean | null;
   images: string[]; // recorded figures, as site paths (assets/figures/<unit>/<file>)
+  predict?: Prediction; // commit a prediction before the output is shown (see predict.ts); absent for most examples
+}
+
+/**
+ * A prediction on an example. `answer` is the choice the recorded output
+ * selects (read from it by `tutor course verify`, not typed); `measured` is
+ * the value it was read from, shown with the output.
+ */
+export interface Prediction {
+  kc: string;
+  prompt: string;
+  choices: string[];
+  answer: number; // 1-based
+  explain: string;
+  measured: string;
 }
 
 /**

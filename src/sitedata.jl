@@ -152,11 +152,21 @@ function course_data()
             examples = Any[]
             for e in s.examples
                 r = get(exs, Course.example_key(e.code, e.mode), nothing)
-                push!(examples, Dict("code" => rstrip(e.code), "caption" => e.caption, "notice" => e.notice, "mode" => e.mode,
-                                     "check" => e.check, "output" => r === nothing ? nothing : r["output"],
-                                     "ok" => r === nothing ? nothing : r["ok"],
-                                     "images" => r === nothing ? Any[] :
-                                         Any["assets/figures/$(u.id)/$f" for f in get(r, "images", Any[])]))
+                p = e.predict
+                # The site shows the measured value with the output; only a key
+                # that `tutor course verify` would accept is exported.
+                pred = p === nothing || r === nothing ? nothing : begin
+                    hold, cap = Course.measured_choices(p, r["output"])
+                    hold == [p.answer] ? Dict("kc" => p.kc, "prompt" => strip(p.prompt), "choices" => p.choices,
+                                              "answer" => p.answer, "explain" => strip(p.explain), "measured" => cap) : nothing
+                end
+                ed = Dict{String,Any}("code" => rstrip(e.code), "caption" => e.caption, "notice" => e.notice, "mode" => e.mode,
+                                      "check" => e.check, "output" => r === nothing ? nothing : r["output"],
+                                      "ok" => r === nothing ? nothing : r["ok"],
+                                      "images" => r === nothing ? Any[] :
+                                          Any["assets/figures/$(u.id)/$f" for f in get(r, "images", Any[])])
+                pred === nothing || (ed["predict"] = pred)     # only examples that have one carry the key
+                push!(examples, ed)
             end
             questions = Any[Dict("kind" => q.kind, "prompt" => strip(q.prompt), "code" => rstrip(q.code),
                                  "choices" => q.choices, "answer" => q.answer, "explain" => strip(q.explain),
