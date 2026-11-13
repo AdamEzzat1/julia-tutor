@@ -114,5 +114,73 @@ end
         path = Cases.site_page_path(c)
         @test isfile(path)
         @test replace(read(path, String), "\r\n" => "\n") == Cases.site_page(c)    # `tutor case site` was run
+        @test occursin("tutor case estimate <dir> verlet_nper <value>", md)       # the brief says how to commit
+        @test occursin("before your first `tutor case check <dir> 3`", md)
+    end
+
+    @testset "estimate before you compute" begin
+        CE = Cases.CommittedEstimate
+        none = CE[]
+        # refusals: unknown id, not a number, zero, no reason, multi-line, too long, already committed
+        @test occursin("no estimate `nope`", Cases.estimate_problem(c, "nope", "10", "r", none))
+        @test occursin("not a number", Cases.estimate_problem(c, "verlet_nper", "lots", "r", none))
+        @test occursin("not a number", Cases.estimate_problem(c, "verlet_nper", "Inf", "r", none))
+        @test occursin("0 cannot", Cases.estimate_problem(c, "verlet_nper", "0", "r", none))
+        @test occursin("without its reasoning", Cases.estimate_problem(c, "verlet_nper", "1e4", "  ", none))
+        @test occursin("one line", Cases.estimate_problem(c, "verlet_nper", "1e4", "a\nb", none))
+        @test occursin("longer than", Cases.estimate_problem(c, "verlet_nper", "1e4", "x"^301, none))
+        done = [CE("verlet_nper", "1e4", 1e4, "order 2 from one run", 0)]
+        @test occursin("already committed", Cases.estimate_problem(c, "verlet_nper", "2e4", "r", done))
+        @test Cases.estimate_problem(c, "verlet_nper", "1e4", "order 2 from one run", none) === nothing
+
+        # orders of magnitude, both directions, at the band edges
+        @test startswith(Cases.magnitude_feedback(1e4, 1.9e4), "within a factor of 2")
+        @test startswith(Cases.magnitude_feedback(1e4, 5.1e3), "within a factor of 2")
+        @test startswith(Cases.magnitude_feedback(1e4, 9.9e4), "within a factor of 10")
+        @test startswith(Cases.magnitude_feedback(1e4, 1.1e3), "within a factor of 10")
+        @test occursin("off by 2.0 orders of magnitude; the measured value is larger", Cases.magnitude_feedback(1e2, 1e4))
+        @test occursin("smaller", Cases.magnitude_feedback(1e6, 1e3))
+        @test occursin("sign differs", Cases.magnitude_feedback(-5, 5))
+        @test occursin("not a number", Cases.magnitude_feedback(1, nothing))
+        @test occursin("is 0", Cases.magnitude_feedback(1, 0))
+
+        est = [("verlet_nper", "20000", "nper_verlet", 12800)]
+        blind = Cases.estimate_lines(est, [CE("verlet_nper", "2e4", 2e4, "one run, order 2", 0)])
+        @test any(l -> occursin("committed: 2e4, before your first study check: a blind estimate", l), blind)
+        @test any(l -> occursin("how you got it: one run, order 2", l), blind)
+        @test !any(l -> occursin("not the committed", l), blind)        # 20000 == 2e4 as numbers
+        @test any(l -> occursin("committed estimate: within a factor of 2", l), blind)
+        late = Cases.estimate_lines(est, [CE("verlet_nper", "1.3e4", 1.3e4, "read it off a check", 2)])
+        @test any(l -> occursin("after 2 study check(s)", l) && occursin("not a blind estimate", l), late)
+        @test any(l -> occursin("not the committed 1.3e4", l), late)   # the report changed the estimate
+        nc = Cases.estimate_lines(est, CE[])
+        @test any(l -> occursin("not committed", l), nc)
+        @test any(l -> occursin("report estimate: within a factor of 2", l), nc)
+
+        # the record: commit, refuse a second commit, count study checks, keep the order
+        mktempdir() do dir
+            ok, msg = Cases.commit_estimate(c, dir, "verlet_nper", "1e4", "  order 2, one run at h = 0.01  ")
+            @test ok && occursin("before any study check", msg)
+            ok2, msg2 = Cases.commit_estimate(c, dir, "verlet_nper", "2e4", "changed my mind")
+            @test !ok2 && occursin("already committed", msg2)
+            es, n = Cases.load_estimates(dir)
+            @test n == 0 && only(es).reason == "order 2, one run at h = 0.01" && only(es).study_checks_before == 0
+            Cases.save_estimates(dir, es, 3)
+            rm(joinpath(dir, Cases.ESTIMATES_FILE))
+            Cases.save_estimates(dir, CE[], 3)                          # three checks ran, then a late commit
+            ok3, msg3 = Cases.commit_estimate(c, dir, "verlet_nper", "12800", "copied from the check")
+            @test ok3 && occursin("not a blind estimate", msg3)
+            @test only(first(Cases.load_estimates(dir))).study_checks_before == 3
+        end
+
+        # assess: without a record the old text is unchanged; with one, the new block
+        text = replace(read(Cases.reference_report(c), String), "\r\n" => "\n")
+        vals = written_values(c, text)
+        raw = Dict{String,Any}("complete" => true, "runs" => Any[])    # acceptance results are not under test here
+        _, plain = Cases.assess(c, 3, raw, vals, vals, text)
+        @test occursin("verlet_nper: you estimated 10000; you measured nper_verlet = ", plain)
+        _, rec = Cases.assess(c, 3, raw, vals, vals, text; committed = [CE("verlet_nper", "1e4", 1e4, "r", 0)])
+        @test occursin("committed: 1e4, before your first study check", rec)
+        @test !occursin("you estimated", rec)
     end
 end

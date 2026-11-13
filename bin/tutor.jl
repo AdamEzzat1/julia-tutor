@@ -749,7 +749,8 @@ const CASE_USAGE = """
 usage: tutor case list
        tutor case show <case> [--rubric]
        tutor case start <case> <dir>
-       tutor case check <dir> <milestone> [--sandbox=docker|none]
+       tutor case estimate <dir> <id> <value> "<how you got it>"
+       tutor case check <dir> <milestone> [--sandbox=docker|none] [--no-record]
        tutor case verify [case...] [--sandbox=docker|none]
        tutor case site [case...] [--check]"""
 
@@ -782,9 +783,15 @@ function cmd_case(args)
         dir = pos[2]; c = Cases.case_of(dir)
         c === nothing && (println("$dir was not created by `tutor case start` or `tutor start` for a case project"); return 1)
         use_sandbox!(vcat(filter(a -> !startswith(a, "--sandbox="), args), "--sandbox=$(flag(args, "sandbox", "docker"))")) || return 2
-        passed, text = Cases.check(c, dir, parse(Int, pos[3]))
+        passed, text = Cases.check(c, dir, parse(Int, pos[3]); record = !hasflag(args, "no-record"))
         print(text)
         return passed ? 0 : 1
+    elseif sub == "estimate" && length(pos) == 5
+        dir = pos[2]; c = Cases.case_of(dir)
+        c === nothing && (println("$dir was not created by `tutor case start` or `tutor start` for a case project"); return 1)
+        ok, msg = Cases.commit_estimate(c, dir, pos[3], pos[4], pos[5])
+        println(ok ? msg : "refused: " * msg)
+        return ok ? 0 : 1
     elseif sub == "verify"
         names = length(pos) > 1 ? pos[2:end] : Cases.case_names()
         use_sandbox!(vcat(filter(a -> !startswith(a, "--sandbox="), args), "--sandbox=$(flag(args, "sandbox", "docker"))")) || return 2

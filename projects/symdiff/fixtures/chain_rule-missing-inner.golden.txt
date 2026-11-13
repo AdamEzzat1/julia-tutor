@@ -8,7 +8,7 @@ Start here: hole `chain_rule` at src/SymDiff.jl:464
 Tests: 13/14 testsets pass
   FAIL SymDiff/derivative: chain rule and elementary functions  [17 failed, 0 errored; depends on: canonical_sum, chain_rule, product_rule]
        test/runtests.jl:157 FAIL derivative(@term(exp(2x)), :x) == simplify(@term(2 * exp(2x)))  evaluated: exp(2x) == 2 * exp(2x)
-       test/runtests.jl:167 FAIL isapprox(num(derivative(f, :x), v), df(v); rtol = RTOL_ELEMENTARY)  evaluated: isapprox(0.9959527330119943, 0.5975716398071965; rtol = 2.220446049250313e-13)
+       test/runtests.jl:167 FAIL isapprox(num(derivative(f, :x), v), df(v); rtol = RTOL_ELEMENTARY)  evaluated: isapprox(0.99595273, 0.59757164; rtol = 2.220446e-13)
 
 Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
   1. chain_rule         1.0   implemented  failing-deps=1 passing-deps=0  src/SymDiff.jl:464
