@@ -177,6 +177,18 @@ function course_data()
                                         "ratios" => [round(x; sigdigits = 3) for x in sc.ratios],
                                         "verdicts" => sc.verdicts)
                 end
+                b = e.breakit
+                if b !== nothing && r !== nothing && isempty(Course.breakit_output_problems(b, r["output"]))
+                    sc = Course.score_breakit(b, r["output"])
+                    ed["breakit"] = Dict("kc" => b.kc, "prompt" => strip(b.prompt), "param" => b.param,
+                                         "measure" => b.measure, "fails" => b.fails, "limit" => b.limit,
+                                         "close" => b.close, "edge" => [sc.edge...], "side" => sc.side,
+                                         "probe" => rstrip(b.probe), "row" => b.row, "explain" => strip(b.explain),
+                                         "short" => strip(b.short), "past" => strip(b.past),
+                                         # the measured sweep; `m` as text, since it may be Inf or NaN
+                                         "rows" => Any[Dict("p" => p, "m" => repr(m), "failed" => f)
+                                                       for (p, m, f) in zip(sc.ps, sc.ms, sc.failed)])
+                end
                 push!(examples, ed)
             end
             questions = Any[Dict("kind" => q.kind, "prompt" => strip(q.prompt), "code" => rstrip(q.code),

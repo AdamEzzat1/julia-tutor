@@ -2398,6 +2398,77 @@
               "notice": "Notice that at the start only one eigenvalue is nonzero, so nothing is stiff yet, but as soon as some B exists an eigenvalue in the thousands appears beside one below 1 in size, and the ratio exceeds 10,000. One zero eigenvalue remains at every state: the conserved total.",
               "ok": true,
               "output": "u = [1.0, 0.0, 0.0]:  nonzero eigenvalues [-0.04], zero ones: 2, ratio 1.0\nu = [0.9, 3.4e-5, 0.1]:  nonzero eigenvalues [-3040.0, -0.255], zero ones: 1, ratio 12000.0\nu = [0.5, 6.0e-6, 0.5]:  nonzero eigenvalues [-5360.0, -0.00672], zero ones: 1, ratio 800000.0\n"
+            },
+            {
+              "breakit": {
+                "close": 1.25,
+                "edge": [
+                  0.23,
+                  0.25
+                ],
+                "explain": "With `λ = a + bi`, forward Euler multiplies `u` by `1 + hλ` at every step, and `|1 + hλ|^2 = (1 + ha)^2 + (hb)^2`. Setting it to 1 gives `h = -2a / (a^2 + b^2) = 6 / 25 = 0.24`, and the sweep changes between 0.23 and 0.25. A step of 0.25 has `|1 + hλ| = 1.031`: only 3% growth per step, but 100 steps compound it to about 20.",
+                "fails": "above",
+                "kc": "stability",
+                "limit": 1.0,
+                "measure": "|u| after 100 steps (from 1)",
+                "param": "h",
+                "past": "Forward Euler already grows there. If you used `2 / |λ| = 0.4`, that is the limit for a real eigenvalue of the same size: for a complex `λ` the stable steps fill a disk, and the imaginary part pulls the limit down to `-2a / |λ|^2 = 0.24`.",
+                "probe": "λ = -3.0 + 4.0im\nh = {{p}}\nu = 1.0 + 0.0im\nfor _ in 1:100\n    u += h * λ * u\nend\nprintln(\"h = \", h, \"  |1 + hλ| = \", round(abs(1 + h * λ); digits = 3), \"  |u| after 100 steps = \", round(abs(u); sigdigits = 3))",
+                "prompt": "The exact solution of `u' = λu` with `λ = -3 + 4i` decays while it rotates. Find the largest step `h` at which forward Euler still makes `|u|` decay over 100 steps from `u = 1`. Work it out from the condition above, or try steps with the probe if a server is connected, then commit the edge.",
+                "row": "h = (?<p>\\S+) .*\\|u\\| after 100 steps = (?<m>\\S+)",
+                "rows": [
+                  {
+                    "failed": false,
+                    "m": "4.42e-10",
+                    "p": 0.1
+                  },
+                  {
+                    "failed": false,
+                    "m": "1.43e-5",
+                    "p": 0.2
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.00295",
+                    "p": 0.22
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0518",
+                    "p": 0.23
+                  },
+                  {
+                    "failed": true,
+                    "m": "20.7",
+                    "p": 0.25
+                  },
+                  {
+                    "failed": true,
+                    "m": "451.0",
+                    "p": 0.26
+                  },
+                  {
+                    "failed": true,
+                    "m": "1.17e8",
+                    "p": 0.3
+                  },
+                  {
+                    "failed": true,
+                    "m": "5.61e20",
+                    "p": 0.4
+                  }
+                ],
+                "short": "At that step `|1 + hλ|` is still below 1, so `|u|` shrinks: the method works there. The edge is the step where `|1 + hλ|` reaches 1, which is longer.",
+                "side": "high"
+              },
+              "caption": "Forward Euler on `u' = λu` with the complex eigenvalue `λ = -3 + 4i`, 100 steps from `u = 1` at eight step sizes; the step's growth factor `|1 + hλ|` and the size of `u` at the end (rounded).",
+              "check": true,
+              "code": "λ = -3.0 + 4.0im\nfor h in (0.1, 0.2, 0.22, 0.23, 0.25, 0.26, 0.3, 0.4)\n    u = 1.0 + 0.0im\n    for _ in 1:100\n        u += h * λ * u\n    end\n    println(\"h = \", rpad(h, 5), \"  |1 + hλ| = \", rpad(round(abs(1 + h * λ); digits = 3), 6),\n            \"  |u| after 100 steps = \", round(abs(u); sigdigits = 3))\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that `|u|` shrinks at every step up to `h = 0.23` and grows from `h = 0.25` on, and that the change sits where `|1 + hλ|` crosses 1, not at `2 / |λ| = 0.4`.",
+              "ok": true,
+              "output": "h = 0.1    |1 + hλ| = 0.806   |u| after 100 steps = 4.42e-10\nh = 0.2    |1 + hλ| = 0.894   |u| after 100 steps = 1.43e-5\nh = 0.22   |1 + hλ| = 0.943   |u| after 100 steps = 0.00295\nh = 0.23   |1 + hλ| = 0.971   |u| after 100 steps = 0.0518\nh = 0.25   |1 + hλ| = 1.031   |u| after 100 steps = 20.7\nh = 0.26   |1 + hλ| = 1.063   |u| after 100 steps = 451.0\nh = 0.3    |1 + hλ| = 1.204   |u| after 100 steps = 1.17e8\nh = 0.4    |1 + hλ| = 1.612   |u| after 100 steps = 5.61e20\n"
             }
           ],
           "questions": [
@@ -5167,6 +5238,77 @@
               "notice": "Notice that the two fits have the same sum of squares but different `k_a`, `V_1`, `Q` and `V_2`: the second start found the solution in which absorption and distribution trade rates (`k_a ≈ 0.45`, the first fit's distribution rate). The clearance is the same in both, within about 4% of the true 5 L/h, and its standard error is about 4%: the data determine it, and not which phase is absorption.",
               "ok": true,
               "output": "start                          fit (ka, CL, V1, Q, V2)              sum of squares   SE(CL)/CL\n[3.0, 8.0, 30.0, 6.0, 40.0]    [2.275, 5.219, 21.09, 3.747, 58.41]  0.23767263       0.041\n[0.5, 4.0, 10.0, 4.0, 60.0]    [0.4543, 5.219, 4.213, 4.241, 66.09] 0.23767263       0.041\nsums of squares equal to 1e-9 relative: true\n"
+            },
+            {
+              "breakit": {
+                "close": 1.25,
+                "edge": [
+                  1.4,
+                  1.45
+                ],
+                "explain": "Each column of `J` is how the log concentration moves with one parameter. As `k2` approaches `k1`, the columns for the two phases approach each other, `JᵀJ` approaches a singular matrix, and its inverse (the variances) grows without bound. The sweep changes between 1.4 and 1.45. This is a property of the design (the sample times and the noise), so it can be checked before any data exist. More samples, or less noise, move the edge to smaller ratios. The precision is lost the other way too: if the fast phase ends before the first sample, nothing measures it.",
+                "fails": "above",
+                "kc": "parameter-identifiability",
+                "limit": 0.5,
+                "measure": "worst relative SE of (A, B, k1, k2)",
+                "param": "k2/k1",
+                "past": "The parameters are lost there, and already at larger ratios. Two rates do not need to be nearly equal to blur: with 12 samples and 10% noise, the precision goes long before `k2 / k1` reaches 1.1.",
+                "probe": "using LinearAlgebra\ntobs = [0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24]\nfunction worst_se(ρ; k1 = 0.5, σ = 0.1)\n    k2 = ρ * k1\n    e1, e2 = exp.(-k1 .* tobs), exp.(-k2 .* tobs)\n    c = e1 .+ e2\n    J = hcat(e1 ./ c, e2 ./ c, -k1 .* tobs .* e1 ./ c, -k2 .* tobs .* e2 ./ c)\n    return maximum(sqrt.(σ^2 .* diag(inv(J' * J))))\nend\nρ = {{p}}\nprintln(\"k2/k1 = \", ρ, \"  worst relative SE = \", round(worst_se(ρ); sigdigits = 3))",
+                "prompt": "Call a parameter identified when its relative standard error is at most 0.5 (a 95% interval within about a factor of 2.7 either way; a convention, not a law). Find the rate ratio `k2 / k1` below which these 12 samples no longer identify all four parameters. Try ratios with the probe if a server is connected, then commit the edge.",
+                "row": "k2/k1 = (?<p>\\S+) +worst relative SE = (?<m>\\S+)",
+                "rows": [
+                  {
+                    "failed": true,
+                    "m": "20.8",
+                    "p": 1.1
+                  },
+                  {
+                    "failed": true,
+                    "m": "2.88",
+                    "p": 1.2
+                  },
+                  {
+                    "failed": true,
+                    "m": "1.02",
+                    "p": 1.3
+                  },
+                  {
+                    "failed": true,
+                    "m": "0.537",
+                    "p": 1.4
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.427",
+                    "p": 1.45
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.354",
+                    "p": 1.5
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.265",
+                    "p": 1.6
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.206",
+                    "p": 1.8
+                  }
+                ],
+                "short": "At that ratio the two phases are still far enough apart: every relative standard error is below 0.5. The edge is at a smaller ratio, where the phases begin to look like one.",
+                "side": "low"
+              },
+              "caption": "How well can the same 12 sample times and a 10% log error separate two exponential phases, `c(t) = A exp(-k1 t) + B exp(-k2 t)` with `A = B = 1` and `k1 = 0.5`, as the rate ratio `k2 / k1` shrinks? The standard errors `sqrt(σ² (JᵀJ)⁻¹)` of the four log parameters at the true values, with `σ = 0.1`; the largest of the four is printed (rounded). No data are simulated: this is the precision the design can give, before any fit.",
+              "check": true,
+              "code": "using LinearAlgebra\ntobs = [0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24]\nfunction worst_se(ρ; k1 = 0.5, σ = 0.1)\n    k2 = ρ * k1\n    e1, e2 = exp.(-k1 .* tobs), exp.(-k2 .* tobs)                   # A = B = 1\n    c = e1 .+ e2\n    J = hcat(e1 ./ c, e2 ./ c, -k1 .* tobs .* e1 ./ c, -k2 .* tobs .* e2 ./ c)   # ∂ log c / ∂ log(A, B, k1, k2)\n    return maximum(sqrt.(σ^2 .* diag(inv(J' * J))))\nend\nfor ρ in (1.1, 1.2, 1.3, 1.4, 1.45, 1.5, 1.6, 1.8)\n    println(\"k2/k1 = \", rpad(ρ, 5), \"  worst relative SE = \", round(worst_se(ρ); sigdigits = 3))\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice how fast the precision goes: the worst standard error is 0.35 at a ratio of 1.5, 0.54 at 1.4, and 21 at 1.1. Below a ratio of about 1.4 the two phases look like one, and the fit can trade amplitude and rate between them.",
+              "ok": true,
+              "output": "k2/k1 = 1.1    worst relative SE = 20.8\nk2/k1 = 1.2    worst relative SE = 2.88\nk2/k1 = 1.3    worst relative SE = 1.02\nk2/k1 = 1.4    worst relative SE = 0.537\nk2/k1 = 1.45   worst relative SE = 0.427\nk2/k1 = 1.5    worst relative SE = 0.354\nk2/k1 = 1.6    worst relative SE = 0.265\nk2/k1 = 1.8    worst relative SE = 0.206\n"
             }
           ],
           "questions": [

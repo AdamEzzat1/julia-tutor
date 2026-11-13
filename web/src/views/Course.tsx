@@ -10,8 +10,9 @@ import {
 } from "../course";
 import { predictionKey, predictionRates, settlePrediction, unitPredictionKeys, type PredictionRecord } from "../predict";
 import { choiceRates, costText, MAX_REASON, reasonOk, settleChoice, unitChoiceKeys, type ChoiceRecord } from "../choose";
+import { breakRates, juliaNumber, parseValue, probeCode, readProbe, settleBreak, sweepWith, unitBreakKeys, type BreakRecord } from "../breakit";
 import { loadProgress, saveProgress, type Progress } from "../progress";
-import { gradeCode, useServer, type GradeResult } from "../server";
+import { gradeCode, runCode, useServer, type GradeResult, type RunResult } from "../server";
 
 // A course's tracks, in track order (a track is listed once it has a unit).
 const tracksOf = (c: CourseInfo) => course.tracks.filter((t) => course.units.some((u) => u.course === c.id && u.track === t));
@@ -69,6 +70,9 @@ export function CourseView() {
   // A method choice too: the first record (pick, reason, verdict) is kept.
   const chose = (key: string, r: ChoiceRecord) =>
     setProgress((s) => s.choices[key] ? s : saveProgress({ ...s, choices: { ...s.choices, [key]: r } }));
+  // A break-it edge too: the first committed value is kept.
+  const broke = (key: string, r: BreakRecord) =>
+    setProgress((s) => s.breaks[key] ? s : saveProgress({ ...s, breaks: { ...s.breaks, [key]: r } }));
 
   return (
     <div className="jt-split jt-course" ref={top}>
@@ -106,7 +110,7 @@ export function CourseView() {
         {unit === null ? <Overview c={active} progress={progress} go={go} /> :
           <UnitPage key={unit.id} unit={unit} problemId={problemId} progress={progress}
             openProblem={(p) => { setProblemId(p); writeParams(unit.id, p, active.id); }} onSolved={solved}
-            onAnswered={answered} onPredicted={predicted} onChose={chose} go={go} />}
+            onAnswered={answered} onPredicted={predicted} onChose={chose} onBroke={broke} go={go} />}
       </div>
     </div>
   );
@@ -138,6 +142,7 @@ function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: 
       </section>
       <PredictionRates c={c} progress={progress} />
       <ChoiceRates c={c} progress={progress} />
+      <BreakRates c={c} progress={progress} />
       <div className="jt-tracks">
         {tracks.map((t) => {
           const units = course.units.filter((u) => u.course === c.id && u.track === t);
@@ -169,7 +174,7 @@ function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: 
   );
 }
 
-function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, onPredicted, onChose, go }: {
+function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, onPredicted, onChose, onBroke, go }: {
   unit: Unit;
   problemId: string | null;
   progress: Progress;
@@ -178,6 +183,7 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
   onAnswered: (key: string, firstTry: boolean) => void;
   onPredicted: (key: string, r: PredictionRecord) => void;
   onChose: (key: string, r: ChoiceRecord) => void;
+  onBroke: (key: string, r: BreakRecord) => void;
   go: (u: string) => void;
 }) {
   const pkeys = unitPredictionKeys(unit);
@@ -186,6 +192,9 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
   const ckeys = unitChoiceKeys(unit);
   const cmade = ckeys.filter((k) => progress.choices[k]?.pick);
   const cgood = cmade.filter((k) => progress.choices[k].verdict === "good");
+  const bkeys = unitBreakKeys(unit);
+  const bmade = bkeys.filter((k) => progress.breaks[k] && progress.breaks[k].value !== null);
+  const bfound = bmade.filter((k) => progress.breaks[k].verdict === "found");
   const qkeys = unit.sections.flatMap((s, i) => s.questions.map((_, k) => `${unit.id}/${i}/${k}`));
   const qdone = qkeys.filter((k) => progress.questions[k]);
   const qfirst = qdone.filter((k) => progress.questions[k] === "first-try");
@@ -234,6 +243,11 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               method choices: {cmade.length}/{ckeys.length}{cmade.length ? ` · ${cgood.length} good` : ""}
             </span>
           )}
+          {bkeys.length > 0 && (
+            <span className="jt-chip" title="Break-it edges committed in this browser before seeing the sweep, and how many were inside the measured edge">
+              break it: {bmade.length}/{bkeys.length}{bmade.length ? ` · ${bfound.length} found` : ""}
+            </span>
+          )}
         </div>
       </header>
 
@@ -257,7 +271,8 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               const key = predictionKey(unit.id, i, j);
               return <ExampleBlock key={j} ex={e} env={unit.env} id={key}
                 record={progress.predictions[key] ?? null} onPredicted={(r) => onPredicted(key, r)}
-                choice={progress.choices[key] ?? null} onChose={(r) => onChose(key, r)} />;
+                choice={progress.choices[key] ?? null} onChose={(r) => onChose(key, r)}
+                broke={progress.breaks[key] ?? null} onBroke={(r) => onBroke(key, r)} />;
             })}
             {s.questions.map((q, k) => (
               <QuestionBlock key={k} q={q} number={k + 1} total={s.questions.length}
@@ -438,12 +453,171 @@ function ChoiceResult({ ex, r }: { ex: Example; r: ChoiceRecord }) {
   );
 }
 
-function ExampleBlock({ ex, env, id, record, onPredicted, choice, onChose }: {
+/**
+ * Edges found per knowledge component over this course's break-it
+ * challenges, from this browser's records. Nothing is sent anywhere.
+ */
+function BreakRates({ c, progress }: { c: CourseInfo; progress: Progress }) {
+  const units = course.units.filter((u) => u.course === c.id);
+  const total = units.reduce((n, u) => n + unitBreakKeys(u).length, 0);
+  if (total === 0) return null;
+  const rates = breakRates(progress.breaks, units);
+  return (
+    <section className="jt-panel jt-pad" aria-labelledby="jt-break-rates">
+      <div className="jt-eyebrow">Break it</div>
+      <h3 id="jt-break-rates" style={{ marginTop: "0.25rem" }}>Your break-it edges, by knowledge component</h3>
+      <p className="jt-small" style={{ maxWidth: "50rem" }}>
+        {total} examples in this course ask where a method stops working before their sweep is shown. An edge counts
+        as found when it lies between the two swept values where the recorded measurement changes from working to
+        failing. Only your first value counts, and the record stays in this browser.
+      </p>
+      {rates.length === 0 ? <p className="jt-small jt-muted">No edge committed yet.</p> : (
+        <table className="jt-table jt-small">
+          <thead><tr><th scope="col">Knowledge component</th><th scope="col">Edges found</th></tr></thead>
+          <tbody>
+            {rates.map((r) => <tr key={r.kc}><td><code>{r.kc}</code></td><td>{r.found} of {r.total}</td></tr>)}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The gate before a break-it sweep: optionally run the probe at values of the
+ * learner's choice (needs `tutor serve`), then commit one value as the edge.
+ */
+function BreakGate({ ex, env, onBroke }: { ex: Example; env: string; onBroke: (r: BreakRecord) => void }) {
+  const b = ex.breakit!;
+  const { status } = useServer();
+  const connected = status.kind === "connected" && status.envs.includes(env);
+  const [edge, setEdge] = useState("");
+  const [trial, setTrial] = useState("");
+  const [runs, setRuns] = useState<{ v: number; result: RunResult | null; error: string | null }[]>([]);
+  const [running, setRunning] = useState(false);
+  const value = parseValue(edge);
+  const tv = parseValue(trial);
+  const commit = () => { if (value !== null) onBroke(settleBreak(b, value, runs.length)); };
+  const probe = async () => {
+    if (tv === null || running || !connected) return;
+    setRunning(true);
+    try {
+      const result = await runCode(probeCode(b, tv), env);
+      setRuns((rs) => [{ v: tv, result, error: null }, ...rs]);
+    } catch (e) {
+      setRuns((rs) => [{ v: tv, result: null, error: (e as Error).message }, ...rs]);
+    } finally {
+      setRunning(false);
+    }
+  };
+  return (
+    <figure className="jt-example">
+      {ex.caption && <figcaption>{md(ex.caption)}</figcaption>}
+      <Code src={ex.code} />
+      <div className="jt-question">
+        <div className="jt-eyebrow">Break it · one value, scored once</div>
+        <div className="jt-question-prompt"><Markdown text={b.prompt} /></div>
+        <div className="jt-small" style={{ margin: "0.4rem 0" }}>
+          <strong>Probe</strong> (optional): run the computation at one value of <code>{b.param}</code> in your own Julia
+          and read <em>{b.measure}</em>. It fails when that is {b.fails} {b.limit}, or NaN.
+        </div>
+        {connected ? (
+          <div className="jt-row">
+            <label className="jt-small">
+              <code>{b.param}</code> ={" "}
+              <input className="jt-input" style={{ width: "8rem" }} inputMode="decimal" value={trial} aria-label={`Value of ${b.param} to probe`}
+                onChange={(e) => setTrial(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") probe(); }} />
+            </label>
+            <button className="jt-btn" disabled={tv === null || running} onClick={probe}>{running ? "Running…" : "Run the probe"}</button>
+            {trial && tv === null && <span className="jt-small jt-muted">A positive number, such as 0.25 or 2.5e-1.</span>}
+          </div>
+        ) : (
+          <p className="jt-small jt-muted">
+            Connect <code>tutor serve</code> (with the <code>{env}</code> environment) to run the probe; without it, work the
+            edge out and commit. <ServerPill />
+          </p>
+        )}
+        {runs.length > 0 && (
+          <table className="jt-table jt-small" style={{ margin: "0.4rem 0" }}>
+            <caption className="jt-muted" style={{ textAlign: "left", captionSide: "top" }}>Your probe runs, newest first</caption>
+            <thead><tr><th scope="col"><code>{b.param}</code></th><th scope="col">{b.measure}</th><th scope="col">The method</th></tr></thead>
+            <tbody>
+              {runs.map((r, k) => {
+                const seen = r.result ? readProbe(b, r.result.output) : null;
+                return (
+                  <tr key={runs.length - k}>
+                    <td>{juliaNumber(r.v)}</td>
+                    <td>{seen ? seen.m : r.error ?? "(no row in the output)"}</td>
+                    <td>{seen ? (seen.failed ? "fails" : "works") : r.result && !r.result.ok ? "the run ended with an error" : "?"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        <label className="jt-small" style={{ display: "block", marginTop: "0.5rem" }}>
+          Your edge: the value of <code>{b.param}</code> where the method stops working
+          <input className="jt-input" style={{ display: "block", width: "12rem", marginTop: "0.3rem" }} inputMode="decimal"
+            value={edge} onChange={(e) => setEdge(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} />
+        </label>
+        <div className="jt-row" style={{ marginTop: "0.6rem" }}>
+          <button className="jt-btn" disabled={value === null} onClick={commit}>Commit and show the sweep</button>
+          {value === null && <span className="jt-small jt-muted">{edge ? "A positive number, such as 0.25 or 2.5e-1." : "Type a value."}</span>}
+        </div>
+      </div>
+      <div className="jt-example-bar">
+        <button className="jt-btn ghost jt-small" onClick={() => onBroke(settleBreak(b, null, runs.length))}>
+          Show the sweep without committing
+        </button>
+      </div>
+    </figure>
+  );
+}
+
+/** After the commit: the verdict and the recorded sweep, with the learner's value placed in it. */
+function BreakResult({ ex, r }: { ex: Example; r: BreakRecord }) {
+  const b = ex.breakit!;
+  const tone = r.verdict === "skipped" ? "reveal" : r.verdict === "found" ? "ok" : "mis";
+  const tag = { skipped: "Not committed", found: "Edge found", close: "Close to the edge",
+                short: "The method still works there", past: "Well past the edge" }[r.verdict];
+  const [lo, hi] = b.edge;
+  return (
+    <div className={`jt-callout ${tone}`}>
+      <span className="tag">{tag}</span>
+      <div>
+        <div className="jt-small">
+          {r.value !== null && <>You committed <code>{b.param} = {juliaNumber(r.value)}</code>
+            {r.probes > 0 ? ` after ${r.probes} probe run${r.probes === 1 ? "" : "s"}` : ""}. </>}
+          Measured in the output above: the method works at <code>{b.param} = {juliaNumber(b.side === "high" ? lo : hi)}</code> and
+          fails at <code>{juliaNumber(b.side === "high" ? hi : lo)}</code>, so the edge lies between {juliaNumber(lo)} and {juliaNumber(hi)}.
+        </div>
+        <table className="jt-table jt-small" style={{ margin: "0.4rem 0" }}>
+          <thead><tr><th scope="col"><code>{b.param}</code></th><th scope="col">{b.measure}</th><th scope="col">The method</th></tr></thead>
+          <tbody>
+            {sweepWith(b, r.value).map((row, k) => row.mine ? (
+              <tr key={k} aria-current="true"><td>{juliaNumber(row.p)} (yours)</td><td colSpan={2}>your edge</td></tr>
+            ) : (
+              <tr key={k}><td>{juliaNumber(row.p)}</td><td>{row.m}</td><td>{row.failed ? "fails" : "works"}</td></tr>
+            ))}
+          </tbody>
+        </table>
+        {r.verdict === "short" && <div>{md(b.short)}</div>}
+        {r.verdict === "past" && <div>{md(b.past)}</div>}
+        <div style={{ marginTop: "0.3rem" }}>{md(b.explain)}</div>
+      </div>
+    </div>
+  );
+}
+
+function ExampleBlock({ ex, env, id, record, onPredicted, choice, onChose, broke, onBroke }: {
   ex: Example; env: string; id: string; record: PredictionRecord | null; onPredicted: (r: PredictionRecord) => void;
   choice: ChoiceRecord | null; onChose: (r: ChoiceRecord) => void;
+  broke: BreakRecord | null; onBroke: (r: BreakRecord) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const p = ex.predict;
+  // The sweep (output and notice) stays hidden until an edge is committed.
+  if (ex.breakit && !broke) return <BreakGate ex={ex} env={env} onBroke={onBroke} />;
   // Like a prediction: the output, figures and notice stay hidden until a method is committed.
   if (ex.choose && !choice) return <ChoiceGate ex={ex} onChose={onChose} />;
   // The output (and the figures and notice, which describe it) stay hidden until a pick is committed.
@@ -500,6 +674,7 @@ function ExampleBlock({ ex, env, id, record, onPredicted, choice, onChose }: {
             </div>
           )}
           {ex.choose && choice && <ChoiceResult ex={ex} r={choice} />}
+          {ex.breakit && broke && <BreakResult ex={ex} r={broke} />}
         </>
       )}
       <div className="jt-example-bar">

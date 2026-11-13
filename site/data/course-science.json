@@ -3567,6 +3567,82 @@
               "output": "Newton on atan: x = 8.590766671950354e20, atan(x) = 1.5707963267948966\ndouble root at 1: x = 0.9999999754124319, error = 2.5e-8\n"
             },
             {
+              "breakit": {
+                "close": 1.1,
+                "edge": [
+                  1.39,
+                  1.395
+                ],
+                "explain": "The Newton step for `atan` is `x - (1 + x^2) atan(x)`. Because `atan` is odd, a start whose first step lands exactly at `-x0` bounces between `x0` and `-x0` forever: that is the edge, the root of `2x = (1 + x^2) atan(x)`, at `x0 ≈ 1.3917`. Start inside it and each step lands closer to 0 than it started; start outside and each lands further out. The sweep changes between 1.39 and 1.395.",
+                "fails": "above",
+                "kc": "root-finding",
+                "limit": 1.0,
+                "measure": "|x| after 40 steps",
+                "param": "x0",
+                "past": "Newton already diverges there, but it diverges from smaller starts too. Diverging from `x0 = 2` says nothing about where divergence begins: look for the start whose first step lands exactly at `-x0`.",
+                "probe": "function newton_atan(x, steps)\n    for _ in 1:steps\n        x -= (1 + x^2) * atan(x)\n        abs(x) > 1e12 && return Inf\n    end\n    return abs(x)\nend\nx0 = {{p}}\nprintln(\"x0 = \", x0, \"  |x| after 40 steps = \", newton_atan(x0, 40))",
+                "prompt": "Newton's method on `atan` converges from `x0 = 1` and diverges from `x0 = 2` (the example above). Find the start point `x0 > 0` beyond which it diverges. Reason about where the first step lands, or try start points with the probe if a server is connected, then commit the edge.",
+                "row": "x0 = (?<p>\\S+) +\\|x\\| after 40 steps = (?<m>\\S+)",
+                "rows": [
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 0.5
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 1.0
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 1.3
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 1.38
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 1.39
+                  },
+                  {
+                    "failed": true,
+                    "m": "Inf",
+                    "p": 1.395
+                  },
+                  {
+                    "failed": true,
+                    "m": "Inf",
+                    "p": 1.4
+                  },
+                  {
+                    "failed": true,
+                    "m": "Inf",
+                    "p": 1.5
+                  },
+                  {
+                    "failed": true,
+                    "m": "Inf",
+                    "p": 2.0
+                  }
+                ],
+                "short": "From that start the first step lands closer to 0 than it started, and Newton converges. The edge is further out: where the first step lands exactly at `-x0`.",
+                "side": "high"
+              },
+              "caption": "Newton's method on `atan` by hand, 40 steps from nine start points. A run whose `|x|` passes `1e12` is stopped and reported as `Inf`: from there each step only grows.",
+              "check": true,
+              "code": "function newton_atan(x, steps)\n    for _ in 1:steps\n        x -= (1 + x^2) * atan(x)        # the Newton step x - f(x) / f'(x)\n        abs(x) > 1e12 && return Inf     # diverged: the steps only grow from here\n    end\n    return abs(x)\nend\nfor x0 in (0.5, 1.0, 1.3, 1.38, 1.39, 1.395, 1.4, 1.5, 2.0)\n    println(\"x0 = \", rpad(x0, 6), \"  |x| after 40 steps = \", newton_atan(x0, 40))\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that every start up to `1.39` reaches the root exactly (`0.0`: near the root the error is cubed at each step), and every start from `1.395` on diverges. Nothing in between is half-converged: the start point decides.",
+              "ok": true,
+              "output": "x0 = 0.5     |x| after 40 steps = 0.0\nx0 = 1.0     |x| after 40 steps = 0.0\nx0 = 1.3     |x| after 40 steps = 0.0\nx0 = 1.38    |x| after 40 steps = 0.0\nx0 = 1.39    |x| after 40 steps = 0.0\nx0 = 1.395   |x| after 40 steps = Inf\nx0 = 1.4     |x| after 40 steps = Inf\nx0 = 1.5     |x| after 40 steps = Inf\nx0 = 2.0     |x| after 40 steps = Inf\n"
+            },
+            {
               "caption": "All zeros of sin(3x) - x/2 on [-3, 3].",
               "check": true,
               "code": "using Roots\nzs = find_zeros(x -> sin(3x) - x / 2, -3, 3)\nround.(zs; digits = 6)",

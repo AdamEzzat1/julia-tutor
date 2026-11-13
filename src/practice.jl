@@ -517,6 +517,28 @@ function question_key_problems(u::Course.Unit, rec)
     return out
 end
 
+"""
+Run each break-it probe at both ends of its edge, as the site runs it at a
+learner's value, and check it agrees with the sweep (`Course.probe_problems`).
+A sweep without a single edge is reported by `breakit_key_problems`; its probe
+is not run.
+"""
+function breakit_probe_problems(u::Course.Unit, rec; log = stdout)
+    out = String[]
+    exs = get(rec, "examples", Dict())
+    for s in u.sections, e in s.examples
+        b = e.breakit
+        b === nothing && continue
+        r = get(exs, Course.example_key(e.code, e.mode), nothing)
+        sc = r === nothing ? nothing : Course.score_breakit(b, r["output"])
+        sc isa NamedTuple || continue
+        lo, hi = (run_code(Course.probe_code(b, x); env = u.env, timeout = 120).output for x in b.edge)
+        println(log, "  break-it probe '", s.title, "' at ", b.edge[1], " and ", b.edge[2])
+        append!(out, ["$(u.id) '$(s.title)' break-it probe: $m" for m in Course.probe_problems(b, sc.side, lo, hi)])
+    end
+    return out
+end
+
 # Verdicts that come from timing (allocations and type stability are counted,
 # not timed, so they are deterministic and never re-measured).
 const PERF_VERDICTS = ("slow", "fast", "scaling")
@@ -552,6 +574,8 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
     append!(problems, question_key_problems(u, rec))
     append!(problems, Course.prediction_key_problems(u, rec))
     append!(problems, Course.checkpoint_key_problems(u, rec))   # on the fresh run: checked even for check = false
+    append!(problems, Course.breakit_key_problems(u, rec))
+    append!(problems, breakit_probe_problems(u, rec; log))
     grade_variants || return problems
     for p in u.problems
         # "fast" only exists when there is a performance section to measure.

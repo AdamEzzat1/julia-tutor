@@ -19,6 +19,34 @@ export interface Example {
   images: string[]; // recorded figures, as site paths (assets/figures/<unit>/<file>)
   predict?: Prediction; // commit a prediction before the output is shown (see predict.ts); absent for most examples
   choose?: Checkpoint; // pick a method and give a reason before the output is shown (see choose.ts)
+  breakit?: BreakIt; // find where the method fails before the sweep is shown (see breakit.ts)
+}
+
+/**
+ * A break-it challenge. `rows` and `edge` were read from the recorded sweep by
+ * `tutor site-data` (only when `tutor course verify` would accept them):
+ * nothing here is typed by an author. `m` is text because a measurement may be
+ * `Inf` or `NaN`.
+ */
+export interface BreakIt {
+  kc: string;
+  prompt: string;
+  param: string;
+  measure: string;
+  fails: "above" | "below";
+  limit: number;
+  close: number;
+  edge: [number, number];
+  /** "high": values above the edge fail; "low": values below it fail */
+  side: "high" | "low";
+  /** the probe's code, with `{{p}}` where the value goes */
+  probe: string;
+  /** the row regex (named groups `p` and `m`), to read a probe's output */
+  row: string;
+  explain: string;
+  short: string;
+  past: string;
+  rows: { p: number; m: string; failed: boolean }[];
 }
 
 export type ChoiceVerdict = "good" | "costly" | "fails";

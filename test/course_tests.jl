@@ -257,6 +257,72 @@ end
     @test all(c -> length(c["costs"]) == length(c["choices"]) == length(c["verdicts"]), site)
 end
 
+@testset "break it: the edge is read from the measured sweep" begin
+    row = raw"h = (?<p>\S+) +growth (?<m>\S+)"
+    B(; kc = "k", row = row, fails = "above", limit = 1.0, edge = (0.2, 0.25), close = 1.5, probe = "h = {{p}}",
+      short = "still works", past = "far past") =
+        Course.BreakIt(kc, "Find the edge.", "h", "growth", row, fails, limit, edge, close, probe, "why", short, past)
+    E(b; check = true, predict = nothing, choose = nothing) = Course.Example("println(1)", check, "c", "repl", "", predict, choose, b)
+    bad(b; kw...) = Course.breakit_problems(b, E(b; kw...), ["k"])
+    @test bad(B()) == String[]
+    @test any(contains("not one of the unit's kcs"), bad(B(; kc = "x")))
+    @test any(contains("check = false"), bad(B(); check = false))         # the edge needs a compared output
+    P = Course.Prediction("k", "p", raw"(\d)", ["a", "b"], [(0.0, 1.0), (1.0, 2.0)], String[], 1, "e")
+    @test any(contains("one of a prediction"), bad(B(); predict = P))
+    @test any(contains("not a regular expression"), bad(B(; row = "(")))
+    @test any(contains("named groups"), bad(B(; row = raw"h = (\S+) growth (\S+)")))
+    @test any(contains("\"above\" or \"below\""), bad(B(; fails = "over")))
+    @test any(contains("finite"), bad(B(; limit = NaN)))
+    @test any(contains("0 < low < high"), bad(B(; edge = (0.3, 0.2))))
+    @test any(contains("0 < low < high"), bad(B(; edge = (NaN, NaN))))       # what a malformed `edge` loads as
+    @test any(contains("wider than close"), bad(B(; edge = (0.1, 0.25))))
+    @test any(contains("close must be"), bad(B(; close = 3.0)))
+    @test any(contains("{{p}}"), bad(B(; probe = "h = 0.2")))
+    @test any(contains("no short"), bad(B(; short = " ")))
+
+    # rows are matched line by line and sorted by the parameter; NaN counts as failed
+    out = "h = 0.3  growth 9.0\nh = 0.1  growth 0.01\nh = 0.25  growth 1.5\nh = 0.2  growth 0.9\nh = 0.5  growth NaN\n"
+    sc = Course.score_breakit(B(), out)
+    @test sc.ps == [0.1, 0.2, 0.25, 0.3, 0.5]
+    @test sc.failed == [false, false, true, true, true]
+    @test sc.edge == (0.2, 0.25) && sc.side == "high"
+    @test Course.breakit_output_problems(B(), out) == String[]
+    @test any(contains("but edge = [0.2, 0.3]"), Course.breakit_output_problems(B(; edge = (0.2, 0.3), close = 1.6), out))
+    low = Course.score_breakit(B(; fails = "below", limit = 1.0), replace(out, "h = 0.5  growth NaN\n" => ""))  # the low side fails
+    @test low.side == "low" && low.edge == (0.2, 0.25)
+    @test contains(Course.score_breakit(B(), "h = 0.1  growth 0.5\nh = 0.2  growth 2\nh = 0.3  growth 0.5\nh = 0.4  growth 2\n"),
+                   "3 times")                                            # no single edge
+    @test contains(Course.score_breakit(B(), "h = 0.1  growth 0.5\nh = 0.2  growth 0.5\nh = 0.3  growth 0.5\nh = 0.4  growth 0.5\n"),
+                   "works at every")
+    @test contains(Course.score_breakit(B(), "h = 0.1  growth 0.5\nh = 0.2  growth 2\n"), "at least")
+    @test contains(Course.score_breakit(B(), replace(out, "growth 9.0" => "growth fast")), "not a number")
+    @test contains(Course.score_breakit(B(), out * "h = 0.1  growth 0.02\n"), "swept twice")
+
+    # the probe: one row at each end of the edge, agreeing with the sweep
+    @test Course.probe_code(B(), 0.25) == "h = 0.25"
+    @test Course.probe_problems(B(), "high", "h = 0.2  growth 0.9\n", "h = 0.25  growth 1.5\n") == String[]
+    @test any(contains("works, but the sweep says it fails"),
+              Course.probe_problems(B(), "high", "h = 0.2  growth 0.9\n", "h = 0.25  growth 0.95\n"))
+    @test any(contains("(one is needed)"), Course.probe_problems(B(), "high", "", "h = 0.25  growth 1.5\n"))
+
+    unit(b) = Course.Unit("99-x", "x", "core", "base", "ready", "s", ["k"], String[], String[], String[],
+                          [Course.Section("s", "b", [E(b)], Course.Question[])], Course.Problem[])
+    rec(o) = Dict("examples" => Dict(Course.example_key("println(1)", "repl") => Dict("output" => o)))
+    @test Course.breakit_key_problems(unit(B()), rec(out)) == String[]
+    @test any(contains("no recorded output"), Course.breakit_key_problems(unit(B()), Dict("examples" => Dict())))
+
+    # the course's own challenges, against the outputs recorded in the repository
+    units = Course.load_course()
+    bks = [e for u in units for s in u.sections for e in s.examples if e.breakit !== nothing]
+    @test length(bks) >= 3
+    @test all(u -> Course.breakit_key_problems(u, Course.load_outputs(u)) == String[], units)
+    @test length(unique(e.breakit.kc for e in bks)) >= 3                      # stability, convergence, identifiability
+    site = [e["breakit"] for s in SiteData.course_data()["units"] for sec in s["sections"] for e in sec["examples"]
+            if haskey(e, "breakit")]
+    @test length(site) == length(bks)
+    @test all(b -> count(r -> r["failed"], b["rows"]) in 1:length(b["rows"])-1, site)
+end
+
 @testset "course prose: no filler phrases" begin
     u = Course.Unit("99-x", "x", "core", "base", "ready", "A seamless way to do it.", String[], String[], String[],
                     String[], [Course.Section("s", "Plain text, with `robust` in code and an em dash — here.", Course.Example[],
