@@ -6,11 +6,11 @@ Start here: hole `kepler_exact` at src/ODEInt.jl:370
 
 Tests: 15/17 testsets pass
   FAIL kepler_exact: Kepler's equation and the conserved quantities  [8 failed, 0 errored; depends on: kepler_exact]
-       test/runtests.jl:248 FAIL isapprox(E - e * sin(E), rem2pi(t, RoundNearest); atol = 64 * EPS)  evaluated: isapprox(0.28317449730740485, 0.4; atol = 1.4210854715202004e-14)
-       test/runtests.jl:248 FAIL isapprox(E - e * sin(E), rem2pi(t, RoundNearest); atol = 64 * EPS)  evaluated: isapprox(1.4025005568642595, 1.7; atol = 1.4210854715202004e-14)
+       test/runtests.jl:248 FAIL isapprox(E - e * sin(E), rem2pi(t, RoundNearest); atol = 64 * EPS)  evaluated: isapprox(0.2831745, 0.4; atol = 1.4210855e-14)
+       test/runtests.jl:248 FAIL isapprox(E - e * sin(E), rem2pi(t, RoundNearest); atol = 64 * EPS)  evaluated: isapprox(1.4025006, 1.7; atol = 1.4210855e-14)
   FAIL kepler_exact: agrees with an accurate numerical solution  [2 failed, 0 errored; depends on: dp54_step, error_norm, kepler_exact]
-       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-0.12875586215462256, 0.977306145435282, -1.0118769682823914, 0.07081372653534429], [0.06749882862458734, 0.9440903567016743, -1.0180221309244313, 0.27690881130073125]; atol = 1.0e-9, norm = var"#39#40"())
-       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-1.0703813408085192, 0.6633528531753741, -0.7376353341298567, -0.21004695316067953], [-0.4325011713754126, 0.6881181817893505, -1.1855517850616364, 0.23504420942066875]; atol = 1.0e-9, norm = var"#39#40"())
+       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-0.12875586, 0.97730615, -1.011877, 0.070813727], [0.067498829, 0.94409036, -1.0180221, 0.27690881]; atol = 1.0e-9, norm = var"#39#40"())
+       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-1.0703813, 0.66335285, -0.73763533, -0.21004695], [-0.43250117, 0.68811818, -1.1855518, 0.23504421]; atol = 1.0e-9, norm = var"#39#40"())
 
 Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
   1. kepler_exact       0.63  implemented  failing-deps=2 passing-deps=3  src/ODEInt.jl:370

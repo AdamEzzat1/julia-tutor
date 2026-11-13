@@ -6,7 +6,7 @@ Start here: hole `fit_order` at src/ODEInt.jl:395
 
 Tests: 16/17 testsets pass
   FAIL fit_order: least squares on log-log  [2 failed, 0 errored; depends on: fit_order]
-       test/runtests.jl:353 FAIL isapprox(fit_order(2.0 .^ (0:3), 2.0 .^ [0, 3, 3, 3]), 0.9; rtol = 64 * EPS)  evaluated: isapprox(1.0, 0.9; rtol = 1.4210854715202004e-14)
+       test/runtests.jl:353 FAIL isapprox(fit_order(2.0 .^ (0:3), 2.0 .^ [0, 3, 3, 3]), 0.9; rtol = 64 * EPS)  evaluated: isapprox(1.0, 0.9; rtol = 1.4210855e-14)
        test/runtests.jl:355 FAIL fit_order([0.1, 0.2], [0.0, 0.1])  evaluated: ArgumentError
 
 Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):

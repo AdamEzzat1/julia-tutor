@@ -95,6 +95,43 @@ Finding codes: `section-missing`, `claim-unknown`, `claim-no-value`,
 `not-reproducible`, `claim-missing`, `claim-wrong-section`,
 `evidence-missing`, `evidence-split`, `estimate-missing`.
 
+## Estimate before you compute (Phase 5)
+
+**Learning purpose.** Step 2 of the method asks for an estimate of scale
+made *before* computing: it tests whether the learner can reason about the
+problem's size from the method's order and one cheap run, and comparing it
+with the measurement afterwards is feedback on that reasoning. An estimate
+written after the results are known tests nothing (hindsight). A number
+typed into report.qmd cannot show when it was written, so the learner
+commits it first:
+
+```
+tutor case estimate <dir> verlet_nper 2e4 "one run at h = 0.05 gave 3e-5; order 2 means h about 0.0006"
+```
+
+* The commit is refused for an id the case does not have, a value that is
+  not a finite nonzero number, a missing or multi-line reason (at most 300
+  characters), or an id already committed: a committed estimate is final.
+* It is recorded in `<dir>/.tutor-estimates.toml` with the number of study
+  checks that had already run. The report milestone's check (`tutor case
+  check <dir> 3`) runs the study and prints computed values, so it counts
+  itself in the same file whenever the study returned values
+  (`--no-record` skips this).
+* That check prints, per estimate: the committed value and whether it was
+  committed before the first study check ("a blind estimate") or after;
+  how the learner got it; the report's value, flagged when it differs from
+  the committed one; the measured value; and how far the committed estimate
+  was from it in factors of ten (within 2, within 10, or off by k orders of
+  magnitude, with the ratio). With nothing committed it says so and compares
+  the report's estimate instead.
+* Nothing here is graded or blocks a milestone.
+
+**What it does not do.** The record is the learner's own file on their own
+machine: editing it, or running study.jl outside `tutor case check`, defeats
+it without being detected. It is a commitment device for the learner, not
+proof for anyone else. Phase 6's opt-in log is where estimates would be
+collected for a pilot.
+
 ## The authoring self-test (`tutor case verify`)
 
 One sandboxed job runs:
