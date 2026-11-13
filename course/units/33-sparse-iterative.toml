@@ -375,6 +375,32 @@ for N in (16, 32, 64)
 end
 '''
 
+    [section.example.choose]
+    kc = "preconditioning"
+    prompt = "The 2D Poisson matrix at `N = 64` (4,096 unknowns), solved to `rtol = 1e-8`. Which solver and preconditioner do you pick to need the fewest iterations?"
+    choices = [
+      "CG, no preconditioner: the matrix is symmetric positive definite",
+      "CG with Jacobi: it is cheap and keeps the matrix symmetric",
+      "GMRES, no preconditioner: it minimizes the residual at every iteration",
+      "GMRES with ILU (`τ = 0.01`): an approximate factorization of `A`",
+    ]
+    rows = [
+      'N = 64 +CG (\d+) ',
+      'N = 64 .*CG\+Jacobi (\d+)',
+      'N = 64 .*GMRES (\d+)',
+      'N = 64 .*GMRES\+ILU (\d+)',
+    ]
+    cost = "iterations at N = 64 (a GMRES+ILU iteration also applies two triangular solves and orthogonalizes against the earlier vectors, so it costs more than a CG one; building the ILU is not counted)"
+    band = 2.0
+    good = [4]
+    explain = "CG's count is set by `√κ`, which grows like `N` on this matrix, and nothing in the first three choices lowers `κ`. ILU approximates `A⁻¹`, so `M⁻¹A` has a far narrower spectrum: about 8 times fewer iterations here, a margin that leaves room for its costlier iteration (measure the time before you rely on that). The count still grows with `N`; ILU lowers the constant, not the growth."
+    misconceptions = [
+      "CG is the right Krylov method for a symmetric positive definite matrix, but without a preconditioner its count follows `√κ`, which this grid makes large.",
+      "Jacobi divides by the diagonal, which is the constant 4 on the Poisson matrix: `M⁻¹A` is `A/4`, with the same condition number and the same iterations.",
+      "On a symmetric matrix GMRES searches the same Krylov space as CG and needs about the same iterations, while storing every basis vector.",
+      "",
+    ]
+
   [[section.example]]
   caption = "Where Jacobi helps: the Poisson matrix (N = 32) with its unknowns rescaled by factors between 1 and about 32, `D A D`, so that its diagonal spans a factor of 1000. The checked facts from both measurements."
   notice = "Notice the contrast: on the rescaled matrix Jacobi cuts CG's iterations by more than 5 times, on the original it changes nothing, and ILU helps GMRES on the original. The Jacobi count stops on the preconditioned norm, so its true residual is checked on its own line; the stretch problem stops on `‖r‖` and still sees the large gain."

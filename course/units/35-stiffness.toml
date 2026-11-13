@@ -525,6 +525,29 @@ for alg in (Tsit5(), Rodas5P(), FBDF())
 end
 '''
 
+    [section.example.choose]
+    kc = "stiffness"
+    prompt = "The heat equation on 199 points (κ = 1, up to t = 0.1, `abstol = reltol = 1e-6`), with the tridiagonal Jacobian supplied. Which solver do you run?"
+    choices = [
+      "`Tsit5`: explicit, no Jacobian, each step only right-hand-side calls",
+      "`Rodas5P`: Rosenbrock, one Jacobian and one factorization per step",
+      "`FBDF`: BDF, one Jacobian reused across steps, refactored when the step changes",
+    ]
+    rows = [
+      'Tsit5 +naccept \d+ +njacs (\d+) +nw (\d+) +nf (\d+)',
+      'Rodas5P +naccept \d+ +njacs (\d+) +nw (\d+) +nf (\d+)',
+      'FBDF +naccept \d+ +njacs (\d+) +nw (\d+) +nf (\d+)',
+    ]
+    cost = "right-hand-side calls + Jacobians + factorizations (each about n operations for this tridiagonal problem; the solves with a factorization are not counted)"
+    band = 2.0
+    good = [2, 3]
+    explain = "The fastest mode decays at about `4/dx^2 = 160,000` per unit time and the solution at `π^2 ≈ 10`: a stiffness ratio near 16,000. An explicit method must keep the fast mode stable, so its step stays near its stability limit, a small multiple of `dx^2` (here about `2e-5` over 4,520 steps), however loose the tolerance; an implicit one steps at the accuracy of the slow mode. `Rodas5P` and `FBDF` are within a few percent of each other in these counts; which is faster on the clock depends on what a factorization and its solves cost, which for a tridiagonal matrix is little."
+    misconceptions = [
+      "Each `Tsit5` step is cheap, but stability holds it to thousands of steps on this grid, and the extra steps buy no accuracy: all three errors come from the grid.",
+      "",
+      "",
+    ]
+
   [[section.example]]
   caption = "The claims about `Tsit5` and `Rodas5P` as tests with wide margins, at three grid sizes: `Rodas5P`'s step count stays small, `Tsit5` needs many times more steps, and the two errors agree. (`FBDF` is left out only to keep the run short: each solver compiles once per run.)"
   notice = "Notice that these hold at every grid size although the individual counts may move: `Rodas5P` stays under 20 steps while `Tsit5`'s count grows with the grid, and the implicit solve is as accurate as the explicit one."

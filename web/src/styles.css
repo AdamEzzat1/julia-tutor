@@ -220,6 +220,9 @@ body.quarto-dark {
 .jt-option.right { border-color: var(--jt-green); background: var(--jt-green-soft); }
 .jt-option.right .letter { background: var(--jt-green); color: #fff; border-color: var(--jt-green); }
 .jt-option:disabled { cursor: default; }
+.jt-option.picked { border-color: var(--jt-purple); background: var(--jt-purple-soft); }
+.jt-option.picked .letter { background: var(--jt-purple); color: #fff; border-color: var(--jt-purple); }
+.jt-table tr[aria-current="true"] td { font-weight: 600; }
 .jt-option-code { white-space: pre-wrap; font-family: var(--jt-mono); font-size: 0.86rem; background: none; }
 .jt-question { margin-top: 1.2rem; padding-top: 1rem; border-top: 1px dashed var(--jt-rule); }
 .jt-question-prompt p { margin: 0.35rem 0 0.4rem; font-weight: 600; }

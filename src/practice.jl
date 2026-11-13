@@ -551,6 +551,7 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
     end
     append!(problems, question_key_problems(u, rec))
     append!(problems, Course.prediction_key_problems(u, rec))
+    append!(problems, Course.checkpoint_key_problems(u, rec))   # on the fresh run: checked even for check = false
     grade_variants || return problems
     for p in u.problems
         # "fast" only exists when there is a performance section to measure.

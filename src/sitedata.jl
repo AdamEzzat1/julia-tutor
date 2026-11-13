@@ -166,6 +166,17 @@ function course_data()
                                       "images" => r === nothing ? Any[] :
                                           Any["assets/figures/$(u.id)/$f" for f in get(r, "images", Any[])])
                 pred === nothing || (ed["predict"] = pred)     # only examples that have one carry the key
+                c = e.choose
+                if c !== nothing && r !== nothing && isempty(Course.checkpoint_output_problems(c, r["output"]))
+                    sc = Course.score_checkpoint(c, r["output"])
+                    ed["choose"] = Dict("kc" => c.kc, "prompt" => strip(c.prompt), "choices" => c.choices,
+                                        "cost" => c.cost, "band" => c.band, "explain" => strip(c.explain),
+                                        "misconceptions" => c.misconceptions,
+                                        # the measured table the choice is scored against
+                                        "costs" => Any[isinteger(x) ? Int(x) : x for x in sc.costs], "ok" => sc.oks,
+                                        "ratios" => [round(x; sigdigits = 3) for x in sc.ratios],
+                                        "verdicts" => sc.verdicts)
+                end
                 push!(examples, ed)
             end
             questions = Any[Dict("kind" => q.kind, "prompt" => strip(q.prompt), "code" => rstrip(q.code),

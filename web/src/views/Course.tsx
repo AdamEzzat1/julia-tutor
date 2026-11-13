@@ -9,6 +9,7 @@ import {
   type CourseInfo, type Example, type Problem, type Question, type Unit,
 } from "../course";
 import { predictionKey, predictionRates, settlePrediction, unitPredictionKeys, type PredictionRecord } from "../predict";
+import { choiceRates, costText, MAX_REASON, reasonOk, settleChoice, unitChoiceKeys, type ChoiceRecord } from "../choose";
 import { loadProgress, saveProgress, type Progress } from "../progress";
 import { gradeCode, useServer, type GradeResult } from "../server";
 
@@ -65,6 +66,9 @@ export function CourseView() {
   // A prediction is committed once: the first record is kept, never replaced.
   const predicted = (key: string, r: PredictionRecord) =>
     setProgress((s) => s.predictions[key] ? s : saveProgress({ ...s, predictions: { ...s.predictions, [key]: r } }));
+  // A method choice too: the first record (pick, reason, verdict) is kept.
+  const chose = (key: string, r: ChoiceRecord) =>
+    setProgress((s) => s.choices[key] ? s : saveProgress({ ...s, choices: { ...s.choices, [key]: r } }));
 
   return (
     <div className="jt-split jt-course" ref={top}>
@@ -102,7 +106,7 @@ export function CourseView() {
         {unit === null ? <Overview c={active} progress={progress} go={go} /> :
           <UnitPage key={unit.id} unit={unit} problemId={problemId} progress={progress}
             openProblem={(p) => { setProblemId(p); writeParams(unit.id, p, active.id); }} onSolved={solved}
-            onAnswered={answered} onPredicted={predicted} go={go} />}
+            onAnswered={answered} onPredicted={predicted} onChose={chose} go={go} />}
       </div>
     </div>
   );
@@ -133,6 +137,7 @@ function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: 
         </p>
       </section>
       <PredictionRates c={c} progress={progress} />
+      <ChoiceRates c={c} progress={progress} />
       <div className="jt-tracks">
         {tracks.map((t) => {
           const units = course.units.filter((u) => u.course === c.id && u.track === t);
@@ -164,7 +169,7 @@ function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: 
   );
 }
 
-function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, onPredicted, go }: {
+function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, onPredicted, onChose, go }: {
   unit: Unit;
   problemId: string | null;
   progress: Progress;
@@ -172,11 +177,15 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
   onSolved: (pid: string, r: GradeResult) => void;
   onAnswered: (key: string, firstTry: boolean) => void;
   onPredicted: (key: string, r: PredictionRecord) => void;
+  onChose: (key: string, r: ChoiceRecord) => void;
   go: (u: string) => void;
 }) {
   const pkeys = unitPredictionKeys(unit);
   const pmade = pkeys.filter((k) => progress.predictions[k]?.pick);
   const phits = pmade.filter((k) => progress.predictions[k].hit);
+  const ckeys = unitChoiceKeys(unit);
+  const cmade = ckeys.filter((k) => progress.choices[k]?.pick);
+  const cgood = cmade.filter((k) => progress.choices[k].verdict === "good");
   const qkeys = unit.sections.flatMap((s, i) => s.questions.map((_, k) => `${unit.id}/${i}/${k}`));
   const qdone = qkeys.filter((k) => progress.questions[k]);
   const qfirst = qdone.filter((k) => progress.questions[k] === "first-try");
@@ -220,6 +229,11 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               predictions: {pmade.length}/{pkeys.length}{pmade.length ? ` · ${phits.length} right` : ""}
             </span>
           )}
+          {ckeys.length > 0 && (
+            <span className="jt-chip" title="Method choices committed in this browser before seeing the measurements, and how many were good">
+              method choices: {cmade.length}/{ckeys.length}{cmade.length ? ` · ${cgood.length} good` : ""}
+            </span>
+          )}
         </div>
       </header>
 
@@ -242,7 +256,8 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
             {s.examples.map((e, j) => {
               const key = predictionKey(unit.id, i, j);
               return <ExampleBlock key={j} ex={e} env={unit.env} id={key}
-                record={progress.predictions[key] ?? null} onPredicted={(r) => onPredicted(key, r)} />;
+                record={progress.predictions[key] ?? null} onPredicted={(r) => onPredicted(key, r)}
+                choice={progress.choices[key] ?? null} onChose={(r) => onChose(key, r)} />;
             })}
             {s.questions.map((q, k) => (
               <QuestionBlock key={k} q={q} number={k + 1} total={s.questions.length}
@@ -311,11 +326,126 @@ function PredictionRates({ c, progress }: { c: CourseInfo; progress: Progress })
   );
 }
 
-function ExampleBlock({ ex, env, id, record, onPredicted }: {
+/**
+ * Good method choices per knowledge component over this course's checkpoints,
+ * from this browser's records. Nothing is sent anywhere.
+ */
+function ChoiceRates({ c, progress }: { c: CourseInfo; progress: Progress }) {
+  const units = course.units.filter((u) => u.course === c.id);
+  const total = units.reduce((n, u) => n + unitChoiceKeys(u).length, 0);
+  if (total === 0) return null;
+  const rates = choiceRates(progress.choices, units);
+  return (
+    <section className="jt-panel jt-pad" aria-labelledby="jt-choice-rates">
+      <div className="jt-eyebrow">Method-choice checkpoints</div>
+      <h3 id="jt-choice-rates" style={{ marginTop: "0.25rem" }}>Your method choices, by knowledge component</h3>
+      <p className="jt-small" style={{ maxWidth: "50rem" }}>
+        {total} examples in this course ask you to pick a method and give a reason before their measurements are shown.
+        A choice is scored against the recorded counts: good if it is within the stated factor of the cheapest method
+        that meets the accuracy. Your reasons are not graded; they stay in this browser, next to the numbers.
+      </p>
+      {rates.length === 0 ? <p className="jt-small jt-muted">No method chosen yet.</p> : (
+        <table className="jt-table jt-small">
+          <thead><tr><th scope="col">Knowledge component</th><th scope="col">Good choices</th></tr></thead>
+          <tbody>
+            {rates.map((r) => <tr key={r.kc}><td><code>{r.kc}</code></td><td>{r.good} of {r.total}</td></tr>)}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+const VERDICT_TEXT = { good: "good", costly: "costly", fails: "misses the accuracy" } as const;
+
+/** The gate before a checkpoint's output: pick one method, write one line, commit. */
+function ChoiceGate({ ex, onChose }: { ex: Example; onChose: (r: ChoiceRecord) => void }) {
+  const c = ex.choose!;
+  const [pick, setPick] = useState(0);
+  const [reason, setReason] = useState("");
+  const ready = pick > 0 && reasonOk(reason);
+  return (
+    <figure className="jt-example">
+      {ex.caption && <figcaption>{md(ex.caption)}</figcaption>}
+      <Code src={ex.code} />
+      <div className="jt-question">
+        <div className="jt-eyebrow">Method choice · one pick and a reason, scored once</div>
+        <div className="jt-question-prompt"><Markdown text={c.prompt} /></div>
+        <div className="jt-options" role="radiogroup" aria-label="Methods">
+          {c.choices.map((t, k) => (
+            <button key={k} role="radio" aria-checked={pick === k + 1}
+              className={`jt-option${pick === k + 1 ? " picked" : ""}`} onClick={() => setPick(k + 1)}>
+              <span className="letter">{LETTERS[k]}</span><span>{md(t)}</span>
+            </button>
+          ))}
+        </div>
+        <label className="jt-small" style={{ display: "block" }}>
+          Why this one? One line, in your own words (not graded; kept in this browser)
+          <input className="jt-input" style={{ display: "block", width: "100%", marginTop: "0.3rem" }}
+            maxLength={MAX_REASON} value={reason} onChange={(e) => setReason(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && ready) onChose(settleChoice(c, pick, reason)); }} />
+        </label>
+        <div className="jt-row" style={{ marginTop: "0.6rem" }}>
+          <button className="jt-btn" disabled={!ready} onClick={() => onChose(settleChoice(c, pick, reason))}>
+            Commit and show the measurements
+          </button>
+          {!ready && <span className="jt-small jt-muted">{pick === 0 ? "Pick a method." : "Write a reason."}</span>}
+        </div>
+      </div>
+      <div className="jt-example-bar">
+        <button className="jt-btn ghost jt-small" onClick={() => onChose(settleChoice(c, 0, ""))}>
+          Show the measurements without choosing
+        </button>
+      </div>
+    </figure>
+  );
+}
+
+/** After the commit: the verdict, the learner's reason, and the measured table it was scored against. */
+function ChoiceResult({ ex, r }: { ex: Example; r: ChoiceRecord }) {
+  const c = ex.choose!;
+  const tone = r.verdict === "skipped" ? "reveal" : r.verdict === "good" ? "ok" : "mis";
+  const tag = { skipped: "Not chosen", good: "Good choice", costly: "Works, but costly", fails: "Misses the accuracy" }[r.verdict];
+  return (
+    <div className={`jt-callout ${tone}`}>
+      <span className="tag">{tag}</span>
+      <div>
+        {r.pick > 0 && (
+          <div className="jt-small">
+            You picked {LETTERS[r.pick - 1]}{r.reason ? <>, because: “{r.reason}”</> : null}. Compare your reason with the
+            counts below.
+          </div>
+        )}
+        <table className="jt-table jt-small" style={{ margin: "0.4rem 0" }}>
+          <caption className="jt-muted" style={{ textAlign: "left", captionSide: "top" }}>
+            Measured in the output above: {c.cost}. Good: within {c.band}× of the cheapest method that meets the accuracy.
+          </caption>
+          <thead><tr><th scope="col">Method</th><th scope="col">Cost</th><th scope="col">Verdict</th></tr></thead>
+          <tbody>
+            {c.choices.map((t, k) => (
+              <tr key={k} aria-current={r.pick === k + 1 ? "true" : undefined}>
+                <td>{LETTERS[k]} · {md(t.split(/:\s/)[0])}{r.pick === k + 1 ? " (yours)" : ""}</td>
+                <td>{costText(c, k)}</td>
+                <td>{VERDICT_TEXT[c.verdicts[k]]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {r.pick > 0 && c.misconceptions[r.pick - 1] && <div>{md(c.misconceptions[r.pick - 1])}</div>}
+        <div style={{ marginTop: "0.3rem" }}>{md(c.explain)}</div>
+      </div>
+    </div>
+  );
+}
+
+function ExampleBlock({ ex, env, id, record, onPredicted, choice, onChose }: {
   ex: Example; env: string; id: string; record: PredictionRecord | null; onPredicted: (r: PredictionRecord) => void;
+  choice: ChoiceRecord | null; onChose: (r: ChoiceRecord) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const p = ex.predict;
+  // Like a prediction: the output, figures and notice stay hidden until a method is committed.
+  if (ex.choose && !choice) return <ChoiceGate ex={ex} onChose={onChose} />;
   // The output (and the figures and notice, which describe it) stay hidden until a pick is committed.
   if (p && !record) {
     return (
@@ -369,6 +499,7 @@ function ExampleBlock({ ex, env, id, record, onPredicted }: {
               </div>
             </div>
           )}
+          {ex.choose && choice && <ChoiceResult ex={ex} r={choice} />}
         </>
       )}
       <div className="jt-example-bar">
