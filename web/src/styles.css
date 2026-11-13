@@ -104,6 +104,10 @@ body.quarto-dark {
 }
 .jt-muted { color: var(--jt-muted); }
 .jt-small { font-size: 0.85rem; }
+/* A small data table (prediction hit rates): ruled rows, left-aligned, never wider than its box. */
+.jt-table { border-collapse: collapse; max-width: 100%; }
+.jt-table th, .jt-table td { text-align: left; padding: 0.3rem 1.2rem 0.3rem 0; border-bottom: 1px solid var(--jt-rule); }
+.jt-table th { font-weight: 600; }
 
 /* ---- surfaces ------------------------------------------------------------- */
 

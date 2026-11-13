@@ -550,6 +550,7 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
         get(stored, "verified_on", "") == string(VERSION) || push!(problems, "$(u.id): outputs were recorded on another Julia")
     end
     append!(problems, question_key_problems(u, rec))
+    append!(problems, Course.prediction_key_problems(u, rec))
     grade_variants || return problems
     for p in u.problems
         # "fast" only exists when there is a performance section to measure.

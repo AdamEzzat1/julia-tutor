@@ -178,6 +178,52 @@ ForwardDiff.derivative(x -> x^3, 2.0)
   specific. `validate` fails a unit where the answer is the unique longest
   choice in more than 40% of its choice questions.
 
+## Predict, then run
+
+**Learning purpose.** A prediction made before seeing a result tests the
+learner's model of the method: the order a convergence plot will show, which
+side of a stability limit a step is on, whether a stable method keeps a sign.
+Reading the output first and then agreeing with it tests nothing. So the site
+hides an example's output (with its figures and notice) until the learner
+commits one choice. It scores that first pick only, and counts hits per
+knowledge component in the browser. A concept question differs: the learner
+picks until right, and it comes after the examples.
+
+```toml
+  [[section.example]]
+  caption = "..."
+  code = '''
+...
+'''
+
+    [section.example.predict]
+    kc = "convergence-order"            # one of the unit's kcs: the hit rate counts for it
+    prompt = "RK4 is a fourth-order method. Before the output is shown: what observed order does it give between 10 and 20 steps?"
+    choices = ["About 4 (3.95 or more)", "Between 3.5 and 3.95", "Below 3.5"]
+    measure = 'RK4   errors [^\n]*\n +orders \[([0-9.]+)'   # one capture group, read from the recorded output
+    ranges = [[3.95, inf], [3.5, 3.95], [-inf, 3.5]]        # choice i holds when lo <= value < hi
+    answer = 3
+    explain = "The order describes small `h`..."
+```
+
+* The key is measured, not typed. `measure` is a regular expression with
+  one capture group, applied to the example's recorded output. For a
+  numeric prediction, give `ranges`, one half-open `[lo, hi)` per choice,
+  with no overlaps. For a word, give `values`, one per choice, compared
+  case-insensitively (for example `values = ["true", "false"]` against a
+  printed `true`). `verify` fails unless exactly one choice holds and it is
+  `answer`, so a re-recorded output that changes the result breaks the
+  key, just as it breaks an `output` question.
+* The example must be checked (`check = true`, the default): a key read from
+  an output that `verify` never compares could change unnoticed.
+* Pick an example whose result the earlier output on the page does not
+  already show. A prediction answered by the example just above it measures
+  reading, not reasoning.
+* `explain` is shown with the output whatever was picked, so write it for
+  the learner who missed: say why the measured value came out where it did.
+* `site-data` exports a prediction only when its key holds, together with
+  the measured value, which the page shows next to the answer.
+
 ## Practice problems
 
 ```toml
