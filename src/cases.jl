@@ -143,6 +143,8 @@ hole_project(c::Case) = Scaffold.load_project(joinpath(PROJECTS_DIR, c.project))
 reference_study(c::Case) = joinpath(c.dir, "reference", "study.jl")
 reference_report(c::Case) = joinpath(c.dir, "reference", "report.qmd")
 template_dir(c::Case) = joinpath(c.dir, "template")
+"""The milestone whose check runs the study and the report checker."""
+report_milestone(c::Case) = something(findfirst(m -> m.report, c.milestones), length(c.milestones))
 claim(c::Case, id) = (i = findfirst(x -> x.id == id, c.claims); i === nothing ? nothing : c.claims[i])
 
 const EM_DASH = Char(0x2014)
@@ -557,6 +559,144 @@ function run_job(c::Case, job; timeout::Real = 1200)
     return raw, cl, to, Practice.clip(log, 20_000)
 end
 
+# ---- estimate before you compute (Phase 5) -----------------------------------------------------
+#
+# Step 2 of the method asks for an estimate made *before* computing. A number
+# typed into report.qmd cannot show when it was written, so the learner
+# commits it first with `tutor case estimate`, which records it in the case
+# folder together with how many study checks had already run. Milestone 3's
+# check (which runs the study and so shows its values) counts itself in the
+# same file, and prints the committed estimate next to the measured value.
+# Estimates are never graded: the comparison is feedback on scale reasoning.
+# The record is the learner's own file; editing it defeats only its purpose.
+
+const ESTIMATES_FILE = ".tutor-estimates.toml"
+
+struct CommittedEstimate
+    id::String
+    written::String              # as typed
+    value::Float64
+    reason::String               # how the learner got it (one line)
+    study_checks_before::Int     # study checks run before the commit; 0 = blind
+end
+
+const REASON_MAX = 300
+
+"""
+    estimate_problem(c, id, written, reason, committed) -> String or nothing
+
+Pure: why `tutor case estimate` refuses this commit, or `nothing`.
+"""
+function estimate_problem(c::Case, id::AbstractString, written::AbstractString, reason::AbstractString,
+                          committed::Vector{CommittedEstimate})
+    ids = [e.id for e in c.estimates]
+    id in ids || return "this case has no estimate `$id`; its estimates: $(join(ids, ", "))"
+    any(e -> e.id == id, committed) &&
+        return "`$id` is already committed. A committed estimate is final: the point is the number you had before computing."
+    v = tryparse(Float64, written)
+    (v === nothing || !isfinite(v)) && return "`$written` is not a number (write e.g. 2000 or 2e3)"
+    v == 0 && return "an estimate of 0 cannot be compared in orders of magnitude; estimate its size"
+    r = strip(reason)
+    isempty(r) && return "say in one line how you got the estimate: an estimate without its reasoning is a guess"
+    occursin('\n', r) && return "the reason must be one line"
+    length(r) > REASON_MAX && return "the reason is longer than $REASON_MAX characters; one line is enough"
+    return nothing
+end
+
+"""
+    magnitude_feedback(estimate, measured) -> String
+
+Pure: how far an estimate was from the measured value, in factors of ten.
+Never a grade.
+"""
+function magnitude_feedback(est::Real, measured)
+    measured isa Real && isfinite(measured) || return "cannot compare: the measured value is not a number"
+    measured == 0 && return "cannot compare in orders of magnitude: the measured value is 0"
+    sign(est) == sign(measured) || return "the sign differs from the measured value"
+    r = abs(measured) / abs(est)
+    k = log10(r)
+    ratio = "measured / estimate = $(round(r; sigdigits = 3))"
+    abs(k) <= log10(2) && return "within a factor of 2 ($ratio)"
+    abs(k) <= 1 && return "within a factor of 10: the right order of magnitude ($ratio)"
+    return "off by $(round(abs(k); digits = 1)) orders of magnitude; the measured value is " *
+           (r > 1 ? "larger" : "smaller") * " ($ratio)"
+end
+
+"""
+    estimate_lines(estimates, committed) -> Vector{String}
+
+Pure: the check's estimate block. `estimates` comes from `check_report`
+(id, written in the report, compared claim, computed value); `committed`
+from the case folder's record.
+"""
+function estimate_lines(estimates, committed::Vector{CommittedEstimate})
+    out = String[]
+    for (id, w, cw, v) in estimates
+        ce = findfirst(e -> e.id == id, committed)
+        ce = ce === nothing ? nothing : committed[ce]
+        push!(out, "  $id:")
+        if ce === nothing
+            push!(out, "    not committed. The estimate in your report may have been written after seeing results;")
+            push!(out, "    next time, commit it first with `tutor case estimate`.")
+        else
+            when = ce.study_checks_before == 0 ? "before your first study check: a blind estimate" :
+                   "after $(ce.study_checks_before) study check(s), which showed computed values: not a blind estimate"
+            push!(out, "    committed: $(ce.written), $when")
+            push!(out, "    how you got it: $(ce.reason)")
+        end
+        wv = tryparse(Float64, w)
+        push!(out, "    in your report: $w" *
+                   (ce !== nothing && wv != ce.value ? " (not the committed $(ce.written): the report's step 2 should show the estimate made before computing)" : ""))
+        isempty(cw) && continue
+        push!(out, "    measured: $cw = $(v === nothing ? "?" : v)")
+        est = ce === nothing ? wv : ce.value
+        est === nothing || push!(out, "    " * (ce === nothing ? "report estimate: " : "committed estimate: ") * magnitude_feedback(est, v))
+    end
+    return out
+end
+
+"""Read the case folder's estimate record: (committed estimates, study checks run)."""
+function load_estimates(dir::AbstractString)
+    path = joinpath(dir, ESTIMATES_FILE)
+    isfile(path) || return CommittedEstimate[], 0
+    d = TOML.parsefile(path)
+    # Typed: a record with no estimates yet (a study check ran first) must
+    # still give a Vector{CommittedEstimate}, not a Vector{Union{}}.
+    es = CommittedEstimate[CommittedEstimate(e["id"], e["written"], Float64(e["value"]), e["reason"], e["study_checks_before"])
+                           for e in get(d, "estimate", Any[])]
+    return es, Int(get(d, "study_checks", 0))
+end
+
+function save_estimates(dir::AbstractString, es::Vector{CommittedEstimate}, study_checks::Int)
+    d = Dict{String,Any}("study_checks" => study_checks,
+                         "estimate" => [Dict{String,Any}("id" => e.id, "written" => e.written, "value" => e.value,
+                                                         "reason" => e.reason, "study_checks_before" => e.study_checks_before)
+                                        for e in es])
+    io = IOBuffer()
+    println(io, "# Written by `tutor case estimate` and `tutor case check`: your estimates, committed before")
+    println(io, "# computing, and how many study checks have run. Editing it defeats its purpose.")
+    TOML.print(io, d; sorted = true)
+    write(joinpath(dir, ESTIMATES_FILE), String(take!(io)))
+    return nothing
+end
+
+"""
+    commit_estimate(c, dir, id, written, reason) -> (ok, message)
+
+`tutor case estimate`: record an estimate before computing.
+"""
+function commit_estimate(c::Case, dir::AbstractString, id::AbstractString, written::AbstractString, reason::AbstractString)
+    es, n = load_estimates(dir)
+    p = estimate_problem(c, id, written, reason, es)
+    p === nothing || return false, p
+    push!(es, CommittedEstimate(id, written, Base.parse(Float64, written), String(strip(reason)), n))
+    save_estimates(dir, es, n)
+    return true, "Committed $id = $written" *
+                 (n == 0 ? ", before any study check." :
+                  ". Note: $n study check(s) already ran and showed computed values, so the record says it is not a blind estimate.") *
+                 " Milestone 3's check will show it next to what you measure."
+end
+
 # ---- assessing a check -------------------------------------------------------------------------
 
 run_ok(r) = !haskey(r, "load_error") && !get(r, "tests_missing", false) && isempty(get(r, "toplevel_error", "")) &&
@@ -577,11 +717,14 @@ function failures(r)
 end
 
 """
-    assess(c, m, raw, values, rerun, report; timed_out, log) -> (passed, text)
+    assess(c, m, raw, values, rerun, report; timed_out, log, committed) -> (passed, text)
 
 Pure: from the driver's results to the check's verdict and text.
+`committed` is the case folder's estimate record (`nothing`: none kept, as
+in the authoring self-test).
 """
-function assess(c::Case, m::Int, raw, values, rerun, report::Union{Nothing,String}; timed_out::Bool = false, log = "")
+function assess(c::Case, m::Int, raw, values, rerun, report::Union{Nothing,String}; timed_out::Bool = false, log = "",
+                committed::Union{Nothing,Vector{CommittedEstimate}} = nothing)
     io = IOBuffer()
     println(io, "== tutor case check: $(c.name), milestone $m ==")
     println(io)
@@ -632,8 +775,12 @@ function assess(c::Case, m::Int, raw, values, rerun, report::Union{Nothing,Strin
                 isempty(findings) || (passed = false)
                 if !isempty(estimates)
                     println(io, "Estimates (never graded; your estimate next to what you measured):")
-                    for (id, w, cw, v) in estimates
-                        println(io, "  $id: you estimated $w", isempty(cw) ? "" : "; you measured $cw = $(v === nothing ? "?" : v)")
+                    if committed === nothing
+                        for (id, w, cw, v) in estimates
+                            println(io, "  $id: you estimated $w", isempty(cw) ? "" : "; you measured $cw = $(v === nothing ? "?" : v)")
+                        end
+                    else
+                        foreach(l -> println(io, l), estimate_lines(estimates, committed))
                     end
                 end
             end
@@ -653,8 +800,13 @@ Run milestone `m`'s check on a student directory (a starter from `tutor
 start` / `tutor case start`): acceptance tests of milestones 1..m on the
 student's package (and study), and for the report milestone two clean runs
 of study() and the claim checker on report.qmd.
+
+With `record = true` (the CLI) the report milestone reads the folder's
+committed estimates and counts itself as a study check once the study
+returned values (the check then shows them, so later estimates are not
+blind).
 """
-function check(c::Case, dir::AbstractString, m::Int; timeout::Real = 1200)
+function check(c::Case, dir::AbstractString, m::Int; timeout::Real = 1200, record::Bool = false)
     1 <= m <= length(c.milestones) || error("milestone must be 1 to $(length(c.milestones))")
     files = student_files(dir)
     rep = c.milestones[m].report
@@ -665,7 +817,12 @@ function check(c::Case, dir::AbstractString, m::Int; timeout::Real = 1200)
         _, rerun, _, _ = run_job(c, make_job(c, ["student" => files], Pair{String,Int}[]; claims = true); timeout)
     end
     report = rep && isfile(joinpath(dir, "report.qmd")) ? read(joinpath(dir, "report.qmd"), String) : nothing
-    return assess(c, m, raw, values, rerun, report; timed_out = to, log)
+    committed = nothing
+    if record && rep
+        committed, n = load_estimates(dir)
+        values === nothing || save_estimates(dir, committed, n + 1)
+    end
+    return assess(c, m, raw, values, rerun, report; timed_out = to, log, committed)
 end
 
 # ---- authoring self-test -------------------------------------------------------------------------
@@ -803,7 +960,10 @@ function brief_markdown(c::Case; rubric::Bool = true, heading::Int = 2)
     println(io, "* **Required accuracy:** ", oneline(c.accuracy))
     println(io, "* **Steps of the method this case stresses:** ", join([step_title(s) for s in c.emphasised], ", "),
             ". The report has a section for each of the eight: ", join([t for (_, t) in METHOD_STEPS], ", "), ".")
-    println(io, "* **Estimate first:** ", oneline(c.estimate), "\n")
+    println(io, "* **Estimate first:** ", oneline(c.estimate), " Commit it before your first `tutor case check <dir> ",
+            report_milestone(c), "` (that check runs your study and shows its values): `tutor case estimate <dir> ",
+            isempty(c.estimates) ? "<id>" : first(c.estimates).id,
+            " <value> \"<how you got it>\"`. The check then shows the committed estimate next to what you measured; it is never graded.\n")
     println(io, "$h Data\n")
     println(io, "Kind: ", get(c.data, "kind", ""), ". ", oneline(get(c.data, "description", "")), "\n")
     diffs = get(c.data, "difficulty", Any[])
