@@ -6,8 +6,8 @@ Start here: hole `propose_step` at src/ODEInt.jl:131
 
 Tests: 16/17 testsets pass
   FAIL propose_step: accept, reject, clamp  [2 failed, 0 errored; depends on: propose_step]
-       test/runtests.jl:160 FAIL isapprox((propose_step(h, 0.45 ^ 5))[2], 0.2; rtol = 4 * EPS)  evaluated: isapprox(0.17507820337135668, 0.2; rtol = 8.881784197001252e-16)
-       test/runtests.jl:161 FAIL isapprox((propose_step(h, 32.0))[2], 0.045; rtol = 4 * EPS)  evaluated: isapprox(0.05051079217392179, 0.045; rtol = 8.881784197001252e-16)
+       test/runtests.jl:160 FAIL isapprox((propose_step(h, 0.45 ^ 5))[2], 0.2; rtol = 4 * EPS)  evaluated: isapprox(0.1750782, 0.2; rtol = 8.8817842e-16)
+       test/runtests.jl:161 FAIL isapprox((propose_step(h, 32.0))[2], 0.045; rtol = 4 * EPS)  evaluated: isapprox(0.050510792, 0.045; rtol = 8.8817842e-16)
 
 Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
   1. propose_step       0.5   implemented  failing-deps=1 passing-deps=3  src/ODEInt.jl:131

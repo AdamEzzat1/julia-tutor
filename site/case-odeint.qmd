@@ -16,7 +16,7 @@ A planet moves on an eccentric orbit (eccentricity 0.5) around a star. You must 
 * **Quantity of interest:** The cost ratio: force evaluations Stormer-Verlet needs divided by those Dormand-Prince 5(4) needs, each at its cheapest setting that meets the energy budget.
 * **Required accuracy:** A factor of 2 in the cost ratio decides the question whenever the ratio is far from 1. The search grid you use must bound the ratio, and you state that bound next to the ratio.
 * **Steps of the method this case stresses:** Method choice, Verification. The report has a section for each of the eight: Question, Scales and estimate, Model and assumptions, Method choice, Verification, Validation, Uncertainty and sensitivity, Claims and limits.
-* **Estimate first:** Before you run anything, estimate how many Stormer-Verlet steps per orbit the budget needs. Use one short run and the method's order to get it. Write the estimate in the report with an {estimate:verlet_nper} tag.
+* **Estimate first:** Before you run anything, estimate how many Stormer-Verlet steps per orbit the budget needs. Use one short run and the method's order to get it. Write the estimate in the report with an {estimate:verlet_nper} tag. Commit it before your first `tutor case check <dir> 3` (that check runs your study and shows its values): `tutor case estimate <dir> verlet_nper <value> "<how you got it>"`. The check then shows the committed estimate next to what you measured; it is never graded.
 
 ## Data
 

@@ -5,7 +5,8 @@
 import { describe, expect, it } from "vitest";
 import quarto from "../../site/_quarto.yml?raw";
 import readme from "../../README.md?raw";
-import { course, crossPrerequisites, estimateText, statusNote } from "./course";
+import { course, courseById, crossPrerequisites, estimateText, statusNote } from "./course";
+import { BUILT_CASES, caseHref } from "./views/Cases";
 
 const pages = import.meta.glob("../../site/*.qmd", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 const views = import.meta.glob("./views/*.tsx", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
@@ -71,6 +72,21 @@ describe("course status is said everywhere", () => {
 
   it("views that list courses show the status note", () => {
     for (const v of ["Hero.tsx", "CourseLanding.tsx", "Course.tsx", "Cases.tsx"]) expect(views[`./views/${v}`], v).toContain("statusNote(");
+  });
+});
+
+describe("cases index", () => {
+  it("lists exactly the built case pages, each in an existing course that assesses it", () => {
+    const built = Object.keys(pages).map((p) => p.match(/\/case-([^/]+)\.qmd$/)?.[1]).filter(Boolean).sort();
+    expect(BUILT_CASES.map((k) => k.id).sort()).toEqual(built);
+    for (const k of BUILT_CASES) {
+      expect(courseById(k.course)?.projects, k.id).toContain(k.id);
+      expect(caseHref(k.id)).toBe(`case-${k.id}.html`);
+    }
+  });
+
+  it("does not say no case is ready while one is", () => {
+    expect(views["./views/Cases.tsx"]).not.toMatch(/No case project is ready/);
   });
 });
 

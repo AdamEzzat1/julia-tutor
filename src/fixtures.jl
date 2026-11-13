@@ -95,7 +95,31 @@ function run_fixture(p::Scaffold.ProjectSpec, f::Fixture)
         occursin(flat(bad), flat(r.text)) &&
             push!(problems, "fixture `$(f.name)`: output contains a machine path ($(basename(bad)))")
     end
-    return r.text, problems
+    return golden_text(r.text), problems
+end
+
+# Goldens round long floats to 8 significant digits. A value at the end of a
+# long computation can differ in its last bits between CPUs, because whether
+# `a*b + c` becomes one fused multiply-add depends on the machine code the CPU
+# gets. Measured: the odeint fixture solve_adaptive-overshoots-tf prints
+# fit_order = 0.18899021023137388 under `julia -C native` (and haswell,
+# skylake-avx512) but 0.1889902102315128 under `-C generic`. Its golden failed
+# on one GitHub runner and passed on another at the same code. 8 digits keep
+# every real change visible. A last-bit perturbation (~1e-13 relative here)
+# lands across an 8-digit rounding boundary with probability ~1e-5 per value.
+# Only the golden copy is rounded; students see explain's full output.
+const LONG_FLOAT = r"(?<![\w.])-?\d+\.\d+(?:e[-+]?\d+)?(?![\w.])"
+const GOLDEN_SIGDIGITS = 8
+
+"""Explain text with every float of more than $GOLDEN_SIGDIGITS significant digits rounded to that many."""
+function golden_text(s::AbstractString)
+    return replace(s, LONG_FLOAT => function (m)
+        x = tryparse(Float64, m)
+        x === nothing && return m
+        mantissa = replace(replace(m, r"e.*$" => ""), r"[-.]" => "")
+        length(lstrip(mantissa, '0')) <= GOLDEN_SIGDIGITS && return m
+        return repr(round(x; sigdigits = GOLDEN_SIGDIGITS))
+    end)
 end
 
 """Run every fixture (4 at a time; each run is its own processes). Returns name => (text, problems)."""

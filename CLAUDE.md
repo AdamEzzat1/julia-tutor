@@ -34,6 +34,7 @@ npm --prefix web test && npm --prefix web run build && quarto render site   # we
 ./tutor guided verify [p] [--sandbox=docker] # authoring self-test: reference, mutants, exemplars, fixtures
 ./tutor case list | show <c> [--rubric]     # scientific case projects (docs/CASES.md): question, study, checked report
 ./tutor case start <c> <dir>; ./tutor case check <dir> <m>   # check: hidden acceptance; m3 also study() x2 + claim checker
+./tutor case estimate <dir> <id> <value> "<how>"   # commit an estimate before computing; m3's check shows it next to the measured value
 ./tutor case verify [c] [--sandbox=docker]  # authoring self-test: reference, hole + study mutants, report fixtures
 ./tutor case site [--check]                 # site/case-<c>.qmd, generated from case.toml
 ./tutor holemap symdiff [--check]           # measured test->hole map + mutation tests (slow, ~5 min)
