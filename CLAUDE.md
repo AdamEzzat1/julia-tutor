@@ -32,6 +32,10 @@ npm --prefix web test && npm --prefix web run build && quarto render site   # we
 ./tutor guided list | show <p> [m]          # guided build projects (docs/GUIDED.md): student writes code + tests
 ./tutor guided start <p> <dir>; ./tutor guided check <dir> [m]   # check: acceptance + own tests vs reference and mutants
 ./tutor guided verify [p] [--sandbox=docker] # authoring self-test: reference, mutants, exemplars, fixtures
+./tutor case list | show <c> [--rubric]     # scientific case projects (docs/CASES.md): question, study, checked report
+./tutor case start <c> <dir>; ./tutor case check <dir> <m>   # check: hidden acceptance; m3 also study() x2 + claim checker
+./tutor case verify [c] [--sandbox=docker]  # authoring self-test: reference, hole + study mutants, report fixtures
+./tutor case site [--check]                 # site/case-<c>.qmd, generated from case.toml
 ./tutor holemap symdiff [--check]           # measured test->hole map + mutation tests (slow, ~5 min)
 ./tutor baseline symdiff [--check]          # measurements of the reference
 ./tutor lessons verify                      # run every lesson snippet on the pinned Julia
@@ -79,6 +83,9 @@ docs/DESIGN.md                the four questions, project choice, instability li
 src/guided.jl, guided_driver.jl  guided build projects: job, pure `assess`, hint fading; the driver runs in the sandbox
 projects/guided/<p>/          project.toml (milestones, API, behaviours, hints, questions), reference/{src,test},
                               acceptance/m<k>.jl (hidden), mutants.toml, fixtures/ + fixtures.toml; docs/GUIDED.md
+src/cases.jl                  case projects: brief, report parser, claim checker (pure); runs through the guided driver
+projects/<p>/case/            case.toml (brief, claims, evidence, rubric, mutants), acceptance/m<k>.jl (hidden),
+                              reference/{study.jl,report.qmd}, template/, report_fixtures.toml; docs/CASES.md
 ```
 
 ## Website (site/ + web/)
@@ -231,6 +238,9 @@ every role above has had the chance to object (recorded in the PR).
   fit tests, tolerance-proportionality, energy drift on Kepler, exact linear
   solutions; every tolerance derived in a comment and signed off by the
   numerical analyst; ≥ 6 holes over ≥ 2 stages; holemap and mutants clean.
+  *Status:* projects/odeint (8 holes, 2 stages, holemap clean) and its case
+  (docs/CASES.md) are built; the numerical analyst's sign-off and the pilot
+  with learners are not done.
 * **M5 More rules (measured counterparts first):** Core.Box capture (with a JET
   confirmation), `@threads` reduction race, `x == missing`, unseeded RNG in
   tests, `Array{T}(undef)` read-before-write, string byte indexing, `==` defined

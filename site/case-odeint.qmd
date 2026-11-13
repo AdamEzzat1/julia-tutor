@@ -1,0 +1,139 @@
+---
+title: "Case: Long orbits: write Dormand-Prince 5(4), then choose between Runge-Kutta and a symplectic method"
+subtitle: "A scientific case project in the scicomp course. Generated from projects/odeint/case/case.toml by `tutor case site`; do not edit."
+---
+
+::: {.callout-note}
+This page is the brief. Nothing on it runs in the browser: the checks run on your machine, in the sandbox, with `tutor case check`.
+:::
+
+Write an adaptive Runge-Kutta solver from its tableau and verify it. Then decide, by measurement, which method keeps a planet's energy error within budget over a thousand orbits at the lower cost.
+
+## The question
+
+A planet moves on an eccentric orbit (eccentricity 0.5) around a star. You must simulate 1000 orbits and keep the relative energy error below 1e-6 at every step. Which integrator does that with fewer force evaluations: adaptive Dormand-Prince 5(4), or fixed-step Stormer-Verlet? By how much? And does the answer survive a more eccentric orbit?
+
+* **Quantity of interest:** The cost ratio: force evaluations Stormer-Verlet needs divided by those Dormand-Prince 5(4) needs, each at its cheapest setting that meets the energy budget.
+* **Required accuracy:** A factor of 2 in the cost ratio decides the question whenever the ratio is far from 1. The search grid you use must bound the ratio, and you state that bound next to the ratio.
+* **Steps of the method this case stresses:** Method choice, Verification. The report has a section for each of the eight: Question, Scales and estimate, Model and assumptions, Method choice, Verification, Validation, Uncertainty and sensitivity, Claims and limits.
+* **Estimate first:** Before you run anything, estimate how many Stormer-Verlet steps per orbit the budget needs. Use one short run and the method's order to get it. Write the estimate in the report with an {estimate:verlet_nper} tag.
+
+## Data
+
+Kind: exact solutions. No dataset. The ground truth is analytic: polynomial integrands and a nilpotent linear system, which Dormand-Prince 5(4) solves without truncation error; the Kepler orbit, from Kepler's equation; and the conserved energy (-1/2 on every orbit with semi-major axis 1). Units: GM = 1, semi-major axis 1, period 2*pi. Nothing is random and nothing is downloaded.
+
+Difficulties built in on purpose, each tied to a knowledge component:
+
+* Convergence fits bend at both ends: pre-asymptotic error for large steps, rounding for small ones. The fit range is part of the result. (`convergence-order-fit`)
+* Near perihelion the orbit is fast, so the adaptive solver has to shrink its steps there and lengthen them at aphelion. (`step-size-control`)
+* The energy error of the first orbits is a transient that hides the long-time drift unless the drift fit starts later. (`energy-drift`)
+* The energy error is not monotone in the tolerance: over 1000 orbits 3.16e-9 meets the budget while the tighter 1e-9 does not. The cheapest setting is defined by the search grid, and a search that starts too tight misses it. (`step-size-control`)
+* A bounded energy error does not make the orbit accurate: the phase error grows anyway. Energy is a proxy for accuracy, and the validation step tests that proxy. (`validation-proxy`)
+
+## Milestones
+
+1. **The method: one step, its error estimate, the exact orbit, Stormer-Verlet.** Fill the four stage-1 holes (`tutor start odeint 1 <dir>`) until the visible tests pass, then run `tutor case check <dir> 1`. The hidden acceptance tests use other problems, so code that fits the visible tests only does not pass. Method steps: Verification.
+2. **Error control: the controller, the starting step, the adaptive loop, the order fit.** Start stage 2 (`tutor case start odeint <dir>`). It opens all eight holes and adds study.jl and report.qmd. Then run `tutor case check <dir> 2`. Method steps: Method choice, Verification.
+3. **The study and the report.** Write study.jl (its docstrings are the spec) and report.qmd, then run `tutor case check <dir> 3`. This runs the hidden acceptance tests on your study, runs `study()` twice in fresh processes, and checks every tagged number in the report against what your code computed. Method steps: Question, Scales and estimate, Model and assumptions, Method choice, Verification, Validation, Uncertainty and sensitivity, Claims and limits.
+
+## What is checked, and what is not
+
+Checked by software, deterministically, in the sandbox on your machine:
+
+* each milestone's hidden acceptance tests (failures name the behaviour, never the test code);
+* in the report, every number tagged `{claim:<id>}` must equal what your own `study()` computed, to half a unit in the last digit you wrote (deterministic study: half a unit in the last written digit, nothing more);
+* the required evidence is present (below), and a clean re-run of `study()` reproduces every claimed value bit for bit.
+
+**Not checked by any software: the quality of your scientific argument.** No program grades the reasoning. Use the rubric below to judge it yourself, with a peer, or with an instructor.
+
+Required evidence:
+
+* a fitted convergence order with its fit range: `conv_order`, `conv_fit_hmin`, `conv_fit_hmax` (in one paragraph)
+* a verification result against an exact solution, and tolerance proportionality: `exact_linear_err`, `tol_slope`
+* the quantity of interest stated with its uncertainty: `cost_ratio`, `cost_ratio_lo`, `cost_ratio_hi` (in one paragraph)
+* the conclusion re-checked under a perturbed assumption, and whether it holds: `robust_e`, `robust_choice`, `robust_holds` (in one paragraph)
+* the range where the conclusion was tested: `valid_e_min`, `valid_e_max`, `valid_norbits_max` (in one paragraph)
+
+Robustness: the orbit's eccentricity is 0.5 is re-checked under eccentricity 0.6: a faster perihelion passage, harder for both methods; the report says whether the conclusion still holds.
+
+| claim | section | what it is |
+|---|---|---|
+| `eccentricity` | Question | the orbit's eccentricity |
+| `norbits` | Question | the horizon in orbits |
+| `target` | Question | the energy budget (max relative energy error) |
+| `tol_dp54` | Method choice | the loosest DP5(4) tolerance on your grid that meets the budget |
+| `err_dp54` | Method choice | DP5(4)'s max relative energy error at that tolerance |
+| `nf_dp54` | Method choice | DP5(4)'s right-hand-side evaluations at that tolerance |
+| `nper_verlet` | Method choice | the fewest Stormer-Verlet steps per orbit you found that meet the budget |
+| `err_verlet` | Method choice | Stormer-Verlet's max relative energy error at that step |
+| `nf_verlet` | Method choice | Stormer-Verlet's force evaluations at that step |
+| `choice` | Method choice | the cheaper method (one of: dp54, verlet) |
+| `cost_ratio` | Method choice | the QoI: nf_verlet / nf_dp54 |
+| `cost_ratio_lo` | Method choice | lower bound on the ratio from your search grid |
+| `cost_ratio_hi` | Method choice | upper bound on the ratio from your search grid |
+| `conv_order` | Verification | fitted order of DP5 (fixed steps, one period) |
+| `conv_fit_hmin` | Verification | smallest step in the DP5 fit range |
+| `conv_fit_hmax` | Verification | largest step in the DP5 fit range |
+| `verlet_order` | Verification | fitted order of Stormer-Verlet |
+| `verlet_fit_hmin` | Verification | smallest step in the Verlet fit range |
+| `verlet_fit_hmax` | Verification | largest step in the Verlet fit range |
+| `tol_slope` | Verification | slope of log(global error) on log(tolerance): tolerance proportionality |
+| `exact_linear_err` | Verification | max error on the nilpotent linear system (an exact solution: rounding only) |
+| `pos_err_dp54` | Validation | DP5(4)'s position error after the horizon, against the exact orbit |
+| `pos_err_verlet` | Validation | Stormer-Verlet's position error after the horizon, against the exact orbit |
+| `drift_exp_dp54` | Uncertainty and sensitivity | fitted growth exponent of DP5(4)'s energy error |
+| `drift_exp_verlet` | Uncertainty and sensitivity | fitted growth exponent of Stormer-Verlet's energy error |
+| `drift_fit_kmin` | Uncertainty and sensitivity | first orbit count in the drift fit |
+| `drift_fit_kmax` | Uncertainty and sensitivity | last orbit count in the drift fit |
+| `robust_e` | Uncertainty and sensitivity | the perturbed eccentricity |
+| `robust_cost_ratio` | Uncertainty and sensitivity | the cost ratio at the perturbed eccentricity |
+| `robust_choice` | Uncertainty and sensitivity | the cheaper method at the perturbed eccentricity (one of: dp54, verlet) |
+| `robust_holds` | Uncertainty and sensitivity | whether the conclusion holds under the perturbed assumption (one of: holds, fails) |
+| `valid_e_min` | Claims and limits | smallest eccentricity the conclusion was tested at |
+| `valid_e_max` | Claims and limits | largest eccentricity the conclusion was tested at |
+| `valid_norbits_max` | Claims and limits | longest horizon the conclusion was tested at |
+
+## Discussion questions
+
+1. Before measuring: if you halve Stormer-Verlet's step, by what factor does its maximum energy error change? If you run DP5(4) at a fixed tolerance for ten times as many orbits? *(prediction (measured; it will be graded as a prediction once predictions exist))*
+2. At the settings you chose, which method ends the 1000 orbits closer to the true position of the planet? *(prediction (measured; it will be graded as a prediction once predictions exist))*
+3. Stormer-Verlet's energy error stays bounded. Does that make its orbit accurate? What did your validation measure, and what does it say about energy as a proxy for accuracy? *(for discussion, judged with the rubric)*
+4. At what horizon or energy budget would you expect the choice to flip, and why is any number you give for it an extrapolation beyond what you measured? *(for discussion, judged with the rubric)*
+5. What bends your convergence-fit line at each end of the range you did not use? How did you choose the range? *(for discussion, judged with the rubric)*
+6. When would energy be the wrong quantity to watch (a dissipative force, a perturbation that changes the energy on purpose)? *(for discussion, judged with the rubric)*
+
+## Rubric
+
+For self-assessment, peer review or an instructor. It rewards supported claims; length, code volume and the number of plots earn nothing.
+
+| step | criterion | 0 | 1 | 2 |
+|---|---|---|---|---|
+| Question | States the question, the QoI and the accuracy that would answer it, before any result. | missing or vague | stated, but the accuracy is not tied to the decision | stated, and the accuracy is justified by the decision it has to support |
+| Scales and estimate | Nondimensionalises (GM = 1, a = 1, T = 2 pi) and commits an estimate before computing; compares it with the measurement afterwards. | no estimate | an estimate without a method | an estimate from a stated scaling argument, compared with the result and the gap explained |
+| Model and assumptions | Lists the model's assumptions (two point masses, no perturbations, Newtonian gravity) and the proxy (energy error for accuracy). | none listed | listed | listed, with which ones could change the conclusion |
+| Method choice | Justifies the choice by cost at equal accuracy, measured, not by the method's order or reputation. | asserted | measured at one setting | measured at the cheapest passing setting of each method, with the search's resolution stated |
+| Verification | Shows the code is right: an exact solution, fitted orders with fit ranges, tolerance proportionality; keeps this separate from validation. | none, or mixed with validation | some checks, ranges not stated | all three, each with its range and the theoretical value |
+| Validation | Tests the proxy against the ground truth (positions against the exact orbit) and says what it shows. | absent | numbers without interpretation | the proxy's limit is identified and its effect on the conclusion stated |
+| Uncertainty and sensitivity | States the uncertainty of the QoI (from the search grid), the drift law with its fit range, and whether the conclusion survives the perturbed assumption. | absent | stated without the robustness re-check | stated, re-checked, and the outcome stated plainly |
+| Claims and limits | Every claim has its evidence; limitations and the validity range are stated; nothing is extrapolated beyond the tested range. Length, code volume and the number of plots earn nothing. | claims without evidence | evidence for most claims | every claim supported, limits and range stated, no extrapolation |
+
+## Pilot
+
+Status: **not run**. Nothing here is evidence that the case teaches well until it has run. It needs:
+
+* one learner who knows some numerical methods (has met Runge-Kutta and convergence order) and has not seen this case
+* the learner works from `tutor case start` and the brief only; the observer records time per milestone, where they got stuck, every `tutor case check` output and every claim-checker finding
+* an instructor scores the finished report with the rubric, blind to the time data
+* a transfer task afterwards on an unseen problem (e.g. a pendulum's energy over 1000 periods): does the learner verify before trusting, choose the method by measurement, and report uncertainty?
+* decision rule: if the learner cannot finish milestone 3 in two sessions, or the rubric score on the transfer task is at the lowest level for verification or uncertainty, the scaffolding is revised before more cases are built
+
+## Commands
+
+```
+tutor start odeint 1 work/m1        # milestone 1: the stage-1 holes
+tutor explain odeint work/m1        # tests, findings, where to start
+tutor case check work/m1 1               # milestone 1's hidden acceptance tests
+tutor case start odeint work/case      # milestones 2 and 3: all holes, study.jl, report.qmd
+tutor case check work/case 2
+tutor case check work/case 3             # acceptance, two clean runs of study(), the claim checker
+```

@@ -1,0 +1,30 @@
+== tutor explain: odeint, stage 2 ==
+
+Start here: hole `propose_step` at src/ODEInt.jl:131
+  why: 1 of the 1 failing testsets depend on it (Ochiai 0.5); 3 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: step-size-control.
+
+Tests: 16/17 testsets pass
+  FAIL propose_step: accept, reject, clamp  [2 failed, 0 errored; depends on: propose_step]
+       test/runtests.jl:160 FAIL isapprox((propose_step(h, 0.45 ^ 5))[2], 0.2; rtol = 4 * EPS)  evaluated: isapprox(0.17507820337135668, 0.2; rtol = 8.881784197001252e-16)
+       test/runtests.jl:161 FAIL isapprox((propose_step(h, 32.0))[2], 0.045; rtol = 4 * EPS)  evaluated: isapprox(0.05051079217392179, 0.045; rtol = 8.881784197001252e-16)
+
+Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
+  1. propose_step       0.5   implemented  failing-deps=1 passing-deps=3  src/ODEInt.jl:131
+  2. dp54_step          0.0   implemented  failing-deps=0 passing-deps=9  src/ODEInt.jl:80
+  3. error_norm         0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:109
+  4. kepler_exact       0.0   implemented  failing-deps=0 passing-deps=5  src/ODEInt.jl:370
+  5. verlet_step        0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:283
+  6. solve_adaptive     0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:226
+  7. initial_step       0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:154
+  8. fit_order          0.0   implemented  failing-deps=0 passing-deps=6  src/ODEInt.jl:395
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)
+  allocations error_norm(4 components): 0  (reference 0)
+  allocations solve_adaptive(kepler, one period, tol 1e-8): 18  (reference 18)
+  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)
+  JET: not used by this project's measurements

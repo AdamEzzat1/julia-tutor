@@ -1,0 +1,68 @@
+---
+title: "Long orbits: Dormand-Prince 5(4) or Stormer-Verlet?"
+author: "Your name"
+format: html
+---
+
+<!--
+How this report is checked (`tutor case check <dir> 3`):
+
+* One `## ` section per step of the method, with exactly these headings
+  (a longer heading that starts with one is fine).
+* Every number you quote from your study is tagged right after it:
+  `5.18{claim:conv_order}`, `dp54{claim:choice}`. The checker compares it
+  with what your study() returned: half a unit in the last digit you wrote
+  is allowed, nothing more; integers written without a point must be exact.
+  Write numbers, not inline code: the checker does not run Quarto.
+* Some claims must sit together in one paragraph (the QoI with its bounds,
+  the fitted order with its fit range, the robustness re-check, the
+  validity range). `tutor case show odeint` lists every claim, its section
+  and the required evidence.
+* Your estimate goes in the Scales section with an {estimate:verlet_nper}
+  tag. It is never graded; the check prints it next to what you measured.
+
+No software grades the reasoning. The rubric (`tutor case show odeint
+--rubric`) is for you, a peer or an instructor.
+-->
+
+## Question
+
+State the question, the quantity of interest and the accuracy that would
+answer it. Quote the operating point: eccentricity ...{claim:eccentricity},
+horizon ...{claim:norbits} orbits, budget ...{claim:target}.
+
+## Scales and estimate
+
+The units (GM = 1, a = 1, period 2 pi), why they are natural here, and your
+estimate of the Verlet steps per orbit, written before any long run:
+...{estimate:verlet_nper}.
+
+## Model and assumptions
+
+The model and every assumption, including the proxy you judge accuracy by.
+
+## Method choice
+
+For each method, the cheapest setting you found, its energy error and its
+cost; which method you choose and why; the cost ratio with its bounds, in
+one paragraph.
+
+## Verification
+
+Is the code right? An exact solution, the fitted orders with their fit
+ranges, tolerance proportionality.
+
+## Validation
+
+Is the model (and the proxy) right for the question? Compare with the
+ground truth: the exact orbit.
+
+## Uncertainty and sensitivity
+
+The drift law with its fit range; the perturbed assumption and whether the
+conclusion holds under it.
+
+## Claims and limits
+
+Your claims, the evidence for each, the limitations, and the range where
+the conclusion was tested. Nothing beyond it.

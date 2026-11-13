@@ -1,0 +1,121 @@
+---
+title: "Long orbits: Dormand-Prince 5(4) or Stormer-Verlet?"
+author: "Reference report (julia-tutor authors)"
+format: html
+---
+
+<!--
+The reference report. `tutor case verify odeint` checks that it has no
+findings against the reference study(), and the report fixtures
+(case/report_fixtures.toml) are small edits of it, each with the findings
+it must produce. Change a number here only after re-running the study.
+-->
+
+## Question
+
+Over a long horizon, which integrator reaches a given energy accuracy on a
+Kepler orbit for less work: an adaptive Dormand-Prince 5(4) Runge-Kutta
+method or the fixed-step Stormer-Verlet method? The operating point is an
+orbit of eccentricity 0.5{claim:eccentricity}, a horizon of
+1000{claim:norbits} orbits, and a budget of 1e-6{claim:target} on the
+largest relative energy error seen at any step. The quantity of interest is
+the cost ratio: Verlet force evaluations over DP5(4) right-hand-side
+evaluations, each at its cheapest setting that meets the budget. A factor
+of two is accurate enough to answer the question, since the answer is
+which method to use.
+
+## Scales and estimate
+
+With GM = 1 and semi-major axis a = 1 the period is 2 pi and the energy is
+-1/2, so one orbit is the natural unit of time and the relative energy
+error needs no scale of its own. Before any long run: Verlet's energy error
+is bounded and scales as h^2, and at about 100 steps per orbit an orbit of
+this eccentricity keeps its energy to about 1e-2 near perihelion, so 1e-6
+needs about 100 times more steps per orbit. My estimate was
+10000{estimate:verlet_nper} steps per orbit.
+
+## Model and assumptions
+
+The two-body problem with the Sun fixed: q'' = -q/|q|^3, a planar orbit,
+started at perihelion. No other bodies, no relativity. Accuracy is judged by
+a proxy, the largest relative energy error over the horizon; the proxy is
+checked against the true orbit under Validation. Cost is counted in
+right-hand-side (force) evaluations, not seconds, so it does not depend on
+the machine.
+
+## Method choice
+
+The cheapest DP5(4) setting that meets the budget is
+rtol = atol = 3.16e-9{claim:tol_dp54}, with an energy error of
+7.9e-7{claim:err_dp54} for 506498{claim:nf_dp54} evaluations. The
+cheapest Verlet setting is 10372{claim:nper_verlet} steps per orbit, with
+an energy error of 9.97e-7{claim:err_verlet} for
+10372001{claim:nf_verlet} force evaluations. I choose
+dp54{claim:choice}.
+
+The cost ratio is 20.5{claim:cost_ratio}: Verlet needs about twenty times
+the work. The search grids bound it between 20.3{claim:cost_ratio_lo} and
+23.0{claim:cost_ratio_hi} (the cost of the setting that just failed and
+the one that passed, for each method), well inside the factor of two the
+question needs.
+
+## Verification
+
+The code is right on problems with known answers. A 6x6 nilpotent linear
+system, whose solution is a polynomial of degree 5 in t, is solved by seven
+fixed DP5 steps with error 2.7e-15{claim:exact_linear_err}, rounding
+error only.
+
+On one period of the orbit with fixed steps, the fitted order of DP5 is
+5.18{claim:conv_order} for step sizes from 3.93e-3{claim:conv_fit_hmin}
+to 3.14e-2{claim:conv_fit_hmax}.
+
+The fitted order of Verlet is 2.000{claim:verlet_order} for step sizes
+from 1.96e-3{claim:verlet_fit_hmin} to 1.57e-2{claim:verlet_fit_hmax}.
+The adaptive solver's error over one period is proportional to the
+tolerance: the fitted slope is 1.03{claim:tol_slope} for tolerances from
+1e-5 to 1e-10.
+
+## Validation
+
+The proxy has to answer the real question, where the planet is. At the
+end of the horizon the position error against the exact orbit (Kepler's
+equation) is 0.0060{claim:pos_err_dp54} for DP5(4) and
+0.0164{claim:pos_err_verlet} for Verlet, in units of the semi-major axis,
+at the settings chosen above. Both methods meet the energy budget with
+position errors of the same order, so the energy proxy does not favour
+one method on position accuracy; Verlet's error is mostly phase (a lag
+along the orbit), which energy does not see.
+
+## Uncertainty and sensitivity
+
+The energy error grows as k to the power 0.99{claim:drift_exp_dp54} for
+DP5(4) and 4.8e-7{claim:drift_exp_verlet} for Verlet, fitted over
+40{claim:drift_fit_kmin} to 1280{claim:drift_fit_kmax} orbits: linear
+drift for Runge-Kutta, bounded error for the symplectic method. The first
+orbits carry a transient and were left out of the fit. The ratio therefore
+depends on the horizon: DP5(4)'s advantage shrinks as the horizon grows,
+and at some much longer horizon Verlet wins. This study did not find that
+horizon.
+
+The DP5(4) setting has its own uncertainty: over 1000 orbits the energy
+error is not monotone in the tolerance (1e-9 misses the budget that the
+looser 3.16e-9 meets), so the cheapest tolerance is the first pass of a
+search from loose to tight on a stated grid, here quarter decades from
+1e-6. A finer grid could find a cheaper pass; the bounds on the cost ratio
+above are for this grid.
+
+The perturbed assumption: at eccentricity 0.6{claim:robust_e} the cost
+ratio is 19.4{claim:robust_cost_ratio}, the choice is still
+dp54{claim:robust_choice}, so the conclusion holds{claim:robust_holds}.
+
+## Claims and limits
+
+At the operating point, DP5(4) reaches the energy budget for about a
+twentieth of Verlet's work, and the fitted orders and the exact solution
+say the code is right. This was tested for eccentricities from
+0.5{claim:valid_e_min} to 0.6{claim:valid_e_max} and horizons up to
+1000{claim:valid_norbits_max} orbits, and is claimed nowhere else: not
+for more eccentric orbits, not for longer horizons where Verlet's bounded
+error must eventually win, and not for cost in seconds, which also
+depends on how cheap each force evaluation is.

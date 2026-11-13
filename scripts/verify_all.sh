@@ -34,6 +34,10 @@ step "course: example outputs, problem samples, grader self-tests (variants)"
 ./tutor course verify --sandbox=docker
 step "guided projects: reference, mutants, exemplary tests, fixtures (docs/GUIDED.md)"
 ./tutor guided verify --sandbox=docker
+step "case projects: brief, reference study and report, mutants, report fixtures (docs/CASES.md)"
+./tutor case verify --sandbox=docker
+step "case site pages are generated from case.toml"
+./tutor case site --check
 step "website data is generated from verified sources"
 ./tutor site-data --check
 step "lesson answer keys"

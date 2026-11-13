@@ -21,6 +21,7 @@
 #   tutor serve [--port=8749] [--allow-origin=URL] [--course=id]  local server for the website sandbox
 #   tutor sandbox pull|build|check|measure [course...]  the per-course container images (docs/SANDBOX_IMAGES.md)
 #   tutor guided list|show|start|deps|check|quiz|verify ...  guided build projects (docs/GUIDED.md)
+#   tutor case list|show|start|check|verify|site ...        scientific case projects (docs/CASES.md)
 
 using JuliaTutor
 using JuliaTutor: Checker, Scaffold, Runner, HoleMap, Explain, Lessons, Progress, Fixtures, SiteData,
@@ -175,7 +176,19 @@ function cmd_fixtures(args)
         append!(problems, probs)
         path = Fixtures.golden_path(p, f)
         if hasflag(args, "check")
-            (isfile(path) && read(path, String) == text) || push!(stale, f.name)
+            old = isfile(path) ? read(path, String) : ""
+            if old != text
+                push!(stale, f.name)
+                # Show what differs: a STALE line alone is useless when the
+                # golden only breaks on another platform (CI).
+                a, b = split(old, '\n'), split(text, '\n')
+                for i in 1:max(length(a), length(b))
+                    la = i <= length(a) ? a[i] : "<none>"
+                    lb = i <= length(b) ? b[i] : "<none>"
+                    la == lb && continue
+                    println("  $(f.name) line $i\n    golden: ", la, "\n    now:    ", lb)
+                end
+            end
         else
             mkpath(dirname(path))
             write(path, text)
@@ -728,7 +741,83 @@ function cmd_guided(args)
     println(GUIDED_USAGE); return 2
 end
 
-const COMMANDS = Dict("guided" => cmd_guided, "check" => cmd_check, "scaffold" => cmd_scaffold, "start" => cmd_start,
+# ---- scientific case projects (docs/CASES.md) -----------------------------------------
+
+using JuliaTutor: Cases
+
+const CASE_USAGE = """
+usage: tutor case list
+       tutor case show <case> [--rubric]
+       tutor case start <case> <dir>
+       tutor case check <dir> <milestone> [--sandbox=docker|none]
+       tutor case verify [case...] [--sandbox=docker|none]
+       tutor case site [case...] [--check]"""
+
+function cmd_case(args)
+    pos = positional(args)
+    sub = isempty(pos) ? "" : pos[1]
+    if sub == "list"
+        for n in Cases.case_names()
+            c = Cases.load_case(n)
+            println(rpad(c.name, 12), rpad(c.course, 10), rpad("$(length(c.milestones)) milestones", 15),
+                    rpad("pilot: " * get(c.pilot, "status", "?"), 18), c.title)
+        end
+        return 0
+    elseif sub == "show" && length(pos) == 2
+        c = Cases.load_case(pos[2])
+        println("# ", c.title, "\n")
+        print(Cases.brief_markdown(c; rubric = hasflag(args, "rubric")))
+        return 0
+    elseif sub == "start" && length(pos) == 3
+        c = Cases.load_case(pos[2]); dir = pos[3]
+        isdir(dir) && !isempty(readdir(dir)) && (println("refusing: $dir exists and is not empty"); return 1)
+        files = Cases.start_files(c)
+        for rel in sort!(collect(keys(files)))
+            mkpath(dirname(joinpath(dir, rel))); write(joinpath(dir, rel), files[rel])
+        end
+        println("Created $dir: the $(c.project) package with every hole open, study/study.jl, report.qmd and BRIEF.md.")
+        println("Next: read BRIEF.md, then tutor case check $dir 2")
+        return 0
+    elseif sub == "check" && length(pos) == 3
+        dir = pos[2]; c = Cases.case_of(dir)
+        c === nothing && (println("$dir was not created by `tutor case start` or `tutor start` for a case project"); return 1)
+        use_sandbox!(vcat(filter(a -> !startswith(a, "--sandbox="), args), "--sandbox=$(flag(args, "sandbox", "docker"))")) || return 2
+        passed, text = Cases.check(c, dir, parse(Int, pos[3]))
+        print(text)
+        return passed ? 0 : 1
+    elseif sub == "verify"
+        names = length(pos) > 1 ? pos[2:end] : Cases.case_names()
+        use_sandbox!(vcat(filter(a -> !startswith(a, "--sandbox="), args), "--sandbox=$(flag(args, "sandbox", "docker"))")) || return 2
+        bad = 0
+        for n in names
+            println(n)
+            problems = Cases.verify_case(Cases.load_case(n))
+            foreach(x -> println("  PROBLEM: ", replace(x, "\n" => "\n    ")), problems)
+            bad += length(problems)
+        end
+        println(bad == 0 ? "case projects verified" : "$bad problem(s)")
+        print_peaks("tutor case verify")
+        return bad == 0 ? 0 : 1
+    elseif sub == "site"
+        names = length(pos) > 1 ? pos[2:end] : Cases.case_names()
+        stale = 0
+        for n in names
+            c = Cases.load_case(n)
+            path = Cases.site_page_path(c); want = Cases.site_page(c)
+            if hasflag(args, "check")
+                have = isfile(path) ? replace(read(path, String), "\r\n" => "\n") : ""
+                have == want ? println("$(relpath(path, JuliaTutor.ROOT)) is up to date") :
+                               (println("$(relpath(path, JuliaTutor.ROOT)) is stale: run tutor case site $n"); stale += 1)
+            else
+                write(path, want); println("wrote $(relpath(path, JuliaTutor.ROOT))")
+            end
+        end
+        return stale == 0 ? 0 : 1
+    end
+    println(CASE_USAGE); return 2
+end
+
+const COMMANDS = Dict("guided" => cmd_guided, "case" => cmd_case, "check" => cmd_check, "scaffold" => cmd_scaffold, "start" => cmd_start,
                       "test" => cmd_test, "explain" => cmd_explain, "holemap" => cmd_holemap,
                       "baseline" => cmd_baseline, "lessons" => cmd_lessons, "lesson" => cmd_lesson,
                       "rules" => cmd_rules, "progress" => cmd_progress, "fixtures" => cmd_fixtures,
