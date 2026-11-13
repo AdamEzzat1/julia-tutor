@@ -6,8 +6,8 @@ Start here: hole `initial_step` at src/ODEInt.jl:154
 
 Tests: 16/17 testsets pass
   FAIL initial_step: Hairer's starting step  [2 failed, 0 errored; depends on: initial_step]
-       test/runtests.jl:177 FAIL isapprox(h, 2.0e-8 ^ (1 / 5); rtol = 64 * EPS)  evaluated: isapprox(0.39810717055349715, 0.028853998118144264; rtol = 1.4210854715202004e-14)
-       test/runtests.jl:188 FAIL isapprox(initial_step(one!, 0.0, [1.0e6], [1.0], 1.0e-6, 1.0e-6), (0.01 / (1 / sc)) ^ (1 / 5); rtol = 64 * EPS)  evaluated: isapprox(0.39810717055349726, 0.3981072501748995; rtol = 1.4210854715202004e-14)
+       test/runtests.jl:177 FAIL isapprox(h, 2.0e-8 ^ (1 / 5); rtol = 64 * EPS)  evaluated: isapprox(0.39810717, 0.028853998; rtol = 1.4210855e-14)
+       test/runtests.jl:188 FAIL isapprox(initial_step(one!, 0.0, [1.0e6], [1.0], 1.0e-6, 1.0e-6), (0.01 / (1 / sc)) ^ (1 / 5); rtol = 64 * EPS)  evaluated: isapprox(0.39810717, 0.39810725; rtol = 1.4210855e-14)
 
 Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
   1. initial_step       0.5   implemented  failing-deps=1 passing-deps=3  src/ODEInt.jl:154
