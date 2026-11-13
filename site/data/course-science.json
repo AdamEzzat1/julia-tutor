@@ -2922,6 +2922,37 @@
             {
               "caption": "A 5th-order and a 9th-order method at a tight tolerance (counts rounded to two digits).",
               "check": true,
+              "choose": {
+                "band": 2.0,
+                "choices": [
+                  "`Tsit5`: order 5, about 6 right-hand-side calls per step",
+                  "`Vern9`: order 9, about 16 right-hand-side calls per step"
+                ],
+                "cost": "right-hand-side calls (rounded to two digits), for a method whose end point is within 1e-11",
+                "costs": [
+                  8000,
+                  1700
+                ],
+                "explain": "The steps of an order-p method grow like `tol^(-1/p)`. At `1e-12` that is far more for p = 5 than for p = 9, so `Vern9` needs about a tenth of the steps, and its larger cost per step still leaves it several times ahead. At loose tolerances the order matters less and `Tsit5`'s cheaper steps win, which is why the solver guide splits the two by tolerance.",
+                "kc": "ode-tolerances",
+                "misconceptions": [
+                  "Each `Tsit5` step is cheaper, but at a tolerance this tight its lower order needs about ten times the steps, which more than cancels the cheaper step.",
+                  ""
+                ],
+                "ok": [
+                  true,
+                  true
+                ],
+                "prompt": "The oscillator up to t = 20 at `abstol = reltol = 1e-12`, and the end point must be right to `1e-11`. Which method costs fewer right-hand-side calls?",
+                "ratios": [
+                  4.71,
+                  1.0
+                ],
+                "verdicts": [
+                  "costly",
+                  "good"
+                ]
+              },
               "code": "using DifferentialEquations\noscillator(u, p, t) = [u[2], -u[1]]\nprob = ODEProblem(oscillator, [1.0, 0.0], (0.0, 20.0))\nfor alg in (Tsit5(), Vern9())\n    sol = solve(prob, alg; abstol = 1e-12, reltol = 1e-12)\n    err = abs(sol.u[end][1] - cos(20.0))\n    println(rpad(nameof(typeof(alg)), 6), \" steps ≈ \", Int(round(Float64(sol.stats.naccept); sigdigits = 2)),\n            \"  f calls ≈ \", Int(round(Float64(sol.stats.nf); sigdigits = 2)), \"  error < 1e-11: \", err < 1e-11)\nend",
               "images": [],
               "mode": "repl",

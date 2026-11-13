@@ -1603,6 +1603,49 @@
             {
               "caption": "Iterations to `rtol = 1e-8` on the Poisson matrix: CG, CG with Jacobi, GMRES, GMRES with ILU (`τ = 0.01`). Recorded, not checked: iteration counts can change with rounding and package versions.",
               "check": false,
+              "choose": {
+                "band": 2.0,
+                "choices": [
+                  "CG, no preconditioner: the matrix is symmetric positive definite",
+                  "CG with Jacobi: it is cheap and keeps the matrix symmetric",
+                  "GMRES, no preconditioner: it minimizes the residual at every iteration",
+                  "GMRES with ILU (`τ = 0.01`): an approximate factorization of `A`"
+                ],
+                "cost": "iterations at N = 64 (a GMRES+ILU iteration also applies two triangular solves and orthogonalizes against the earlier vectors, so it costs more than a CG one; building the ILU is not counted)",
+                "costs": [
+                  119,
+                  119,
+                  118,
+                  15
+                ],
+                "explain": "CG's count is set by `√κ`, which grows like `N` on this matrix, and nothing in the first three choices lowers `κ`. ILU approximates `A⁻¹`, so `M⁻¹A` has a far narrower spectrum: about 8 times fewer iterations here, a margin that leaves room for its costlier iteration (measure the time before you rely on that). The count still grows with `N`; ILU lowers the constant, not the growth.",
+                "kc": "preconditioning",
+                "misconceptions": [
+                  "CG is the right Krylov method for a symmetric positive definite matrix, but without a preconditioner its count follows `√κ`, which this grid makes large.",
+                  "Jacobi divides by the diagonal, which is the constant 4 on the Poisson matrix: `M⁻¹A` is `A/4`, with the same condition number and the same iterations.",
+                  "On a symmetric matrix GMRES searches the same Krylov space as CG and needs about the same iterations, while storing every basis vector.",
+                  ""
+                ],
+                "ok": [
+                  true,
+                  true,
+                  true,
+                  true
+                ],
+                "prompt": "The 2D Poisson matrix at `N = 64` (4,096 unknowns), solved to `rtol = 1e-8`. Which solver and preconditioner do you pick to need the fewest iterations?",
+                "ratios": [
+                  7.93,
+                  7.93,
+                  7.87,
+                  1.0
+                ],
+                "verdicts": [
+                  "costly",
+                  "costly",
+                  "costly",
+                  "good"
+                ]
+              },
               "code": "using SparseArrays, LinearAlgebra, Krylov, IncompleteLU\nfunction poisson2d(N)\n    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))\n    Id = sparse(1.0I, N, N)\n    return kron(Id, T) + kron(T, Id)\nend\nfor N in (16, 32, 64)\n    A = poisson2d(N); b = ones(N^2)\n    plain = cg(A, b; atol = 0.0, rtol = 1e-8)[2].niter\n    jacobi = cg(A, b; M = Diagonal(1 ./ diag(A)), atol = 0.0, rtol = 1e-8)[2].niter\n    gm = gmres(A, b; atol = 0.0, rtol = 1e-8, memory = 500)[2].niter\n    gm_ilu = gmres(A, b; M = ilu(A; τ = 0.01), ldiv = true, atol = 0.0, rtol = 1e-8)[2].niter\n    println(\"N = \", rpad(N, 3), \" CG \", rpad(plain, 4), \" CG+Jacobi \", rpad(jacobi, 4), \" GMRES \", rpad(gm, 4), \" GMRES+ILU \", gm_ilu)\nend",
               "images": [],
               "mode": "repl",
@@ -2541,6 +2584,43 @@
             {
               "caption": "The heat equation on 199 points (κ = 1, t up to 0.1, `abstol = reltol = 1e-6`), with the tridiagonal pattern passed as `jac_prototype` and the Jacobian as `jac`: the work counts of three solvers and each one's error against the exact PDE solution. Recorded, not checked: counts depend on the CPU's rounding and on the package version.",
               "check": false,
+              "choose": {
+                "band": 2.0,
+                "choices": [
+                  "`Tsit5`: explicit, no Jacobian, each step only right-hand-side calls",
+                  "`Rodas5P`: Rosenbrock, one Jacobian and one factorization per step",
+                  "`FBDF`: BDF, one Jacobian reused across steps, refactored when the step changes"
+                ],
+                "cost": "right-hand-side calls + Jacobians + factorizations (each about n operations for this tridiagonal problem; the solves with a factorization are not counted)",
+                "costs": [
+                  27159,
+                  68,
+                  65
+                ],
+                "explain": "The fastest mode decays at about `4/dx^2 = 160,000` per unit time and the solution at `π^2 ≈ 10`: a stiffness ratio near 16,000. An explicit method must keep the fast mode stable, so its step stays near its stability limit, a small multiple of `dx^2` (here about `2e-5` over 4,520 steps), however loose the tolerance; an implicit one steps at the accuracy of the slow mode. `Rodas5P` and `FBDF` are within a few percent of each other in these counts; which is faster on the clock depends on what a factorization and its solves cost, which for a tridiagonal matrix is little.",
+                "kc": "stiffness",
+                "misconceptions": [
+                  "Each `Tsit5` step is cheap, but stability holds it to thousands of steps on this grid, and the extra steps buy no accuracy: all three errors come from the grid.",
+                  "",
+                  ""
+                ],
+                "ok": [
+                  true,
+                  true,
+                  true
+                ],
+                "prompt": "The heat equation on 199 points (κ = 1, up to t = 0.1, `abstol = reltol = 1e-6`), with the tridiagonal Jacobian supplied. Which solver do you run?",
+                "ratios": [
+                  418.0,
+                  1.05,
+                  1.0
+                ],
+                "verdicts": [
+                  "costly",
+                  "good",
+                  "good"
+                ]
+              },
               "code": "using OrdinaryDiffEq, LinearAlgebra\nfunction heat!(du, u, p, t)\n    κ, dx = p\n    n = length(u)\n    for i in 1:n\n        left = i > 1 ? u[i-1] : zero(eltype(u))\n        right = i < n ? u[i+1] : zero(eltype(u))\n        du[i] = κ * (left - 2u[i] + right) / dx^2\n    end\n    return nothing\nend\nfunction heat_jac!(J, u, p, t)            # the constant Jacobian, written into the pattern\n    κ, dx = p\n    J.dl .= κ / dx^2; J.d .= -2κ / dx^2; J.du .= κ / dx^2\n    return nothing\nend\nn = 199\ndx = 1 / (n + 1)\nx = dx .* (1:n)\npattern = Tridiagonal(ones(n - 1), ones(n), ones(n - 1))   # only the nonzero positions matter\nprob = ODEProblem(ODEFunction(heat!; jac = heat_jac!, jac_prototype = pattern), sin.(pi .* x), (0.0, 0.1), (1.0, dx))\nexact = exp(-pi^2 * 0.1) .* sin.(pi .* x)\nfor alg in (Tsit5(), Rodas5P(), FBDF())\n    sol = solve(prob, alg; abstol = 1e-6, reltol = 1e-6, save_everystep = false)\n    st = sol.stats\n    println(rpad(nameof(typeof(alg)), 8), \" naccept \", rpad(st.naccept, 5), \" njacs \", rpad(st.njacs, 3),\n            \" nw \", rpad(st.nw, 3), \" nf \", rpad(st.nf, 6), \" error \", round(maximum(abs.(sol.u[end] .- exact)); sigdigits = 1))\nend",
               "images": [],
               "mode": "repl",
