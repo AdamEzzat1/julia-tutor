@@ -67,6 +67,15 @@ for h in (0.001, 0.019, 0.021, 0.03)
 end
 '''
 
+    [section.example.predict]
+    kc = "stability"
+    prompt = "The limit is `h = 0.02`, and `h = 0.021` is 5% above it. Before the output is shown: where is `u` after 100 steps from `u = 1`?"
+    choices = ["Within `0.001` of zero: it still decays", "Between `0.001` and `100`: it hardly moves", "Above `100`: it grows"]
+    measure = 'h = 0\.021\s.*u after 100 steps = (\S+)'
+    ranges = [[-0.001, 0.001], [0.001, 100.0], [100.0, inf]]
+    answer = 3
+    explain = "Each step multiplies `u` by `1 + hλ = -1.1`, so 100 steps give `1.1^100`, about 13,800. Crossing `|1 + hλ| = 1` does not make the result a little worse: the growth compounds at every step."
+
   [[section.question]]
   kind = "output"
   prompt = "Forward Euler for `u' = -12u` from `u = 1` with `h = 0.25`, three steps. What does this print?"
@@ -396,6 +405,15 @@ exact = V * (exp.(λ .* 5h) .* (V' * u0))
 println("backward Euler: min = ", round(minimum(ube); digits = 3), ", max error = ", round(maximum(abs.(ube .- exact)); digits = 3))
 println("trapezoidal:    min = ", round(minimum(ucn); digits = 3), ", max error = ", round(maximum(abs.(ucn .- exact)); digits = 3))
 '''
+
+    [section.example.predict]
+    kc = "implicit-methods"
+    prompt = "The heat equation never makes a temperature negative, and both methods are stable at this step. Before the output is shown: does the trapezoidal rule's solution stay at or above zero?"
+    choices = ["Yes: a stable method keeps the solution's sign", "No: it goes below zero"]
+    measure = 'trapezoidal:\s+min = (\S+),'
+    ranges = [[0.0, inf], [-inf, 0.0]]
+    answer = 2
+    explain = "Stable means no mode grows, not that each mode is damped. The trapezoidal factor for the block's fast modes is close to `-1`, so they survive and flip sign each step, and the sum dips below zero. Backward Euler's factor for them is close to 0: it damps them (L-stability)."
 
   [[section.question]]
   kind = "output"
