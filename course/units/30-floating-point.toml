@@ -113,6 +113,59 @@ println("sum error > Kahan error: ", relerr(sum) > relerr(kahan_sum))
 println("Kahan error:             ", relerr(kahan_sum))
 '''
 
+  [[section.example]]
+  caption = "How the error grows with `n`: `n` copies of `0.1` summed by the plain loop, by pairwise summation written out (halves down to 8 terms, no `@simd`, so its digits are the same on every CPU), and by Kahan's loop. The exact sum of `n` copies of the stored `0.1` is computed in `BigFloat`."
+  notice = "Notice that the loop's error grows roughly in proportion to `n`, but not smoothly (some `n` happen to round favourably), pairwise stays within a few `u`, and Kahan's error is the same at every `n`."
+  code = '''
+function loop_sum(x)
+    s = 0.0
+    for v in x
+        s += v
+    end
+    return s
+end
+function pairwise_sum(x, lo = 1, hi = length(x))
+    hi - lo < 8 && return loop_sum(view(x, lo:hi))
+    mid = (lo + hi) ÷ 2
+    return pairwise_sum(x, lo, mid) + pairwise_sum(x, mid + 1, hi)
+end
+function kahan_sum(x)
+    s = 0.0; c = 0.0
+    for v in x
+        y = v - c; t = s + y
+        c = (t - s) - y; s = t
+    end
+    return s
+end
+for (name, total) in (("loop", loop_sum), ("pairwise", pairwise_sum), ("Kahan", kahan_sum)),
+        n in (10, 30, 100, 300, 1000, 3000, 10^4, 30_000, 10^5, 300_000, 10^6, 3_000_000, 10^7)
+    x = fill(0.1, n)
+    exact = n * big(0.1)              # the exact sum of n copies of the Float64 nearest 0.1
+    err = Float64(abs(total(x) - exact) / exact)
+    println(rpad(name, 9), "n = ", rpad(n, 9), "relative error = ", round(err; sigdigits = 2))
+end
+'''
+
+    [section.example.explore]
+    kc = "floating-point-rounding"
+    prompt = "Move `n` up with the plain loop and watch the error against `u = 1.1e-16`. Then switch to pairwise and to Kahan at the largest `n`. Which grows like `n`, which barely grows, and which does not grow at all?"
+    row = '(?<method>\S+) +n = (?<n>\d+) +relative error = (?<err>\S+)'
+    measure = "err"
+    label = "relative error of the sum"
+    log = true
+    x = "n"
+    series = "method"
+    explain = "Each of the loop's `n - 1` additions can lose up to `u` of the partial sum, and the losses carry forward, so the bound is about `n u`: at `n = 10^7` the error is `1.6e-10`, more than a million `u`. Pairwise summation adds numbers of similar size along a tree of depth `log2(n / 8)`, so at `n = 10^7` each term passes through about 20 levels of additions (plus at most 7 in its 8-term loop), and the bound is about `u log2 n`: the measured errors stay below `4.4e-16`, four `u`. Kahan's loop carries what each addition lost into the next one; its result here is the exact sum correctly rounded, which is the integer `n / 10` (every `n` is a multiple of 10), so the error left is the stored `0.1`'s own relative error, `5.6e-17` at every `n`."
+
+      [[section.example.explore.axis]]
+      group = "method"
+      label = "summation"
+
+      [[section.example.explore.axis]]
+      group = "n"
+      label = "terms n"
+      log = true
+
   [[section.question]]
   kind = "output"
   prompt = "The same three numbers added in two orders. What does this print?"
