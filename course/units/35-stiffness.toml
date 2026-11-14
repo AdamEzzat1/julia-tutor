@@ -67,6 +67,15 @@ for h in (0.001, 0.019, 0.021, 0.03)
 end
 '''
 
+    [section.example.predict]
+    kc = "stability"
+    prompt = "The limit is `h = 0.02`, and `h = 0.021` is 5% above it. Before the output is shown: where is `u` after 100 steps from `u = 1`?"
+    choices = ["Within `0.001` of zero: it still decays", "Between `0.001` and `100`: it hardly moves", "Above `100`: it grows"]
+    measure = 'h = 0\.021\s.*u after 100 steps = (\S+)'
+    ranges = [[-0.001, 0.001], [0.001, 100.0], [100.0, inf]]
+    answer = 3
+    explain = "Each step multiplies `u` by `1 + hλ = -1.1`, so 100 steps give `1.1^100`, about 13,800. Crossing `|1 + hλ| = 1` does not make the result a little worse: the growth compounds at every step."
+
   [[section.question]]
   kind = "output"
   prompt = "Forward Euler for `u' = -12u` from `u = 1` with `h = 0.25`, three steps. What does this print?"
@@ -141,6 +150,44 @@ for u in ([1.0, 0.0, 0.0], [0.9, 3.4e-5, 0.1], [0.5, 6e-6, 0.5])
             count(l -> abs(l) <= 1e-12, λ), ", ratio ", round(maximum(abs, nonzero) / minimum(abs, nonzero); sigdigits = 2))
 end
 '''
+
+  [[section.example]]
+  caption = "Forward Euler on `u' = λu` with the complex eigenvalue `λ = -3 + 4i`, 100 steps from `u = 1` at eight step sizes; the step's growth factor `|1 + hλ|` and the size of `u` at the end (rounded)."
+  notice = "Notice that `|u|` shrinks at every step up to `h = 0.23` and grows from `h = 0.25` on, and that the change sits where `|1 + hλ|` crosses 1, not at `2 / |λ| = 0.4`."
+  code = '''
+λ = -3.0 + 4.0im
+for h in (0.1, 0.2, 0.22, 0.23, 0.25, 0.26, 0.3, 0.4)
+    u = 1.0 + 0.0im
+    for _ in 1:100
+        u += h * λ * u
+    end
+    println("h = ", rpad(h, 5), "  |1 + hλ| = ", rpad(round(abs(1 + h * λ); digits = 3), 6),
+            "  |u| after 100 steps = ", round(abs(u); sigdigits = 3))
+end
+'''
+
+    [section.example.breakit]
+    kc = "stability"
+    prompt = "The exact solution of `u' = λu` with `λ = -3 + 4i` decays while it rotates. Find the largest step `h` at which forward Euler still makes `|u|` decay over 100 steps from `u = 1`. Work it out from the condition above, or try steps with the probe if a server is connected, then commit the edge."
+    param = "h"
+    measure = "|u| after 100 steps (from 1)"
+    row = 'h = (?<p>\S+) .*\|u\| after 100 steps = (?<m>\S+)'
+    fails = "above"
+    limit = 1.0
+    edge = [0.23, 0.25]
+    close = 1.25
+    probe = '''
+λ = -3.0 + 4.0im
+h = {{p}}
+u = 1.0 + 0.0im
+for _ in 1:100
+    u += h * λ * u
+end
+println("h = ", h, "  |1 + hλ| = ", round(abs(1 + h * λ); digits = 3), "  |u| after 100 steps = ", round(abs(u); sigdigits = 3))
+'''
+    explain = "With `λ = a + bi`, forward Euler multiplies `u` by `1 + hλ` at every step, and `|1 + hλ|^2 = (1 + ha)^2 + (hb)^2`. Setting it to 1 gives `h = -2a / (a^2 + b^2) = 6 / 25 = 0.24`, and the sweep changes between 0.23 and 0.25. A step of 0.25 has `|1 + hλ| = 1.031`: only 3% growth per step, but 100 steps compound it to about 20."
+    short = "At that step `|1 + hλ|` is still below 1, so `|u|` shrinks: the method works there. The edge is the step where `|1 + hλ|` reaches 1, which is longer."
+    past = "Forward Euler already grows there. If you used `2 / |λ| = 0.4`, that is the limit for a real eigenvalue of the same size: for a complex `λ` the stable steps fill a disk, and the imaginary part pulls the limit down to `-2a / |λ|^2 = 0.24`."
 
   [[section.question]]
   kind = "choice"
@@ -397,6 +444,15 @@ println("backward Euler: min = ", round(minimum(ube); digits = 3), ", max error 
 println("trapezoidal:    min = ", round(minimum(ucn); digits = 3), ", max error = ", round(maximum(abs.(ucn .- exact)); digits = 3))
 '''
 
+    [section.example.predict]
+    kc = "implicit-methods"
+    prompt = "The heat equation never makes a temperature negative, and both methods are stable at this step. Before the output is shown: does the trapezoidal rule's solution stay at or above zero?"
+    choices = ["Yes: a stable method keeps the solution's sign", "No: it goes below zero"]
+    measure = 'trapezoidal:\s+min = (\S+),'
+    ranges = [[0.0, inf], [-inf, 0.0]]
+    answer = 2
+    explain = "Stable means no mode grows, not that each mode is damped. The trapezoidal factor for the block's fast modes is close to `-1`, so they survive and flip sign each step, and the sum dips below zero. Backward Euler's factor for them is close to 0: it damps them (L-stability)."
+
   [[section.question]]
   kind = "output"
   prompt = "The trapezoidal rule's factor `(1 + z/2) / (1 - z/2)` for a very fast mode, `z = hλ = -1e6`. What does this print?"
@@ -506,6 +562,29 @@ for alg in (Tsit5(), Rodas5P(), FBDF())
             " nw ", rpad(st.nw, 3), " nf ", rpad(st.nf, 6), " error ", round(maximum(abs.(sol.u[end] .- exact)); sigdigits = 1))
 end
 '''
+
+    [section.example.choose]
+    kc = "stiffness"
+    prompt = "The heat equation on 199 points (κ = 1, up to t = 0.1, `abstol = reltol = 1e-6`), with the tridiagonal Jacobian supplied. Which solver do you run?"
+    choices = [
+      "`Tsit5`: explicit, no Jacobian, each step only right-hand-side calls",
+      "`Rodas5P`: Rosenbrock, one Jacobian and one factorization per step",
+      "`FBDF`: BDF, one Jacobian reused across steps, refactored when the step changes",
+    ]
+    rows = [
+      'Tsit5 +naccept \d+ +njacs (\d+) +nw (\d+) +nf (\d+)',
+      'Rodas5P +naccept \d+ +njacs (\d+) +nw (\d+) +nf (\d+)',
+      'FBDF +naccept \d+ +njacs (\d+) +nw (\d+) +nf (\d+)',
+    ]
+    cost = "right-hand-side calls + Jacobians + factorizations (each about n operations for this tridiagonal problem; the solves with a factorization are not counted)"
+    band = 2.0
+    good = [2, 3]
+    explain = "The fastest mode decays at about `4/dx^2 = 160,000` per unit time and the solution at `π^2 ≈ 10`: a stiffness ratio near 16,000. An explicit method must keep the fast mode stable, so its step stays near its stability limit, a small multiple of `dx^2` (here about `2e-5` over 4,520 steps), however loose the tolerance; an implicit one steps at the accuracy of the slow mode. `Rodas5P` and `FBDF` are within a few percent of each other in these counts; which is faster on the clock depends on what a factorization and its solves cost, which for a tridiagonal matrix is little."
+    misconceptions = [
+      "Each `Tsit5` step is cheap, but stability holds it to thousands of steps on this grid, and the extra steps buy no accuracy: all three errors come from the grid.",
+      "",
+      "",
+    ]
 
   [[section.example]]
   caption = "The claims about `Tsit5` and `Rodas5P` as tests with wide margins, at three grid sizes: `Rodas5P`'s step count stays small, `Tsit5` needs many times more steps, and the two errors agree. (`FBDF` is left out only to keep the run short: each solver compiles once per run.)"

@@ -1,0 +1,35 @@
+== tutor explain: odeint, stage 1 ==
+
+Start here: hole `error_norm` at src/ODEInt.jl:109
+  why: 4 of the 4 failing testsets depend on it (Ochiai 1.0).
+  Read its docstring: it is the specification. Knowledge component: error-norm-scaling.
+
+Tests: 13/17 testsets pass
+  FAIL error_norm: scaled RMS  [4 failed, 0 errored; depends on: error_norm]
+       test/runtests.jl:143 FAIL isapprox(error_norm(sc, y, ynew, atol, rtol), 1.0; rtol = 8 * EPS)  evaluated: isapprox(0.004001, 1.0; rtol = 1.7763568e-15)
+       test/runtests.jl:144 FAIL isapprox(error_norm(-3 .* sc, y, ynew, atol, rtol), 3.0; rtol = 8 * EPS)  evaluated: isapprox(0.012003, 3.0; rtol = 1.7763568e-15)
+  FAIL solve_adaptive: lands on tf and counts its work  [3 failed, 0 errored; depends on: dp54_step, error_norm]
+       test/runtests.jl:200 FAIL isapprox(r.y[1], exp(-tf); atol = 1000.0 * 1.0e-8)  evaluated: isapprox(0.050994604, 0.049787068; atol = 1.0e-5)
+       test/runtests.jl:203 FAIL r2.nreject > 0  evaluated: 0 > 0
+  FAIL solve_adaptive: error is proportional to the tolerance  [2 failed, 0 errored; depends on: dp54_step, error_norm, kepler_exact]
+       test/runtests.jl:226 FAIL 0.85 <= fit_order(tols, errs) <= 1.2  evaluated: 0.85 <= 0.020312277 <= 1.2
+       test/runtests.jl:227 FAIL all(errs .<= 1000.0 .* tols)
+  FAIL kepler_exact: agrees with an accurate numerical solution  [2 failed, 0 errored; depends on: dp54_step, error_norm, kepler_exact]
+       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-0.13126888, 0.9518168, -1.0188616, -0.037676947], [-0.12875586, 0.97730615, -1.011877, 0.070813727]; atol = 1.0e-9, norm = var"#39#40"())
+       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-1.1891974, 0.6748458, -0.91908132, -0.1693739], [-1.0703813, 0.66335285, -0.73763533, -0.21004695]; atol = 1.0e-9, norm = var"#39#40"())
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. error_norm         1.0   implemented  failing-deps=4 passing-deps=0  src/ODEInt.jl:109
+  2. dp54_step          0.5   implemented  failing-deps=3 passing-deps=6  src/ODEInt.jl:80
+  3. kepler_exact       0.45  implemented  failing-deps=2 passing-deps=3  src/ODEInt.jl:369
+  4. verlet_step        0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:282
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)
+  allocations error_norm(4 components): 0  (reference 0)
+  allocations solve_adaptive(kepler, one period, tol 1e-8): 18  (reference 18)
+  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)
+  JET: not used by this project's measurements

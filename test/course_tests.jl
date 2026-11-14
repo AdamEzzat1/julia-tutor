@@ -51,8 +51,10 @@ end
     @test Course.course_of(courses, "46-sindy") == "sciml"
 
     # one change at a time to the real data, each must be reported
-    C(c; units = c.units, requires = c.requires, envs = c.envs, guided = c.guided, outcomes = c.outcomes) =
-        Course.CourseInfo(c.id, c.title, c.order, c.status, c.summary, requires, envs, units, c.projects, guided, outcomes)
+    C(c; units = c.units, requires = c.requires, envs = c.envs, guided = c.guided, outcomes = c.outcomes,
+      status = c.status, download = c.download, measured = c.download_measured, note = c.status_note) =
+        Course.CourseInfo(c.id, c.title, c.order, status, c.summary, requires, envs, units, c.projects, guided, outcomes,
+                          download, measured, note)
     swap(i, c) = [j == i ? c : courses[j] for j in eachindex(courses)]
     U(u; pre = u.prerequisites) = Course.Unit(u.id, u.title, u.track, u.env, u.status, u.summary, u.kcs, pre,
                                                u.outline, u.lessons, u.sections, u.problems)
@@ -71,11 +73,36 @@ end
     @test has("envs must be exactly", swap(3, C(scc; envs = ["base", "scicomp"])))          # missing mtk
     @test has("guided project epidemic belongs to 0 courses",
               swap(2, C(sci; guided = filter(!=("epidemic"), sci.guided), envs = sci.envs)))
+    # an environment in two courses could not pick one image (Phase 2)
+    @test has("environment plots is used by courses science, sciml", swap(4, C(sml; envs = ["base", "plots", "sciml"])))
+    @test !any(contains("environment base is used"), Course.validate_courses(courses, units))
     @test has("4 to 8 outcomes", swap(1, C(core; outcomes = core.outcomes[1:3])))
     @test has("is not a unit or project of this course",
               swap(1, C(core; outcomes = [Course.Outcome("x", ["46-sindy"], String[]); core.outcomes[2:end]])))
     @test has("nothing assesses it",
               swap(1, C(core; outcomes = [Course.Outcome("x", String[], String[]); core.outcomes[2:end]])))
+    # a download size is shown only with where it was measured; a planned course needs neither
+    @test has("[setup] needs download and measured", swap(1, C(core; measured = "")))
+    @test has("[setup] needs download and measured", swap(2, C(sci; download = "")))
+    @test !has("course core: [setup]", swap(1, C(core; status = "planned", download = "", measured = "")))
+    # a course that is not ready says why
+    @test has("needs a status_note", swap(4, C(sml; note = "")))
+    @test has("needs a status_note", swap(1, C(core; status = "in-progress")))
+    @test !isempty(sml.status_note) && isempty(core.status_note)
+    # the time estimate is a range from counts at stated rates, and says so
+    lo, hi, basis = Course.time_estimate(core, units)
+    nready = count(id -> any(u -> u.id == id && u.status == "ready", units), core.units)
+    nprob = sum(length(u.problems) for u in units if u.id in core.units && u.status == "ready")
+    r = Course.ESTIMATE_RATES
+    @test lo == floor(Int, nready * r.unit[1] + nprob * r.problem[1] + length(core.projects) * r.project[1])
+    @test hi == ceil(Int, nready * r.unit[2] + nprob * r.problem[2] + length(core.projects) * r.project[2])
+    @test 0 < lo < hi
+    @test occursin("($nready)", basis) && occursin("($nprob)", basis) && endswith(basis, "not measured")
+    # planned units count for nothing: a course of planned units only estimates 0
+    planned_only = [Course.Unit(u.id, u.title, u.track, u.env, "planned", u.summary, u.kcs, u.prerequisites,
+                                u.outline, u.lessons, u.sections, u.problems) for u in units]
+    @test Course.time_estimate(C(core; guided = String[]), planned_only)[1:2] == (floor(Int, length(core.projects) * r.project[1]),
+                                                                                  ceil(Int, length(core.projects) * r.project[2]))
     # a prerequisite cycle, even one the file order would not show
     cyc = setpre("01-first-steps", ["03-strings"])
     @test Course.prereq_cycle(cyc) == ["01-first-steps", "03-strings", "01-first-steps"]
@@ -133,6 +160,167 @@ P_with(; compare = "isequal", checker = "", packages = String[]) =
         String[], u.outline, u.lessons, u.sections, [p])]; strict = false)
     @test any(contains("checker"), bad(P_with(compare = "custom")))
     @test any(contains("not in course/envs"), bad(P_with(packages = ["Flux"])))
+end
+
+@testset "predict, then run: the key is read from the recorded output" begin
+    Pr(; kc = "k", measure = raw"order (\S+)", choices = ["about 4", "below 3.5"], ranges = [(3.95, Inf), (-Inf, 3.5)],
+       values = String[], answer = 2) = Course.Prediction(kc, "What order?", measure, choices, ranges, values, answer, "why")
+    E(p; check = true) = Course.Example("println(1)", check, "c", "repl", "", p)
+    ok(p; check = true) = Course.prediction_problems(p, E(p; check), ["k"])
+    @test ok(Pr()) == String[]
+    @test any(contains("not one of the unit's kcs"), ok(Pr(; kc = "other")))
+    @test any(contains("check = false"), ok(Pr(); check = false))       # an uncompared output cannot carry a key
+    @test any(contains("not a regular expression"), ok(Pr(; measure = "(")))
+    @test any(contains("either ranges"), ok(Pr(; values = ["a", "b"])))
+    @test any(contains("either ranges"), ok(Pr(; ranges = Tuple{Float64,Float64}[])))
+    @test any(contains("one range per choice"), ok(Pr(; ranges = [(0.0, 1.0)])))
+    @test any(contains("lo < hi"), ok(Pr(; ranges = [(2.0, 1.0), (3.0, 4.0)])))
+    @test any(contains("overlap"), ok(Pr(; ranges = [(0.0, 2.0), (1.0, 3.0)])))
+    @test any(contains("index"), ok(Pr(; answer = 3)))
+
+    # half-open ranges: the boundary belongs to the upper choice only
+    @test Course.measured_choices(Pr(), "order 2.79\n") == ([2], "2.79")
+    @test Course.measured_choices(Pr(), "order 3.95\n") == ([1], "3.95")
+    @test Course.measured_choices(Pr(), "order 3.7\n") == (Int[], "3.7")          # in the gap: no choice holds
+    @test Course.measured_choices(Pr(), "order NaNx\n") == (Int[], "NaNx")        # not a number
+    @test Course.measured_choices(Pr(), "no match\n") == (Int[], nothing)
+    @test Course.measured_choices(Pr(; measure = raw"order \S+"), "order 2\n") == (Int[], nothing)   # no capture group
+    w = Pr(; ranges = Tuple{Float64,Float64}[], values = ["true", "false"], measure = raw"holds: (\w+)", answer = 1)
+    @test Course.measured_choices(w, "holds: TRUE") == ([1], "TRUE")              # words: case-insensitive
+
+    unit(p) = Course.Unit("99-x", "x", "core", "base", "ready", "s", ["k"], String[], String[], String[],
+                          [Course.Section("s", "b", [E(p)], Course.Question[])], Course.Problem[])
+    rec(out) = Dict("examples" => Dict(Course.example_key("println(1)", "repl") => Dict("output" => out)))
+    @test Course.prediction_key_problems(unit(Pr()), rec("order 2.79\n")) == String[]
+    @test any(contains("selects choice 1, but the answer is 2"), Course.prediction_key_problems(unit(Pr()), rec("order 4.01\n")))
+    @test any(contains("selects 0 choices"), Course.prediction_key_problems(unit(Pr()), rec("order 3.7\n")))
+    @test any(contains("does not match"), Course.prediction_key_problems(unit(Pr()), rec("changed\n")))
+    @test any(contains("no recorded output"), Course.prediction_key_problems(unit(Pr()), Dict("examples" => Dict())))
+
+    # the course's own predictions, against the outputs recorded in the repository
+    units = Course.load_course()
+    preds = [(u, e) for u in units for s in u.sections for e in s.examples if e.predict !== nothing]
+    @test length(preds) >= 4
+    @test all(u -> Course.prediction_key_problems(u, Course.load_outputs(u)) == String[], units)
+    @test length(unique(e.predict.kc for (_, e) in preds)) >= 4               # hit rates over several KCs
+    site = [e["predict"] for s in SiteData.course_data()["units"] for sec in s["sections"] for e in sec["examples"]
+            if haskey(e, "predict")]
+    @test length(site) == length(preds) && all(p -> p["measured"] isa String, site)
+end
+
+@testset "method-choice checkpoints: scored against the measured work" begin
+    rows = [raw"A +calls (\d+) +ok: (?<ok>\w+)", raw"B +calls (\d+) jacs (\d+) +ok: (?<ok>\w+)", raw"C +calls (\d+) +ok: (?<ok>\w+)"]
+    Ck(; kc = "k", choices = ["A", "B", "C"], rows = rows, band = 2.0, good = [2], cost = "calls",
+       mis = ["slow", "", "inaccurate"]) = Course.Checkpoint(kc, "Which?", choices, rows, cost, band, good, "why", mis)
+    E(c; predict = nothing, check = false) = Course.Example("println(1)", check, "c", "repl", "", predict, c)
+    bad(c; kw...) = Course.checkpoint_problems(c, E(c; kw...), ["k"])
+    @test bad(Ck()) == String[]                       # check = false is allowed: the verdict is checked, not the digits
+    @test any(contains("not one of the unit's kcs"), bad(Ck(; kc = "x")))
+    @test any(contains("one row regex per choice"), bad(Ck(; rows = rows[1:2])))
+    @test any(contains("not a regular expression"), bad(Ck(; rows = ["(", rows[2], rows[3]])))
+    @test any(contains("no capture group for the cost"), bad(Ck(; rows = [raw"A ok: (?<ok>\w+)", rows[2], rows[3]])))
+    @test any(contains("every choice is good"), bad(Ck(; good = [1, 2, 3])))
+    @test any(contains("index choices"), bad(Ck(; good = [4])))
+    @test any(contains("no misconception"), bad(Ck(; mis = ["", "", "x"])))
+    @test any(contains("band must be"), bad(Ck(; band = 1.0)))
+    @test any(contains("no cost label"), bad(Ck(; cost = " ")))
+    P = Course.Prediction("k", "p", raw"(\d)", ["a", "b"], [(0.0, 1.0), (1.0, 2.0)], String[], 1, "e")
+    @test any(contains("not both"), bad(Ck(); predict = P))
+
+    out = "A calls 900 ok: true\nB calls 100 jacs 20 ok: true\nC calls 50 ok: false\n"
+    sc = Course.score_checkpoint(Ck(), out)
+    @test sc.costs == [900.0, 120.0, 50.0]             # captures summed; the `ok` group is not a cost
+    @test sc.oks == [true, true, false]
+    @test sc.verdicts == ["costly", "good", "fails"]   # the cheapest row misses the accuracy: it does not set the bar
+    @test sc.ratios[1] ≈ 7.5
+    @test Course.checkpoint_output_problems(Ck(), out) == String[]
+    @test any(contains("make choice(s) [1, 2] good"), Course.checkpoint_output_problems(Ck(), replace(out, "900" => "200")))
+    # 300 / 120 = 2.5: outside the band, but within CHOICE_MARGIN of its edge, so a drift could flip it
+    @test any(contains("could flip"), Course.checkpoint_output_problems(Ck(), replace(out, "900" => "300")))
+    @test Course.score_checkpoint(Ck(), "nothing here") isa String
+    @test Course.score_checkpoint(Ck(), replace(out, "true" => "false")) isa String   # no choice meets the accuracy
+
+    unit(c) = Course.Unit("99-x", "x", "core", "base", "ready", "s", ["k"], String[], String[], String[],
+                          [Course.Section("s", "b", [E(c)], Course.Question[])], Course.Problem[])
+    rec(o) = Dict("examples" => Dict(Course.example_key("println(1)", "repl") => Dict("output" => o)))
+    @test Course.checkpoint_key_problems(unit(Ck()), rec(out)) == String[]
+    @test any(contains("no recorded output"), Course.checkpoint_key_problems(unit(Ck()), Dict("examples" => Dict())))
+
+    # the course's own checkpoints, against the outputs recorded in the repository
+    units = Course.load_course()
+    cks = [e for u in units for s in u.sections for e in s.examples if e.choose !== nothing]
+    @test length(cks) >= 3
+    @test all(u -> Course.checkpoint_key_problems(u, Course.load_outputs(u)) == String[], units)
+    site = [e["choose"] for s in SiteData.course_data()["units"] for sec in s["sections"] for e in sec["examples"]
+            if haskey(e, "choose")]
+    @test length(site) == length(cks)
+    @test all(c -> length(c["costs"]) == length(c["choices"]) == length(c["verdicts"]), site)
+end
+
+@testset "break it: the edge is read from the measured sweep" begin
+    row = raw"h = (?<p>\S+) +growth (?<m>\S+)"
+    B(; kc = "k", row = row, fails = "above", limit = 1.0, edge = (0.2, 0.25), close = 1.5, probe = "h = {{p}}",
+      short = "still works", past = "far past") =
+        Course.BreakIt(kc, "Find the edge.", "h", "growth", row, fails, limit, edge, close, probe, "why", short, past)
+    E(b; check = true, predict = nothing, choose = nothing) = Course.Example("println(1)", check, "c", "repl", "", predict, choose, b)
+    bad(b; kw...) = Course.breakit_problems(b, E(b; kw...), ["k"])
+    @test bad(B()) == String[]
+    @test any(contains("not one of the unit's kcs"), bad(B(; kc = "x")))
+    @test any(contains("check = false"), bad(B(); check = false))         # the edge needs a compared output
+    P = Course.Prediction("k", "p", raw"(\d)", ["a", "b"], [(0.0, 1.0), (1.0, 2.0)], String[], 1, "e")
+    @test any(contains("one of a prediction"), bad(B(); predict = P))
+    @test any(contains("not a regular expression"), bad(B(; row = "(")))
+    @test any(contains("named groups"), bad(B(; row = raw"h = (\S+) growth (\S+)")))
+    @test any(contains("\"above\" or \"below\""), bad(B(; fails = "over")))
+    @test any(contains("finite"), bad(B(; limit = NaN)))
+    @test any(contains("0 < low < high"), bad(B(; edge = (0.3, 0.2))))
+    @test any(contains("0 < low < high"), bad(B(; edge = (NaN, NaN))))       # what a malformed `edge` loads as
+    @test any(contains("wider than close"), bad(B(; edge = (0.1, 0.25))))
+    @test any(contains("close must be"), bad(B(; close = 3.0)))
+    @test any(contains("{{p}}"), bad(B(; probe = "h = 0.2")))
+    @test any(contains("no short"), bad(B(; short = " ")))
+
+    # rows are matched line by line and sorted by the parameter; NaN counts as failed
+    out = "h = 0.3  growth 9.0\nh = 0.1  growth 0.01\nh = 0.25  growth 1.5\nh = 0.2  growth 0.9\nh = 0.5  growth NaN\n"
+    sc = Course.score_breakit(B(), out)
+    @test sc.ps == [0.1, 0.2, 0.25, 0.3, 0.5]
+    @test sc.failed == [false, false, true, true, true]
+    @test sc.edge == (0.2, 0.25) && sc.side == "high"
+    @test Course.breakit_output_problems(B(), out) == String[]
+    @test any(contains("but edge = [0.2, 0.3]"), Course.breakit_output_problems(B(; edge = (0.2, 0.3), close = 1.6), out))
+    low = Course.score_breakit(B(; fails = "below", limit = 1.0), replace(out, "h = 0.5  growth NaN\n" => ""))  # the low side fails
+    @test low.side == "low" && low.edge == (0.2, 0.25)
+    @test contains(Course.score_breakit(B(), "h = 0.1  growth 0.5\nh = 0.2  growth 2\nh = 0.3  growth 0.5\nh = 0.4  growth 2\n"),
+                   "3 times")                                            # no single edge
+    @test contains(Course.score_breakit(B(), "h = 0.1  growth 0.5\nh = 0.2  growth 0.5\nh = 0.3  growth 0.5\nh = 0.4  growth 0.5\n"),
+                   "works at every")
+    @test contains(Course.score_breakit(B(), "h = 0.1  growth 0.5\nh = 0.2  growth 2\n"), "at least")
+    @test contains(Course.score_breakit(B(), replace(out, "growth 9.0" => "growth fast")), "not a number")
+    @test contains(Course.score_breakit(B(), out * "h = 0.1  growth 0.02\n"), "swept twice")
+
+    # the probe: one row at each end of the edge, agreeing with the sweep
+    @test Course.probe_code(B(), 0.25) == "h = 0.25"
+    @test Course.probe_problems(B(), "high", "h = 0.2  growth 0.9\n", "h = 0.25  growth 1.5\n") == String[]
+    @test any(contains("works, but the sweep says it fails"),
+              Course.probe_problems(B(), "high", "h = 0.2  growth 0.9\n", "h = 0.25  growth 0.95\n"))
+    @test any(contains("(one is needed)"), Course.probe_problems(B(), "high", "", "h = 0.25  growth 1.5\n"))
+
+    unit(b) = Course.Unit("99-x", "x", "core", "base", "ready", "s", ["k"], String[], String[], String[],
+                          [Course.Section("s", "b", [E(b)], Course.Question[])], Course.Problem[])
+    rec(o) = Dict("examples" => Dict(Course.example_key("println(1)", "repl") => Dict("output" => o)))
+    @test Course.breakit_key_problems(unit(B()), rec(out)) == String[]
+    @test any(contains("no recorded output"), Course.breakit_key_problems(unit(B()), Dict("examples" => Dict())))
+
+    # the course's own challenges, against the outputs recorded in the repository
+    units = Course.load_course()
+    bks = [e for u in units for s in u.sections for e in s.examples if e.breakit !== nothing]
+    @test length(bks) >= 3
+    @test all(u -> Course.breakit_key_problems(u, Course.load_outputs(u)) == String[], units)
+    @test length(unique(e.breakit.kc for e in bks)) >= 3                      # stability, convergence, identifiability
+    site = [e["breakit"] for s in SiteData.course_data()["units"] for sec in s["sections"] for e in sec["examples"]
+            if haskey(e, "breakit")]
+    @test length(site) == length(bks)
+    @test all(b -> count(r -> r["failed"], b["rows"]) in 1:length(b["rows"])-1, site)
 end
 
 @testset "course prose: no filler phrases" begin
@@ -303,9 +491,29 @@ end
     for f in ("--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "-i", "--rm")
         @test f in a
     end
-    @test "--pids-limit=$(Runner.CONTAINER_PIDS)" in a && "--memory=$(Runner.CONTAINER_MEMORY)" in a
-    @test "--memory-swap=$(Runner.CONTAINER_MEMORY)" in a          # no swap beyond the memory limit
-    @test "--heap-size-hint=$(Runner.CONTAINER_HEAP_HINT)" in a       # GC collects before the kernel kills
+    mem = Runner.image_memory("science")
+    @test "--pids-limit=$(Runner.CONTAINER_PIDS)" in a && "--memory=$mem" in a
+    @test "--memory-swap=$mem" in a                                   # no swap beyond the memory limit
+    @test "--heap-size-hint=$(Runner.heap_hint(mem))" in a              # GC collects before the kernel kills
+    @test Runner.heap_hint("6g") == "4G" == Runner.CONTAINER_HEAP_HINT && Runner.heap_hint("3g") == "2G"
+    @test Runner.heap_hint("2g") == "1G"
+    # Measured per image (Phase 2): every image has its own limit, at least 2 GB.
+    @test sort!(collect(keys(Runner.IMAGE_MEMORY))) == sort(Runner.images())
+    @test all(m -> Base.parse(Int, chop(m)) >= 2, values(Runner.IMAGE_MEMORY))
+    b = Runner.docker_args(; project_env = "base", threads = 1, name = "julia-tutor-x")
+    @test "--memory=2g" in b && "--memory-swap=2g" in b && "--heap-size-hint=1G" in b
+    # The environment picks the image; every other flag is the same in every
+    # image (the Sandbox/security engineer reviews this list, Phase 2).
+    @test Runner.image_name("science") in a && Runner.env_image("data") == "science"
+    strip_img(x) = filter(f -> !(f in Runner.image_name.(Runner.images())) && !startswith(f, "--memory") &&
+                               !startswith(f, "--heap-size-hint") && !startswith(f, "--project="), x)
+    for e in ("base", "scicomp", "mtk", "sciml", "plots")
+        b = Runner.docker_args(; project_env = e, threads = 4, name = "julia-tutor-x")
+        @test strip_img(b) == strip_img(a)
+        @test Runner.image_name(Runner.env_image(e)) in b
+    end
+    @test Runner.env_image("base") == "base" && Runner.env_image("mtk") == "scicomp" && Runner.env_image("sciml") == "sciml"
+    @test_throws ErrorException Runner.env_image("nope")
     # a container killed for memory says so instead of "crashed" (docker only:
     # a plain process's 137 is any SIGKILL; a timeout's kill is reported as one)
     let old = Runner.SANDBOX[]
@@ -338,16 +546,87 @@ end
     @test collect(keys(files)) == ["result.toml"]
     @test Runner.split_files("crashed\n") == ("crashed\n", Dict{String,Vector{UInt8}}())
 
-    # the image label covers the child scripts and the environments
-    names = first.(Runner.sandbox_inputs())
-    @test "child/sandbox.jl" in names && "child/contained.jl" in names && "envs/data/Manifest.toml" in names
-    @test length(Runner.sandbox_hash()) == 64
-    # every course environment gets its own COPY in the Dockerfile (one layer each)
-    df = replace(read(joinpath(Runner.SANDBOX_DIR, "Dockerfile"), String), "\r\n" => "\n")
-    for e in readdir(joinpath(Course.COURSE_DIR, "envs"))
-        @test occursin("COPY envs/$e /tutor/envs/$e\n", df)
-        isfile(joinpath(Course.COURSE_DIR, "envs", e, "Manifest.toml")) && @test occursin("/tutor/envs/$e && rm", df)
+    # the memory peak comes after the files block only, so printing the prefix
+    # does not cut the learner's output
+    peakline = Runner.PEAK_PREFIX * "123456 cgroup\n"
+    o, n = Runner.split_peak(out * peakline)
+    @test n == (123456, "cgroup") && o == out
+    @test Runner.split_peak(out * Runner.PEAK_PREFIX * "77 maxrss\n")[2] == (77, "maxrss")
+    @test Runner.split_peak(out * Runner.PEAK_PREFIX * "77 lies\n") == (out, nothing)
+    let saved = copy(Runner.MEMORY_PEAKS)
+        empty!(Runner.MEMORY_PEAKS)
+        Runner.note_peak!("x", (5, "cgroup")); Runner.note_peak!("x", (3, "cgroup")); Runner.note_peak!("x", nothing)
+        @test Runner.MEMORY_PEAKS["x"] == (5, "cgroup")
+        empty!(Runner.MEMORY_PEAKS); merge!(Runner.MEMORY_PEAKS, saved)
     end
+    fake = "a\n" * Runner.PEAK_PREFIX * "9\nb\n" * out
+    @test Runner.split_peak(fake) == (fake, nothing)
+    @test Runner.split_peak("crashed\n" * peakline) == ("crashed\n" * peakline, nothing)
+
+    # one image per course with environments of its own; Core Julia runs in base
+    ie = Runner.image_envs()
+    courses = Course.load_courses()
+    @test Runner.images() == ["base", "scicomp", "science", "sciml"]                  # base, then by name
+    @test Runner.course_image("core") == "base" && Runner.image_course("base") == "core"
+    for c in courses
+        @test ie[Runner.course_image(c.id)] == sort(filter(!=("base"), c.envs))
+    end
+    # every environment is in exactly one image (base: in the base image)
+    all_envs = sort!(readdir(joinpath(Course.COURSE_DIR, "envs")))
+    @test sort!(["base"; reduce(vcat, values(ie))]) == all_envs
+    # each image's label covers its Dockerfiles, the child scripts and its environments only
+    names = first.(Runner.sandbox_inputs("science"))
+    @test "child/sandbox.jl" in names && "child/contained.jl" in names && "envs/data/Manifest.toml" in names
+    @test "base.Dockerfile" in names && "science.Dockerfile" in names && !any(startswith("envs/sciml/"), names)
+    @test !any(startswith("envs/data/"), first.(Runner.sandbox_inputs("base")))
+    @test all(length(Runner.sandbox_hash(i)) == 64 for i in Runner.images())
+    @test allunique(Runner.sandbox_hash.(Runner.images()))
+    # each course Dockerfile installs exactly its course's environments, one layer each
+    dfs = Dict(i => replace(read(joinpath(Runner.SANDBOX_DIR, "$i.Dockerfile"), String), "\r\n" => "\n") for i in Runner.images())
+    for (img, envs) in ie, e in all_envs
+        copied = occursin("COPY envs/$e /tutor/envs/$e\n", dfs[img])
+        @test copied == (e in envs || (img == "base" && e == "base"))
+        copied && isfile(joinpath(Course.COURSE_DIR, "envs", e, "Manifest.toml")) && @test occursin("/tutor/envs/$e && rm", dfs[img])
+    end
+    @test occursin(r"^FROM julia:1\.10\.13@sha256:[0-9a-f]{64} AS runtime$"m, dfs["base"])
+    for img in Runner.images()
+        img == "base" && continue
+        @test occursin("ARG RUNTIME\nFROM \${RUNTIME}\n", dfs[img])      # built on base's runtime stage
+        @test endswith(dfs[img], "COPY child /tutor/child\nUSER 1000:1000\nWORKDIR /tmp\n")
+    end
+    @test endswith(dfs["base"], "COPY child /tutor/child\nUSER 1000:1000\nWORKDIR /tmp\n")
+    # Package caches are compiled for a fixed list of CPUs, not the build
+    # machine's: every precompile step reads it (a cache built on one CI
+    # runner was rejected on the next, CI run 42998692738).
+    @test occursin("> /tutor/cpu-target\n", dfs["base"])
+    for img in Runner.images()
+        for line in filter(l -> occursin("Pkg.precompile()", l), split(dfs[img], '\n'))
+            @test occursin("export JULIA_CPU_TARGET=\"\$(cat /tutor/cpu-target)\" && julia", line)
+        end
+    end
+    # nothing in any image is fetched at run time (the container has no network)
+    @test !any(df -> occursin(r"\b(ADD|VOLUME|EXPOSE)\b", df), values(dfs))
+
+    # published images are pulled by digest, and only for these inputs
+    h = Runner.sandbox_hash("sciml"); dg = "sha256:" * "ab"^32
+    rec = Dict("sciml" => Dict("inputs" => h, "digest" => dg))
+    @test Runner.published_ref("sciml"; record = rec, hash = h) == ("$(Runner.REGISTRY)/julia-tutor-sandbox-sciml@$dg", nothing)
+    ref, why = Runner.published_ref("sciml"; record = rec, hash = "0"^64)
+    @test ref === nothing && occursin("tutor sandbox build sciml", why)
+    @test Runner.published_ref("base"; record = rec)[1] === nothing                   # nothing recorded
+    bad = Dict("sciml" => Dict("inputs" => h, "digest" => "latest; rm -rf /"))
+    @test Runner.published_ref("sciml"; record = bad, hash = h)[1] === nothing         # digests only
+    @test Runner.registry_tag("sciml", h) == "$(Runner.REGISTRY)/julia-tutor-sandbox-sciml:$(VERSION)-$(h[1:16])"
+    t = Runner.images_toml(Dict("base" => dg, "sciml" => dg))
+    parsed = TOML.parse(t)
+    @test sort!(collect(keys(parsed))) == ["base", "sciml"] && parsed["base"]["inputs"] == Runner.sandbox_hash("base")
+    @test Runner.published_ref("sciml"; record = parsed)[1] !== nothing
+    # the committed file, when there is one, is well formed
+    for (img, r) in Runner.published()
+        @test img in Runner.images() && Runner.valid_digest(r["digest"]) && length(r["inputs"]) == 64
+    end
+    @test Runner.manifest_bytes(Dict("layers" => [Dict("size" => 10), Dict("size" => 5)], "config" => Dict("size" => 1))) == 16
+    @test Runner.manifest_bytes(Dict("manifests" => [])) === nothing
 end
 
 @testset "sandbox server request policy" begin
@@ -392,6 +671,29 @@ end
     @test r.status == 200 && JSON.parse_json(r.body)["problem"] == "fahrenheit"
     @test req("GET", "/api/run"; h = auth).status == 405
     @test req("GET", "/etc/passwd"; h = auth).status == 404
+
+    # `tutor serve --course=core`: the same policy in front, then only Core's
+    # environments and problems, each refusal naming the course to restart with
+    ccfg = Server.ServerConfig(; port = 8765, token = tok, units = Course.load_course(), course = "core")
+    creq(m, path; body = "") = Server.handle(ccfg,
+        Server.Request(m, path, Dict("host" => "127.0.0.1:8765", "authorization" => "Bearer $tok"), body);
+        run = fake_run, gradefn = fake_grade)
+    h = JSON.parse_json(creq("GET", "/api/health").body)
+    @test h["envs"] == ["base"] && h["course"] == "core"
+    @test JSON.parse_json(req("GET", "/api/health"; h = auth).body)["course"] == ""
+    n = length(ran)
+    @test creq("POST", "/api/run"; body = "{\"code\": \"1+2\"}").status == 200 && length(ran) == n + 1
+    r = creq("POST", "/api/run"; body = "{\"code\": \"x\", \"env\": \"sciml\"}")
+    @test r.status == 403 && occursin("--course=sciml", JSON.parse_json(r.body)["error"]) && length(ran) == n + 1
+    @test creq("POST", "/api/run"; body = "{\"code\": \"x\", \"env\": \"nope\"}").status == 400
+    @test creq("POST", "/api/grade"; body = "{\"code\": \"x\", \"problem\": \"fahrenheit\"}").status == 200
+    _, sp = Course.find_problem(Course.load_course(), "sparse-jacobi-pcg")
+    r = creq("POST", "/api/grade"; body = "{\"code\": \"x\", \"problem\": \"$(sp.id)\"}")
+    @test r.status == 403 && occursin("--course=scicomp", JSON.parse_json(r.body)["error"])
+    @test Server.handle(ccfg, Server.Request("POST", "/api/run", Dict("host" => "127.0.0.1:8765"), "{\"code\": \"1\"}");
+                        run = fake_run).status == 401                                 # the token still comes first
+    scfg = Server.ServerConfig(; port = 8765, token = tok, units = Course.load_course(), course = "scicomp")
+    @test Server.served_envs(scfg) == ["base", "mtk", "scicomp"]
 
     # HTTP parsing limits
     io = IOBuffer("POST /api/run HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nContent-Length: 999999999\r\n\r\n")
@@ -459,8 +761,9 @@ if !FAST
         @test g["status"] == "failed" && occursin("data race", g["feedback"][1]["detail"])
     end
 
-    # The same child in the container, when Docker and an up-to-date image are here.
-    why = Runner.sandbox_problem()
+    # The same child in the container, when Docker and an up-to-date base image
+    # are here (everything below is Core Julia's: base env, core problems).
+    why = Runner.sandbox_problem(["base"])
     if why === nothing
         @testset "sandbox container: run and grade for real" begin
             Runner.SANDBOX[] = :docker
@@ -483,6 +786,11 @@ if !FAST
                 _, q = Course.find_problem(Course.load_course(), "parallel-chunk-sum")
                 g = Practice.grade(q, only(v for v in q.variants if startswith(v.label, "racy")).code)
                 @test g["status"] == "failed"
+                # the container reports its memory peak (cgroup, or Julia's RSS on older kernels)
+                @test haskey(Runner.MEMORY_PEAKS, "base") && Runner.MEMORY_PEAKS["base"][1] > 100 * 2^20
+                # output that imitates the peak line is the learner's, kept whole
+                r = Practice.run_code("println(\"$(Runner.PEAK_PREFIX)1 cgroup\"); println(\"after\")")
+                @test r.output == "$(Runner.PEAK_PREFIX)1 cgroup\nafter\n"
             finally
                 Runner.SANDBOX[] = :none
             end

@@ -23,13 +23,20 @@ source scripts/env.sh                       # pins depot, threads, offline Pkg; 
 ./tutor course setup [env]                  # install the pinned ecosystem envs (the only networked course step)
 ./tutor run file.jl [--env=base] [--file]   # run code exactly as the sandbox does (fresh process, --timeout=60, --sandbox=docker)
 ./tutor practice [list | <id> [file.jl]]    # show a practice problem / grade a solution (correctness + performance)
-./tutor sandbox build | check               # build the container image (julia:1.10.13 + course packages) / self-test it
-./tutor serve [--port=8749]                 # loopback server so the website can run code, in the container (--sandbox=none: plain processes)
+./tutor sandbox pull <course...>            # fetch the published per-course images by digest (sandbox/images.toml)
+./tutor sandbox build|check|measure [course...]  # build from this checkout / self-test / sizes, cold starts, memory peaks
+                                            # (core = the base image; docs/SANDBOX_IMAGES.md, docs/START_CORE.md)
+./tutor serve [--port=8749] [--course=id]    # loopback server so the website can run code, in the container (--sandbox=none: plain processes)
                                             # (--token-file=f: use another token file, e.g. for tests)
 npm --prefix web test && npm --prefix web run build && quarto render site   # website (see "Website")
 ./tutor guided list | show <p> [m]          # guided build projects (docs/GUIDED.md): student writes code + tests
 ./tutor guided start <p> <dir>; ./tutor guided check <dir> [m]   # check: acceptance + own tests vs reference and mutants
 ./tutor guided verify [p] [--sandbox=docker] # authoring self-test: reference, mutants, exemplars, fixtures
+./tutor case list | show <c> [--rubric]     # scientific case projects (docs/CASES.md): question, study, checked report
+./tutor case start <c> <dir>; ./tutor case check <dir> <m>   # check: hidden acceptance; m3 also study() x2 + claim checker
+./tutor case estimate <dir> <id> <value> "<how>"   # commit an estimate before computing; m3's check shows it next to the measured value
+./tutor case verify [c] [--sandbox=docker]  # authoring self-test: reference, hole + study mutants, report fixtures
+./tutor case site [--check]                 # site/case-<c>.qmd, generated from case.toml
 ./tutor holemap symdiff [--check]           # measured test->hole map + mutation tests (slow, ~5 min)
 ./tutor baseline symdiff [--check]          # measurements of the reference
 ./tutor lessons verify                      # run every lesson snippet on the pinned Julia
@@ -52,7 +59,8 @@ src/syntax.jl                 JuliaSyntax helpers + hand-written scope resolver
 src/checker.jl, src/rules/    checker core + one file per rule (JT001-JT007)
 src/scaffold.jl               holes cut from reference by `# HOLE: id` markers
 src/runner.jl, src/child/     fresh-process runs; `run_contained` runs the child in the sandbox container
-sandbox/Dockerfile            the container image (`tutor sandbox build`; digest-pinned julia:1.10.13)
+sandbox/<img>.Dockerfile      one image per course: base (Julia + base env + child), science, scicomp, sciml on base's runtime;
+                              images.toml = published digests (CI); digest-pinned julia:1.10.13
 src/holemap.jl                measured test->hole map + mutation testing
 src/explain.jl                the explain step (deterministic text + timings + observations)
 src/progress.jl               learner model over time: hole-attempt evidence, BKT, `tutor progress`
@@ -76,6 +84,9 @@ docs/DESIGN.md                the four questions, project choice, instability li
 src/guided.jl, guided_driver.jl  guided build projects: job, pure `assess`, hint fading; the driver runs in the sandbox
 projects/guided/<p>/          project.toml (milestones, API, behaviours, hints, questions), reference/{src,test},
                               acceptance/m<k>.jl (hidden), mutants.toml, fixtures/ + fixtures.toml; docs/GUIDED.md
+src/cases.jl                  case projects: brief, report parser, claim checker (pure); runs through the guided driver
+projects/<p>/case/            case.toml (brief, claims, evidence, rubric, mutants), acceptance/m<k>.jl (hidden),
+                              reference/{study.jl,report.qmd}, template/, report_fixtures.toml; docs/CASES.md
 ```
 
 ## Website (site/ + web/)
@@ -228,6 +239,9 @@ every role above has had the chance to object (recorded in the PR).
   fit tests, tolerance-proportionality, energy drift on Kepler, exact linear
   solutions; every tolerance derived in a comment and signed off by the
   numerical analyst; ≥ 6 holes over ≥ 2 stages; holemap and mutants clean.
+  *Status:* projects/odeint (8 holes, 2 stages, holemap clean) and its case
+  (docs/CASES.md) are built; the numerical analyst's sign-off and the pilot
+  with learners are not done.
 * **M5 More rules (measured counterparts first):** Core.Box capture (with a JET
   confirmation), `@threads` reduction race, `x == missing`, unseeded RNG in
   tests, `Array{T}(undef)` read-before-write, string byte indexing, `==` defined
@@ -320,9 +334,11 @@ every role above has had the chance to object (recorded in the PR).
   24 ("steps taken: 7", tolerance-table counts rounded to 2 digits), iteration
   and call counts in unit 25, MCMC digits in unit 27 (its prose says digits
   vary across CPUs). They were verified on one machine only; a different CPU
-  or a package bump may move them.
+  or a package bump may move them. Three unit 27 examples did move on CI
+  (2026-11-11) once the images' caches held copies for several CPUs, and
+  are now `check = false`; its other MCMC examples matched.
 * A problem with `packages = []` loads the whole env, not nothing.
-* Container memory is 6 GB (`Runner.CONTAINER_MEMORY`), raised from 4 GB on
+* Container memory is per image (`Runner.IMAGE_MEMORY`, measured on CI on 2026-11-11: docs/SANDBOX_IMAGES.md): base 2 GB, scicomp and sciml 3 GB, science 6 GB. Science's was raised from 4 GB on
   2026-11-09: compiling MLJ's `evaluate` inside a function peaks at 3.8 GB,
   mostly compiler memory, and grading `ml-best-depth` against a wrong answer
   that compiles a second path was killed in 5 of 6 tries. A kill for memory

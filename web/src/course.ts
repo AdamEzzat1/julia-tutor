@@ -17,6 +17,73 @@ export interface Example {
   output: string | null; // null: not recorded yet
   ok: boolean | null;
   images: string[]; // recorded figures, as site paths (assets/figures/<unit>/<file>)
+  predict?: Prediction; // commit a prediction before the output is shown (see predict.ts); absent for most examples
+  choose?: Checkpoint; // pick a method and give a reason before the output is shown (see choose.ts)
+  breakit?: BreakIt; // find where the method fails before the sweep is shown (see breakit.ts)
+}
+
+/**
+ * A break-it challenge. `rows` and `edge` were read from the recorded sweep by
+ * `tutor site-data` (only when `tutor course verify` would accept them):
+ * nothing here is typed by an author. `m` is text because a measurement may be
+ * `Inf` or `NaN`.
+ */
+export interface BreakIt {
+  kc: string;
+  prompt: string;
+  param: string;
+  measure: string;
+  fails: "above" | "below";
+  limit: number;
+  close: number;
+  edge: [number, number];
+  /** "high": values above the edge fail; "low": values below it fail */
+  side: "high" | "low";
+  /** the probe's code, with `{{p}}` where the value goes */
+  probe: string;
+  /** the row regex (named groups `p` and `m`), to read a probe's output */
+  row: string;
+  explain: string;
+  short: string;
+  past: string;
+  rows: { p: number; m: string; failed: boolean }[];
+}
+
+export type ChoiceVerdict = "good" | "costly" | "fails";
+
+/**
+ * A method-choice checkpoint. The table (`costs`, `ok`, `ratios`, `verdicts`,
+ * one entry per choice) is measured: `tutor site-data` reads it from the
+ * recorded output with the author's row regexes and exports the checkpoint
+ * only when the measured good set is the declared one, with every ratio well
+ * clear of the band's edge (src/course.jl, `checkpoint_output_problems`).
+ */
+export interface Checkpoint {
+  kc: string;
+  prompt: string;
+  choices: string[];
+  cost: string; // what the cost counts
+  band: number; // good = within `band` times the cheapest choice that meets the accuracy
+  explain: string;
+  misconceptions: string[]; // one per choice; "" for a good one
+  costs: number[];
+  ok: boolean[]; // meets the accuracy the example asks for
+  ratios: number[]; // cost / cheapest acceptable cost (3 digits)
+  verdicts: ChoiceVerdict[];
+}
+
+/**
+ * A prediction on an example. `answer` is the choice the recorded output
+ * selects (read from it by `tutor course verify`, not typed); `measured` is
+ * the value it was read from, shown with the output.
+ */
+export interface Prediction {
+  kc: string;
+  prompt: string;
+  choices: string[];
+  answer: number; // 1-based
+  explain: string;
+  measured: string;
 }
 
 /**
@@ -97,6 +164,8 @@ export interface CourseInfo {
   title: string;
   order: number;
   status: CourseStatus;
+  /** why a course is not ready ("" when it is); shown with its status */
+  status_note: string;
   summary: string;
   requires: string[];
   envs: string[];
@@ -105,6 +174,10 @@ export interface CourseInfo {
   guided: string[];
   problems: number;
   outcomes: Outcome[];
+  /** computed by `Course.time_estimate` from counts at guessed rates: never a measurement */
+  estimate: { low_hours: number; high_hours: number; basis: string };
+  /** what `tutor sandbox pull <id>` downloads, and where that was measured */
+  setup: { download: string; measured: string };
 }
 
 export interface CourseData {
@@ -151,6 +224,37 @@ export const course: CourseData = assembleCourse(
 /** The course a unit belongs to. */
 export const courseOf = (unitId: string): CourseInfo | undefined =>
   course.courses.find((c) => c.units.includes(unitId));
+
+export const courseById = (id: string): CourseInfo | undefined => course.courses.find((c) => c.id === id);
+
+/** The course's landing page (site/course-<id>.qmd). */
+export const landingHref = (id: string) => `course-${id}.html`;
+
+/** A unit page in the syllabus view. */
+export const unitHref = (unitId: string) => `course.html?unit=${encodeURIComponent(unitId)}`;
+
+/** "" for a ready course; otherwise the words every mention of the course carries. */
+export function statusNote(c: Pick<CourseInfo, "status">): string {
+  return c.status === "in-progress" ? "in progress" : c.status === "planned" ? "planned" : "";
+}
+
+/** "about 22–50 hours (estimate)": always says it is an estimate. */
+export const estimateText = (c: CourseInfo) =>
+  `about ${c.estimate.low_hours}–${c.estimate.high_hours} hours (estimate)`;
+
+/**
+ * Units of other courses this course's units build on, grouped by course in
+ * course order: what a learner needs from elsewhere besides whole courses.
+ */
+export function crossPrerequisites(c: CourseInfo, units: Unit[] = course.units): { course: CourseInfo; units: string[] }[] {
+  const mine = new Set(c.units);
+  const needed = new Set<string>();
+  for (const u of units) if (mine.has(u.id)) for (const p of u.prerequisites) if (!mine.has(p)) needed.add(p);
+  return course.courses
+    .filter((o) => o.id !== c.id)
+    .map((o) => ({ course: o, units: o.units.filter((id) => needed.has(id)) }))
+    .filter((g) => g.units.length > 0);
+}
 
 export const TRACK_LABEL: Record<Track, string> = {
   foundations: "Foundations",

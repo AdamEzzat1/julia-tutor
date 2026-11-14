@@ -1,0 +1,26 @@
+== tutor explain: odeint, stage 1 ==
+
+Start here: hole `dp54_step` at src/ODEInt.jl:80
+  why: 1 of the 1 failing testsets depend on it (Ochiai 0.33); 8 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: runge-kutta-stages.
+
+Tests: 16/17 testsets pass
+  FAIL dp54_step: stage times on a polynomial integrand  [9 failed, 0 errored; depends on: dp54_step]
+       test/runtests.jl:84 FAIL isapprox(c.ynew[1], (t0 + h) ^ 5; atol = (64 * EPS) * (1 + abs(t0) + h) ^ 5)  evaluated: isapprox(0.0, 1.0; atol = 4.5474735e-13)
+       test/runtests.jl:85 FAIL isapprox(c.err[1], (71 / 54000) * h ^ 5; atol = (64 * EPS) * (1 + abs(t0) + h) ^ 5)  evaluated: isapprox(-0.125, 0.0013148148; atol = 4.5474735e-13)
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. dp54_step          0.33  implemented  failing-deps=1 passing-deps=8  src/ODEInt.jl:80
+  2. error_norm         0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:109
+  3. kepler_exact       0.0   implemented  failing-deps=0 passing-deps=5  src/ODEInt.jl:370
+  4. verlet_step        0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:283
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)
+  allocations error_norm(4 components): 0  (reference 0)
+  allocations solve_adaptive(kepler, one period, tol 1e-8): 18  (reference 18)
+  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)
+  JET: not used by this project's measurements

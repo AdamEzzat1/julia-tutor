@@ -307,7 +307,7 @@
           "body": "summands = Term[]\nfor i in eachindex(t.args)\n    factors = t.args\n    factors[i] = deriv(t.args[i], x)\n    push!(summands, Mul(copy(factors)))\nend\nreturn Add(summands)\n",
           "description": "`factors = t.args` is believed to copy; it aliases, so every summand writes into the input",
           "expect_start": "product_rule",
-          "golden": "== tutor explain: symdiff, stage 1 ==\n\nStart here: hole `product_rule` at src/SymDiff.jl:438\n  why: 3 of the 3 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: multiple-dispatch-recursion.\n\nTests: 11/14 testsets pass\n  FAIL SymDiff/derivative: polynomials (exact)  [2 failed, 1 errored; depends on: product_rule]\n       test/runtests.jl:131 FAIL exact(derivative(p, :x), v) == dp(v)  evaluated: 1//1 == -119//1\n       test/runtests.jl:131 FAIL exact(derivative(p, :x), v) == dp(v)  evaluated: 1//1 == 7//9\n  FAIL SymDiff/derivative: product rule  [11 failed, 0 errored; depends on: product_rule]\n       test/runtests.jl:140 FAIL derivative(@term(x * y), :y) == x  evaluated: 0 == x\n       test/runtests.jl:142 FAIL exact(derivative(@term(x ^ 2 * (x + 1)), :x), v) == 3 * v ^ 2 + 2v  evaluated: 0//1 == 8//1\n  FAIL SymDiff/derivative: chain rule and elementary functions  [4 failed, 1 errored; depends on: product_rule]\n       test/runtests.jl:157 FAIL derivative(@term(exp(2x)), :x) == simplify(@term(2 * exp(2x)))  evaluated: 0 == 2 * exp(2x)\n       test/runtests.jl:167 FAIL isapprox(num(derivative(f, :x), v), df(v); rtol = RTOL_ELEMENTARY)  evaluated: isapprox(0.0, 6.322383382851318; rtol = 2.220446049250313e-13)\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. product_rule       1.0   implemented  failing-deps=3 passing-deps=0  src/SymDiff.jl:438\n  2. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:558\n  3. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl:642\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations derivative(bench): 682  (reference 904)\n  allocations evaluate(bench, Float64): 25  (reference 25)\n  allocations simplify(bench): 146  (reference 146)\n  JET: not run (pass --jet); it adds about a minute\n",
+          "golden": "== tutor explain: symdiff, stage 1 ==\n\nStart here: hole `product_rule` at src/SymDiff.jl:438\n  why: 3 of the 3 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: multiple-dispatch-recursion.\n\nTests: 11/14 testsets pass\n  FAIL SymDiff/derivative: polynomials (exact)  [2 failed, 1 errored; depends on: product_rule]\n       test/runtests.jl:131 FAIL exact(derivative(p, :x), v) == dp(v)  evaluated: 1//1 == -119//1\n       test/runtests.jl:131 FAIL exact(derivative(p, :x), v) == dp(v)  evaluated: 1//1 == 7//9\n  FAIL SymDiff/derivative: product rule  [11 failed, 0 errored; depends on: product_rule]\n       test/runtests.jl:140 FAIL derivative(@term(x * y), :y) == x  evaluated: 0 == x\n       test/runtests.jl:142 FAIL exact(derivative(@term(x ^ 2 * (x + 1)), :x), v) == 3 * v ^ 2 + 2v  evaluated: 0//1 == 8//1\n  FAIL SymDiff/derivative: chain rule and elementary functions  [4 failed, 1 errored; depends on: product_rule]\n       test/runtests.jl:157 FAIL derivative(@term(exp(2x)), :x) == simplify(@term(2 * exp(2x)))  evaluated: 0 == 2 * exp(2x)\n       test/runtests.jl:167 FAIL isapprox(num(derivative(f, :x), v), df(v); rtol = RTOL_ELEMENTARY)  evaluated: isapprox(0.0, 6.3223834; rtol = 2.220446e-13)\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. product_rule       1.0   implemented  failing-deps=3 passing-deps=0  src/SymDiff.jl:438\n  2. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:558\n  3. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl:642\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations derivative(bench): 682  (reference 904)\n  allocations evaluate(bench, Float64): 25  (reference 25)\n  allocations simplify(bench): 146  (reference 146)\n  JET: not run (pass --jet); it adds about a minute\n",
           "hole": "product_rule",
           "misconception": "assignment-copies-arrays",
           "name": "product_rule-aliasing",
@@ -357,7 +357,7 @@
           "body": "return dfn(func(t), t.arg)\n",
           "description": "returns f'(u) and forgets the factor du/dx",
           "expect_start": "chain_rule",
-          "golden": "== tutor explain: symdiff, stage 2 ==\n\nStart here: hole `chain_rule` at src/SymDiff.jl:464\n  why: 1 of the 1 failing testsets depend on it (Ochiai 1.0).\n  measured: return type inferred as `Fn{typeof(cos)}`; the reference infers `Mul`\n  Read its docstring: it is the specification. Knowledge component: multiple-dispatch-parametric.\n\nTests: 13/14 testsets pass\n  FAIL SymDiff/derivative: chain rule and elementary functions  [17 failed, 0 errored; depends on: canonical_sum, chain_rule, product_rule]\n       test/runtests.jl:157 FAIL derivative(@term(exp(2x)), :x) == simplify(@term(2 * exp(2x)))  evaluated: exp(2x) == 2 * exp(2x)\n       test/runtests.jl:167 FAIL isapprox(num(derivative(f, :x), v), df(v); rtol = RTOL_ELEMENTARY)  evaluated: isapprox(0.9959527330119943, 0.5975716398071965; rtol = 2.220446049250313e-13)\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. chain_rule         1.0   implemented  failing-deps=1 passing-deps=0  src/SymDiff.jl:464\n       measured: return type inferred as `Fn{typeof(cos)}`; the reference infers `Mul`\n  2. product_rule       0.58  implemented  failing-deps=1 passing-deps=2  src/SymDiff.jl:438\n  3. canonical_sum      0.33  implemented  failing-deps=1 passing-deps=8  src/SymDiff.jl:291\n  4. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:558\n  5. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl:642\n  6. rewrite_innermost  0.0   implemented  failing-deps=0 passing-deps=1  src/SymDiff.jl:670\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations derivative(bench): 607  (reference 904)\n  allocations evaluate(bench, Float64): 25  (reference 25)\n  allocations simplify(bench): 146  (reference 146)\n  JET: not run (pass --jet); it adds about a minute\n",
+          "golden": "== tutor explain: symdiff, stage 2 ==\n\nStart here: hole `chain_rule` at src/SymDiff.jl:464\n  why: 1 of the 1 failing testsets depend on it (Ochiai 1.0).\n  measured: return type inferred as `Fn{typeof(cos)}`; the reference infers `Mul`\n  Read its docstring: it is the specification. Knowledge component: multiple-dispatch-parametric.\n\nTests: 13/14 testsets pass\n  FAIL SymDiff/derivative: chain rule and elementary functions  [17 failed, 0 errored; depends on: canonical_sum, chain_rule, product_rule]\n       test/runtests.jl:157 FAIL derivative(@term(exp(2x)), :x) == simplify(@term(2 * exp(2x)))  evaluated: exp(2x) == 2 * exp(2x)\n       test/runtests.jl:167 FAIL isapprox(num(derivative(f, :x), v), df(v); rtol = RTOL_ELEMENTARY)  evaluated: isapprox(0.99595273, 0.59757164; rtol = 2.220446e-13)\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. chain_rule         1.0   implemented  failing-deps=1 passing-deps=0  src/SymDiff.jl:464\n       measured: return type inferred as `Fn{typeof(cos)}`; the reference infers `Mul`\n  2. product_rule       0.58  implemented  failing-deps=1 passing-deps=2  src/SymDiff.jl:438\n  3. canonical_sum      0.33  implemented  failing-deps=1 passing-deps=8  src/SymDiff.jl:291\n  4. pvar_binding       0.0   implemented  failing-deps=0 passing-deps=3  src/SymDiff.jl:558\n  5. size_measure       0.0   implemented  failing-deps=0 passing-deps=2  src/SymDiff.jl:642\n  6. rewrite_innermost  0.0   implemented  failing-deps=0 passing-deps=1  src/SymDiff.jl:670\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations derivative(bench): 607  (reference 904)\n  allocations evaluate(bench, Float64): 25  (reference 25)\n  allocations simplify(bench): 146  (reference 146)\n  JET: not run (pass --jet); it adds about a minute\n",
           "hole": "chain_rule",
           "misconception": "chain-rule-outer-only",
           "name": "chain_rule-missing-inner",
@@ -541,6 +541,410 @@
         "SymDiff/soundness of rewrite rules on known cases",
         "SymDiff/termination measure",
         "SymDiff/type stability (measured with @inferred)"
+      ]
+    },
+    {
+      "baseline": {
+        "allocations": {
+          "dp54_step!(kepler, h = 0.01)": 0,
+          "error_norm(4 components)": 0,
+          "solve_adaptive(kepler, one period, tol 1e-8)": 18,
+          "verlet_step!(kepler, h = 0.01)": 0
+        },
+        "inferred": {
+          "dp54_step": "Nothing",
+          "error_norm": "Float64",
+          "fit_order": "Float64",
+          "initial_step": "Float64",
+          "kepler_exact": "Vector{Float64}",
+          "propose_step": "Tuple{Bool, Float64}",
+          "solve_adaptive": "@NamedTuple{y::Vector{Float64}, t::Float64, nf::Int64, naccept::Int64, nreject::Int64}",
+          "verlet_step": "Nothing"
+        },
+        "jet": {
+          "status": "not used by this project's measurements"
+        }
+      },
+      "deps": {
+        "dp54_step": [
+          "convergence: DP5 is order 5 on the Kepler problem",
+          "convergence: the error estimate is O(h^5)",
+          "dp54_step: stability polynomial on y' = lambda*y",
+          "dp54_step: stage times on a polynomial integrand",
+          "energy: DP5 drifts linearly, Stormer-Verlet stays bounded",
+          "exact solutions: nilpotent linear system",
+          "kepler_exact: agrees with an accurate numerical solution",
+          "solve_adaptive: error is proportional to the tolerance",
+          "solve_adaptive: lands on tf and counts its work"
+        ],
+        "error_norm": [
+          "error_norm: scaled RMS",
+          "kepler_exact: agrees with an accurate numerical solution",
+          "solve_adaptive: error is proportional to the tolerance",
+          "solve_adaptive: lands on tf and counts its work"
+        ],
+        "fit_order": [
+          "convergence: DP5 is order 5 on the Kepler problem",
+          "convergence: Stormer-Verlet is order 2",
+          "convergence: the error estimate is O(h^5)",
+          "energy: DP5 drifts linearly, Stormer-Verlet stays bounded",
+          "fit_order: least squares on log-log",
+          "solve_adaptive: error is proportional to the tolerance"
+        ],
+        "initial_step": [
+          "initial_step: Hairer's starting step",
+          "kepler_exact: agrees with an accurate numerical solution",
+          "solve_adaptive: error is proportional to the tolerance",
+          "solve_adaptive: lands on tf and counts its work"
+        ],
+        "kepler_exact": [
+          "convergence: DP5 is order 5 on the Kepler problem",
+          "convergence: Stormer-Verlet is order 2",
+          "kepler_exact: Kepler's equation and the conserved quantities",
+          "kepler_exact: agrees with an accurate numerical solution",
+          "solve_adaptive: error is proportional to the tolerance"
+        ],
+        "propose_step": [
+          "kepler_exact: agrees with an accurate numerical solution",
+          "propose_step: accept, reject, clamp",
+          "solve_adaptive: error is proportional to the tolerance",
+          "solve_adaptive: lands on tf and counts its work"
+        ],
+        "solve_adaptive": [
+          "kepler_exact: agrees with an accurate numerical solution",
+          "solve_adaptive: error is proportional to the tolerance",
+          "solve_adaptive: lands on tf and counts its work"
+        ],
+        "verlet_step": [
+          "convergence: Stormer-Verlet is order 2",
+          "energy: DP5 drifts linearly, Stormer-Verlet stays bounded",
+          "verlet_step: the exact map on the harmonic oscillator"
+        ]
+      },
+      "fixtures": [
+        {
+          "body": "@. c.ytmp = y + h * (A21 * c.k1)\nf!(c.k2, c.ytmp, t)\n@. c.ytmp = y + h * (A31 * c.k1 + A32 * c.k2)\nf!(c.k3, c.ytmp, t)\n@. c.ytmp = y + h * (A41 * c.k1 + A42 * c.k2 + A43 * c.k3)\nf!(c.k4, c.ytmp, t)\n@. c.ytmp = y + h * (A51 * c.k1 + A52 * c.k2 + A53 * c.k3 + A54 * c.k4)\nf!(c.k5, c.ytmp, t)\n@. c.ytmp = y + h * (A61 * c.k1 + A62 * c.k2 + A63 * c.k3 + A64 * c.k4 + A65 * c.k5)\nf!(c.k6, c.ytmp, t)\n@. c.ynew = y + h * (A71 * c.k1 + A73 * c.k3 + A74 * c.k4 + A75 * c.k5 + A76 * c.k6)\nf!(c.k7, c.ynew, t + h)\n@. c.err = h * (E1 * c.k1 + E3 * c.k3 + E4 * c.k4 + E5 * c.k5 + E6 * c.k6 + E7 * c.k7)\nreturn nothing\n",
+          "description": "evaluates every stage at t: invisible on the (autonomous) Kepler problem, wrong for y' = f(t)",
+          "expect_start": "dp54_step",
+          "golden": "== tutor explain: odeint, stage 1 ==\n\nStart here: hole `dp54_step` at src/ODEInt.jl:80\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.33); 8 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: runge-kutta-stages.\n\nTests: 16/17 testsets pass\n  FAIL dp54_step: stage times on a polynomial integrand  [9 failed, 0 errored; depends on: dp54_step]\n       test/runtests.jl:84 FAIL isapprox(c.ynew[1], (t0 + h) ^ 5; atol = (64 * EPS) * (1 + abs(t0) + h) ^ 5)  evaluated: isapprox(0.0, 1.0; atol = 4.5474735e-13)\n       test/runtests.jl:85 FAIL isapprox(c.err[1], (71 / 54000) * h ^ 5; atol = (64 * EPS) * (1 + abs(t0) + h) ^ 5)  evaluated: isapprox(-0.125, 0.0013148148; atol = 4.5474735e-13)\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. dp54_step          0.33  implemented  failing-deps=1 passing-deps=8  src/ODEInt.jl:80\n  2. error_norm         0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:109\n  3. kepler_exact       0.0   implemented  failing-deps=0 passing-deps=5  src/ODEInt.jl:370\n  4. verlet_step        0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:283\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)\n  allocations error_norm(4 components): 0  (reference 0)\n  allocations solve_adaptive(kepler, one period, tol 1e-8): 18  (reference 18)\n  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "dp54_step",
+          "misconception": "stage-times-do-not-matter",
+          "name": "dp54_step-stage-times-ignored",
+          "stage": 1
+        },
+        {
+          "body": "m = 0.0\nfor i in eachindex(err)\n    m = max(m, abs(err[i]))\nend\nreturn m\n",
+          "description": "the largest absolute error component: the tolerances never scale it",
+          "expect_start": "error_norm",
+          "golden": "== tutor explain: odeint, stage 1 ==\n\nStart here: hole `error_norm` at src/ODEInt.jl:109\n  why: 4 of the 4 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: error-norm-scaling.\n\nTests: 13/17 testsets pass\n  FAIL error_norm: scaled RMS  [4 failed, 0 errored; depends on: error_norm]\n       test/runtests.jl:143 FAIL isapprox(error_norm(sc, y, ynew, atol, rtol), 1.0; rtol = 8 * EPS)  evaluated: isapprox(0.004001, 1.0; rtol = 1.7763568e-15)\n       test/runtests.jl:144 FAIL isapprox(error_norm(-3 .* sc, y, ynew, atol, rtol), 3.0; rtol = 8 * EPS)  evaluated: isapprox(0.012003, 3.0; rtol = 1.7763568e-15)\n  FAIL solve_adaptive: lands on tf and counts its work  [3 failed, 0 errored; depends on: dp54_step, error_norm]\n       test/runtests.jl:200 FAIL isapprox(r.y[1], exp(-tf); atol = 1000.0 * 1.0e-8)  evaluated: isapprox(0.050994604, 0.049787068; atol = 1.0e-5)\n       test/runtests.jl:203 FAIL r2.nreject > 0  evaluated: 0 > 0\n  FAIL solve_adaptive: error is proportional to the tolerance  [2 failed, 0 errored; depends on: dp54_step, error_norm, kepler_exact]\n       test/runtests.jl:226 FAIL 0.85 <= fit_order(tols, errs) <= 1.2  evaluated: 0.85 <= 0.020312277 <= 1.2\n       test/runtests.jl:227 FAIL all(errs .<= 1000.0 .* tols)\n  FAIL kepler_exact: agrees with an accurate numerical solution  [2 failed, 0 errored; depends on: dp54_step, error_norm, kepler_exact]\n       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-0.13126888, 0.9518168, -1.0188616, -0.037676947], [-0.12875586, 0.97730615, -1.011877, 0.070813727]; atol = 1.0e-9, norm = var\"#39#40\"())\n       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-1.1891974, 0.6748458, -0.91908132, -0.1693739], [-1.0703813, 0.66335285, -0.73763533, -0.21004695]; atol = 1.0e-9, norm = var\"#39#40\"())\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. error_norm         1.0   implemented  failing-deps=4 passing-deps=0  src/ODEInt.jl:109\n  2. dp54_step          0.5   implemented  failing-deps=3 passing-deps=6  src/ODEInt.jl:80\n  3. kepler_exact       0.45  implemented  failing-deps=2 passing-deps=3  src/ODEInt.jl:369\n  4. verlet_step        0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:282\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)\n  allocations error_norm(4 components): 0  (reference 0)\n  allocations solve_adaptive(kepler, one period, tol 1e-8): 18  (reference 18)\n  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "error_norm",
+          "misconception": "error-is-absolute",
+          "name": "error_norm-absolute",
+          "stage": 1
+        },
+        {
+          "body": "E = rem2pi(float(t), RoundNearest)\ns, c = sincos(E)\nw = sqrt(1 - e^2)\nd = 1 - e * c\nreturn [c - e, w * s, -s / d, w * c / d]\n",
+          "description": "uses the mean anomaly as the eccentric anomaly: right only for circular orbits",
+          "expect_start": "kepler_exact",
+          "golden": "== tutor explain: odeint, stage 1 ==\n\nStart here: hole `kepler_exact` at src/ODEInt.jl:370\n  why: 2 of the 2 failing testsets depend on it (Ochiai 0.63); 3 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: exact-solutions.\n\nTests: 15/17 testsets pass\n  FAIL kepler_exact: Kepler's equation and the conserved quantities  [8 failed, 0 errored; depends on: kepler_exact]\n       test/runtests.jl:248 FAIL isapprox(E - e * sin(E), rem2pi(t, RoundNearest); atol = 64 * EPS)  evaluated: isapprox(0.2831745, 0.4; atol = 1.4210855e-14)\n       test/runtests.jl:248 FAIL isapprox(E - e * sin(E), rem2pi(t, RoundNearest); atol = 64 * EPS)  evaluated: isapprox(1.4025006, 1.7; atol = 1.4210855e-14)\n  FAIL kepler_exact: agrees with an accurate numerical solution  [2 failed, 0 errored; depends on: dp54_step, error_norm, kepler_exact]\n       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-0.12875586, 0.97730615, -1.011877, 0.070813727], [0.067498829, 0.94409036, -1.0180221, 0.27690881]; atol = 1.0e-9, norm = var\"#39#40\"())\n       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-1.0703813, 0.66335285, -0.73763533, -0.21004695], [-0.43250117, 0.68811818, -1.1855518, 0.23504421]; atol = 1.0e-9, norm = var\"#39#40\"())\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. kepler_exact       0.63  implemented  failing-deps=2 passing-deps=3  src/ODEInt.jl:370\n  2. error_norm         0.35  implemented  failing-deps=1 passing-deps=3  src/ODEInt.jl:109\n  3. dp54_step          0.24  implemented  failing-deps=1 passing-deps=8  src/ODEInt.jl:80\n  4. verlet_step        0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:283\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)\n  allocations error_norm(4 components): 0  (reference 0)\n  allocations solve_adaptive(kepler, one period, tol 1e-8): 18  (reference 18)\n  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "kepler_exact",
+          "misconception": "eccentric-anomaly-is-mean-anomaly",
+          "name": "kepler_exact-mean-anomaly",
+          "stage": 1
+        },
+        {
+          "body": "@. p += h * a\n@. q += h * p\naccel!(a, q)\nreturn nothing\n",
+          "description": "full kick then full drift: symplectic, so the energy stays bounded, but only first order",
+          "expect_start": "verlet_step",
+          "golden": "== tutor explain: odeint, stage 1 ==\n\nStart here: hole `verlet_step` at src/ODEInt.jl:283\n  why: 2 of the 2 failing testsets depend on it (Ochiai 0.82); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: symplectic-splitting.\n\nTests: 15/17 testsets pass\n  FAIL verlet_step: the exact map on the harmonic oscillator  [4 failed, 0 errored; depends on: verlet_step]\n       test/runtests.jl:272 FAIL isapprox([q[1], p[1]], M * [q0, p0]; atol = 8 * EPS)  evaluated: isapprox([0.91, -0.3], [0.955, -0.29325]; atol = 1.7763568e-15)\n       test/runtests.jl:272 FAIL isapprox([q[1], p[1]], M * [q0, p0]; atol = 8 * EPS)  evaluated: isapprox([0.3, 1.0], [0.3, 0.955]; atol = 1.7763568e-15)\n  FAIL energy: DP5 drifts linearly, Stormer-Verlet stays bounded  [1 failed, 0 errored; depends on: dp54_step, verlet_step]\n       test/runtests.jl:342 FAIL 3.8 <= v[1] / v2[1] <= 4.2  evaluated: 3.8 <= 2.1836407 <= 4.2\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. verlet_step        0.82  implemented  failing-deps=2 passing-deps=1  src/ODEInt.jl:283\n  2. dp54_step          0.24  implemented  failing-deps=1 passing-deps=8  src/ODEInt.jl:80\n  3. error_norm         0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:109\n  4. kepler_exact       0.0   implemented  failing-deps=0 passing-deps=5  src/ODEInt.jl:369\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)\n  allocations error_norm(4 components): 0  (reference 0)\n  allocations solve_adaptive(kepler, one period, tol 1e-8): 18  (reference 18)\n  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "verlet_step",
+          "misconception": "any-splitting-is-second-order",
+          "name": "verlet_step-symplectic-euler",
+          "stage": 1
+        },
+        {
+          "body": "fac = iszero(en) ? facmax : clamp(safety * en^(-1 / 6), facmin, facmax)\nreturn (en <= 1, h * fac)\n",
+          "description": "exponent 1/(p+1) with p = 5, the propagated order, instead of the estimate's O(h^5)",
+          "expect_start": "propose_step",
+          "golden": "== tutor explain: odeint, stage 2 ==\n\nStart here: hole `propose_step` at src/ODEInt.jl:131\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.5); 3 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: step-size-control.\n\nTests: 16/17 testsets pass\n  FAIL propose_step: accept, reject, clamp  [2 failed, 0 errored; depends on: propose_step]\n       test/runtests.jl:160 FAIL isapprox((propose_step(h, 0.45 ^ 5))[2], 0.2; rtol = 4 * EPS)  evaluated: isapprox(0.1750782, 0.2; rtol = 8.8817842e-16)\n       test/runtests.jl:161 FAIL isapprox((propose_step(h, 32.0))[2], 0.045; rtol = 4 * EPS)  evaluated: isapprox(0.050510792, 0.045; rtol = 8.8817842e-16)\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. propose_step       0.5   implemented  failing-deps=1 passing-deps=3  src/ODEInt.jl:131\n  2. dp54_step          0.0   implemented  failing-deps=0 passing-deps=9  src/ODEInt.jl:80\n  3. error_norm         0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:109\n  4. kepler_exact       0.0   implemented  failing-deps=0 passing-deps=5  src/ODEInt.jl:370\n  5. verlet_step        0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:283\n  6. solve_adaptive     0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:226\n  7. initial_step       0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:154\n  8. fit_order          0.0   implemented  failing-deps=0 passing-deps=6  src/ODEInt.jl:395\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)\n  allocations error_norm(4 components): 0  (reference 0)\n  allocations solve_adaptive(kepler, one period, tol 1e-8): 18  (reference 18)\n  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "propose_step",
+          "misconception": "controller-exponent-from-propagated-order",
+          "name": "propose_step-exponent-one-sixth",
+          "stage": 2
+        },
+        {
+          "body": "t, tf = float.(tspan)\ny = Vector{Float64}(y0)\nc = DP54Cache(length(y))\nf!(c.k1, y, t)\nnf = 1\nif h0 === nothing\n    h = initial_step(f!, t, y, c.k1, atol, rtol)\n    nf += 1\nelse\n    h = float(h0)\nend\nobserve === nothing || observe(t, y)\nnaccept = nreject = 0\nfacmax = 5.0\nwhile t < tf\n    naccept + nreject >= maxsteps && error(\"solve_adaptive: more than $maxsteps steps\")\n    dp54_step!(c, f!, t, y, h)\n    nf += 6\n    en = error_norm(c.err, y, c.ynew, atol, rtol)\n    accept, hnew = propose_step(h, en; facmax)\n    if accept\n        t += h\n        copyto!(y, c.ynew)\n        copyto!(c.k1, c.k7)\n        naccept += 1\n        facmax = 5.0\n        observe === nothing || observe(t, y)\n    else\n        nreject += 1\n        facmax = 1.0\n    end\n    h = hnew\nend\nreturn (y = y, t = t, nf = nf, naccept = naccept, nreject = nreject)\n",
+          "description": "never shortens the last step, so the solution is returned at some t > tf",
+          "expect_start": "solve_adaptive",
+          "golden": "== tutor explain: odeint, stage 2 ==\n\nStart here: hole `solve_adaptive` at src/ODEInt.jl:226\n  why: 3 of the 3 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: adaptive-loop.\n\nTests: 14/17 testsets pass\n  FAIL solve_adaptive: lands on tf and counts its work  [4 failed, 0 errored; depends on: dp54_step, error_norm, initial_step, propose_step, solve_adaptive]\n       test/runtests.jl:195 FAIL r.t === tf  evaluated: 3.0113068 === 3.0\n       test/runtests.jl:200 FAIL isapprox(r.y[1], exp(-tf); atol = 1000.0 * 1.0e-8)  evaluated: isapprox(0.049227308, 0.049787068; atol = 1.0e-5)\n  FAIL solve_adaptive: error is proportional to the tolerance  [2 failed, 0 errored; depends on: dp54_step, error_norm, fit_order, initial_step, kepler_exact, propose_step, solve_adaptive]\n       test/runtests.jl:226 FAIL 0.85 <= fit_order(tols, errs) <= 1.2  evaluated: 0.85 <= 0.18899021 <= 1.2\n       test/runtests.jl:227 FAIL all(errs .<= 1000.0 .* tols)\n  FAIL kepler_exact: agrees with an accurate numerical solution  [2 failed, 0 errored; depends on: dp54_step, error_norm, initial_step, kepler_exact, propose_step, solve_adaptive]\n       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-0.1367288, 0.97783275, -1.0107871, 0.062787391], [-0.12875586, 0.97730615, -1.011877, 0.070813727]; atol = 1.0e-9, norm = var\"#39#40\"())\n       test/runtests.jl:258 FAIL isapprox(r.y, kepler_exact(e, 1.3); atol = 1.0e-9, norm = (v->begin  evaluated: isapprox([-1.0773605, 0.66134372, -0.73255919, -0.21317787], [-1.0703813, 0.66335285, -0.73763533, -0.21004695]; atol = 1.0e-9, norm = var\"#39#40\"())\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. solve_adaptive     1.0   implemented  failing-deps=3 passing-deps=0  src/ODEInt.jl:226\n  2. error_norm         0.87  implemented  failing-deps=3 passing-deps=1  src/ODEInt.jl:109\n  3. propose_step       0.87  implemented  failing-deps=3 passing-deps=1  src/ODEInt.jl:131\n  4. initial_step       0.87  implemented  failing-deps=3 passing-deps=1  src/ODEInt.jl:154\n  5. dp54_step          0.58  implemented  failing-deps=3 passing-deps=6  src/ODEInt.jl:80\n  6. kepler_exact       0.52  implemented  failing-deps=2 passing-deps=3  src/ODEInt.jl:368\n  7. fit_order          0.24  implemented  failing-deps=1 passing-deps=5  src/ODEInt.jl:393\n  8. verlet_step        0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:281\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)\n  allocations error_norm(4 components): 0  (reference 0)\n  allocations solve_adaptive(kepler, one period, tol 1e-8): 18  (reference 18)\n  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "solve_adaptive",
+          "misconception": "last-step-lands-by-itself",
+          "name": "solve_adaptive-overshoots-tf",
+          "stage": 2
+        },
+        {
+          "body": "nrm(v) = sqrt(sum(abs2, v) / length(v))\nd0, d1 = nrm(y0), nrm(f0)\nh0 = (d0 < 1e-5 || d1 < 1e-5) ? 1e-6 : 0.01 * d0 / d1\ny1 = @. y0 + h0 * f0\nf1 = similar(y0)\nf!(f1, y1, t0 + h0)\nd2 = nrm(f1 .- f0) / h0\nm = max(d1, d2)\nh1 = m <= 1e-15 ? max(1e-6, h0 * 1e-3) : (0.01 / m)^(1 / 5)\nreturn min(100 * h0, h1)\n",
+          "description": "plain RMS norms: the starting step no longer depends on the tolerances",
+          "expect_start": "initial_step",
+          "golden": "== tutor explain: odeint, stage 2 ==\n\nStart here: hole `initial_step` at src/ODEInt.jl:154\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.5); 3 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: initial-step-heuristics.\n\nTests: 16/17 testsets pass\n  FAIL initial_step: Hairer's starting step  [2 failed, 0 errored; depends on: initial_step]\n       test/runtests.jl:177 FAIL isapprox(h, 2.0e-8 ^ (1 / 5); rtol = 64 * EPS)  evaluated: isapprox(0.39810717, 0.028853998; rtol = 1.4210855e-14)\n       test/runtests.jl:188 FAIL isapprox(initial_step(one!, 0.0, [1.0e6], [1.0], 1.0e-6, 1.0e-6), (0.01 / (1 / sc)) ^ (1 / 5); rtol = 64 * EPS)  evaluated: isapprox(0.39810717, 0.39810725; rtol = 1.4210855e-14)\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. initial_step       0.5   implemented  failing-deps=1 passing-deps=3  src/ODEInt.jl:154\n  2. dp54_step          0.0   implemented  failing-deps=0 passing-deps=9  src/ODEInt.jl:80\n  3. error_norm         0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:109\n  4. kepler_exact       0.0   implemented  failing-deps=0 passing-deps=5  src/ODEInt.jl:369\n  5. verlet_step        0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:282\n  6. propose_step       0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:131\n  7. solve_adaptive     0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:225\n  8. fit_order          0.0   implemented  failing-deps=0 passing-deps=6  src/ODEInt.jl:394\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)\n  allocations error_norm(4 components): 0  (reference 0)\n  allocations solve_adaptive(kepler, one period, tol 1e-8): 14  (reference 18)\n  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "initial_step",
+          "misconception": "norms-need-no-scaling",
+          "name": "initial_step-unscaled",
+          "stage": 2
+        },
+        {
+          "body": "length(hs) == length(errs) >= 2 || throw(ArgumentError(\"need at least two (h, error) pairs\"))\nreturn log(errs[end] / errs[1]) / log(hs[end] / hs[1])\n",
+          "description": "the slope through the first and last points only: right for an exact power law, not for real data",
+          "expect_start": "fit_order",
+          "golden": "== tutor explain: odeint, stage 2 ==\n\nStart here: hole `fit_order` at src/ODEInt.jl:395\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.41); 5 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: convergence-order-fit.\n\nTests: 16/17 testsets pass\n  FAIL fit_order: least squares on log-log  [2 failed, 0 errored; depends on: fit_order]\n       test/runtests.jl:353 FAIL isapprox(fit_order(2.0 .^ (0:3), 2.0 .^ [0, 3, 3, 3]), 0.9; rtol = 64 * EPS)  evaluated: isapprox(1.0, 0.9; rtol = 1.4210855e-14)\n       test/runtests.jl:355 FAIL fit_order([0.1, 0.2], [0.0, 0.1])  evaluated: ArgumentError\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. fit_order          0.41  implemented  failing-deps=1 passing-deps=5  src/ODEInt.jl:395\n  2. dp54_step          0.0   implemented  failing-deps=0 passing-deps=9  src/ODEInt.jl:80\n  3. error_norm         0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:109\n  4. kepler_exact       0.0   implemented  failing-deps=0 passing-deps=5  src/ODEInt.jl:370\n  5. verlet_step        0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:283\n  6. propose_step       0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:131\n  7. solve_adaptive     0.0   implemented  failing-deps=0 passing-deps=3  src/ODEInt.jl:226\n  8. initial_step       0.0   implemented  failing-deps=0 passing-deps=4  src/ODEInt.jl:154\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations dp54_step!(kepler, h = 0.01): 0  (reference 0)\n  allocations error_norm(4 components): 0  (reference 0)\n  allocations solve_adaptive(kepler, one period, tol 1e-8): 18  (reference 18)\n  allocations verlet_step!(kepler, h = 0.01): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "fit_order",
+          "misconception": "two-points-make-a-fit",
+          "name": "fit_order-endpoints",
+          "stage": 2
+        }
+      ],
+      "holes": [
+        {
+          "file": "src/ODEInt.jl",
+          "id": "dp54_step",
+          "kc": "runge-kutta-stages",
+          "spec": "    dp54_step!(c::DP54Cache, f!, t, y, h) -> nothing\n\nOne Dormand-Prince 5(4) step of size `h` from `(t, y)`.\n\nOn entry `c.k1` must hold `f(t, y)` (the caller evaluates it once; after an\naccepted step it is the previous step's `k7`). The step evaluates stages 2 to\n7: stage `i` is `f!(c.ki, ytmp, t + Ci*h)` with\n`ytmp = y + h * (Ai1*k1 + ... + Ai(i-1)*k(i-1))`, using the constants\n`A21` ... `A76` and `C2` ... `C5` of this module (stages 6 and 7 are at\n`t + h`). Stage 7 is evaluated at the new solution itself.\n\nOn return:\n* `c.ynew` is the 5th-order solution `y + h * (A71*k1 + A73*k3 + ... + A76*k6)`\n  at `t + h`;\n* `c.k7` is `f(t + h, c.ynew)`;\n* `c.err` is the error estimate `y5 - y4 = h * (E1*k1 + E3*k3 + ... + E7*k7)`.\n\n`y` is not modified. Exactly 6 calls to `f!`; allocates nothing (use\nin-place broadcasts such as `@. c.ytmp = y + h * (A21 * c.k1)`).",
+          "stage": 1,
+          "summary": "dp54_step!(c, f!, t, y, h): one Dormand-Prince 5(4) step with its error estimate",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/ODEInt.jl",
+          "id": "error_norm",
+          "kc": "error-norm-scaling",
+          "spec": "    error_norm(err, y, ynew, atol, rtol) -> Float64\n\nThe scaled root-mean-square norm an adaptive step is judged by (Hairer I,\neq. II.4.11):\n\n    sqrt( (1/n) * sum_i ( err[i] / sc[i] )^2 ),   sc[i] = atol + rtol * max(|y[i]|, |ynew[i]|)\n\nA value <= 1 means the step meets the tolerance. Scaling each component by\nits own size makes the test relative where the solution is large and\nabsolute where it is near zero. Allocates nothing.",
+          "stage": 1,
+          "summary": "error_norm(err, y, ynew, atol, rtol): the scaled RMS norm a step is judged by",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/ODEInt.jl",
+          "id": "kepler_exact",
+          "kc": "exact-solutions",
+          "spec": "    kepler_exact(e, t) -> Vector{Float64}\n\nThe exact state `[q1, q2, p1, p2]` at time `t` of the orbit that starts at\n`kepler_initial(e)` at `t = 0` (GM = 1, semi-major axis 1, period 2*pi).\n\nSolve Kepler's equation `E - e*sin(E) = M` for the eccentric anomaly `E`,\nwhere the mean anomaly is `M = t` reduced to [-pi, pi] (use\n`rem2pi(t, RoundNearest)`), by Newton's method from `E = M + 0.85*e*sign(sin(M))`\nuntil the update is below `4*eps()` (at most 50 iterations). Then\n\n    q = (cos(E) - e,  sqrt(1 - e^2) * sin(E))\n    p = (-sin(E),     sqrt(1 - e^2) * cos(E)) / (1 - e*cos(E))",
+          "stage": 1,
+          "summary": "kepler_exact(e, t): the exact Kepler orbit from Kepler's equation",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/ODEInt.jl",
+          "id": "verlet_step",
+          "kc": "symplectic-splitting",
+          "spec": "    verlet_step!(q, p, a, h, accel!) -> nothing\n\nOne Stormer-Verlet (velocity Verlet, \"kick-drift-kick\") step of size `h` for\n`q'' = accel(q)`, in place:\n\n    p_half = p + (h/2) * a\n    q_new  = q + h * p_half\n    a_new  = accel(q_new)          # accel!(a, q): the one force evaluation\n    p_new  = p_half + (h/2) * a_new\n\nOn entry `a` must hold `accel(q)`; on return it holds `accel(q_new)`, ready\nfor the next step. The method is second order, symmetric (time-reversible)\nand symplectic. Allocates nothing.",
+          "stage": 1,
+          "summary": "verlet_step!(q, p, a, h, accel!): one kick-drift-kick Stormer-Verlet step",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/ODEInt.jl",
+          "id": "propose_step",
+          "kc": "step-size-control",
+          "spec": "    propose_step(h, en; safety = 0.9, facmin = 0.2, facmax = 5.0) -> (accept::Bool, hnew::Float64)\n\nThe step-size controller. `en` is the step's `error_norm`. The step is\naccepted when `en <= 1`. Whatever the verdict, the next step size is\n\n    hnew = h * clamp(safety * en^(-1/5), facmin, facmax)\n\n(`facmax` when `en == 0`). The exponent is 1/5 because the error estimate\n`y5 - y4` is the local error of the 4th-order solution, which is O(h^5): the\nstep that would have given `en = 1` is `h * en^(-1/5)`, and `safety` aims a\nlittle below it. The clamp stops one odd estimate from changing `h` wildly.",
+          "stage": 2,
+          "summary": "propose_step(h, en; ...): accept or reject, and the next step size",
+          "trivial_bodies": 4
+        },
+        {
+          "file": "src/ODEInt.jl",
+          "id": "solve_adaptive",
+          "kc": "adaptive-loop",
+          "spec": "    solve_adaptive(f!, y0, (t0, tf); rtol = 1e-6, atol = 1e-6, h0 = nothing,\n                   maxsteps = 1_000_000, observe = nothing) -> NamedTuple\n\nAdaptive Dormand-Prince 5(4) from `t0` to `tf > t0`. Returns\n`(y, t, nf, naccept, nreject)`: the state at `tf`, the final time (exactly\n`tf`), the number of `f!` calls, and the accepted and rejected step counts.\n\n* Evaluate `f(t0, y0)` into a `DP54Cache`'s `k1`; the first step is `h0`, or\n  `initial_step(...)` when `h0 === nothing` (one more `f!` call).\n* Repeat until `t == tf`: shorten the step to `tf - t` if it would pass `tf`\n  (and then set `t = tf` exactly on acceptance, not `t + h`); take a\n  `dp54_step!`; judge it with `error_norm(c.err, y, c.ynew, atol, rtol)` and\n  `propose_step`. On acceptance move to `c.ynew`, copy `k7` into `k1`\n  (first same as last) and call `observe(t, y)` if given; on rejection keep\n  `t`, `y` and `k1`. Either way continue with the proposed step, except that\n  the step after a rejection may not grow (`facmax = 1`, as DOPRI5 does).\n* Throw an `ErrorException` if more than `maxsteps` steps (accepted plus\n  rejected) are attempted.\n\n`observe(t0, y0)` is also called once before the first step.",
+          "stage": 2,
+          "summary": "solve_adaptive(f!, y0, tspan; ...): the accept/reject loop that lands on tf",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/ODEInt.jl",
+          "id": "initial_step",
+          "kc": "initial-step-heuristics",
+          "spec": "    initial_step(f!, t0, y0, f0, atol, rtol) -> Float64\n\nA starting step size from the problem itself (Hairer I, section II.4,\n\"Starting step size\"; the DOPRI5 code's HINIT). With the scaled RMS norm\n`nrm(v) = sqrt(mean((v[i] / sc[i])^2))`, `sc[i] = atol + rtol * |y0[i]|`:\n\n1. `d0 = nrm(y0)`, `d1 = nrm(f0)`; `h0 = 0.01 * d0 / d1`, or `1e-6` if\n   `d0 < 1e-5` or `d1 < 1e-5`;\n2. one explicit Euler step: `y1 = y0 + h0 * f0`, `f1 = f(t0 + h0, y1)`\n   (one call to `f!`);\n3. `d2 = nrm(f1 - f0) / h0`;\n4. `h1 = max(1e-6, h0 * 1e-3)` if `max(d1, d2) <= 1e-15`, else\n   `h1 = (0.01 / max(d1, d2))^(1/5)`;\n5. return `min(100 * h0, h1)`.\n\n`f0` is `f(t0, y0)`.",
+          "stage": 2,
+          "summary": "initial_step(f!, t0, y0, f0, atol, rtol): Hairer's starting step size",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/ODEInt.jl",
+          "id": "fit_order",
+          "kc": "convergence-order-fit",
+          "spec": "    fit_order(hs, errs) -> Float64\n\nThe observed order of convergence: the least-squares slope of `log(errs)`\nagainst `log(hs)` over all the points given (at least two, all positive).\nFor errors that behave like `C * h^p` the slope is `p`. Which points to pass\n(the fit range) is the caller's decision: points where rounding dominates,\nor where `h` is too large for the asymptotic regime, bend the line.",
+          "stage": 2,
+          "summary": "fit_order(hs, errs): least-squares slope of log(error) on log(h)",
+          "trivial_bodies": 3
+        }
+      ],
+      "mutants": {
+        "dp54_step": [
+          {
+            "caught": true,
+            "failing_testsets": 9,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 4,
+            "trivial": 3
+          }
+        ],
+        "error_norm": [
+          {
+            "caught": true,
+            "failing_testsets": 4,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 3
+          }
+        ],
+        "fit_order": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 6,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 4,
+            "trivial": 3
+          }
+        ],
+        "initial_step": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 3
+          }
+        ],
+        "kepler_exact": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 3
+          }
+        ],
+        "propose_step": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 3
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 4
+          }
+        ],
+        "solve_adaptive": [
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 3
+          }
+        ],
+        "verlet_step": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 3
+          }
+        ]
+      },
+      "name": "odeint",
+      "package": "ODEInt",
+      "problems": [],
+      "stages": [
+        1,
+        2
+      ],
+      "testsets": [
+        "convergence: DP5 is order 5 on the Kepler problem",
+        "convergence: Stormer-Verlet is order 2",
+        "convergence: the error estimate is O(h^5)",
+        "dp54_step: stability polynomial on y' = lambda*y",
+        "dp54_step: stage times on a polynomial integrand",
+        "energy: DP5 drifts linearly, Stormer-Verlet stays bounded",
+        "error_norm: scaled RMS",
+        "exact solutions: nilpotent linear system",
+        "fit_order: least squares on log-log",
+        "initial_step: Hairer's starting step",
+        "kepler_exact: Kepler's equation and the conserved quantities",
+        "kepler_exact: agrees with an accurate numerical solution",
+        "propose_step: accept, reject, clamp",
+        "solve_adaptive: error is proportional to the tolerance",
+        "solve_adaptive: lands on tf and counts its work",
+        "tableau: consistency and quadrature order",
+        "verlet_step: the exact map on the harmonic oscillator"
       ]
     }
   ],

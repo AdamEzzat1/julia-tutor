@@ -123,7 +123,7 @@ run_timeout(env::AbstractString) = env == "base" ? 60 : 180
 
 """A contained run the kernel stopped for using more than its memory limit."""
 out_of_memory(rc, timed_out) = Runner.SANDBOX[] === :docker && !timed_out && rc == Runner.OOM_EXIT
-const OOM_MESSAGE = "the run used more than the sandbox's $(Runner.CONTAINER_MEMORY) of memory and was stopped"
+oom_message(env) = "the run used more than the sandbox's $(Runner.image_memory(Runner.env_image(env))) of memory and was stopped"
 
 """Run `code` in a fresh process in the unit environment `env` (REPL-like display)."""
 function run_code(code::AbstractString; env::AbstractString = "base", mode::AbstractString = "repl",
@@ -137,7 +137,7 @@ function run_code(code::AbstractString; env::AbstractString = "base", mode::Abst
     try rm(dir; recursive = true, force = true) catch end
     out = clip(log)
     out_of_memory(rc, to) &&
-        (out *= (isempty(out) || endswith(out, "\n") ? "" : "\n") * "ERROR: " * OOM_MESSAGE * "\n")
+        (out *= (isempty(out) || endswith(out, "\n") ? "" : "\n") * "ERROR: " * oom_message(env) * "\n")
     to && (out *= (isempty(out) || endswith(out, "\n") ? "" : "\n") *
                   "ERROR: timed out after $(timeout) s (an infinite loop, or a very slow computation)\n")
     return RunResult(out, rc == 0 && !to, to, time() - t, images)
@@ -181,7 +181,7 @@ function grade(p::Course.Problem, code::AbstractString; env::AbstractString = "b
     raw = isfile(outpath) ? TOML.tryparsefile(outpath) : nothing
     raw isa Dict && haskey(raw, "status") || (raw = nothing)   # unreadable or partial: a crash
     rm(dir; recursive = true, force = true)
-    log = out_of_memory(rc, to) ? OOM_MESSAGE * "\n" * log : log
+    log = out_of_memory(rc, to) ? oom_message(env) * "\n" * log : log
     r = assess(p, raw; timed_out = to, log = clip(log, 4000), findings = static_findings(code))
     r["seconds"] = round(time() - t; digits = 1)
     return r
@@ -517,6 +517,28 @@ function question_key_problems(u::Course.Unit, rec)
     return out
 end
 
+"""
+Run each break-it probe at both ends of its edge, as the site runs it at a
+learner's value, and check it agrees with the sweep (`Course.probe_problems`).
+A sweep without a single edge is reported by `breakit_key_problems`; its probe
+is not run.
+"""
+function breakit_probe_problems(u::Course.Unit, rec; log = stdout)
+    out = String[]
+    exs = get(rec, "examples", Dict())
+    for s in u.sections, e in s.examples
+        b = e.breakit
+        b === nothing && continue
+        r = get(exs, Course.example_key(e.code, e.mode), nothing)
+        sc = r === nothing ? nothing : Course.score_breakit(b, r["output"])
+        sc isa NamedTuple || continue
+        lo, hi = (run_code(Course.probe_code(b, x); env = u.env, timeout = 120).output for x in b.edge)
+        println(log, "  break-it probe '", s.title, "' at ", b.edge[1], " and ", b.edge[2])
+        append!(out, ["$(u.id) '$(s.title)' break-it probe: $m" for m in Course.probe_problems(b, sc.side, lo, hi)])
+    end
+    return out
+end
+
 # Verdicts that come from timing (allocations and type stability are counted,
 # not timed, so they are deterministic and never re-measured).
 const PERF_VERDICTS = ("slow", "fast", "scaling")
@@ -550,6 +572,10 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
         get(stored, "verified_on", "") == string(VERSION) || push!(problems, "$(u.id): outputs were recorded on another Julia")
     end
     append!(problems, question_key_problems(u, rec))
+    append!(problems, Course.prediction_key_problems(u, rec))
+    append!(problems, Course.checkpoint_key_problems(u, rec))   # on the fresh run: checked even for check = false
+    append!(problems, Course.breakit_key_problems(u, rec))
+    append!(problems, breakit_probe_problems(u, rec; log))
     grade_variants || return problems
     for p in u.problems
         # "fast" only exists when there is a performance section to measure.

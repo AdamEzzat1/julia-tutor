@@ -632,7 +632,19 @@
               "mode": "repl",
               "notice": "Notice the orders: Euler sits at 1, Heun approaches 2, and RK4 climbs towards 4 only as `h` shrinks (2.8 at the coarsest pair): the `C h^p` model is a statement about small `h`.",
               "ok": true,
-              "output": "Euler errors [0.014, 0.0066, 0.0033, 0.0016, 0.00082]\n      orders [1.02, 1.01, 1.01, 1.0]\nHeun  errors [0.0014, 0.00037, 9.6e-5, 2.4e-5, 6.1e-6]\n      orders [1.89, 1.96, 1.98, 1.99]\nRK4   errors [1.3e-7, 1.9e-8, 2.0e-9, 1.5e-10, 9.9e-12]\n      orders [2.79, 3.29, 3.76, 3.9]\n"
+              "output": "Euler errors [0.014, 0.0066, 0.0033, 0.0016, 0.00082]\n      orders [1.02, 1.01, 1.01, 1.0]\nHeun  errors [0.0014, 0.00037, 9.6e-5, 2.4e-5, 6.1e-6]\n      orders [1.89, 1.96, 1.98, 1.99]\nRK4   errors [1.3e-7, 1.9e-8, 2.0e-9, 1.5e-10, 9.9e-12]\n      orders [2.79, 3.29, 3.76, 3.9]\n",
+              "predict": {
+                "answer": 3,
+                "choices": [
+                  "About 4 (3.95 or more)",
+                  "Between 3.5 and 3.95",
+                  "Below 3.5"
+                ],
+                "explain": "The order describes small `h`. At `h = 0.2` the higher terms of RK4's error still count, so the first pair gives 2.79, and the order climbs towards 4 as `h` shrinks. A slope from coarse steps alone can make a correct method look wrong.",
+                "kc": "convergence-order",
+                "measured": "2.79",
+                "prompt": "RK4 is a fourth-order method. Before the output is shown: what observed order does it give between 10 and 20 steps (`h = 0.2` and `h = 0.1`)?"
+              }
             },
             {
               "caption": "RK4 with a thousand times more steps: the error at 100 steps, and the error at 100,000 steps against what `C h^4` predicts from it (a ratio, since the digits near the rounding floor depend on the CPU).",
@@ -776,7 +788,20 @@
               "mode": "repl",
               "notice": "Notice that the global error falls with the tolerance and stays below it here (about 0.4 times `tol`), on a problem whose nearby solutions converge (`u' = -u + ...` damps old errors).",
               "ok": true,
-              "output": "tol = 0.001   global error at t = 10: 0.0004\ntol = 1.0e-5  global error at t = 10: 4.0e-6\ntol = 1.0e-7  global error at t = 10: 4.0e-8\n"
+              "output": "tol = 0.001   global error at t = 10: 0.0004\ntol = 1.0e-5  global error at t = 10: 4.0e-6\ntol = 1.0e-7  global error at t = 10: 4.0e-8\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "Below `1e-6`",
+                  "Between `1e-6` and `tol`",
+                  "Between `tol` and `1e-4`",
+                  "Above `1e-4`"
+                ],
+                "explain": "The controller keeps each step's scaled error estimate below 1, and this problem damps old errors (`u' = -u + ...`), so they do not pile up: the global error ends at about 0.4 times `tol`. On a problem whose nearby solutions do not converge, the same controller ends above `tol`, as the limit cycle later in this unit shows.",
+                "kc": "adaptive-step-control",
+                "measured": "4.0e-6",
+                "prompt": "The tolerance bounds each step's error estimate. Before the output is shown: at `tol = 1e-5`, where will the global error at `t = 10` be?"
+              }
             }
           ],
           "questions": [
@@ -1578,6 +1603,49 @@
             {
               "caption": "Iterations to `rtol = 1e-8` on the Poisson matrix: CG, CG with Jacobi, GMRES, GMRES with ILU (`τ = 0.01`). Recorded, not checked: iteration counts can change with rounding and package versions.",
               "check": false,
+              "choose": {
+                "band": 2.0,
+                "choices": [
+                  "CG, no preconditioner: the matrix is symmetric positive definite",
+                  "CG with Jacobi: it is cheap and keeps the matrix symmetric",
+                  "GMRES, no preconditioner: it minimizes the residual at every iteration",
+                  "GMRES with ILU (`τ = 0.01`): an approximate factorization of `A`"
+                ],
+                "cost": "iterations at N = 64 (a GMRES+ILU iteration also applies two triangular solves and orthogonalizes against the earlier vectors, so it costs more than a CG one; building the ILU is not counted)",
+                "costs": [
+                  119,
+                  119,
+                  118,
+                  15
+                ],
+                "explain": "CG's count is set by `√κ`, which grows like `N` on this matrix, and nothing in the first three choices lowers `κ`. ILU approximates `A⁻¹`, so `M⁻¹A` has a far narrower spectrum: about 8 times fewer iterations here, a margin that leaves room for its costlier iteration (measure the time before you rely on that). The count still grows with `N`; ILU lowers the constant, not the growth.",
+                "kc": "preconditioning",
+                "misconceptions": [
+                  "CG is the right Krylov method for a symmetric positive definite matrix, but without a preconditioner its count follows `√κ`, which this grid makes large.",
+                  "Jacobi divides by the diagonal, which is the constant 4 on the Poisson matrix: `M⁻¹A` is `A/4`, with the same condition number and the same iterations.",
+                  "On a symmetric matrix GMRES searches the same Krylov space as CG and needs about the same iterations, while storing every basis vector.",
+                  ""
+                ],
+                "ok": [
+                  true,
+                  true,
+                  true,
+                  true
+                ],
+                "prompt": "The 2D Poisson matrix at `N = 64` (4,096 unknowns), solved to `rtol = 1e-8`. Which solver and preconditioner do you pick to need the fewest iterations?",
+                "ratios": [
+                  7.93,
+                  7.93,
+                  7.87,
+                  1.0
+                ],
+                "verdicts": [
+                  "costly",
+                  "costly",
+                  "costly",
+                  "good"
+                ]
+              },
               "code": "using SparseArrays, LinearAlgebra, Krylov, IncompleteLU\nfunction poisson2d(N)\n    T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))\n    Id = sparse(1.0I, N, N)\n    return kron(Id, T) + kron(T, Id)\nend\nfor N in (16, 32, 64)\n    A = poisson2d(N); b = ones(N^2)\n    plain = cg(A, b; atol = 0.0, rtol = 1e-8)[2].niter\n    jacobi = cg(A, b; M = Diagonal(1 ./ diag(A)), atol = 0.0, rtol = 1e-8)[2].niter\n    gm = gmres(A, b; atol = 0.0, rtol = 1e-8, memory = 500)[2].niter\n    gm_ilu = gmres(A, b; M = ilu(A; τ = 0.01), ldiv = true, atol = 0.0, rtol = 1e-8)[2].niter\n    println(\"N = \", rpad(N, 3), \" CG \", rpad(plain, 4), \" CG+Jacobi \", rpad(jacobi, 4), \" GMRES \", rpad(gm, 4), \" GMRES+ILU \", gm_ilu)\nend",
               "images": [],
               "mode": "repl",
@@ -2263,7 +2331,19 @@
               "mode": "repl",
               "notice": "Notice the jump between `h = 0.019` and `h = 0.021`: a 10% longer step turns a decay into growth by a factor of 13,800. Notice also that `h = 0.019` gives the same size as `h = 0.001`, because `(-0.9)^100 = 0.9^100`: stable, with the sign flipping each step.",
               "ok": true,
-              "output": "h = 0.001   1 + hλ = 0.9     u after 100 steps = 2.66e-5\nh = 0.019   1 + hλ = -0.9    u after 100 steps = 2.66e-5\nh = 0.021   1 + hλ = -1.1    u after 100 steps = 13800.0\nh = 0.03    1 + hλ = -2.0    u after 100 steps = 1.27e30\n"
+              "output": "h = 0.001   1 + hλ = 0.9     u after 100 steps = 2.66e-5\nh = 0.019   1 + hλ = -0.9    u after 100 steps = 2.66e-5\nh = 0.021   1 + hλ = -1.1    u after 100 steps = 13800.0\nh = 0.03    1 + hλ = -2.0    u after 100 steps = 1.27e30\n",
+              "predict": {
+                "answer": 3,
+                "choices": [
+                  "Within `0.001` of zero: it still decays",
+                  "Between `0.001` and `100`: it hardly moves",
+                  "Above `100`: it grows"
+                ],
+                "explain": "Each step multiplies `u` by `1 + hλ = -1.1`, so 100 steps give `1.1^100`, about 13,800. Crossing `|1 + hλ| = 1` does not make the result a little worse: the growth compounds at every step.",
+                "kc": "stability",
+                "measured": "13800.0",
+                "prompt": "The limit is `h = 0.02`, and `h = 0.021` is 5% above it. Before the output is shown: where is `u` after 100 steps from `u = 1`?"
+              }
             }
           ],
           "questions": [
@@ -2318,6 +2398,77 @@
               "notice": "Notice that at the start only one eigenvalue is nonzero, so nothing is stiff yet, but as soon as some B exists an eigenvalue in the thousands appears beside one below 1 in size, and the ratio exceeds 10,000. One zero eigenvalue remains at every state: the conserved total.",
               "ok": true,
               "output": "u = [1.0, 0.0, 0.0]:  nonzero eigenvalues [-0.04], zero ones: 2, ratio 1.0\nu = [0.9, 3.4e-5, 0.1]:  nonzero eigenvalues [-3040.0, -0.255], zero ones: 1, ratio 12000.0\nu = [0.5, 6.0e-6, 0.5]:  nonzero eigenvalues [-5360.0, -0.00672], zero ones: 1, ratio 800000.0\n"
+            },
+            {
+              "breakit": {
+                "close": 1.25,
+                "edge": [
+                  0.23,
+                  0.25
+                ],
+                "explain": "With `λ = a + bi`, forward Euler multiplies `u` by `1 + hλ` at every step, and `|1 + hλ|^2 = (1 + ha)^2 + (hb)^2`. Setting it to 1 gives `h = -2a / (a^2 + b^2) = 6 / 25 = 0.24`, and the sweep changes between 0.23 and 0.25. A step of 0.25 has `|1 + hλ| = 1.031`: only 3% growth per step, but 100 steps compound it to about 20.",
+                "fails": "above",
+                "kc": "stability",
+                "limit": 1.0,
+                "measure": "|u| after 100 steps (from 1)",
+                "param": "h",
+                "past": "Forward Euler already grows there. If you used `2 / |λ| = 0.4`, that is the limit for a real eigenvalue of the same size: for a complex `λ` the stable steps fill a disk, and the imaginary part pulls the limit down to `-2a / |λ|^2 = 0.24`.",
+                "probe": "λ = -3.0 + 4.0im\nh = {{p}}\nu = 1.0 + 0.0im\nfor _ in 1:100\n    u += h * λ * u\nend\nprintln(\"h = \", h, \"  |1 + hλ| = \", round(abs(1 + h * λ); digits = 3), \"  |u| after 100 steps = \", round(abs(u); sigdigits = 3))",
+                "prompt": "The exact solution of `u' = λu` with `λ = -3 + 4i` decays while it rotates. Find the largest step `h` at which forward Euler still makes `|u|` decay over 100 steps from `u = 1`. Work it out from the condition above, or try steps with the probe if a server is connected, then commit the edge.",
+                "row": "h = (?<p>\\S+) .*\\|u\\| after 100 steps = (?<m>\\S+)",
+                "rows": [
+                  {
+                    "failed": false,
+                    "m": "4.42e-10",
+                    "p": 0.1
+                  },
+                  {
+                    "failed": false,
+                    "m": "1.43e-5",
+                    "p": 0.2
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.00295",
+                    "p": 0.22
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0518",
+                    "p": 0.23
+                  },
+                  {
+                    "failed": true,
+                    "m": "20.7",
+                    "p": 0.25
+                  },
+                  {
+                    "failed": true,
+                    "m": "451.0",
+                    "p": 0.26
+                  },
+                  {
+                    "failed": true,
+                    "m": "1.17e8",
+                    "p": 0.3
+                  },
+                  {
+                    "failed": true,
+                    "m": "5.61e20",
+                    "p": 0.4
+                  }
+                ],
+                "short": "At that step `|1 + hλ|` is still below 1, so `|u|` shrinks: the method works there. The edge is the step where `|1 + hλ|` reaches 1, which is longer.",
+                "side": "high"
+              },
+              "caption": "Forward Euler on `u' = λu` with the complex eigenvalue `λ = -3 + 4i`, 100 steps from `u = 1` at eight step sizes; the step's growth factor `|1 + hλ|` and the size of `u` at the end (rounded).",
+              "check": true,
+              "code": "λ = -3.0 + 4.0im\nfor h in (0.1, 0.2, 0.22, 0.23, 0.25, 0.26, 0.3, 0.4)\n    u = 1.0 + 0.0im\n    for _ in 1:100\n        u += h * λ * u\n    end\n    println(\"h = \", rpad(h, 5), \"  |1 + hλ| = \", rpad(round(abs(1 + h * λ); digits = 3), 6),\n            \"  |u| after 100 steps = \", round(abs(u); sigdigits = 3))\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that `|u|` shrinks at every step up to `h = 0.23` and grows from `h = 0.25` on, and that the change sits where `|1 + hλ|` crosses 1, not at `2 / |λ| = 0.4`.",
+              "ok": true,
+              "output": "h = 0.1    |1 + hλ| = 0.806   |u| after 100 steps = 4.42e-10\nh = 0.2    |1 + hλ| = 0.894   |u| after 100 steps = 1.43e-5\nh = 0.22   |1 + hλ| = 0.943   |u| after 100 steps = 0.00295\nh = 0.23   |1 + hλ| = 0.971   |u| after 100 steps = 0.0518\nh = 0.25   |1 + hλ| = 1.031   |u| after 100 steps = 20.7\nh = 0.26   |1 + hλ| = 1.063   |u| after 100 steps = 451.0\nh = 0.3    |1 + hλ| = 1.204   |u| after 100 steps = 1.17e8\nh = 0.4    |1 + hλ| = 1.612   |u| after 100 steps = 5.61e20\n"
             }
           ],
           "questions": [
@@ -2444,7 +2595,18 @@
               "mode": "repl",
               "notice": "Notice that the trapezoidal rule, the more accurate method for small steps, here produces negative temperatures and a large error: the fast modes of the sharp block are multiplied by nearly -1 each step. Backward Euler damps them and stays close.",
               "ok": true,
-              "output": "backward Euler: min = 0.007, max error = 0.017\ntrapezoidal:    min = -0.138, max error = 0.38\n"
+              "output": "backward Euler: min = 0.007, max error = 0.017\ntrapezoidal:    min = -0.138, max error = 0.38\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "Yes: a stable method keeps the solution's sign",
+                  "No: it goes below zero"
+                ],
+                "explain": "Stable means no mode grows, not that each mode is damped. The trapezoidal factor for the block's fast modes is close to `-1`, so they survive and flip sign each step, and the sum dips below zero. Backward Euler's factor for them is close to 0: it damps them (L-stability).",
+                "kc": "implicit-methods",
+                "measured": "-0.138",
+                "prompt": "The heat equation never makes a temperature negative, and both methods are stable at this step. Before the output is shown: does the trapezoidal rule's solution stay at or above zero?"
+              }
             }
           ],
           "questions": [
@@ -2493,6 +2655,43 @@
             {
               "caption": "The heat equation on 199 points (κ = 1, t up to 0.1, `abstol = reltol = 1e-6`), with the tridiagonal pattern passed as `jac_prototype` and the Jacobian as `jac`: the work counts of three solvers and each one's error against the exact PDE solution. Recorded, not checked: counts depend on the CPU's rounding and on the package version.",
               "check": false,
+              "choose": {
+                "band": 2.0,
+                "choices": [
+                  "`Tsit5`: explicit, no Jacobian, each step only right-hand-side calls",
+                  "`Rodas5P`: Rosenbrock, one Jacobian and one factorization per step",
+                  "`FBDF`: BDF, one Jacobian reused across steps, refactored when the step changes"
+                ],
+                "cost": "right-hand-side calls + Jacobians + factorizations (each about n operations for this tridiagonal problem; the solves with a factorization are not counted)",
+                "costs": [
+                  27159,
+                  68,
+                  65
+                ],
+                "explain": "The fastest mode decays at about `4/dx^2 = 160,000` per unit time and the solution at `π^2 ≈ 10`: a stiffness ratio near 16,000. An explicit method must keep the fast mode stable, so its step stays near its stability limit, a small multiple of `dx^2` (here about `2e-5` over 4,520 steps), however loose the tolerance; an implicit one steps at the accuracy of the slow mode. `Rodas5P` and `FBDF` are within a few percent of each other in these counts; which is faster on the clock depends on what a factorization and its solves cost, which for a tridiagonal matrix is little.",
+                "kc": "stiffness",
+                "misconceptions": [
+                  "Each `Tsit5` step is cheap, but stability holds it to thousands of steps on this grid, and the extra steps buy no accuracy: all three errors come from the grid.",
+                  "",
+                  ""
+                ],
+                "ok": [
+                  true,
+                  true,
+                  true
+                ],
+                "prompt": "The heat equation on 199 points (κ = 1, up to t = 0.1, `abstol = reltol = 1e-6`), with the tridiagonal Jacobian supplied. Which solver do you run?",
+                "ratios": [
+                  418.0,
+                  1.05,
+                  1.0
+                ],
+                "verdicts": [
+                  "costly",
+                  "good",
+                  "good"
+                ]
+              },
               "code": "using OrdinaryDiffEq, LinearAlgebra\nfunction heat!(du, u, p, t)\n    κ, dx = p\n    n = length(u)\n    for i in 1:n\n        left = i > 1 ? u[i-1] : zero(eltype(u))\n        right = i < n ? u[i+1] : zero(eltype(u))\n        du[i] = κ * (left - 2u[i] + right) / dx^2\n    end\n    return nothing\nend\nfunction heat_jac!(J, u, p, t)            # the constant Jacobian, written into the pattern\n    κ, dx = p\n    J.dl .= κ / dx^2; J.d .= -2κ / dx^2; J.du .= κ / dx^2\n    return nothing\nend\nn = 199\ndx = 1 / (n + 1)\nx = dx .* (1:n)\npattern = Tridiagonal(ones(n - 1), ones(n), ones(n - 1))   # only the nonzero positions matter\nprob = ODEProblem(ODEFunction(heat!; jac = heat_jac!, jac_prototype = pattern), sin.(pi .* x), (0.0, 0.1), (1.0, dx))\nexact = exp(-pi^2 * 0.1) .* sin.(pi .* x)\nfor alg in (Tsit5(), Rodas5P(), FBDF())\n    sol = solve(prob, alg; abstol = 1e-6, reltol = 1e-6, save_everystep = false)\n    st = sol.stats\n    println(rpad(nameof(typeof(alg)), 8), \" naccept \", rpad(st.naccept, 5), \" njacs \", rpad(st.njacs, 3),\n            \" nw \", rpad(st.nw, 3), \" nf \", rpad(st.nf, 6), \" error \", round(maximum(abs.(sol.u[end] .- exact)); sigdigits = 1))\nend",
               "images": [],
               "mode": "repl",
@@ -5039,6 +5238,77 @@
               "notice": "Notice that the two fits have the same sum of squares but different `k_a`, `V_1`, `Q` and `V_2`: the second start found the solution in which absorption and distribution trade rates (`k_a ≈ 0.45`, the first fit's distribution rate). The clearance is the same in both, within about 4% of the true 5 L/h, and its standard error is about 4%: the data determine it, and not which phase is absorption.",
               "ok": true,
               "output": "start                          fit (ka, CL, V1, Q, V2)              sum of squares   SE(CL)/CL\n[3.0, 8.0, 30.0, 6.0, 40.0]    [2.275, 5.219, 21.09, 3.747, 58.41]  0.23767263       0.041\n[0.5, 4.0, 10.0, 4.0, 60.0]    [0.4543, 5.219, 4.213, 4.241, 66.09] 0.23767263       0.041\nsums of squares equal to 1e-9 relative: true\n"
+            },
+            {
+              "breakit": {
+                "close": 1.25,
+                "edge": [
+                  1.4,
+                  1.45
+                ],
+                "explain": "Each column of `J` is how the log concentration moves with one parameter. As `k2` approaches `k1`, the columns for the two phases approach each other, `JᵀJ` approaches a singular matrix, and its inverse (the variances) grows without bound. The sweep changes between 1.4 and 1.45. This is a property of the design (the sample times and the noise), so it can be checked before any data exist. More samples, or less noise, move the edge to smaller ratios. The precision is lost the other way too: if the fast phase ends before the first sample, nothing measures it.",
+                "fails": "above",
+                "kc": "parameter-identifiability",
+                "limit": 0.5,
+                "measure": "worst relative SE of (A, B, k1, k2)",
+                "param": "k2/k1",
+                "past": "The parameters are lost there, and already at larger ratios. Two rates do not need to be nearly equal to blur: with 12 samples and 10% noise, the precision goes long before `k2 / k1` reaches 1.1.",
+                "probe": "using LinearAlgebra\ntobs = [0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24]\nfunction worst_se(ρ; k1 = 0.5, σ = 0.1)\n    k2 = ρ * k1\n    e1, e2 = exp.(-k1 .* tobs), exp.(-k2 .* tobs)\n    c = e1 .+ e2\n    J = hcat(e1 ./ c, e2 ./ c, -k1 .* tobs .* e1 ./ c, -k2 .* tobs .* e2 ./ c)\n    return maximum(sqrt.(σ^2 .* diag(inv(J' * J))))\nend\nρ = {{p}}\nprintln(\"k2/k1 = \", ρ, \"  worst relative SE = \", round(worst_se(ρ); sigdigits = 3))",
+                "prompt": "Call a parameter identified when its relative standard error is at most 0.5 (a 95% interval within about a factor of 2.7 either way; a convention, not a law). Find the rate ratio `k2 / k1` below which these 12 samples no longer identify all four parameters. Try ratios with the probe if a server is connected, then commit the edge.",
+                "row": "k2/k1 = (?<p>\\S+) +worst relative SE = (?<m>\\S+)",
+                "rows": [
+                  {
+                    "failed": true,
+                    "m": "20.8",
+                    "p": 1.1
+                  },
+                  {
+                    "failed": true,
+                    "m": "2.88",
+                    "p": 1.2
+                  },
+                  {
+                    "failed": true,
+                    "m": "1.02",
+                    "p": 1.3
+                  },
+                  {
+                    "failed": true,
+                    "m": "0.537",
+                    "p": 1.4
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.427",
+                    "p": 1.45
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.354",
+                    "p": 1.5
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.265",
+                    "p": 1.6
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.206",
+                    "p": 1.8
+                  }
+                ],
+                "short": "At that ratio the two phases are still far enough apart: every relative standard error is below 0.5. The edge is at a smaller ratio, where the phases begin to look like one.",
+                "side": "low"
+              },
+              "caption": "How well can the same 12 sample times and a 10% log error separate two exponential phases, `c(t) = A exp(-k1 t) + B exp(-k2 t)` with `A = B = 1` and `k1 = 0.5`, as the rate ratio `k2 / k1` shrinks? The standard errors `sqrt(σ² (JᵀJ)⁻¹)` of the four log parameters at the true values, with `σ = 0.1`; the largest of the four is printed (rounded). No data are simulated: this is the precision the design can give, before any fit.",
+              "check": true,
+              "code": "using LinearAlgebra\ntobs = [0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24]\nfunction worst_se(ρ; k1 = 0.5, σ = 0.1)\n    k2 = ρ * k1\n    e1, e2 = exp.(-k1 .* tobs), exp.(-k2 .* tobs)                   # A = B = 1\n    c = e1 .+ e2\n    J = hcat(e1 ./ c, e2 ./ c, -k1 .* tobs .* e1 ./ c, -k2 .* tobs .* e2 ./ c)   # ∂ log c / ∂ log(A, B, k1, k2)\n    return maximum(sqrt.(σ^2 .* diag(inv(J' * J))))\nend\nfor ρ in (1.1, 1.2, 1.3, 1.4, 1.45, 1.5, 1.6, 1.8)\n    println(\"k2/k1 = \", rpad(ρ, 5), \"  worst relative SE = \", round(worst_se(ρ); sigdigits = 3))\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice how fast the precision goes: the worst standard error is 0.35 at a ratio of 1.5, 0.54 at 1.4, and 21 at 1.1. Below a ratio of about 1.4 the two phases look like one, and the fit can trade amplitude and rate between them.",
+              "ok": true,
+              "output": "k2/k1 = 1.1    worst relative SE = 20.8\nk2/k1 = 1.2    worst relative SE = 2.88\nk2/k1 = 1.3    worst relative SE = 1.02\nk2/k1 = 1.4    worst relative SE = 0.537\nk2/k1 = 1.45   worst relative SE = 0.427\nk2/k1 = 1.5    worst relative SE = 0.354\nk2/k1 = 1.6    worst relative SE = 0.265\nk2/k1 = 1.8    worst relative SE = 0.206\n"
             }
           ],
           "questions": [

@@ -104,6 +104,10 @@ body.quarto-dark {
 }
 .jt-muted { color: var(--jt-muted); }
 .jt-small { font-size: 0.85rem; }
+/* A small data table (prediction hit rates): ruled rows, left-aligned, never wider than its box. */
+.jt-table { border-collapse: collapse; max-width: 100%; }
+.jt-table th, .jt-table td { text-align: left; padding: 0.3rem 1.2rem 0.3rem 0; border-bottom: 1px solid var(--jt-rule); }
+.jt-table th { font-weight: 600; }
 
 /* ---- surfaces ------------------------------------------------------------- */
 
@@ -216,6 +220,9 @@ body.quarto-dark {
 .jt-option.right { border-color: var(--jt-green); background: var(--jt-green-soft); }
 .jt-option.right .letter { background: var(--jt-green); color: #fff; border-color: var(--jt-green); }
 .jt-option:disabled { cursor: default; }
+.jt-option.picked { border-color: var(--jt-purple); background: var(--jt-purple-soft); }
+.jt-option.picked .letter { background: var(--jt-purple); color: #fff; border-color: var(--jt-purple); }
+.jt-table tr[aria-current="true"] td { font-weight: 600; }
 .jt-option-code { white-space: pre-wrap; font-family: var(--jt-mono); font-size: 0.86rem; background: none; }
 .jt-question { margin-top: 1.2rem; padding-top: 1rem; border-top: 1px dashed var(--jt-rule); }
 .jt-question-prompt p { margin: 0.35rem 0 0.4rem; font-weight: 600; }
@@ -351,17 +358,29 @@ body.quarto-dark {
 .jt-hero h2 { font-size: 2.3rem; line-height: 1.12; font-weight: 600; }
 .jt-hero h2 em { font-style: italic; color: var(--jt-purple); }
 .jt-hero .lede { font-size: 1.05rem; color: var(--jt-ink-2); max-width: 36rem; }
-.jt-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; margin-top: 1.25rem; }
-@media (max-width: 560px) { .jt-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.jt-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: 0.75rem; margin-top: 0.9rem; }
 .jt-stat { border-top: 2px solid var(--jt-ink); padding-top: 0.45rem; }
 .jt-stat b { font-family: var(--jt-serif); font-size: 1.6rem; font-weight: 600; display: block; line-height: 1.1; }
 .jt-stat span { font-size: 0.78rem; color: var(--jt-muted); }
-.jt-loop { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
-@media (max-width: 760px) { .jt-loop { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.jt-loop .step { padding: 0.9rem 1rem; }
-.jt-loop .step .n { font-family: var(--jt-mono); font-size: 0.72rem; color: var(--jt-purple); }
-.jt-loop .step h4 { margin: 0.2rem 0 0.25rem; }
-.jt-loop .step p { font-size: 0.87rem; color: var(--jt-ink-2); margin: 0; }
+.jt-howlist { margin: 0.5rem 0 1rem; padding-left: 1.2rem; display: grid; gap: 0.45rem; max-width: 40rem; }
+
+/* Homepage course path: Core -> Julia for science -> the two flagship courses. */
+.jt-paths-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1.2fr); gap: 0.6rem; align-items: center; }
+.jt-paths-dest { display: grid; gap: 0.6rem; }
+.jt-paths-arrow { font-size: 1.4rem; color: var(--jt-muted); text-align: center; }
+@media (max-width: 900px) {
+  .jt-paths-row { grid-template-columns: minmax(0, 1fr); }
+  .jt-paths-arrow { transform: rotate(90deg); }
+}
+.jt-coursecard { display: grid; gap: 0.35rem; color: inherit; text-decoration: none; }
+.jt-coursecard h3 { margin: 0; }
+.jt-coursecard:hover { border-color: var(--jt-ink-2); }
+.jt-coursecard:focus-visible { outline: 2px solid var(--jt-blue); outline-offset: 2px; }
+
+/* Course landing pages. */
+.jt-landing-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1rem; }
+.jt-outcomes { padding-left: 1.3rem; display: grid; gap: 0.8rem; max-width: 52rem; }
+.jt-coursetabs { display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0.6rem 0.6rem 0.2rem; }
 
 .jt-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; margin-bottom: 0.9rem; }
 .jt-divider { height: 1px; background: var(--jt-rule); margin: 1rem 0; border: 0; }

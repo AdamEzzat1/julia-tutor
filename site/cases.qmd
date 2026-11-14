@@ -1,0 +1,7 @@
+---
+title: "Cases"
+subtitle: "Scientific case projects: a question to answer, a method to justify, and a report whose numbers are checked against your own code."
+---
+
+::: {.jt-mount data-view="cases"}
+:::

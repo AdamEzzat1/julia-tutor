@@ -1,0 +1,92 @@
+# Report fixtures for the claim checker (`tutor case verify odeint`).
+# Each is the reference report with `find[i]` replaced by `replace[i]`
+# (first occurrence), checked against the reference study's values. The
+# checker must give exactly the finding codes in `expect`, no more, no
+# fewer. `rerun_differs` names a claim whose value the simulated second
+# run changes by one ulp (or, for a word, to another word).
+
+[[fixture]]
+name = "wrong-number"
+find = ["5.18{claim:conv_order}"]
+replace = ["5.21{claim:conv_order}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "rounded-wrongly"
+# 20.47787... rounds to 20.5; 20.4 is off by more than half a unit in the last digit.
+find = ["20.5{claim:cost_ratio}"]
+replace = ["20.4{claim:cost_ratio}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "too-coarse"
+# min_digits = 3 for conv_order: "5.2" is within half a unit of 5.18...
+# but has two significant digits.
+find = ["5.18{claim:conv_order}"]
+replace = ["5.2{claim:conv_order}"]
+expect = ["claim-too-coarse"]
+
+[[fixture]]
+name = "integer-must-be-exact"
+find = ["506498{claim:nf_dp54}"]
+replace = ["506500{claim:nf_dp54}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "wrong-word"
+find = ["dp54{claim:robust_choice}"]
+replace = ["verlet{claim:robust_choice}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "value-in-inline-code"
+# The checker does not run Quarto: a value written as inline code is no value.
+find = ["7.9e-7{claim:err_dp54}"]
+replace = ["`{julia} S[\"err_dp54\"]`{claim:err_dp54}"]
+expect = ["claim-no-value"]
+
+[[fixture]]
+name = "unknown-claim"
+find = ["1.03{claim:tol_slope}"]
+replace = ["1.03{claim:tol_slope} (about 1.0{claim:tolerance_slope})"]
+expect = ["claim-unknown"]
+
+[[fixture]]
+name = "missing-section"
+find = ["## Validation"]
+replace = ["### Validation"]
+# The section's text now belongs to Verification: the section is missing
+# and its two claims are in the wrong section.
+expect = ["claim-wrong-section", "section-missing"]
+
+[[fixture]]
+name = "split-evidence"
+# The fit range moved to its own paragraph: the order without its range.
+find = ["5.18{claim:conv_order} for step sizes"]
+replace = ["5.18{claim:conv_order}.\n\nThe fit used step sizes"]
+expect = ["evidence-split"]
+
+[[fixture]]
+name = "missing-claim-and-evidence"
+find = ["fixed DP5 steps with error 2.7e-15{claim:exact_linear_err}, rounding\nerror only."]
+replace = ["fixed DP5 steps, with rounding error only."]
+expect = ["claim-missing", "evidence-missing"]
+
+[[fixture]]
+name = "tag-in-comment-is-not-a-claim"
+find = ["dp54{claim:choice}"]
+replace = ["dp54 <!-- {claim:choice} -->"]
+expect = ["claim-missing"]
+
+[[fixture]]
+name = "missing-estimate"
+find = ["10000{estimate:verlet_nper}"]
+replace = ["many"]
+expect = ["estimate-missing"]
+
+[[fixture]]
+name = "not-reproducible"
+find = []
+replace = []
+rerun_differs = "conv_order"
+expect = ["not-reproducible"]

@@ -84,6 +84,15 @@ for (name, step) in (("Euler", euler), ("Heun", heun), ("RK4", rk4))
 end
 '''
 
+    [section.example.predict]
+    kc = "convergence-order"
+    prompt = "RK4 is a fourth-order method. Before the output is shown: what observed order does it give between 10 and 20 steps (`h = 0.2` and `h = 0.1`)?"
+    choices = ["About 4 (3.95 or more)", "Between 3.5 and 3.95", "Below 3.5"]
+    measure = 'RK4   errors [^\n]*\n +orders \[([0-9.]+)'
+    ranges = [[3.95, inf], [3.5, 3.95], [-inf, 3.5]]
+    answer = 3
+    explain = "The order describes small `h`. At `h = 0.2` the higher terms of RK4's error still count, so the first pair gives 2.79, and the order climbs towards 4 as `h` shrinks. A slope from coarse steps alone can make a correct method look wrong."
+
   [[section.example]]
   caption = "RK4 with a thousand times more steps: the error at 100 steps, and the error at 100,000 steps against what `C h^4` predicts from it (a ratio, since the digits near the rounding floor depend on the CPU)."
   notice = "Notice that `h^4` predicts an error near `6e-23` at 100,000 steps, far below the rounding of a single operation, and the measured error is more than 1000 times the prediction: each step adds rounding at the level of `u`, so once the truncation error falls below that, more steps only add rounding."
@@ -334,6 +343,15 @@ for tol in (1e-3, 1e-5, 1e-7)
     println("tol = ", rpad(tol, 7), " global error at t = 10: ", round(abs(heun_euler_solve(f, 1.0, (0.0, 10.0), tol) - exact(10.0)); sigdigits = 1))
 end
 '''
+
+    [section.example.predict]
+    kc = "adaptive-step-control"
+    prompt = "The tolerance bounds each step's error estimate. Before the output is shown: at `tol = 1e-5`, where will the global error at `t = 10` be?"
+    choices = ["Below `1e-6`", "Between `1e-6` and `tol`", "Between `tol` and `1e-4`", "Above `1e-4`"]
+    measure = 'tol = 1\.0e-5\s+global error at t = 10: (\S+)'
+    ranges = [[0.0, 1e-6], [1e-6, 1e-5], [1e-5, 1e-4], [1e-4, inf]]
+    answer = 2
+    explain = "The controller keeps each step's scaled error estimate below 1, and this problem damps old errors (`u' = -u + ...`), so they do not pile up: the global error ends at about 0.4 times `tol`. On a problem whose nearby solutions do not converge, the same controller ends above `tol`, as the limit cycle later in this unit shows."
 
   [[section.question]]
   kind = "output"

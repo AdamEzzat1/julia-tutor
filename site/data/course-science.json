@@ -2922,6 +2922,37 @@
             {
               "caption": "A 5th-order and a 9th-order method at a tight tolerance (counts rounded to two digits).",
               "check": true,
+              "choose": {
+                "band": 2.0,
+                "choices": [
+                  "`Tsit5`: order 5, about 6 right-hand-side calls per step",
+                  "`Vern9`: order 9, about 16 right-hand-side calls per step"
+                ],
+                "cost": "right-hand-side calls (rounded to two digits), for a method whose end point is within 1e-11",
+                "costs": [
+                  8000,
+                  1700
+                ],
+                "explain": "The steps of an order-p method grow like `tol^(-1/p)`. At `1e-12` that is far more for p = 5 than for p = 9, so `Vern9` needs about a tenth of the steps, and its larger cost per step still leaves it several times ahead. At loose tolerances the order matters less and `Tsit5`'s cheaper steps win, which is why the solver guide splits the two by tolerance.",
+                "kc": "ode-tolerances",
+                "misconceptions": [
+                  "Each `Tsit5` step is cheaper, but at a tolerance this tight its lower order needs about ten times the steps, which more than cancels the cheaper step.",
+                  ""
+                ],
+                "ok": [
+                  true,
+                  true
+                ],
+                "prompt": "The oscillator up to t = 20 at `abstol = reltol = 1e-12`, and the end point must be right to `1e-11`. Which method costs fewer right-hand-side calls?",
+                "ratios": [
+                  4.71,
+                  1.0
+                ],
+                "verdicts": [
+                  "costly",
+                  "good"
+                ]
+              },
               "code": "using DifferentialEquations\noscillator(u, p, t) = [u[2], -u[1]]\nprob = ODEProblem(oscillator, [1.0, 0.0], (0.0, 20.0))\nfor alg in (Tsit5(), Vern9())\n    sol = solve(prob, alg; abstol = 1e-12, reltol = 1e-12)\n    err = abs(sol.u[end][1] - cos(20.0))\n    println(rpad(nameof(typeof(alg)), 6), \" steps ≈ \", Int(round(Float64(sol.stats.naccept); sigdigits = 2)),\n            \"  f calls ≈ \", Int(round(Float64(sol.stats.nf); sigdigits = 2)), \"  error < 1e-11: \", err < 1e-11)\nend",
               "images": [],
               "mode": "repl",
@@ -3534,6 +3565,82 @@
               "notice": "",
               "ok": true,
               "output": "Newton on atan: x = 8.590766671950354e20, atan(x) = 1.5707963267948966\ndouble root at 1: x = 0.9999999754124319, error = 2.5e-8\n"
+            },
+            {
+              "breakit": {
+                "close": 1.1,
+                "edge": [
+                  1.39,
+                  1.395
+                ],
+                "explain": "The Newton step for `atan` is `x - (1 + x^2) atan(x)`. Because `atan` is odd, a start whose first step lands exactly at `-x0` bounces between `x0` and `-x0` forever: that is the edge, the root of `2x = (1 + x^2) atan(x)`, at `x0 ≈ 1.3917`. Start inside it and each step lands closer to 0 than it started; start outside and each lands further out. The sweep changes between 1.39 and 1.395.",
+                "fails": "above",
+                "kc": "root-finding",
+                "limit": 1.0,
+                "measure": "|x| after 40 steps",
+                "param": "x0",
+                "past": "Newton already diverges there, but it diverges from smaller starts too. Diverging from `x0 = 2` says nothing about where divergence begins: look for the start whose first step lands exactly at `-x0`.",
+                "probe": "function newton_atan(x, steps)\n    for _ in 1:steps\n        x -= (1 + x^2) * atan(x)\n        abs(x) > 1e12 && return Inf\n    end\n    return abs(x)\nend\nx0 = {{p}}\nprintln(\"x0 = \", x0, \"  |x| after 40 steps = \", newton_atan(x0, 40))",
+                "prompt": "Newton's method on `atan` converges from `x0 = 1` and diverges from `x0 = 2` (the example above). Find the start point `x0 > 0` beyond which it diverges. Reason about where the first step lands, or try start points with the probe if a server is connected, then commit the edge.",
+                "row": "x0 = (?<p>\\S+) +\\|x\\| after 40 steps = (?<m>\\S+)",
+                "rows": [
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 0.5
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 1.0
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 1.3
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 1.38
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 1.39
+                  },
+                  {
+                    "failed": true,
+                    "m": "Inf",
+                    "p": 1.395
+                  },
+                  {
+                    "failed": true,
+                    "m": "Inf",
+                    "p": 1.4
+                  },
+                  {
+                    "failed": true,
+                    "m": "Inf",
+                    "p": 1.5
+                  },
+                  {
+                    "failed": true,
+                    "m": "Inf",
+                    "p": 2.0
+                  }
+                ],
+                "short": "From that start the first step lands closer to 0 than it started, and Newton converges. The edge is further out: where the first step lands exactly at `-x0`.",
+                "side": "high"
+              },
+              "caption": "Newton's method on `atan` by hand, 40 steps from nine start points. A run whose `|x|` passes `1e12` is stopped and reported as `Inf`: from there each step only grows.",
+              "check": true,
+              "code": "function newton_atan(x, steps)\n    for _ in 1:steps\n        x -= (1 + x^2) * atan(x)        # the Newton step x - f(x) / f'(x)\n        abs(x) > 1e12 && return Inf     # diverged: the steps only grow from here\n    end\n    return abs(x)\nend\nfor x0 in (0.5, 1.0, 1.3, 1.38, 1.39, 1.395, 1.4, 1.5, 2.0)\n    println(\"x0 = \", rpad(x0, 6), \"  |x| after 40 steps = \", newton_atan(x0, 40))\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that every start up to `1.39` reaches the root exactly (`0.0`: near the root the error is cubed at each step), and every start from `1.395` on diverges. Nothing in between is half-converged: the start point decides.",
+              "ok": true,
+              "output": "x0 = 0.5     |x| after 40 steps = 0.0\nx0 = 1.0     |x| after 40 steps = 0.0\nx0 = 1.3     |x| after 40 steps = 0.0\nx0 = 1.38    |x| after 40 steps = 0.0\nx0 = 1.39    |x| after 40 steps = 0.0\nx0 = 1.395   |x| after 40 steps = Inf\nx0 = 1.4     |x| after 40 steps = Inf\nx0 = 1.5     |x| after 40 steps = Inf\nx0 = 2.0     |x| after 40 steps = Inf\n"
             },
             {
               "caption": "All zeros of sin(3x) - x/2 on [-3, 3].",
@@ -5069,8 +5176,8 @@
               "output": "┌ Info: Found initial step size\n└   ϵ = 1.6\nexact mean   0.6667   exact std 0.1307\nsampled mean 0.6671   sampled std 0.1292\ngap          0.0005\nESS          561 of 1000\nMCSE         0.0057\n"
             },
             {
-              "caption": "Ten seeds, ten estimates: their spread is the Monte Carlo error.",
-              "check": true,
+              "caption": "Ten seeds, ten estimates: their spread is the Monte Carlo error. Recorded, not checked: the sampler's digits depend on the CPU's rounding (fused multiply-add).",
+              "check": false,
               "code": "using Turing, Random, Statistics\n@model function coin(y)\n    p ~ Beta(1, 1)\n    y .~ Bernoulli(p)\nend\ny = [1, 0, 1, 1, 0, 1, 1, 1, 0, 1]\nest = [mean(sample(Xoshiro(seed), coin(y), NUTS(), 1000; progress = false, verbose = false)[@varname(p)])\n       for seed in 1:10]\nprintln(round.(est; digits = 4))\nprintln(\"spread (std of the 10 estimates): \", round(std(est); digits = 4))",
               "images": [],
               "mode": "repl",
@@ -5221,8 +5328,8 @@
           "body": "Linear regression as a generative model: an intercept `α`, a slope `β` and a\nnoise level `σ` get priors, and each `y[i]` is normal around `α + β * x[i]`.\n`MvNormal(μ, σ^2 * I)` scores the whole vector at once (`I` is the identity\nmatrix, re-exported by Turing). `σ` must be positive, so its prior is\n`truncated(Normal(0, 2); lower = 0)`; NUTS samples it on an unconstrained\nscale (log σ) and maps back, which you never see.\n\nTwo checks use the model's ability to generate data:\n\n* **Prior predictive check**, before seeing data: sample the parameters from\n  the prior (`Prior()` as the sampler, or `rand`) and simulate `y`. If the\n  simulated data are absurd (heights of 10 km), the priors are wrong.\n* **Posterior predictive**: for each posterior draw, simulate new `y` at\n  new inputs. `predict(rng, model(x_new, missing), chain)` does exactly that:\n  passing `missing` for `y` turns it from data into something to generate.\n  The spread of the predictions includes both the uncertainty in `α, β, σ`\n  and the noise `σ`, which is why it is wider than the spread of `α + β x`.",
           "examples": [
             {
-              "caption": "Fitting simulated data with known parameters (α = 1, β = 2, σ = 0.5).",
-              "check": true,
+              "caption": "Fitting simulated data with known parameters (α = 1, β = 2, σ = 0.5). Recorded, not checked: the sampler's digits depend on the CPU's rounding (fused multiply-add).",
+              "check": false,
               "code": "using Turing, Random, LinearAlgebra\n@model function linreg(x, y)\n    α ~ Normal(0, 10)\n    β ~ Normal(0, 10)\n    σ ~ truncated(Normal(0, 2); lower = 0)\n    y ~ MvNormal(α .+ β .* x, σ^2 * I)\nend\nrng = Xoshiro(10)\nx = collect(range(0, 5; length = 30))\ny = 1.0 .+ 2.0 .* x .+ 0.5 .* randn(rng, 30)       # true α = 1, β = 2, σ = 0.5\nchain = sample(Xoshiro(11), linreg(x, y), NUTS(), 1000; progress = false)\nfor v in (@varname(α), @varname(β), @varname(σ))\n    d = vec(chain[v])\n    println(v, \"  mean \", round(mean(d); digits = 2), \"  90% interval \",\n            round.(quantile(d, [0.05, 0.95]); digits = 2))\nend",
               "images": [],
               "mode": "repl",
@@ -5241,8 +5348,8 @@
               "output": "3-element Vector{Float64}:\n -84.1\n   1.2\n  77.9\n"
             },
             {
-              "caption": "Posterior predictive at new inputs (the data stop at x = 5).",
-              "check": true,
+              "caption": "Posterior predictive at new inputs (the data stop at x = 5). Recorded, not checked: the sampler's digits depend on the CPU's rounding (fused multiply-add).",
+              "check": false,
               "code": "using Turing, Random, LinearAlgebra\n@model function linreg(x, y)\n    α ~ Normal(0, 10)\n    β ~ Normal(0, 10)\n    σ ~ truncated(Normal(0, 2); lower = 0)\n    y ~ MvNormal(α .+ β .* x, σ^2 * I)\nend\nrng = Xoshiro(10)\nx = collect(range(0, 5; length = 30))\ny = 1.0 .+ 2.0 .* x .+ 0.5 .* randn(rng, 30)\nchain = sample(Xoshiro(11), linreg(x, y), NUTS(), 1000; progress = false, verbose = false)\nx_new = [6.0, 10.0]\npred = predict(Xoshiro(13), linreg(x_new, missing), chain)\nynew = reduce(hcat, vec(pred[@varname(y)]))           # 2 × 1000 matrix\nlines = vec(chain[@varname(α)]) .+ vec(chain[@varname(β)]) .* x_new'   # α + β x, 1000 × 2\nfor j in 1:2\n    println(\"x = \", x_new[j], \"  line 90%: \", round.(quantile(lines[:, j], [0.05, 0.95]); digits = 2),\n            \"  new y 90%: \", round.(quantile(ynew[j, :], [0.05, 0.95]); digits = 2))\nend",
               "images": [],
               "mode": "repl",

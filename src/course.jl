@@ -33,14 +33,112 @@ const TRACK_REQUIRES = Dict("scicomp" => ["foundations", "core", "advanced", "ec
 const DIFFICULTIES = ["warm-up", "core", "stretch"]
 const VARIANT_EXPECT = ["correct", "incorrect", "load-error", "slow", "allocates", "unstable", "scaling", "fast"]
 
+"""
+Predict, then run (Phase 5): a prediction the learner commits before an
+example's output is shown. The key is not typed: `measure` is a regex with one
+capture group, read from the example's recorded output, and choice `i` holds
+when the captured number lies in `ranges[i]` (half-open, `lo <= x < hi`) or the
+captured word equals `values[i]` (case-insensitive). `tutor course verify`
+fails unless exactly one choice holds and it is `answer`, so a re-recorded
+output that changes the result also breaks the key.
+"""
+struct Prediction
+    kc::String                               # the unit's knowledge component the hit rate counts for
+    prompt::String
+    measure::String
+    choices::Vector{String}
+    ranges::Vector{Tuple{Float64,Float64}}   # numeric predictions (empty for word predictions)
+    values::Vector{String}                   # word predictions (empty for numeric ones)
+    answer::Int                              # 1-based; must be the choice the measurement selects
+    explain::String                          # shown with the output, whatever was picked
+end
+
+"""
+Method-choice checkpoint (Phase 5): the learner picks a method (a solver, a
+step size, a preconditioner) and writes a one-line reason before the
+example's work-precision output is shown; then the choice is scored against
+that output. Nothing is typed as a key: `rows[i]` is a regex matched in the
+output, its numbered capture groups are numbers summed into choice `i`'s cost
+(steps, calls, iterations: counts, never wall time), and an optional group
+named `ok` must capture `true` for the choice to meet the accuracy the
+example asks for. Among the choices that meet it, those within `band` times
+the cheapest cost are *good*; the rest are *costly*, and a choice that misses
+the accuracy *fails*. `tutor course verify` re-runs the example and fails
+unless the measured good set equals `good`, and unless every cost ratio is at
+least `CHOICE_MARGIN` away from the band's edge, so the verdict cannot be
+flipped by a few percent of drift in the counts. That second rule is why a
+checkpoint may sit on a `check = false` example (counts that move a little
+between CPUs): its digits are not compared, its verdict is, on every verify.
+The reason is never graded (there is no model of free text here); it is
+stored in the browser and shown back next to the measurements.
+"""
+struct Checkpoint
+    kc::String
+    prompt::String
+    choices::Vector{String}
+    rows::Vector{String}            # one regex per choice: summed numeric captures, optional `ok` group
+    cost::String                    # what the cost counts, shown in the table ("right-hand-side calls")
+    band::Float64                   # good = within `band` times the cheapest choice that meets the accuracy
+    good::Vector{Int}               # declared good choices (1-based); must equal the measured set
+    explain::String                 # shown with the measurements, whatever was picked
+    misconceptions::Vector{String}  # one per choice; required for every choice that is not good
+end
+
+# A cost ratio this close to the band's edge (within this factor either way)
+# could change verdict with a small drift in the counts; verify refuses it.
+const CHOICE_MARGIN = 1.5
+
+"""
+Break it (Phase 5): the learner looks for the value of a parameter (a step
+size, a start point, a rate ratio) where a method stops working, and commits
+that edge before the example's sweep is shown. Nothing is typed as a key: the
+example's output is a sweep, one line per parameter value, and `row` is a
+regex with named groups `p` (the value) and `m` (the measurement) matched on
+every line. The method *fails* at a value when `m > limit` (`fails =
+"above"`) or `m < limit` (`"below"`), or when `m` is NaN. Sorted by `p`, the
+sweep must change from working to failing exactly once, and the two values
+either side of that change are the measured edge, which must equal the
+declared `edge`; `tutor course verify` re-checks both on the fresh run (the
+example must have `check = true`). `probe` is the same computation at one
+value, with `{{p}}` where the value goes: the site runs it at the learner's
+value through `tutor serve`, and verify runs it at both ends of the edge and
+requires the first to work and the second to fail, so the probe and the
+sweep measure the same thing.
+"""
+struct BreakIt
+    kc::String
+    prompt::String
+    param::String                  # the parameter's name as the learner sees it ("h", "x0")
+    measure::String                # what `m` is, the table's column header ("|u| after 100 steps")
+    row::String                    # regex with named groups `p` and `m`, matched on every output line
+    fails::String                  # "above": failed when m > limit; "below": when m < limit
+    limit::Float64
+    edge::Tuple{Float64,Float64}   # declared: the swept values either side of the change, low then high
+    close::Float64                 # a committed value within this factor of the edge is "close"
+    probe::String                  # one run at one value: `{{p}}` is replaced by the value
+    explain::String                # shown with the sweep, whatever was committed
+    short::String                  # feedback for a value where the method still works
+    past::String                   # feedback for a value well past the edge, where it already fails
+end
+
+# The sweep needs this many rows for an edge to mean something.
+const BREAK_MIN_ROWS = 4
+
 struct Example
     code::String
     check::Bool          # false: output varies run to run (timings, threads); recorded, not compared
     caption::String      # introduces the example; shown above the code
     mode::String         # "repl" (default: REPL soft scope, like the sandbox) or "file" (include semantics)
     notice::String       # what to look at in the result; shown under the output (and figures)
+    predict::Union{Nothing,Prediction}   # commit a prediction before the output is shown
+    choose::Union{Nothing,Checkpoint}    # pick a method and give a reason before the output is shown
+    breakit::Union{Nothing,BreakIt}      # find where the method fails before the sweep is shown
 end
-Example(code, check, caption, mode) = Example(code, check, caption, mode, "")
+Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing, nothing, nothing)
+Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing, nothing, nothing)
+Example(code, check, caption, mode, notice, predict) = Example(code, check, caption, mode, notice, predict, nothing, nothing)
+Example(code, check, caption, mode, notice, predict, choose) =
+    Example(code, check, caption, mode, notice, predict, choose, nothing)
 
 """
 A concept question shown after a section's examples. `choice`: pick the
@@ -152,10 +250,37 @@ normalize_nl(x::AbstractDict) = Dict{String,Any}(k => normalize_nl(v) for (k, v)
 normalize_nl(x::AbstractVector) = Any[normalize_nl(v) for v in x]
 normalize_nl(x) = x
 
+function load_prediction(p)
+    p === nothing && return nothing
+    ranges = Tuple{Float64,Float64}[(Float64(r[1]), Float64(r[2])) for r in get(p, "ranges", Any[]) if length(r) == 2]
+    length(ranges) == length(get(p, "ranges", Any[])) || (ranges = [(NaN, NaN)])   # malformed: validation says so
+    return Prediction(getstr(p, "kc"), getstr(p, "prompt"), getstr(p, "measure"), String.(get(p, "choices", String[])),
+                      ranges, String.(get(p, "values", String[])), Int(get(p, "answer", 0)), getstr(p, "explain"))
+end
+
+function load_checkpoint(c)
+    c === nothing && return nothing
+    choices = String.(get(c, "choices", String[]))
+    return Checkpoint(getstr(c, "kc"), getstr(c, "prompt"), choices, String.(get(c, "rows", String[])),
+                      getstr(c, "cost"), Float64(get(c, "band", 2.0)), Int.(get(c, "good", Int[])),
+                      getstr(c, "explain"), String.(get(c, "misconceptions", fill("", length(choices)))))
+end
+
+function load_breakit(b)
+    b === nothing && return nothing
+    e = get(b, "edge", Any[])
+    edge = length(e) == 2 && all(x -> x isa Real, e) ? (Float64(e[1]), Float64(e[2])) : (NaN, NaN)  # malformed: validation says so
+    return BreakIt(getstr(b, "kc"), getstr(b, "prompt"), getstr(b, "param"), getstr(b, "measure"), getstr(b, "row"),
+                   getstr(b, "fails"), Float64(get(b, "limit", NaN)), edge, Float64(get(b, "close", 1.25)),
+                   getstr(b, "probe"), getstr(b, "explain"), getstr(b, "short"), getstr(b, "past"))
+end
+
 function load_unit(path::String)
     d = normalize_nl(TOML.parsefile(path))
     sections = [Section(s["title"], s["body"],
-                        [Example(e["code"], get(e, "check", true), getstr(e, "caption"), getstr(e, "mode", "repl"), getstr(e, "notice"))
+                        [Example(e["code"], get(e, "check", true), getstr(e, "caption"), getstr(e, "mode", "repl"),
+                                 getstr(e, "notice"), load_prediction(get(e, "predict", nothing)),
+                                 load_checkpoint(get(e, "choose", nothing)), load_breakit(get(e, "breakit", nothing)))
                          for e in get(s, "example", Any[])],
                         [load_question(q) for q in get(s, "question", Any[])]) for s in get(d, "section", Any[])]
     return Unit(d["id"], d["title"], d["track"], getstr(d, "env", "base"), getstr(d, "status", "ready"),
@@ -198,15 +323,50 @@ struct CourseInfo
     projects::Vector{String}      # hole projects (projects/<p>/holes.toml)
     guided::Vector{String}        # guided projects (projects/guided/<p>)
     outcomes::Vector{Outcome}
+    download::String              # [setup] download: what `tutor sandbox pull <id>` fetches, e.g. "up to 0.62 GiB"
+    download_measured::String     # [setup] measured: where that number was measured (a CI run, a date)
+    status_note::String           # why a course is not ready; shown wherever its status is ("" when ready)
 end
+CourseInfo(id, title, order, status, summary, requires, envs, units, projects, guided, outcomes) =
+    CourseInfo(id, title, order, status, summary, requires, envs, units, projects, guided, outcomes, "", "", "")
 
 function load_course_info(path::String)
     d = normalize_nl(TOML.parsefile(path))
     strs(k) = String.(get(d, k, String[]))
     outs = [Outcome(o["text"], String.(get(o, "assessed_by", String[])), String.(get(o, "planned", String[])))
             for o in get(d, "outcome", Any[])]
+    setup = get(d, "setup", Dict{String,Any}())
     return CourseInfo(d["id"], d["title"], Int(d["order"]), getstr(d, "status", "ready"), d["summary"],
-                      strs("requires"), strs("envs"), strs("units"), strs("projects"), strs("guided"), outs)
+                      strs("requires"), strs("envs"), strs("units"), strs("projects"), strs("guided"), outs,
+                      getstr(setup, "download"), getstr(setup, "measured"), getstr(d, "status_note"))
+end
+
+# Guessed hours per item, (low, high). Not measured: nobody has taken a course
+# yet. The pilot (docs/COURSES_PLAN.md, Phase 6) measures real times, and until
+# then everything that shows the estimate labels it as one.
+const ESTIMATE_RATES = (unit = (0.5, 1.0), problem = (10 / 60, 25 / 60), guided = (2.0, 4.0), project = (4.0, 8.0))
+
+"""
+A course's time estimate from its counts: ready units, their practice
+problems, guided projects and hole projects, at `ESTIMATE_RATES`. Returns
+(low hours, high hours, basis), rounded out to whole hours; the basis says
+what was counted and at what rate, so the number can be checked by hand.
+"""
+function time_estimate(c::CourseInfo, units::Vector{Unit})
+    byid = Dict(u.id => u for u in units)
+    ready = [byid[id] for id in c.units if haskey(byid, id) && byid[id].status == "ready"]
+    n = (unit = length(ready), problem = sum(length(u.problems) for u in ready; init = 0),
+         guided = length(c.guided), project = length(c.projects))
+    r = ESTIMATE_RATES
+    low = sum(n[k] * r[k][1] for k in keys(n))
+    high = sum(n[k] * r[k][2] for k in keys(n))
+    mins(h) = round(Int, 60h)
+    basis = "$(mins(r.unit[1]))–$(mins(r.unit[2])) min per ready unit ($(n.unit)), " *
+            "$(mins(r.problem[1]))–$(mins(r.problem[2])) min per practice problem ($(n.problem)), " *
+            "$(Int(r.guided[1]))–$(Int(r.guided[2])) h per guided project ($(n.guided)), " *
+            "$(Int(r.project[1]))–$(Int(r.project[2])) h per hole project ($(n.project)); " *
+            "guessed rates, not measured"
+    return floor(Int, low), ceil(Int, high), basis
 end
 
 """All courses, in their declared order."""
@@ -369,6 +529,12 @@ function validate_courses(courses::Vector{CourseInfo}, units::Vector{Unit};
             p in projects || push!(problems, "course $(c.id): no project $p")
         end
         4 <= length(c.outcomes) <= 8 || push!(problems, "course $(c.id): needs 4 to 8 outcomes")
+        # The landing page shows the download size; a size is shown only with where it was measured.
+        c.status == "planned" || (!isempty(c.download) && !isempty(c.download_measured)) ||
+            push!(problems, "course $(c.id): [setup] needs download and measured (where the size was measured)")
+        # A course that is not ready says why, wherever its status is shown.
+        c.status == "ready" || !isempty(strip(c.status_note)) ||
+            push!(problems, "course $(c.id): status $(c.status) needs a status_note saying why")
         for (i, o) in enumerate(c.outcomes)
             isempty(o.assessed_by) && isempty(o.planned) &&
                 push!(problems, "course $(c.id) outcome $i: nothing assesses it, not even a planned case")
@@ -382,6 +548,15 @@ function validate_courses(courses::Vector{CourseInfo}, units::Vector{Unit};
     for g in keys(guided_env)
         n = count(c -> g in c.guided, courses)
         n == 1 || push!(problems, "guided project $g belongs to $n courses (must be exactly 1)")
+    end
+    # Each course has its own sandbox image (src/runner.jl, `image_envs`), and
+    # the environment picks the image, so an environment other than base may be
+    # in one course only (a unit elsewhere would run in an image without it).
+    for e in sort!(unique([e for c in courses for e in c.envs if e != "base"]))
+        owners = [c.id for c in courses if e in c.envs]
+        length(owners) == 1 ||
+            push!(problems, "environment $e is used by courses $(join(owners, ", ")); each sandbox image holds one " *
+                            "course's environments, so an environment other than base belongs to exactly one course")
     end
     cyc = prereq_cycle(units)
     cyc === nothing || push!(problems, "prerequisite cycle: $(join(cyc, " -> "))")
@@ -420,6 +595,310 @@ function question_problems(q::Question)
         i != q.answer && isempty(strip(m)) && push!(out, "wrong choice $i has no misconception")
     end
     q.kind == "output" && isempty(strip(q.code)) && push!(out, "an output question needs code")
+    return out
+end
+
+compile_measure(s) = isempty(s) ? nothing : try Regex(s) catch; nothing end
+
+"""What is structurally wrong with an example's prediction (empty = nothing)."""
+function prediction_problems(p::Prediction, e::Example, kcs)
+    out = String[]
+    p.kc in kcs || push!(out, "kc '$(p.kc)' is not one of the unit's kcs $(kcs)")
+    isempty(strip(p.prompt)) && push!(out, "no prompt")
+    isempty(strip(p.explain)) && push!(out, "no explanation")
+    2 <= length(p.choices) <= 6 || push!(out, "needs 2 to 6 choices")
+    allunique(strip.(p.choices)) || push!(out, "choices must differ")
+    1 <= p.answer <= length(p.choices) || push!(out, "answer must index a choice (1-based)")
+    # A key read from an output that is recorded but never compared could change unnoticed.
+    e.check || push!(out, "the example has check = false: a prediction needs an output that verify compares")
+    compile_measure(p.measure) === nothing && push!(out, "measure is not a regular expression")
+    if isempty(p.ranges) == isempty(p.values)
+        push!(out, "give either ranges (a numeric prediction) or values (a word prediction), not both or neither")
+    elseif !isempty(p.ranges)
+        length(p.ranges) == length(p.choices) || push!(out, "one range per choice")
+        all(((lo, hi),) -> lo < hi, p.ranges) || push!(out, "each range is [lo, hi) with lo < hi")
+        r = sort(p.ranges)
+        all(i -> r[i][2] <= r[i+1][1], 1:length(r)-1) || push!(out, "ranges overlap: a value would select two choices")
+    else
+        length(p.values) == length(p.choices) || push!(out, "one value per choice")
+        allunique(lowercase.(p.values)) || push!(out, "values must differ")
+    end
+    return out
+end
+
+"""
+The choices a recorded output selects, and the text `measure` captured from it
+(`nothing` if it does not match, or has no single capture group).
+"""
+function measured_choices(p::Prediction, output::AbstractString)
+    re = compile_measure(p.measure)
+    re === nothing && return (Int[], nothing)
+    m = match(re, output)
+    (m === nothing || length(m.captures) != 1 || m.captures[1] === nothing) && return (Int[], nothing)
+    cap = String(m.captures[1])
+    if !isempty(p.ranges)
+        x = tryparse(Float64, cap)
+        x === nothing && return (Int[], cap)
+        return ([i for (i, (lo, hi)) in enumerate(p.ranges) if lo <= x < hi], cap)
+    end
+    return ([i for (i, v) in enumerate(p.values) if lowercase(v) == lowercase(cap)], cap)
+end
+
+"""
+The key of each prediction is measured: in the recorded output (`rec`, as
+`tutor course record` writes it), `measure` must capture a value that selects
+exactly one choice, and that choice must be the declared `answer`.
+"""
+function prediction_key_problems(u::Unit, rec)
+    out = String[]
+    exs = get(rec, "examples", Dict())
+    for s in u.sections, e in s.examples
+        p = e.predict
+        p === nothing && continue
+        where = "$(u.id) '$(s.title)' prediction"
+        r = get(exs, example_key(e.code, e.mode), nothing)
+        r === nothing && (push!(out, "$where: its example has no recorded output"); continue)
+        hold, cap = measured_choices(p, r["output"])
+        if cap === nothing
+            push!(out, "$where: `measure` does not match the recorded output with one capture group")
+        elseif length(hold) != 1
+            push!(out, "$where: the measured value $cap selects $(length(hold)) choices (exactly one must hold)")
+        elseif only(hold) != p.answer
+            push!(out, "$where: the measured value $cap selects choice $(only(hold)), but the answer is $(p.answer)")
+        end
+    end
+    return out
+end
+
+"""Index of the capture group named `ok` in `re`, or 0."""
+ok_group(re::Regex) = something(findfirst(==("ok"), Base.PCRE.capture_names(re.regex)), 0)
+capture_count(re::Regex) = Int(Base.PCRE.info(re.regex, Base.PCRE.INFO_CAPTURECOUNT, UInt32))
+
+"""What is structurally wrong with an example's method-choice checkpoint (empty = nothing)."""
+function checkpoint_problems(c::Checkpoint, e::Example, kcs)
+    out = String[]
+    c.kc in kcs || push!(out, "kc '$(c.kc)' is not one of the unit's kcs $(kcs)")
+    isempty(strip(c.prompt)) && push!(out, "no prompt")
+    isempty(strip(c.explain)) && push!(out, "no explanation")
+    isempty(strip(c.cost)) && push!(out, "no cost label (what the measured cost counts)")
+    e.predict === nothing || push!(out, "an example carries a prediction or a checkpoint, not both")
+    n = length(c.choices)
+    2 <= n <= 6 || push!(out, "needs 2 to 6 choices")
+    allunique(strip.(c.choices)) || push!(out, "choices must differ")
+    length(c.rows) == n || push!(out, "one row regex per choice")
+    for (i, r) in enumerate(c.rows)
+        re = compile_measure(r)
+        re === nothing && (push!(out, "row $i is not a regular expression"); continue)
+        capture_count(re) - (ok_group(re) > 0) >= 1 || push!(out, "row $i has no capture group for the cost")
+    end
+    c.band > 1 || push!(out, "band must be greater than 1")
+    isempty(c.good) && push!(out, "name the good choices (good = [...])")
+    allunique(c.good) || push!(out, "good lists a choice twice")
+    all(i -> 1 <= i <= n, c.good) || push!(out, "good must index choices (1-based)")
+    length(unique(c.good)) < n || push!(out, "every choice is good: there is nothing to choose")
+    length(c.misconceptions) == n || push!(out, "one misconception per choice (\"\" for a good one)")
+    for (i, m) in enumerate(c.misconceptions)
+        !(i in c.good) && isempty(strip(m)) && push!(out, "choice $i is not good and has no misconception")
+    end
+    return out
+end
+
+"""
+The measured row of each choice in `output`: `(cost, ok)`, or `nothing` when
+its regex does not match or a cost capture is not a number. `ok` is `true`
+when the row has no `ok` group.
+"""
+function checkpoint_rows(c::Checkpoint, output::AbstractString)
+    rows = Union{Nothing,Tuple{Float64,Bool}}[]
+    for r in c.rows
+        re = compile_measure(r)
+        m = re === nothing ? nothing : match(re, output)
+        m === nothing && (push!(rows, nothing); continue)
+        k = ok_group(re)
+        nums = [tryparse(Float64, x) for (j, x) in enumerate(m.captures) if j != k && x !== nothing]
+        if isempty(nums) || any(isnothing, nums) || (k > 0 && m.captures[k] === nothing)
+            push!(rows, nothing)
+        else
+            push!(rows, (sum(nums), k == 0 || lowercase(m.captures[k]) == "true"))
+        end
+    end
+    return rows
+end
+
+"""
+Score a checkpoint against an output: per choice its cost, whether it meets
+the accuracy, its ratio to the cheapest choice that does, and its verdict
+(`good`, `costly` or `fails`). Returns a String saying what is wrong when the
+output cannot be scored.
+"""
+function score_checkpoint(c::Checkpoint, output::AbstractString)
+    rows = checkpoint_rows(c, output)
+    bad = findall(isnothing, rows)
+    isempty(bad) || return "row $(join(bad, ", ")) does not match the output with a numeric cost"
+    costs = [r[1] for r in rows]; oks = [r[2] for r in rows]
+    any(oks) || return "no choice meets the accuracy (`ok` is false in every row)"
+    best = minimum(costs[oks])
+    best > 0 || return "the cheapest cost is $best: costs must be positive counts"
+    ratios = costs ./ best
+    verdicts = [!oks[i] ? "fails" : ratios[i] <= c.band ? "good" : "costly" for i in eachindex(costs)]
+    return (; costs, oks, ratios, verdicts, good = findall(==("good"), verdicts))
+end
+
+"""
+The key of each checkpoint is measured: in `rec` (a fresh `record` in verify,
+the stored outputs in the fast tests and the site export) the good set must
+equal `good`, and every ratio of a choice that meets the accuracy must lie at
+least `CHOICE_MARGIN` away from the band's edge.
+"""
+function checkpoint_key_problems(u::Unit, rec)
+    out = String[]
+    exs = get(rec, "examples", Dict())
+    for s in u.sections, e in s.examples
+        c = e.choose
+        c === nothing && continue
+        where = "$(u.id) '$(s.title)' checkpoint"
+        r = get(exs, example_key(e.code, e.mode), nothing)
+        r === nothing && (push!(out, "$where: its example has no recorded output"); continue)
+        append!(out, ["$where: $m" for m in checkpoint_output_problems(c, r["output"])])
+    end
+    return out
+end
+
+"""Why `output` does not support the checkpoint's declared verdicts (empty = it does)."""
+function checkpoint_output_problems(c::Checkpoint, output::AbstractString)
+    sc = score_checkpoint(c, output)
+    sc isa String && return [sc]
+    out = String[]
+    sort(sc.good) == sort(c.good) ||
+        push!(out, "the measurements make choice(s) $(sc.good) good, but good = $(sort(c.good))")
+    for i in eachindex(sc.ratios)
+        sc.oks[i] || continue
+        x = sc.ratios[i]
+        c.band / CHOICE_MARGIN < x < c.band * CHOICE_MARGIN &&
+            push!(out, "choice $i costs $(round(x; sigdigits = 3)) times the cheapest, within a factor $CHOICE_MARGIN " *
+                       "of the band ($(c.band)): a small drift in the counts could flip its verdict")
+    end
+    return out
+end
+
+has_group(re::Regex, name) = name in values(Base.PCRE.capture_names(re.regex))
+
+"""What is structurally wrong with an example's break-it challenge (empty = nothing)."""
+function breakit_problems(b::BreakIt, e::Example, kcs)
+    out = String[]
+    b.kc in kcs || push!(out, "kc '$(b.kc)' is not one of the unit's kcs $(kcs)")
+    for (f, what) in ((b.prompt, "prompt"), (b.explain, "explanation"), (b.param, "param (the parameter's name)"),
+                      (b.measure, "measure (what the row's number is)"), (b.short, "short (feedback where the method still works)"),
+                      (b.past, "past (feedback well past the edge)"))
+        isempty(strip(f)) && push!(out, "no $what")
+    end
+    # The edge is read from the output; an output verify does not compare could move it unnoticed.
+    e.check || push!(out, "the example has check = false: a break-it sweep needs an output that verify compares")
+    (e.predict === nothing && e.choose === nothing) ||
+        push!(out, "an example carries one of a prediction, a checkpoint or a break-it challenge")
+    re = compile_measure(b.row)
+    if re === nothing
+        push!(out, "row is not a regular expression")
+    elseif !(has_group(re, "p") && has_group(re, "m"))
+        push!(out, "row needs named groups `p` (the parameter) and `m` (the measurement)")
+    end
+    b.fails in ("above", "below") || push!(out, "fails must be \"above\" or \"below\"")
+    isfinite(b.limit) || push!(out, "limit must be a finite number")
+    1 < b.close <= 2 || push!(out, "close must be in (1, 2]")
+    lo, hi = b.edge
+    if !(isfinite(lo) && isfinite(hi) && 0 < lo < hi)
+        push!(out, "edge is [low, high] with 0 < low < high")
+    elseif hi / lo > b.close
+        push!(out, "the edge spans a factor $(round(hi / lo; sigdigits = 3)), wider than close = $(b.close): sweep more finely near it")
+    end
+    occursin("{{p}}", b.probe) || push!(out, "probe must contain {{p}} where the parameter's value goes")
+    return out
+end
+
+"""The `(p, m)` pairs of every line that `row` matches, or `nothing` if a matched value is not a number."""
+function breakit_rows(b::BreakIt, output::AbstractString)
+    re = compile_measure(b.row)
+    re === nothing && return nothing
+    rows = Tuple{Float64,Float64}[]
+    for line in eachline(IOBuffer(output))
+        m = match(re, line)
+        m === nothing && continue
+        p, x = tryparse(Float64, something(m["p"], "")), tryparse(Float64, something(m["m"], ""))
+        (p === nothing || x === nothing) && return nothing
+        push!(rows, (p, x))
+    end
+    return rows
+end
+
+"""Whether the method failed at a row whose measurement is `m` (NaN counts as failed: the run broke down)."""
+breakit_failed(b::BreakIt, m::Real) = isnan(m) || (b.fails == "above" ? m > b.limit : m < b.limit)
+
+"""
+Read a break-it sweep from an output: the rows sorted by the parameter,
+whether each failed, the measured edge and the side that fails (`"high"`:
+values above the edge fail). Returns a String saying what is wrong when the
+output has no single edge.
+"""
+function score_breakit(b::BreakIt, output::AbstractString)
+    rows = breakit_rows(b, output)
+    rows === nothing && return "a row matched with a value that is not a number"
+    length(rows) >= BREAK_MIN_ROWS || return "the sweep has $(length(rows)) rows (at least $BREAK_MIN_ROWS needed)"
+    ps = first.(rows)
+    all(p -> isfinite(p) && p > 0, ps) || return "every swept value must be a positive number"
+    allunique(ps) || return "a value is swept twice"
+    rows = sort(rows)
+    ps, ms = first.(rows), last.(rows)
+    failed = [breakit_failed(b, m) for m in ms]
+    all(failed) && return "the method fails at every swept value: there is no edge in the sweep"
+    any(failed) || return "the method works at every swept value: there is no edge in the sweep"
+    changes = findall(i -> failed[i] != failed[i+1], 1:length(failed)-1)
+    length(changes) == 1 ||
+        return "the method changes between working and failing $(length(changes)) times along the sweep: there is no single edge"
+    i = only(changes)
+    return (; ps, ms, failed, edge = (ps[i], ps[i+1]), side = failed[end] ? "high" : "low")
+end
+
+"""Why `output` does not support the challenge's declared edge (empty = it does)."""
+function breakit_output_problems(b::BreakIt, output::AbstractString)
+    sc = score_breakit(b, output)
+    sc isa String && return [sc]
+    all(isapprox.(sc.edge, b.edge; rtol = 1e-9)) && return String[]
+    return ["the sweep changes between $(sc.edge[1]) and $(sc.edge[2]), but edge = [$(b.edge[1]), $(b.edge[2])]"]
+end
+
+"""Break-it edges are measured: in `rec`, each sweep must have one edge, the declared one."""
+function breakit_key_problems(u::Unit, rec)
+    out = String[]
+    exs = get(rec, "examples", Dict())
+    for s in u.sections, e in s.examples
+        b = e.breakit
+        b === nothing && continue
+        where = "$(u.id) '$(s.title)' break-it"
+        r = get(exs, example_key(e.code, e.mode), nothing)
+        r === nothing && (push!(out, "$where: its example has no recorded output"); continue)
+        append!(out, ["$where: $m" for m in breakit_output_problems(b, r["output"])])
+    end
+    return out
+end
+
+"""The probe's code at value `x` (written as Julia reads it back: `repr`)."""
+probe_code(b::BreakIt, x::Float64) = replace(b.probe, "{{p}}" => repr(x))
+
+"""
+Why the probe's outputs at the edge's two ends disagree with the sweep (empty
+= they agree): each must print one `row` line, and the method must work at
+the end on its working side and fail at the other.
+"""
+function probe_problems(b::BreakIt, side::AbstractString, out_lo::AbstractString, out_hi::AbstractString)
+    out = String[]
+    for (x, o, should_fail) in ((b.edge[1], out_lo, side == "low"), (b.edge[2], out_hi, side == "high"))
+        rows = breakit_rows(b, o)
+        if rows === nothing || length(rows) != 1
+            push!(out, "the probe at $x prints $(rows === nothing ? "a row that is not a number" : "$(length(rows)) rows") (one is needed):\n$o")
+        elseif breakit_failed(b, only(rows)[2]) != should_fail
+            push!(out, "the probe at $x $(should_fail ? "works" : "fails"), but the sweep says it $(should_fail ? "fails" : "works") there")
+        end
+    end
     return out
 end
 
@@ -476,6 +955,22 @@ function unit_prose(u::Unit)
     for s in u.sections
         push!(out, ("'$(s.title)'", s.title * "\n" * strip_code(s.body)))
         append!(out, [("'$(s.title)' caption", e.caption * "\n" * e.notice) for e in s.examples])
+        for e in s.examples
+            p = e.predict
+            p === nothing && continue
+            push!(out, ("'$(s.title)' prediction", strip_code(join(vcat(p.prompt, p.choices, p.explain), "\n"))))
+        end
+        for e in s.examples
+            c = e.choose
+            c === nothing && continue
+            push!(out, ("'$(s.title)' checkpoint",
+                        strip_code(join(vcat(c.prompt, c.choices, c.cost, c.explain, c.misconceptions), "\n"))))
+        end
+        for e in s.examples
+            b = e.breakit
+            b === nothing && continue
+            push!(out, ("'$(s.title)' break-it", strip_code(join([b.prompt, b.measure, b.explain, b.short, b.past], "\n"))))
+        end
         for q in s.questions
             txt = join(vcat(q.prompt, q.explain, q.misconceptions, q.kind == "choice" ? q.choices : String[]), "\n")
             push!(out, ("'$(s.title)' question", strip_code(txt)))
@@ -543,6 +1038,12 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
         for s in u.sections, e in s.examples
             isempty(strip(e.code)) && push!(problems, "$(u.id): empty example in '$(s.title)'")
             e.mode in ("repl", "file") || push!(problems, "$(u.id): example mode must be repl or file")
+            e.predict === nothing ||
+                append!(problems, ["$(u.id) '$(s.title)' prediction: $m" for m in prediction_problems(e.predict, e, u.kcs)])
+            e.choose === nothing ||
+                append!(problems, ["$(u.id) '$(s.title)' checkpoint: $m" for m in checkpoint_problems(e.choose, e, u.kcs)])
+            e.breakit === nothing ||
+                append!(problems, ["$(u.id) '$(s.title)' break-it: $m" for m in breakit_problems(e.breakit, e, u.kcs)])
         end
         for s in u.sections, (i, q) in enumerate(s.questions)
             append!(problems, ["$(u.id) '$(s.title)' question $i: $m" for m in question_problems(q)])

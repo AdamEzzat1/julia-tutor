@@ -178,6 +178,158 @@ ForwardDiff.derivative(x -> x^3, 2.0)
   specific. `validate` fails a unit where the answer is the unique longest
   choice in more than 40% of its choice questions.
 
+## Predict, then run
+
+**Learning purpose.** A prediction made before seeing a result tests the
+learner's model of the method: the order a convergence plot will show, which
+side of a stability limit a step is on, whether a stable method keeps a sign.
+Reading the output first and then agreeing with it tests nothing. So the site
+hides an example's output (with its figures and notice) until the learner
+commits one choice. It scores that first pick only, and counts hits per
+knowledge component in the browser. A concept question differs: the learner
+picks until right, and it comes after the examples.
+
+```toml
+  [[section.example]]
+  caption = "..."
+  code = '''
+...
+'''
+
+    [section.example.predict]
+    kc = "convergence-order"            # one of the unit's kcs: the hit rate counts for it
+    prompt = "RK4 is a fourth-order method. Before the output is shown: what observed order does it give between 10 and 20 steps?"
+    choices = ["About 4 (3.95 or more)", "Between 3.5 and 3.95", "Below 3.5"]
+    measure = 'RK4   errors [^\n]*\n +orders \[([0-9.]+)'   # one capture group, read from the recorded output
+    ranges = [[3.95, inf], [3.5, 3.95], [-inf, 3.5]]        # choice i holds when lo <= value < hi
+    answer = 3
+    explain = "The order describes small `h`..."
+```
+
+* The key is measured, not typed. `measure` is a regular expression with
+  one capture group, applied to the example's recorded output. For a
+  numeric prediction, give `ranges`, one half-open `[lo, hi)` per choice,
+  with no overlaps. For a word, give `values`, one per choice, compared
+  case-insensitively (for example `values = ["true", "false"]` against a
+  printed `true`). `verify` fails unless exactly one choice holds and it is
+  `answer`, so a re-recorded output that changes the result breaks the
+  key, just as it breaks an `output` question.
+* The example must be checked (`check = true`, the default): a key read from
+  an output that `verify` never compares could change unnoticed.
+* Pick an example whose result the earlier output on the page does not
+  already show. A prediction answered by the example just above it measures
+  reading, not reasoning.
+* `explain` is shown with the output whatever was picked, so write it for
+  the learner who missed: say why the measured value came out where it did.
+* `site-data` exports a prediction only when its key holds, together with
+  the measured value, which the page shows next to the answer.
+
+## Method-choice checkpoints
+
+**Learning purpose.** Choosing a method is step 4 of the scientific method the
+cases teach, and the step learners most often skip: they take the default,
+or the one they used last. A checkpoint makes the learner commit a solver,
+step size or preconditioner and say why in one line, before the measurements
+are shown. Then the measurements score the choice. The reason is not graded
+(nothing in the tutor can judge free text, and no model is asked to). The
+page shows it back next to the counts, so the learner can see which part of
+their reasoning held. Like a prediction, the first commit is the only one
+scored, and good choices are counted per knowledge component in the browser.
+
+```toml
+    [section.example.choose]
+    kc = "stiffness"                     # one of the unit's kcs
+    prompt = "The heat equation on 199 points ... Which solver do you run?"
+    choices = ["`Tsit5`: ...", "`Rodas5P`: ...", "`FBDF`: ..."]   # the table shows the text before ": "
+    rows = [                              # one regex per choice, matched in the recorded output
+      'Tsit5 +naccept \d+ +njacs (\d+) +nw (\d+) +nf (\d+)',     # numbered groups: summed into the cost
+      'Rodas5P +naccept \d+ +njacs (\d+) +nw (\d+) +nf (\d+)',
+      'FBDF +naccept \d+ +njacs (\d+) +nw (\d+) +nf (\d+)',
+    ]
+    cost = "right-hand-side calls + Jacobians + factorizations (...)"   # what the cost counts, shown in the table
+    band = 2.0                            # good = within 2x of the cheapest choice that meets the accuracy
+    good = [2, 3]                         # must equal what the measurements give
+    explain = "..."
+    misconceptions = ["Each `Tsit5` step is cheap, but ...", "", ""]  # required for every choice that is not good
+```
+
+* The verdicts are measured, not typed. Each row's numbered capture groups
+  are summed into that choice's cost. A row may also have a group named
+  `ok` (`(?<ok>true|false)`): a choice whose `ok` is not `true` misses the
+  accuracy the example asks for, and *fails*. Among the rest, a choice
+  within `band` times the cheapest is *good* and the others are *costly*.
+  `verify` fails unless the good set equals `good`.
+* The cost is a count (steps, calls, iterations, factorizations), never
+  wall time, which varies by machine and load. Say in `cost` what it leaves
+  out (a linear solve, building a preconditioner), so the learner does not
+  read the count as the whole price.
+* **No verdict near the edge.** `verify` also fails if any choice that meets
+  the accuracy costs within a factor of 1.5 (`Course.CHOICE_MARGIN`) of the
+  band's edge, either side. A choice at 2.2× with a band of 2 could flip with
+  a 10% drift in its count. That is why a checkpoint may sit on a
+  `check = false` example, whose counts move a little between CPUs and
+  package builds: `verify` re-runs the example and checks the verdicts on
+  the fresh output, though it does not compare the digits.
+* An example carries a prediction or a checkpoint, not both.
+* Give two to six choices that a learner could defend, and phrase each as
+  what the method does, not as a verdict. The page lists the choices before
+  the output, so the choice text must not give the counts away.
+
+## Break it
+
+**Learning purpose.** Knowing a method's conditions is not the same as
+knowing where they bite. A break-it challenge asks for the value of one
+parameter (a step size, a start point, a rate ratio) at which a method stops
+working: it goes unstable, stops converging, or can no longer identify its
+parameters. The learner may derive the edge from the section, or measure it
+by running the challenge's *probe* at values of their choice through
+`tutor serve`. Then they commit one value, and the recorded sweep shows where
+the edge is. Like a prediction, only the first commit is scored, and edges
+found are counted per knowledge component in the browser.
+
+```toml
+    [section.example.breakit]
+    kc = "stability"                       # one of the unit's kcs
+    prompt = "... Find the largest step `h` at which ..."
+    param = "h"                            # the parameter's name, as the learner types it
+    measure = "|u| after 100 steps (from 1)"   # what the row's number is (a column header)
+    row = 'h = (?<p>\S+) .*\|u\| after 100 steps = (?<m>\S+)'   # named groups p and m, matched on every line
+    fails = "above"                        # the method failed where m > limit ("below": m < limit); NaN fails too
+    limit = 1.0
+    edge = [0.23, 0.25]                    # must equal the two swept values either side of the change
+    close = 1.25                           # a value within this factor of the edge is "close"
+    probe = '''
+    ... the same computation at one value: h = {{p}} ...
+    '''
+    explain = "..."
+    short = "..."                          # shown for a value where the method still works
+    past = "..."                           # shown for a value well past the edge
+```
+
+* The edge is measured, not typed. The example's output is a sweep, one line
+  per value; sorted by `p`, the method must change from working to failing
+  exactly once (at least 4 rows). The values either side of that change are
+  the measured edge, and `verify` fails unless it equals `edge`.
+* The example must have `check = true`: the edge is read from digits, so the
+  output must be one that `verify` compares.
+* Sweep finely near the edge: `edge` may span at most a factor `close`, so a
+  value inside it is a real answer and not a lucky region. Choose the sweep's
+  range so the measurement is monotone over it. If the method also fails far
+  on the other side (precision is lost both when two rates merge and when one
+  phase ends before the first sample), keep the sweep on one side and say so
+  in `explain`.
+* **The probe is checked too.** `verify` runs `probe` at both ends of `edge`
+  and fails unless each prints one `row` line, the method works at one end
+  and fails at the other, as in the sweep. So a learner's probe run measures
+  the same thing as the sweep. The site puts the learner's value into the
+  probe only after checking it is a plain positive number, and the run goes
+  through `tutor serve` like any other.
+* `limit` is a convention, not a law (a relative standard error of 0.5, a
+  growth above 1): state it in `prompt`, so the learner knows what "fails"
+  means before measuring.
+* An example carries one of a prediction, a checkpoint or a break-it
+  challenge.
+
 ## Practice problems
 
 ```toml

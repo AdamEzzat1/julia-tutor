@@ -42,3 +42,8 @@ assessed_by = ["project:symdiff"]
 [[outcome]]
 text = "Use threads without data races, and say when threads will not help."
 assessed_by = ["18-concurrency"]
+
+# What `tutor sandbox pull core` downloads, shown on the course's landing page.
+[setup]
+download = "0.20 GiB"
+measured = "compressed image layers, CI run 43035350960 (2026-11-11); docs/SANDBOX_IMAGES.md"

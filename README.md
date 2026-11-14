@@ -1,15 +1,29 @@
 # julia-tutor
 
-A symbolic, deterministic coding tutor for Julia, with no LLM in the feedback
-loop. Students finish partially complete research-grade projects. Behavioural
-tests define correctness, a static checker flags novice misconceptions, and an
-`explain` step joins test failures, findings, measurements and a measured
-test-to-hole map to say where to start.
+A symbolic, deterministic tutor for scientific computing and scientific ML in
+Julia, with no LLM in the feedback loop. Behavioural tests define correctness, a
+static checker flags novice misconceptions, and an `explain` step joins test
+failures, findings, measurements and a measured test-to-hole map to say where to
+start.
 
-First project: **symdiff**, a from-scratch computer-algebra core (typed term
-trees, canonical simplification, differentiation by multiple dispatch, pattern
-matching, rewriting with a termination measure). It has no dependency on
-Symbolics.jl, SymbolicUtils.jl or Metatheory.jl.
+Four courses (`./tutor courses`; `course/courses/*.toml`):
+
+| Course | Role | Status |
+|---|---|---|
+| Core Julia | the way in | ready |
+| Julia for science | the packages in between | ready |
+| Scientific computing | destination | ready |
+| Scientific ML | destination | **in progress** |
+
+"Ready" means every unit is published with recorded outputs and graders that
+pass their own tests; it says nothing yet about how well the courses teach. No
+learner has taken one: time estimates on the site are computed from counts,
+not measured, until a pilot runs.
+
+Core Julia's project is **symdiff**, a from-scratch computer-algebra core (typed
+term trees, canonical simplification, differentiation by multiple dispatch,
+pattern matching, rewriting with a termination measure), with holes to fill. It
+has no dependency on Symbolics.jl, SymbolicUtils.jl or Metatheory.jl.
 
 ```bash
 juliaup add 1.10.13
@@ -30,5 +44,5 @@ JULIA_PKG_OFFLINE=false julia_pinned --project=. -e 'using Pkg; Pkg.instantiate(
 
 Status: M1 slice + M2 (explain fixtures, learner model) + course (C1) + website. `tutor serve`, which runs
 code sent by the website, runs it in a Docker container with no network and no access to your files
-(`./tutor sandbox build` once; `--sandbox=none` opts out). The CLI test runner (`tutor test`) still runs plain
+(`./tutor sandbox pull <course>` once, or `build`; `--sandbox=none` opts out; [docs/START_CORE.md](docs/START_CORE.md)). The CLI test runner (`tutor test`) still runs plain
 processes: only run your own code with it.

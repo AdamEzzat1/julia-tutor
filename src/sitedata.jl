@@ -96,9 +96,13 @@ function project_data(name::String)
                 "problems" => hm["problems"], "baseline" => base, "fixtures" => fixtures)
 end
 
+# The site's worked example: the front page, Explain and HoleMap views read
+# `projects[0]`, so it stays first; other hole projects follow by name.
+const SITE_EXAMPLE = "symdiff"
+
 function site_data()
     projects = sort!([d for d in readdir(joinpath(TUTOR_ROOT, "projects"))
-                      if isfile(joinpath(TUTOR_ROOT, "projects", d, "holes.toml"))])
+                      if isfile(joinpath(TUTOR_ROOT, "projects", d, "holes.toml"))]; by = n -> (n != SITE_EXAMPLE, n))
     return Dict("julia" => string(VERSION),
                 "generated_by" => "tutor site-data (do not edit; regenerate)",
                 "lessons" => lessons_data(), "rules" => rules_data(),
@@ -148,11 +152,44 @@ function course_data()
             examples = Any[]
             for e in s.examples
                 r = get(exs, Course.example_key(e.code, e.mode), nothing)
-                push!(examples, Dict("code" => rstrip(e.code), "caption" => e.caption, "notice" => e.notice, "mode" => e.mode,
-                                     "check" => e.check, "output" => r === nothing ? nothing : r["output"],
-                                     "ok" => r === nothing ? nothing : r["ok"],
-                                     "images" => r === nothing ? Any[] :
-                                         Any["assets/figures/$(u.id)/$f" for f in get(r, "images", Any[])]))
+                p = e.predict
+                # The site shows the measured value with the output; only a key
+                # that `tutor course verify` would accept is exported.
+                pred = p === nothing || r === nothing ? nothing : begin
+                    hold, cap = Course.measured_choices(p, r["output"])
+                    hold == [p.answer] ? Dict("kc" => p.kc, "prompt" => strip(p.prompt), "choices" => p.choices,
+                                              "answer" => p.answer, "explain" => strip(p.explain), "measured" => cap) : nothing
+                end
+                ed = Dict{String,Any}("code" => rstrip(e.code), "caption" => e.caption, "notice" => e.notice, "mode" => e.mode,
+                                      "check" => e.check, "output" => r === nothing ? nothing : r["output"],
+                                      "ok" => r === nothing ? nothing : r["ok"],
+                                      "images" => r === nothing ? Any[] :
+                                          Any["assets/figures/$(u.id)/$f" for f in get(r, "images", Any[])])
+                pred === nothing || (ed["predict"] = pred)     # only examples that have one carry the key
+                c = e.choose
+                if c !== nothing && r !== nothing && isempty(Course.checkpoint_output_problems(c, r["output"]))
+                    sc = Course.score_checkpoint(c, r["output"])
+                    ed["choose"] = Dict("kc" => c.kc, "prompt" => strip(c.prompt), "choices" => c.choices,
+                                        "cost" => c.cost, "band" => c.band, "explain" => strip(c.explain),
+                                        "misconceptions" => c.misconceptions,
+                                        # the measured table the choice is scored against
+                                        "costs" => Any[isinteger(x) ? Int(x) : x for x in sc.costs], "ok" => sc.oks,
+                                        "ratios" => [round(x; sigdigits = 3) for x in sc.ratios],
+                                        "verdicts" => sc.verdicts)
+                end
+                b = e.breakit
+                if b !== nothing && r !== nothing && isempty(Course.breakit_output_problems(b, r["output"]))
+                    sc = Course.score_breakit(b, r["output"])
+                    ed["breakit"] = Dict("kc" => b.kc, "prompt" => strip(b.prompt), "param" => b.param,
+                                         "measure" => b.measure, "fails" => b.fails, "limit" => b.limit,
+                                         "close" => b.close, "edge" => [sc.edge...], "side" => sc.side,
+                                         "probe" => rstrip(b.probe), "row" => b.row, "explain" => strip(b.explain),
+                                         "short" => strip(b.short), "past" => strip(b.past),
+                                         # the measured sweep; `m` as text, since it may be Inf or NaN
+                                         "rows" => Any[Dict("p" => p, "m" => repr(m), "failed" => f)
+                                                       for (p, m, f) in zip(sc.ps, sc.ms, sc.failed)])
+                end
+                push!(examples, ed)
             end
             questions = Any[Dict("kind" => q.kind, "prompt" => strip(q.prompt), "code" => rstrip(q.code),
                                  "choices" => q.choices, "answer" => q.answer, "explain" => strip(q.explain),
@@ -190,15 +227,22 @@ writes them all and `--check` compares them all.
 function course_files()
     d = course_data()
     courses = Course.load_courses()
+    units = Course.load_course()
     byid = Dict(u["id"] => u for u in d["units"])
+    estimate(c) = let (lo, hi, basis) = Course.time_estimate(c, units)
+        Dict("low_hours" => lo, "high_hours" => hi, "basis" => basis)
+    end
     gen = Dict("julia" => d["julia"], "generated_by" => d["generated_by"])
     index = merge(gen, Dict("tracks" => d["tracks"], "track_requires" => d["track_requires"], "envs" => d["envs"],
         "courses" => Any[Dict("id" => c.id, "title" => c.title, "order" => c.order, "status" => c.status,
+                              "status_note" => c.status_note,
                               "summary" => c.summary, "requires" => c.requires, "envs" => c.envs, "units" => c.units,
                               "projects" => c.projects, "guided" => c.guided,
                               "problems" => sum(length(byid[u]["problems"]) for u in c.units; init = 0),
                               "outcomes" => Any[Dict("text" => o.text, "assessed_by" => o.assessed_by,
-                                                     "planned" => o.planned) for o in c.outcomes])
+                                                     "planned" => o.planned) for o in c.outcomes],
+                              "estimate" => estimate(c),
+                              "setup" => Dict("download" => c.download, "measured" => c.download_measured))
                          for c in courses]))
     files = Pair{String,Any}["courses.json" => index]
     for c in courses
