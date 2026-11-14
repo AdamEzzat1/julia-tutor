@@ -150,6 +150,12 @@ body.quarto-dark {
 .jt-chip.advice { color: var(--jt-amber); border-color: color-mix(in srgb, var(--jt-amber) 35%, transparent); background: var(--jt-amber-soft); }
 .jt-chip.info { color: var(--jt-blue); border-color: color-mix(in srgb, var(--jt-blue) 35%, transparent); background: var(--jt-blue-soft); }
 .jt-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+/* A chip that can hold a long list (an env's packages): wraps inside the
+   column instead of running off a phone screen. Short chips stay one line. */
+.jt-chip.wrap {
+  white-space: normal; overflow-wrap: anywhere; max-width: 100%;
+  line-height: 1.4; border-radius: 0.6rem;
+}
 
 /* ---- buttons -------------------------------------------------------------- */
 
