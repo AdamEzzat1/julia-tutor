@@ -49,6 +49,25 @@ example measures the bytes each version allocates, in units of the size of
 `x`: the fused version allocates one array's worth, the stepwise one four.
 '''
 
+  [[section.analogy]]
+  title = "Plating one dish at a time"
+  text = '''
+A kitchen has to make 1000 plates of "sliced tomato plus twice the squared
+cucumber". The stepwise way slices all 1000 tomatoes into one big bowl, squares
+all 1000 cucumbers into a second bowl, doubles them into a third, and only then
+combines the bowls onto plates. The fused way takes one tomato and one
+cucumber, finishes that plate, and moves to the next. Both serve the same
+plates; the second never fills a bowl. In code each bowl is a *temporary
+array*: built only to be read once and thrown away.
+'''
+  breaks = '''
+A cook can choose to work plate by plate anywhere. Julia fuses only the dotted
+calls inside one expression: putting steps on separate lines, as `stepwise`
+does, or passing a dotted result to a call without a dot, such as `sum(x .^ 2)`,
+builds the full intermediate array first. And fusion calls each function once
+per element, so work that could be shared across elements is not shared.
+'''
+
   [[section.example]]
   code = '''
 fused(x) = sin.(x) .+ 2 .* x .^ 2
@@ -114,6 +133,24 @@ matched give a `DimensionMismatch`.
 
 To treat a whole container as a single value inside a broadcast, wrap it in
 `Ref(...)` (or a one-element tuple).
+'''
+
+  [[section.analogy]]
+  title = "Filling in an addition table"
+  text = '''
+`col .+ row` is the addition table from primary school. The column `[1, 2, 3]`
+runs down the left edge, the row `[10 20]` runs along the top, and each cell
+is its row's left number plus its column's top number. The column is used
+again in every column of the table and the row in every row: that reuse is
+what "a dimension of length 1 is stretched" means. A scalar is a table with
+one number that is reused in every cell.
+'''
+  breaks = '''
+A table can have any edges, but broadcasting stretches a dimension only when
+its length is 1. `[1, 2, 3] .+ [1, 2]` puts two columns of different lengths
+side by side; neither has length 1 in that dimension, so there is no table to
+fill and Julia throws a `DimensionMismatch`. Also, the stretched values are
+never copied in memory: Julia reads the same element again for each cell.
 '''
 
   [[section.example]]

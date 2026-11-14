@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 384" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>The stability region of forward Euler</title>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker>
+<marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker>
+</defs>
+<rect width="720" height="384" fill="#ffffff"/>
+<text x="20.0" y="26.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">Where forward Euler is stable: |1 + hλ| ≤ 1, a disk in the complex hλ plane</text>
+<line x1="78.0" y1="190.0" x2="442.0" y2="190.0" stroke="#776f82" stroke-width="1" marker-end="url(#arrow)"/>
+<line x1="330.0" y1="316.0" x2="330.0" y2="43.0" stroke="#776f82" stroke-width="1" marker-end="url(#arrow)"/>
+<text x="442.0" y="210.0" font-size="13" fill="#776f82" text-anchor="end">Re hλ</text>
+<text x="338.0" y="55.0" font-size="13" fill="#776f82" text-anchor="start">Im hλ</text>
+<circle cx="260.0" cy="190.0" r="70" fill="#3657c8" fill-opacity="0.15" stroke="#3657c8" stroke-width="2"/>
+<line x1="120.0" y1="186.0" x2="120.0" y2="194.0" stroke="#776f82" stroke-width="1"/>
+<text x="120.0" y="210.0" font-size="13" fill="#776f82" text-anchor="middle">-3</text>
+<line x1="190.0" y1="186.0" x2="190.0" y2="194.0" stroke="#776f82" stroke-width="1"/>
+<text x="190.0" y="210.0" font-size="13" fill="#776f82" text-anchor="middle">-2</text>
+<line x1="260.0" y1="186.0" x2="260.0" y2="194.0" stroke="#776f82" stroke-width="1"/>
+<text x="260.0" y="210.0" font-size="13" fill="#776f82" text-anchor="middle">-1</text>
+<line x1="400.0" y1="186.0" x2="400.0" y2="194.0" stroke="#776f82" stroke-width="1"/>
+<text x="400.0" y="210.0" font-size="13" fill="#776f82" text-anchor="middle">1</text>
+<text x="260.0" y="168.0" font-size="13" fill="#3657c8" text-anchor="middle">stable</text>
+<circle cx="197.0" cy="190.0" r="5" fill="#2f8a4c" stroke="none" stroke-width="1.5"/>
+<line x1="197.0" y1="182.0" x2="167.0" y2="138.0" stroke="#2f8a4c" stroke-width="1"/>
+<text x="163.0" y="144.0" font-size="13" fill="#2f8a4c" text-anchor="end">h = 0.019: hλ = -1.9</text>
+<circle cx="183.0" cy="190.0" r="5" fill="#c0392b" stroke="none" stroke-width="1.5"/>
+<line x1="183.0" y1="198.0" x2="153.0" y2="230.0" stroke="#c0392b" stroke-width="1"/>
+<text x="149.0" y="246.0" font-size="13" fill="#c0392b" text-anchor="end">h = 0.021: hλ = -2.1</text>
+<line x1="330.0" y1="190.0" x2="246.0" y2="78.0" stroke="#776f82" stroke-width="1.2" stroke-dasharray="4 4"/>
+<circle cx="281.7" cy="125.6" r="5" fill="#2f8a4c" stroke="none" stroke-width="1.5"/>
+<circle cx="277.5" cy="120.0" r="5" fill="#c0392b" stroke="none" stroke-width="1.5"/>
+<text x="240.0" y="72.0" font-size="13" fill="#776f82" text-anchor="end">λ = -3 + 4i, h from 0 to 0.4</text>
+<line x1="283.5" y1="117.0" x2="370.0" y2="99.5" stroke="#c0392b" stroke-width="1"/>
+<text x="374.0" y="95.5" font-size="13" fill="#c0392b" text-anchor="start">h = 0.25: |1 + hλ| = 1.031, outside</text>
+<line x1="287.7" y1="128.6" x2="370.0" y2="144.0" stroke="#2f8a4c" stroke-width="1"/>
+<text x="374.0" y="148.0" font-size="13" fill="#2f8a4c" text-anchor="start">h = 0.23: |1 + hλ| = 0.971, inside</text>
+<text x="20.0" y="350.0" font-size="13" fill="#776f82" text-anchor="start">Every eigenvalue's hλ must lie in the disk. A real λ leaves it at h = 2/|λ|; λ = -3 + 4i leaves at h = 0.24,</text>
+<text x="20.0" y="368.0" font-size="13" fill="#776f82" text-anchor="start">well before 2/|λ| = 0.4. Backward Euler is stable for every hλ with Re hλ &lt; 0 (it has no such limit).</text>
+</svg>

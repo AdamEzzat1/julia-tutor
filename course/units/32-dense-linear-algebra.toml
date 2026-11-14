@@ -55,6 +55,7 @@ about `2n³/3` floating-point operations, Cholesky `n³/3` (it uses symmetry),
 and a triangular solve `n²`; a tridiagonal LU is `O(n)`. Once a
 factorization exists, each solve with it is `O(n²)` (or less).
 '''
+refs = ["trefethen-bau-1997", "lapack-1999"]
 
   [[section.example]]
   caption = "`factorize` on the same random 5×5 data in different shapes: the type of factorization it chooses."
@@ -125,6 +126,26 @@ The same holds for any formula with an inverse in it: `A⁻¹ B` is `A \ B`,
 and `x' * inv(S) * x` is `dot(x, S \ x)` or, with a Cholesky factor `L`,
 `sum(abs2, L \ x)`.
 '''
+refs = ["higham-2002"]
+
+  [[section.analogy]]
+  title = "Dividing by 7 by way of 1/7"
+  text = '''
+To work out 21 / 7 by hand, nobody first computes 1/7 = 0.142857... and
+then multiplies by 21. Dividing directly is less work and gives exactly 3,
+while the detour through a rounded 1/7 (six digits) gives 2.999997.
+`A \ b` is the direct division; `inv(A) * b` is the detour. For matrices
+the detour costs about three times the work (`2n³` against `2n³/3`), and
+the answer it gives, though often about as close to `x`, is not the exact
+solution of any nearby system: its backward error can be `κ(A)` times
+larger.
+'''
+  breaks = '''
+For single numbers the detour is harmless in floating point: `x * (1/7)` and
+`x / 7` differ by at most a rounding or two, whatever `x` is. For matrices
+the gap grows with the condition number (the example measured a ratio of
+backward errors near `1e10`), so the analogy understates the effect.
+'''
 
   [[section.example]]
   caption = "A 100×100 matrix with singular values from 1 to `1e-12` (`κ = 1e12`): backward error and forward error of `A \\ b` and of `inv(A) * b`, against the known solution."
@@ -187,6 +208,24 @@ Vandermonde matrix `V[i, j] = x_i^(j-1)` on `[0, 1]` has columns that look
 more and more alike as `j` grows, so `κ(V)` grows exponentially with the
 degree.
 '''
+refs = ["businger-golub-1965", "trefethen-bau-1997"]
+
+  [[section.analogy]]
+  title = "A photocopy of a photocopy"
+  text = '''
+Forming `AᵀA` before solving is like making a photocopy of a photocopy:
+whatever detail the first copy blurred, the second blurs again. In numbers,
+the condition number is squared, `κ(AᵀA) = κ(A)²`, so the digits you can
+lose double, from `log10 κ(A)` to `2 log10 κ(A)`. QR works from `A` itself:
+the original instead of the copy.
+'''
+  breaks = '''
+A photocopier loses some detail at every copy, whatever the page shows. The
+normal equations lose little on a well-conditioned `A` (with `κ(A) = 10`,
+squaring costs one more digit out of 16). And when the fit's residual is
+large, every method, QR included, pays a `κ(A)²` term, as this section says:
+then the original is blurred too.
+'''
 
   [[section.example]]
   caption = "Fitting exact polynomial data (all coefficients 1, 50 points on [0, 1]) of degree 8 and 12: the condition numbers and the relative error of the recovered coefficients."
@@ -244,6 +283,29 @@ Two refinements remove allocation as well:
   when you no longer need it.
 
 `F \ B` with a matrix `B` solves for all of its columns with one call.
+'''
+refs = ["trefethen-bau-1997"]
+
+  [[section.diagram]]
+  file = "lu-factor-solve.svg"
+  alt = "Left: a square A equals a lower-triangular L times an upper-triangular U, labelled F = lu(A), about 2n³/3 operations, done once. Right: for each new b, solve L y = b (forward substitution, n² operations) and then U x = y (back substitution, n² operations), written F \\ b or ldiv!(y, F, b). Bottom: at n = 1000, a long bar for one LU (6.7e8 operations) and a sliver for one solve with the factors (2e6 operations, 0.3% of an LU)."
+  caption = "The expensive part depends only on A, so a loop over right-hand sides should pay for it once."
+
+  [[section.analogy]]
+  title = "Sorting the mail once"
+  text = '''
+A post office sorts the day's letters into pigeonholes once, by street.
+After that, each carrier picks up a bundle in seconds. The sorting is the
+factorization `F = lu(A)` (about `2n³/3` operations); each delivery is a
+solve with `F` (two triangular solves, about `2n²` operations). When the
+same `A` meets many right-hand sides, sort once and deliver many times.
+'''
+  breaks = '''
+Sorted pigeonholes still work for letters that arrive later. A
+factorization is tied to one matrix: if any entry of `A` changes (a new
+step size in an implicit method, a new Jacobian in Newton's method), the
+factors are out of date, and solving with them returns the answer to the
+old system.
 '''
 
   [[section.example]]
@@ -321,6 +383,12 @@ A gap in the singular values tells you a rank is meaningful: three values
 of order 1 followed by values near `1e-10` is a clear rank 3 at any
 tolerance in between.
 '''
+refs = ["golub-kahan-1965", "trefethen-bau-1997"]
+
+  [[section.diagram]]
+  file = "singular-value-gap.svg"
+  alt = "Bar chart on a log scale of the six singular values of the noisy 6 × 6 matrix: 7.794, 5.648 and 2.503, then 2e-10, 1e-10 and 3e-11. A red dashed line at the default threshold of rank, 6 eps σ1 ≈ 1.0e-14, lies below all six bars, giving rank 6. A green dashed line at rtol = 1e-8 times σ1, about 7.8e-8, lies between the third and fourth bars, giving rank 3."
+  caption = "The default threshold assumes data exact to rounding and counts the noise as rank; a threshold placed between the noise level and the signal finds the gap."
 
   [[section.example]]
   caption = "A 6×6 matrix of exact rank 3, before and after adding noise of size `1e-10` to every entry: singular values (rounded to 1 digit below 1e-3, since rounding sets those digits) and the rank at two tolerances."
@@ -672,3 +740,160 @@ function numerical_rank(A, rtol)
 end
 '''
   expect = ["correct", "allocates"]
+
+[[problem]]
+id = "dla-forward-sub-parsons"
+title = "Parsons: forward substitution, line by line"
+difficulty = "warm-up"
+kcs = ["matrix-factorization"]
+entry = "forward_sub"
+packages = []
+prompt = '''
+`forward_sub(L, b)` solves `L x = b` for a lower-triangular `L` with a
+nonzero diagonal: this is the triangular solve that `lu(A) \ b` performs
+after the factorization. Row `i` gives
+`x[i] = (b[i] - sum(L[i, j] * x[j] for j < i)) / L[i, i]`.
+
+Put the lines in an order that works. The signature, `n = length(b)` and the
+last two lines are fixed. Each line keeps its indentation, and the
+indentation must match the blocks your order creates. Two of the lines on
+offer are wrong: leave them out.
+
+```julia
+forward_sub([2.0 0 0; 1 3 0; -1 2 4], [2.0, 7, 9])   # [1.0, 2.0, 1.5]
+```
+
+Every order that works was found by running all of them on the cases. Results
+are compared with `rtol = 1e-12`.
+'''
+reference = '''
+function forward_sub(L, b)
+    n = length(b)
+    x = zeros(n)
+    for i in 1:n
+        s = b[i]
+        for j in 1:i-1
+            s -= L[i, j] * x[j]
+        end
+        x[i] = s / L[i, i]
+    end
+    return x
+end
+'''
+cases = [
+  "[2.0 0 0; 1 3 0; -1 2 4], [2.0, 7, 9]",
+  "fill(5.0, 1, 1), [10.0]",
+  "[1.0 0 0 0; 2 1 0 0; 0 -1 2 0; 3 0 1 4], [1.0, 4, 3, 13]",
+  "[4.0 0 0; 2 -1 0; 1 1 2], [8.0, 3, 0]",
+]
+compare = "isapprox"
+# rtol: forward substitution is backward stable; on these 1x1 to 4x4 systems with entries of order 1
+# and condition numbers below 100, a different summation order moves x by at most a few hundred eps
+# (about 1e-13 relative). The wrong orders change x by more than 1e-2.
+rtol = 1e-12
+hints = [
+  "Row `i` needs every `x[j]` with `j < i` before it can compute `x[i]`. Which loop runs over rows, and which over the earlier unknowns?",
+  "Start the row's sum at the right-hand side, subtract the known terms inside the inner loop, and divide by the diagonal once that loop has ended.",
+]
+
+  [problem.parsons]
+  kc = "matrix-factorization"
+  head = 2
+  tail = 2
+
+  [[problem.parsons.distractor]]
+  line = "        s = 0.0"
+  replaces = 3
+  misconception = '''
+Starting an accumulator at zero is the habit from computing a sum, but this
+row's equation is `L[i, 1:i-1] x[1:i-1] + L[i, i] x[i] = b[i]`: what is left
+for `x[i]` is `b[i]` minus the known terms. Starting at `0.0` solves `L x = 0`
+up to sign, so the result is wrong for every nonzero `b`.
+'''
+
+  [[problem.parsons.distractor]]
+  line = "        for j in i+1:n"
+  replaces = 4
+  misconception = '''
+`i+1:n` is the range of back substitution, where the unknowns after `i` are
+known first. Here they are still zero when row `i` is solved, so this loop
+subtracts nothing and the result is `b ./ diag(L)`. The belief it models: a
+triangular solve runs over "the other part" of the row, whichever triangle
+it is.
+'''
+
+  [[problem.variant]]
+  label = "divides by the diagonal inside the inner loop"
+  code = '''
+function forward_sub(L, b)
+    n = length(b)
+    x = zeros(n)
+    for i in 1:n
+        s = b[i]
+        for j in 1:i-1
+            s -= L[i, j] * x[j]
+            x[i] = s / L[i, i]
+        end
+    end
+    return x
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the row's sum written with sum and a generator"
+  code = '''
+function forward_sub(L, b)
+    x = similar(b, float(eltype(b)))
+    for i in eachindex(b)
+        x[i] = (b[i] - sum(L[i, j] * x[j] for j in 1:i-1; init = 0.0)) / L[i, i]
+    end
+    return x
+end
+'''
+  expect = ["correct"]
+
+[[reference]]
+id = "trefethen-bau-1997"
+authors = "Trefethen, L. N.; Bau, D., III"
+title = "Numerical Linear Algebra"
+venue = "SIAM"
+year = 1997
+url = "https://doi.org/10.1137/1.9780898719574"
+note = "Derives the operation counts quoted here (LU about `2n³/3`, Cholesky `n³/3`), least squares by QR and why the normal equations square the condition number, and the SVD and its link to `opnorm`, `cond` and rank."
+
+[[reference]]
+id = "higham-2002"
+authors = "Higham, N. J."
+title = "Accuracy and Stability of Numerical Algorithms"
+venue = "SIAM, second edition"
+year = 2002
+url = "https://doi.org/10.1137/1.9780898718027"
+note = "Analyses matrix inversion and shows that `x = inv(A) * b` is not backward stable while LU with partial pivoting is (section 3)."
+
+[[reference]]
+id = "businger-golub-1965"
+authors = "Businger, P.; Golub, G. H."
+title = "Linear least squares solutions by Householder transformations"
+venue = "Numerische Mathematik 7, 269-276"
+year = 1965
+url = "https://doi.org/10.1007/BF01436084"
+note = "Solved least-squares problems by an orthogonal (Householder) QR factorization of `A` with column pivoting, instead of the normal equations: the method behind `A \\ y` for a tall `A` (which pivots), and, without the pivoting, `qr(A) \\ y` in section 4."
+
+[[reference]]
+id = "golub-kahan-1965"
+authors = "Golub, G.; Kahan, W."
+title = "Calculating the singular values and pseudo-inverse of a matrix"
+venue = "Journal of the Society for Industrial and Applied Mathematics, Series B: Numerical Analysis 2(2), 205-224"
+year = 1965
+url = "https://doi.org/10.1137/0702016"
+note = "The first stable way to compute the singular values that `svdvals` returns, and the discussion of when small singular values should be treated as zero (section 6)."
+
+[[reference]]
+id = "lapack-1999"
+authors = "Anderson, E.; Bai, Z.; Bischof, C.; Blackford, L. S.; Demmel, J.; Dongarra, J.; Du Croz, J.; Greenbaum, A.; Hammarling, S.; McKenney, A.; Sorensen, D."
+title = "LAPACK Users' Guide"
+venue = "SIAM, third edition"
+year = 1999
+url = "https://www.netlib.org/lapack/lug/"
+note = "Documents the LAPACK routines that Julia's LinearAlgebra calls for the factorizations of section 2: LU with partial pivoting, Cholesky, Bunch-Kaufman and column-pivoted QR. The link is the free online edition."

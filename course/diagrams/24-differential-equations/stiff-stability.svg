@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Explicit and implicit steps on a fast decay</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker><marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker></defs>
+<rect x="0" y="0" width="720" height="400" fill="#ffffff"/>
+<text x="360.0" y="24.0" font-size="15" text-anchor="middle" fill="#2b2733" >du/dt = -λu with a step h where hλ = 2.5 (the two Euler methods)</text>
+<line x1="110.0" y1="210.0" x2="650.0" y2="210.0" stroke="#776f82" stroke-width="1.5"/>
+<line x1="110.0" y1="50.0" x2="110.0" y2="320.0" stroke="#776f82" stroke-width="1.5"/>
+<line x1="105.0" y1="288.0" x2="110.0" y2="288.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="98.0" y="293.0" font-size="13" text-anchor="end" fill="#776f82" >-3</text>
+<line x1="105.0" y1="210.0" x2="110.0" y2="210.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="98.0" y="215.0" font-size="13" text-anchor="end" fill="#776f82" >0</text>
+<line x1="105.0" y1="132.0" x2="110.0" y2="132.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="98.0" y="137.0" font-size="13" text-anchor="end" fill="#776f82" >3</text>
+<text x="110.0" y="340.0" font-size="13" text-anchor="middle" fill="#776f82" >step 0</text>
+<text x="240.0" y="340.0" font-size="13" text-anchor="middle" fill="#776f82" >step 1</text>
+<text x="370.0" y="340.0" font-size="13" text-anchor="middle" fill="#776f82" >step 2</text>
+<text x="500.0" y="340.0" font-size="13" text-anchor="middle" fill="#776f82" >step 3</text>
+<text x="630.0" y="340.0" font-size="13" text-anchor="middle" fill="#776f82" >step 4</text>
+<polyline points="110.0,184.0 240.0,249.0 370.0,151.5 500.0,297.8 630.0,78.4" fill="none" stroke="#c0392b" stroke-width="2"/>
+<circle cx="110.0" cy="184.0" r="4" fill="#c0392b"/>
+<circle cx="240.0" cy="249.0" r="4" fill="#c0392b"/>
+<circle cx="370.0" cy="151.5" r="4" fill="#c0392b"/>
+<circle cx="500.0" cy="297.8" r="4" fill="#c0392b"/>
+<circle cx="630.0" cy="78.4" r="4" fill="#c0392b"/>
+<polyline points="110.0,184.0 240.0,202.6 370.0,207.9 500.0,209.4 630.0,209.8" fill="none" stroke="#2f8a4c" stroke-width="2"/>
+<circle cx="110.0" cy="184.0" r="4" fill="#2f8a4c"/>
+<circle cx="240.0" cy="202.6" r="4" fill="#2f8a4c"/>
+<circle cx="370.0" cy="207.9" r="4" fill="#2f8a4c"/>
+<circle cx="500.0" cy="209.4" r="4" fill="#2f8a4c"/>
+<circle cx="630.0" cy="209.8" r="4" fill="#2f8a4c"/>
+<polyline points="110.0,184.0 240.0,207.9 370.0,209.8 500.0,210.0 630.0,210.0" fill="none" stroke="#776f82" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="248.0" y="267.0" font-size="13" text-anchor="start" fill="#c0392b" >-1.5</text>
+<text x="378.0" y="143.5" font-size="13" text-anchor="start" fill="#c0392b" >2.25</text>
+<text x="508.0" y="315.8" font-size="13" text-anchor="start" fill="#c0392b" >-3.375</text>
+<text x="638.0" y="70.4" font-size="13" text-anchor="start" fill="#c0392b" >5.0625</text>
+<text x="125.0" y="60.0" font-size="13" text-anchor="start" fill="#c0392b" >explicit Euler: u × (1 - hλ) = u × (-1.5)</text>
+<text x="125.0" y="80.0" font-size="13" text-anchor="start" fill="#c0392b" >each step |u| grows 1.5 times and flips sign</text>
+<text x="125.0" y="104.0" font-size="13" text-anchor="start" fill="#2f8a4c" >implicit Euler: u × 1/(1 + hλ) = u / 3.5</text>
+<text x="125.0" y="124.0" font-size="13" text-anchor="start" fill="#776f82" >dashed grey: exact solution e^(-hλn)</text>
+<text x="360.0" y="385.0" font-size="13" text-anchor="middle" fill="#776f82" >The step is too long for the explicit method's stability, though the solution is smooth.</text>
+</svg>

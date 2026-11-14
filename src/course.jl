@@ -124,6 +124,44 @@ end
 # The sweep needs this many rows for an edge to mean something.
 const BREAK_MIN_ROWS = 4
 
+"""One axis of an explorer's grid: a named group of `row`, its label, and whether it is drawn on a log scale."""
+struct ExploreAxis
+    group::String
+    label::String
+    log::Bool
+end
+
+"""
+Precomputed explorer (Phase 5): sliders over a grid of results that the
+example's own output recorded (error against step size for three methods,
+growth against a stability number). Nothing is typed as data: `row` is a
+regex with one named group per axis and one for the `measure`, matched on
+every output line, and the matched lines must form a full grid (every
+combination of the axes' values exactly once). The site shows a slider (or,
+for an axis whose values are words, buttons) per axis, the measure at the
+chosen point as printed, and a plot of the measure against axis `x`, one
+line per value of `series` if there is one. It is labelled as precomputed
+by the reference; the example's code can be edited and run with `tutor
+serve`. `tutor course verify` re-runs the example (it must have `check =
+true`), so a changed grid is a changed output.
+"""
+struct Explorer
+    kc::String
+    prompt::String                 # what to try with the sliders
+    row::String                    # regex: a named group per axis, and one named `measure`'s group
+    axes::Vector{ExploreAxis}      # in the order the sliders are shown
+    x::String                      # the axis on the plot's horizontal (numeric)
+    series::String                 # the axis drawn as one line per value; "" = none
+    measure::String                # the measured group
+    label::String                  # what the measure is ("max error at t = 2")
+    log::Bool                      # the measure on a log scale
+    explain::String                # shown under the explorer
+end
+
+# Grids bigger than this make the site data heavy and the sliders coarse to use.
+const EXPLORE_MAX_POINTS = 400
+const EXPLORE_MAX_AXES = 3
+
 struct Example
     code::String
     check::Bool          # false: output varies run to run (timings, threads); recorded, not compared
@@ -133,12 +171,16 @@ struct Example
     predict::Union{Nothing,Prediction}   # commit a prediction before the output is shown
     choose::Union{Nothing,Checkpoint}    # pick a method and give a reason before the output is shown
     breakit::Union{Nothing,BreakIt}      # find where the method fails before the sweep is shown
+    explore::Union{Nothing,Explorer}     # sliders over the grid the output recorded
 end
-Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing, nothing, nothing)
-Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing, nothing, nothing)
-Example(code, check, caption, mode, notice, predict) = Example(code, check, caption, mode, notice, predict, nothing, nothing)
+Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing, nothing, nothing, nothing)
+Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing, nothing, nothing, nothing)
+Example(code, check, caption, mode, notice, predict) =
+    Example(code, check, caption, mode, notice, predict, nothing, nothing, nothing)
 Example(code, check, caption, mode, notice, predict, choose) =
-    Example(code, check, caption, mode, notice, predict, choose, nothing)
+    Example(code, check, caption, mode, notice, predict, choose, nothing, nothing)
+Example(code, check, caption, mode, notice, predict, choose, breakit) =
+    Example(code, check, caption, mode, notice, predict, choose, breakit, nothing)
 
 """
 A concept question shown after a section's examples. `choice`: pick the
@@ -157,12 +199,53 @@ struct Question
     misconceptions::Vector{String}  # one per choice; "" for the right one
 end
 
+"""
+An analogy shown beside a section's prose, for readers new to the field.
+`breaks` is required: where the analogy stops matching the mathematics, so
+the picture never replaces the definition it illustrates.
+"""
+struct Analogy
+    title::String
+    text::String
+    breaks::String
+end
+
+"""
+A hand-drawn SVG diagram, `course/diagrams/<unit>/<file>`. `alt` describes
+what the diagram shows in words (for screen readers, and as a check that the
+picture says something the prose can state).
+"""
+struct Diagram
+    file::String
+    alt::String
+    caption::String
+end
+
+"""
+A published source: a paper, book or official documentation page that a
+unit cites. `url` must be public (https); `note` says what in the unit it
+supports, in the unit's own words.
+"""
+struct Reference
+    id::String
+    authors::String
+    title::String
+    venue::String
+    year::Int
+    url::String
+    note::String
+end
+
 struct Section
     title::String
     body::String
     examples::Vector{Example}
     questions::Vector{Question}
+    analogies::Vector{Analogy}
+    diagrams::Vector{Diagram}
+    refs::Vector{String}          # ids of the unit's references this section rests on
 end
+Section(title, body, examples, questions) = Section(title, body, examples, questions, Analogy[], Diagram[], String[])
 
 struct Perf
     args::String         # Julia expression(s) for the arguments, with `rng` and `n` in scope
@@ -213,6 +296,35 @@ struct Bug
     answer_tokens::Vector{String}
 end
 
+"""
+A distractor line of a Parsons problem: it can take the place of the movable
+line `replaces` (1-based), and stands for `misconception`.
+"""
+struct Distractor
+    line::String
+    replaces::Int
+    misconception::String
+end
+
+"""
+Parsons problem (Phase 5): the learner puts the reference's lines in order.
+The first `head` and last `tail` lines of the reference stay fixed; the lines
+between them are shuffled, together with the distractors. Lines keep their
+indentation, which must match the block structure (4 spaces per level), so an
+ordering whose indentation contradicts its `for`/`end` nesting is rejected
+before it is run. Which orderings work is measured: `tutor course record`
+runs every arrangement (one of each line/distractor pair, every order) that
+parses and is indented consistently on the problem's cases and stores those
+that match the reference; `verify` re-runs it and requires the reference's own
+order to be accepted and no ordering with a distractor to be.
+"""
+struct Parsons
+    kc::String
+    head::Int
+    tail::Int
+    distractors::Vector{Distractor}
+end
+
 struct Problem
     id::String
     title::String
@@ -236,11 +348,16 @@ struct Problem
     repeats::Int             # times each case runs: >1 catches data races
     packages::Vector{String} # packages loaded for cases/gen/checker; empty = every package of the env
     bug::Union{Nothing,Bug}  # find the bug: the starter is the reference with one planted error
+    parsons::Union{Nothing,Parsons}  # put the reference's lines in order
 end
 Problem(id, title, difficulty, kcs, prompt, entry, starter, reference, cases, gen, compare, checker, rtol,
         check_type, compare_args, hints, perf, variants, threads, repeats, packages) =
     Problem(id, title, difficulty, kcs, prompt, entry, starter, reference, cases, gen, compare, checker, rtol,
-            check_type, compare_args, hints, perf, variants, threads, repeats, packages, nothing)
+            check_type, compare_args, hints, perf, variants, threads, repeats, packages, nothing, nothing)
+Problem(id, title, difficulty, kcs, prompt, entry, starter, reference, cases, gen, compare, checker, rtol,
+        check_type, compare_args, hints, perf, variants, threads, repeats, packages, bug) =
+    Problem(id, title, difficulty, kcs, prompt, entry, starter, reference, cases, gen, compare, checker, rtol,
+            check_type, compare_args, hints, perf, variants, threads, repeats, packages, bug, nothing)
 
 """The reference with the planted error (the starter of a find-the-bug problem); `nothing` unless `find` occurs once."""
 plant(reference::AbstractString, b::Bug) =
@@ -259,7 +376,10 @@ struct Unit
     lessons::Vector{String}  # predict-the-output lessons (lessons/*.toml) that go with this unit
     sections::Vector{Section}
     problems::Vector{Problem}
+    references::Vector{Reference}
 end
+Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems) =
+    Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems, Reference[])
 
 getstr(d, k, default = "") = String(get(d, k, default))
 
@@ -282,17 +402,20 @@ function load_problem(d)
         Perf(d["perf"]["args"], Int.(d["perf"]["sizes"]), get(d["perf"], "mutates", false)) : nothing
     variants = [Variant(v["label"], v["code"], String.(v["expect"])) for v in get(d, "variant", Any[])]
     bug = load_bug(get(d, "bug", nothing))
+    parsons = load_parsons(get(d, "parsons", nothing))
     reference = d["reference"]
     # A find-the-bug starter is generated from the reference; a hand-written one
     # (or a `find` that does not occur once) leaves a starter that validation rejects.
-    starter = bug === nothing ? d["starter"] :
-              haskey(d, "starter") ? BUG_STARTER_GIVEN : something(plant(reference, bug), "")
+    # A Parsons starter is generated too: the fixed lines, with a gap between them.
+    starter = bug !== nothing ? (haskey(d, "starter") ? BUG_STARTER_GIVEN : something(plant(reference, bug), "")) :
+              parsons !== nothing ? (haskey(d, "starter") ? PARSONS_STARTER_GIVEN : parsons_starter(reference, parsons)) :
+              d["starter"]
     return Problem(d["id"], d["title"], d["difficulty"], String.(get(d, "kcs", String[])), d["prompt"],
                    d["entry"], starter, reference, String.(get(d, "cases", String[])),
                    getstr(d, "gen"), getstr(d, "compare", "isequal"), getstr(d, "checker"), Float64(get(d, "rtol", 1e-8)),
                    get(d, "check_type", true), get(d, "compare_args", false),
                    String.(get(d, "hints", String[])), perf, variants,
-                   Int(get(d, "threads", 1)), Int(get(d, "repeats", 1)), String.(get(d, "packages", String[])), bug)
+                   Int(get(d, "threads", 1)), Int(get(d, "repeats", 1)), String.(get(d, "packages", String[])), bug, parsons)
 end
 
 const BUG_STARTER_GIVEN = "# a find-the-bug problem's starter is generated from the reference: remove `starter`\n"
@@ -382,6 +505,245 @@ bug_test_passes(t::BugTest, v) = v !== nothing && !isnan(v) && t.expect[1] <= v 
 """The code a convergence test runs: the learner's code, then the test."""
 bug_test_code(code::AbstractString, t::BugTest) = rstrip(code) * "\n\n" * t.code
 
+# ---- Parsons problems ----------------------------------------------------------
+
+const PARSONS_STARTER_GIVEN = "# a Parsons problem's starter is generated from the reference: remove `starter`\n"
+const PARSONS_MAX_ITEMS = 8         # movable lines; every arrangement is enumerated, so keep it small
+const PARSONS_MAX_DISTRACTORS = 3
+
+function load_parsons(d)
+    d === nothing && return nothing
+    ds = [Distractor(getstr(x, "line"), Int(get(x, "replaces", 0)), getstr(x, "misconception"))
+          for x in get(d, "distractor", Any[])]
+    return Parsons(getstr(d, "kc"), Int(get(d, "head", 0)), Int(get(d, "tail", 0)), ds)
+end
+
+"""The reference's lines: the fixed head, the movable lines in their working order, the fixed tail."""
+function parsons_lines(reference::AbstractString, z::Parsons)
+    ls = String.(split(rstrip(reference, '\n'), '\n'))
+    n = length(ls) - z.head - z.tail
+    n < 0 && return (head = ls, items = String[], tail = String[])
+    return (head = ls[1:z.head], items = ls[z.head+1:z.head+n], tail = ls[z.head+n+1:end])
+end
+parsons_lines(p::Problem) = parsons_lines(p.reference, p.parsons)
+
+"""Every line a learner can place: the movable lines, then the distractors (indices follow this order)."""
+parsons_pool(p::Problem) = [parsons_lines(p).items; [d.line for d in p.parsons.distractors]]
+
+"""
+The pool index a line stands for when it is compared: the first index with the
+same text (two `end` lines are interchangeable).
+"""
+parsons_canonical(pool, i) = findfirst(==(pool[i]), pool)
+
+function parsons_starter(reference::AbstractString, z::Parsons)
+    l = parsons_lines(reference, z)
+    gap = isempty(l.items) ? "" : " "^parsons_indent(l.items[1]) * "# put the lines here, in order"
+    return join([l.head; gap; l.tail], "\n") * "\n"
+end
+
+# How a Parsons ordering is read: indentation (4 spaces per level) is part of
+# each line, so it must agree with the nesting the order creates.
+# `parsons_depth(d, line)` is the block depth after `line` given the depth `d`
+# before it, or -1 when the line's indentation is wrong for where it sits.
+# One source, evaluated here and spliced into the enumeration script, so the
+# validator and the recorder read indentation the same way.
+const PARSONS_DEPTH_SRC = raw"""
+parsons_indent(l) = length(l) - length(lstrip(l, ' '))
+const PARSONS_OPENER = r"^(function|for|while|if|let|begin|try|struct|mutable struct|module|quote|macro)\b|\bdo(\s+[^#]*)?$"
+const PARSONS_MIDDLE = r"^(else|elseif|catch|finally)\b"
+function parsons_depth(depth::Int, line::AbstractString)
+    depth < 0 && return -1
+    s = lstrip(line)
+    ind = parsons_indent(line)
+    if s == "end" || startswith(s, "end ") || startswith(s, "end#")
+        return ind == 4 * (depth - 1) ? depth - 1 : -1
+    elseif occursin(PARSONS_MIDDLE, s)
+        return ind == 4 * (depth - 1) ? depth : -1
+    else
+        ind == 4 * depth || return -1
+        return occursin(PARSONS_OPENER, s) ? depth + 1 : depth
+    end
+end
+parsons_depth(depth::Int, lines::AbstractVector) = foldl(parsons_depth, lines; init = depth)
+"""
+include_string(@__MODULE__, PARSONS_DEPTH_SRC, "PARSONS_DEPTH_SRC")
+
+"""Structural problems of a Parsons problem (no Julia run needed)."""
+function parsons_problems(p::Problem, kcs)
+    z = p.parsons
+    out = String[]
+    z.kc in kcs || push!(out, "kc '$(z.kc)' is not one of the unit's KCs")
+    p.starter == PARSONS_STARTER_GIVEN && push!(out, "the starter is generated from the reference: remove `starter`")
+    p.compare in ("isequal", "isapprox") || push!(out, "compare must be isequal or isapprox (orderings are compared in one process)")
+    p.compare_args && push!(out, "compare_args is not supported")
+    p.threads == 1 && p.repeats == 1 || push!(out, "threads and repeats must be 1")
+    isempty(p.gen) || push!(out, "gen is not used: orderings are checked on the explicit cases only")
+    length(p.cases) >= 2 || push!(out, "needs at least two explicit cases (every ordering runs on them)")
+    l = parsons_lines(p)
+    z.head >= 1 && z.tail >= 1 || push!(out, "head and tail must each fix at least one line (the signature and the final `end`)")
+    3 <= length(l.items) <= PARSONS_MAX_ITEMS || push!(out, "needs 3 to $PARSONS_MAX_ITEMS movable lines (found $(length(l.items)))")
+    for (i, x) in enumerate([l.head; l.items; l.tail])
+        isempty(strip(x)) && push!(out, "line $i of the reference is blank (every line is a card)")
+        occursin('\t', x) && push!(out, "line $i of the reference has a tab (indent with spaces)")
+    end
+    any(x -> occursin(r"^\s*while\b", x), l.items) && push!(out, "a movable `while` could make an ordering loop forever")
+    d0 = parsons_depth(0, l.head)
+    d0 >= 1 || push!(out, "the head must open the function (the movable lines go inside it)")
+    d0 >= 1 && parsons_depth(parsons_depth(d0, l.items), l.tail) != 0 &&
+        push!(out, "the reference's own lines are not indented 4 spaces per block level")
+    length(z.distractors) <= PARSONS_MAX_DISTRACTORS || push!(out, "at most $PARSONS_MAX_DISTRACTORS distractors")
+    seen = Set{String}()
+    for (k, d) in enumerate(z.distractors)
+        w = "distractor $k"
+        1 <= d.replaces <= length(l.items) || (push!(out, "$w: replaces must be 1 to $(length(l.items))"); continue)
+        d.line in l.items && push!(out, "$w: the same text as a movable line")
+        d.line in seen && push!(out, "$w: duplicate line")
+        push!(seen, d.line)
+        # Same indentation as the line it replaces, so indentation alone cannot give it away.
+        parsons_indent(d.line) == parsons_indent(l.items[d.replaces]) ||
+            push!(out, "$w: indent it like the line it replaces ($(parsons_indent(l.items[d.replaces])) spaces)")
+        isempty(strip(d.misconception)) && push!(out, "$w: no misconception")
+    end
+    allunique(d.replaces for d in z.distractors) ||
+        push!(out, "two distractors replace the same line")
+    return out
+end
+
+"""
+A Julia program that enumerates and runs every arrangement of a Parsons
+problem's lines, as `tutor course record` runs it (in the unit's env). It
+prints `accepted: i j k ...` (pool indices, canonical for repeated texts) for
+each arrangement whose results equal the reference's on every case, and then
+`parsons: <n> run`. Candidates are interpreted (`compile=min`), each in a new
+module: thousands of them, each called a few times, so compiling would cost
+far more than running.
+"""
+function parsons_script(p::Problem, usings::AbstractVector{<:AbstractString})
+    l = parsons_lines(p)
+    pool = parsons_pool(p)
+    n = length(l.items)
+    pairs = [(d.replaces, n + k) for (k, d) in enumerate(p.parsons.distractors)]
+    cmp = p.compare == "isapprox" ?
+        "(a, b) -> (try isapprox(a, b; rtol = $(p.rtol)) catch; isequal(a, b) end)" : "isequal"
+    return """
+    $(join(["using " * x for x in usings], "\n"))
+    const HEAD = $(repr(l.head))
+    const TAIL = $(repr(l.tail))
+    const POOL = $(repr(pool))
+    const N = $n
+    const PAIRS = $(repr(pairs))
+    const ENTRY = $(repr(Symbol(p.entry)))
+    const CASES = Any[$(join(["($a,)" for a in p.cases], ", "))]
+    const USINGS = $(repr(collect(String, usings)))
+    const SAME = $cmp
+    const CHECK_TYPE = $(p.check_type)
+    $PARSONS_DEPTH_SRC
+    $PARSONS_DRIVER
+    """
+end
+
+# The enumeration itself, spliced into `parsons_script` after the constants
+# and `parsons_depth`; it uses only Base. A prefix is extended only while its
+# indentation is consistent, and a full arrangement runs only if it parses.
+const PARSONS_DRIVER = raw"""
+hashead(ex, hs) = ex isa Expr && (ex.head in hs || any(a -> hashead(a, hs), ex.args))
+canon(i) = findfirst(==(POOL[i]), POOL)
+const RUNS = Ref(0)
+function results(order)
+    ex = Meta.parseall(join([HEAD; POOL[order]; TAIL], "\n"))
+    hashead(ex, (:error, :incomplete)) && return nothing
+    RUNS[] += 1
+    m = Module(:Candidate)
+    Core.eval(m, :(Base.Experimental.@compiler_options compile=min infer=false optimize=0))
+    f = try
+        foreach(u -> Core.eval(m, Meta.parse("using " * u)), USINGS)
+        Core.eval(m, ex)
+        Core.eval(m, ENTRY)
+    catch
+        return nothing
+    end
+    return Any[try (:ok, Base.invokelatest(f, deepcopy(c)...)) catch e; (:throws, typeof(e)) end for c in CASES]
+end
+same(a, b) = a[1] == b[1] &&
+    (a[1] === :throws ? a[2] == b[2] : SAME(a[2], b[2]) && (!CHECK_TYPE || typeof(a[2]) == typeof(b[2])))
+function walk!(accepted, prefix, d, rest, d0, ref)
+    if isempty(rest)
+        parsons_depth(d, TAIL) == 0 || return
+        r = results(prefix)
+        r !== nothing && all(same(a, b) for (a, b) in zip(r, ref)) && push!(accepted, canon.(prefix))
+        return
+    end
+    tried = Set{String}()
+    for (i, j) in enumerate(rest)
+        POOL[j] in tried && continue      # equal texts give equal programs
+        push!(tried, POOL[j])
+        d2 = parsons_depth(d, POOL[j])
+        d2 < d0 && continue               # mis-indented (-1), or closes the function early
+        walk!(accepted, [prefix; j], d2, deleteat!(copy(rest), i), d0, ref)
+    end
+end
+function parsons_main()
+    ref = results(collect(1:N))
+    ref === nothing && (println("parsons: the reference's own order does not run"); return)
+    d0 = parsons_depth(0, HEAD)
+    accepted = Set{Vector{Int}}()
+    for mask in 0:(2^length(PAIRS) - 1)
+        pool = collect(1:N)
+        for (k, (l, j)) in enumerate(PAIRS)
+            (mask >> (k - 1)) & 1 == 1 && (pool[l] = j)
+        end
+        walk!(accepted, Int[], d0, pool, d0, ref)
+    end
+    foreach(a -> println("accepted: ", join(a, " ")), sort!(collect(accepted)))
+    println("parsons: ", RUNS[], " run")
+end
+parsons_main()
+"""
+
+"""
+The accepted orderings printed by `parsons_script`, as strings of pool indices
+("1 2 3"), sorted; `nothing` when the run did not finish (no `parsons:` line).
+"""
+function parse_parsons_output(out::AbstractString)
+    occursin(r"(?m)^parsons: \d+ run$", out) || return nothing
+    return sort!([String(m[1]) for m in eachmatch(r"(?m)^accepted: ([\d ]+)$", out)])
+end
+
+"""A learner's arrangement (pool indices) in the form the accepted set is stored in."""
+parsons_key(pool, order) = join([parsons_canonical(pool, i) for i in order], " ")
+
+"""
+Feedback on an arrangement (pool indices, 1-based) against the measured
+accepted set, in this order: a line used twice or out of range (`:invalid`);
+a distractor (`:distractor`, with its number); the wrong number of lines
+(`:count`, with the number needed); a working order (`:solved`); otherwise the
+longest prefix that starts some working order (`:prefix`, with its length).
+`web/src/parsons.ts` gives the same answers (tested on the same vectors).
+"""
+function parsons_feedback(pool::AbstractVector, n::Int, accepted::AbstractVector{<:AbstractString}, order::AbstractVector{Int})
+    all(i -> 1 <= i <= length(pool), order) && allunique(order) || return (kind = :invalid, value = 0)
+    for i in order
+        i > n && return (kind = :distractor, value = i - n)
+    end
+    length(order) == n || return (kind = :count, value = n)
+    acc = [parse.(Int, split(a)) for a in accepted]
+    key = [parsons_canonical(pool, i) for i in order]
+    key in acc && return (kind = :solved, value = n)
+    best = maximum(a -> something(findfirst(k -> a[k] != key[k], 1:n), n + 1) - 1, acc; init = 0)
+    return (kind = :prefix, value = best)
+end
+
+"""
+A fixed display order for the pool (so the CLI's letters do not change between
+runs): sorted by an FNV-1a hash of the problem id and the line, which does not
+depend on Julia's `hash` (that can change between releases).
+"""
+function parsons_display_order(id::AbstractString, pool::AbstractVector)
+    fnv(s) = foldl((h, b) -> (h ⊻ UInt32(b)) * 0x01000193, codeunits(s); init = 0x811c9dc5)
+    return sortperm([(fnv(id * "\n" * x), i) for (i, x) in enumerate(pool)])
+end
+
 # Git on Windows may check files out with CRLF; example keys hash the code, so
 # normalise line endings or Windows and Linux would disagree.
 normalize_nl(x::AbstractString) = replace(x, "\r\n" => "\n")
@@ -414,18 +776,31 @@ function load_breakit(b)
                    getstr(b, "probe"), getstr(b, "explain"), getstr(b, "short"), getstr(b, "past"))
 end
 
+function load_explorer(x)
+    x === nothing && return nothing
+    axes = [ExploreAxis(getstr(a, "group"), getstr(a, "label"), get(a, "log", false) === true) for a in get(x, "axis", Any[])]
+    return Explorer(getstr(x, "kc"), getstr(x, "prompt"), getstr(x, "row"), axes, getstr(x, "x"), getstr(x, "series"),
+                    getstr(x, "measure"), getstr(x, "label"), get(x, "log", false) === true, getstr(x, "explain"))
+end
+
 function load_unit(path::String)
     d = normalize_nl(TOML.parsefile(path))
     sections = [Section(s["title"], s["body"],
                         [Example(e["code"], get(e, "check", true), getstr(e, "caption"), getstr(e, "mode", "repl"),
                                  getstr(e, "notice"), load_prediction(get(e, "predict", nothing)),
-                                 load_checkpoint(get(e, "choose", nothing)), load_breakit(get(e, "breakit", nothing)))
+                                 load_checkpoint(get(e, "choose", nothing)), load_breakit(get(e, "breakit", nothing)),
+                                 load_explorer(get(e, "explore", nothing)))
                          for e in get(s, "example", Any[])],
-                        [load_question(q) for q in get(s, "question", Any[])]) for s in get(d, "section", Any[])]
+                        [load_question(q) for q in get(s, "question", Any[])],
+                        [Analogy(getstr(a, "title"), getstr(a, "text"), getstr(a, "breaks")) for a in get(s, "analogy", Any[])],
+                        [Diagram(getstr(g, "file"), getstr(g, "alt"), getstr(g, "caption")) for g in get(s, "diagram", Any[])],
+                        String.(get(s, "refs", String[]))) for s in get(d, "section", Any[])]
+    refs = [Reference(getstr(r, "id"), getstr(r, "authors"), getstr(r, "title"), getstr(r, "venue"),
+                      Int(get(r, "year", 0)), getstr(r, "url"), getstr(r, "note")) for r in get(d, "reference", Any[])]
     return Unit(d["id"], d["title"], d["track"], getstr(d, "env", "base"), getstr(d, "status", "ready"),
                 d["summary"], String.(get(d, "kcs", String[])), String.(get(d, "prerequisites", String[])),
                 String.(get(d, "outline", String[])), String.(get(d, "lessons", String[])), sections,
-                [load_problem(p) for p in get(d, "problem", Any[])])
+                [load_problem(p) for p in get(d, "problem", Any[])], refs)
 end
 
 """All units in syllabus order (file names start with a sortable number)."""
@@ -1041,6 +1416,108 @@ function probe_problems(b::BreakIt, side::AbstractString, out_lo::AbstractString
     return out
 end
 
+"""What is structurally wrong with an example's explorer (empty = nothing); the grid itself is checked on the output."""
+function explorer_problems(x::Explorer, e::Example, kcs)
+    out = String[]
+    x.kc in kcs || push!(out, "kc '$(x.kc)' is not one of the unit's kcs $(kcs)")
+    for (f, what) in ((x.prompt, "prompt"), (x.explain, "explanation"), (x.label, "label (what the measure is)"))
+        isempty(strip(f)) && push!(out, "no $what")
+    end
+    # The grid is read from the output; an output verify does not compare could change unnoticed.
+    e.check || push!(out, "the example has check = false: an explorer's grid needs an output that verify compares")
+    (e.choose === nothing && e.breakit === nothing) ||
+        push!(out, "an example with an explorer carries no checkpoint or break-it challenge (both hide the output)")
+    groups = [a.group for a in x.axes]
+    1 <= length(x.axes) <= EXPLORE_MAX_AXES || push!(out, "an explorer has 1 to $EXPLORE_MAX_AXES axes")
+    allunique(groups) || push!(out, "an axis is named twice")
+    any(a -> isempty(strip(a.label)), x.axes) && push!(out, "every axis needs a label")
+    x.measure in groups && push!(out, "the measure '$(x.measure)' is also an axis")
+    x.x in groups || push!(out, "x = '$(x.x)' is not one of the axes $(groups)")
+    isempty(x.series) || (x.series in groups && x.series != x.x) ||
+        push!(out, "series = '$(x.series)' must be an axis other than x (or left out)")
+    re = compile_measure(x.row)
+    if re === nothing
+        push!(out, "row is not a regular expression")
+    else
+        for g in vcat(groups, x.measure)
+            has_group(re, g) || push!(out, "row has no named group `$g`")
+        end
+    end
+    return out
+end
+
+"""
+Read an explorer's grid from an output: per axis, its values (numbers sorted
+ascending, or words in the order they first appear) with the text as
+printed, and the measure at every point as printed, in row-major order over
+the axes (the last axis varies fastest). Returns a String saying what is
+wrong when the matched lines are not a full grid.
+"""
+function explorer_grid(x::Explorer, output::AbstractString)
+    re = compile_measure(x.row)
+    re === nothing && return "row is not a regular expression"
+    pts = Tuple{Vector{String},String}[]
+    for line in eachline(IOBuffer(output))
+        m = match(re, line)
+        m === nothing && continue
+        cs = [something(m[a.group], "") for a in x.axes]
+        v = something(m[x.measure], "")
+        tryparse(Float64, v) === nothing && return "the measure '$v' is not a number: $line"
+        push!(pts, (cs, v))
+    end
+    isempty(pts) && return "no output line matches row"
+    axes = Any[]
+    for (k, a) in enumerate(x.axes)
+        texts = unique(p[1][k] for p in pts)
+        nums = tryparse.(Float64, texts)
+        numeric = all(n -> n !== nothing && isfinite(n), nums)
+        if numeric
+            allunique(nums) || return "axis $(a.group) prints one value two ways: $(texts)"
+            order = sortperm(nums)
+            texts, nums = texts[order], Float64.(nums[order])
+        end
+        length(texts) >= 2 || return "axis $(a.group) has one value: a slider needs at least 2"
+        a.group == x.x && !numeric && return "the x axis $(a.group) must be numbers: $(texts)"
+        a.group == x.x && length(texts) < 3 && return "the x axis $(a.group) has $(length(texts)) values (at least 3 make a line)"
+        a.log && !(numeric && all(>(0), nums)) && return "axis $(a.group) is on a log scale, so its values must be positive numbers"
+        push!(axes, (; group = a.group, label = a.label, log = a.log, numeric, texts, nums = numeric ? nums : Float64[]))
+    end
+    shape = [length(a.texts) for a in axes]
+    prod(shape) <= EXPLORE_MAX_POINTS || return "the grid has $(prod(shape)) points (at most $EXPLORE_MAX_POINTS)"
+    cells = fill("", shape...)
+    for (cs, v) in pts
+        ix = [findfirst(==(c), a.texts) for (c, a) in zip(cs, axes)]
+        isempty(cells[ix...]) || return "the point $(join(cs, ", ")) is printed twice"
+        cells[ix...] = v
+    end
+    missing_at = findfirst(isempty, cells)
+    missing_at === nothing ||
+        return "the grid is not full: nothing printed at $(join([a.texts[i] for (a, i) in zip(axes, Tuple(missing_at))], ", "))"
+    if x.log
+        vals = parse.(Float64, vec(cells))
+        any(v -> v < 0, vals) && return "the measure is on a log scale but a value is negative"
+    end
+    # row-major: the last axis varies fastest (Julia's arrays are column-major, so permute)
+    values = vec(permutedims(cells, reverse(1:length(shape))))
+    return (; axes, values)
+end
+
+"""Explorer grids are measured: in `rec`, each explorer's example output must be a full grid."""
+function explorer_key_problems(u::Unit, rec)
+    out = String[]
+    exs = get(rec, "examples", Dict())
+    for s in u.sections, e in s.examples
+        x = e.explore
+        x === nothing && continue
+        where = "$(u.id) '$(s.title)' explorer"
+        r = get(exs, example_key(e.code, e.mode), nothing)
+        r === nothing && (push!(out, "$where: its example has no recorded output"); continue)
+        g = explorer_grid(x, r["output"])
+        g isa String && push!(out, "$where: $g")
+    end
+    return out
+end
+
 # Phrases that carry no information in teaching prose (marketing words, filler
 # transitions, chatbot openers). The course says what a thing does and shows
 # it; `prose_problems` keeps that mechanical. Matched case-insensitively on
@@ -1093,6 +1570,8 @@ function unit_prose(u::Unit)
     out = Tuple{String,String}[("summary", u.summary)]
     for s in u.sections
         push!(out, ("'$(s.title)'", s.title * "\n" * strip_code(s.body)))
+        append!(out, [("'$(s.title)' analogy", strip_code(join([a.title, a.text, a.breaks], "\n"))) for a in s.analogies])
+        append!(out, [("'$(s.title)' diagram", strip_code(g.alt * "\n" * g.caption)) for g in s.diagrams])
         append!(out, [("'$(s.title)' caption", e.caption * "\n" * e.notice) for e in s.examples])
         for e in s.examples
             p = e.predict
@@ -1110,17 +1589,26 @@ function unit_prose(u::Unit)
             b === nothing && continue
             push!(out, ("'$(s.title)' break-it", strip_code(join([b.prompt, b.measure, b.explain, b.short, b.past], "\n"))))
         end
+        for e in s.examples
+            x = e.explore
+            x === nothing && continue
+            push!(out, ("'$(s.title)' explorer",
+                        strip_code(join(vcat(x.prompt, x.label, x.explain, [a.label for a in x.axes]), "\n"))))
+        end
         for q in s.questions
             txt = join(vcat(q.prompt, q.explain, q.misconceptions, q.kind == "choice" ? q.choices : String[]), "\n")
             push!(out, ("'$(s.title)' question", strip_code(txt)))
         end
     end
+    append!(out, [("reference $(r.id)", r.note) for r in u.references])
     for p in u.problems
         push!(out, (p.id, strip_code(join(vcat(p.title, p.prompt, p.hints, [v.label for v in p.variants]), "\n"))))
         b = p.bug
         b === nothing ||
             push!(out, ("$(p.id) find the bug", strip_code(join(vcat(b.misconception, [t.name for t in b.tests],
                                                                      [t.explain for t in b.tests]), "\n"))))
+        z = p.parsons
+        z === nothing || push!(out, ("$(p.id) Parsons", strip_code(join([d.misconception for d in z.distractors], "\n"))))
     end
     return out
 end
@@ -1138,6 +1626,84 @@ function prose_problems(u::Unit)
                 push!(out, "$(u.id) $where: filler phrase \"$w\"")
         end
         occursin('—', txt) && push!(out, "$(u.id) $where: em dash (use a colon, comma or parentheses)")
+    end
+    return out
+end
+
+"""Where a unit's hand-drawn diagrams live."""
+diagrams_dir(u::Unit, dir::String = COURSE_DIR) = joinpath(dir, "diagrams", u.id)
+
+# An SVG diagram is shown with <img>, which never runs its scripts, but the file
+# is also served as-is: refuse anything active or anything fetched from elsewhere.
+const SVG_FORBIDDEN = [r"<script"i, r"<foreignObject"i, r"\son\w+\s*="i, r"(href|src)\s*=\s*[\"'](?!#)"i,
+                       r"javascript:"i, r"<image"i, r"@import"i, r"url\(\s*[\"']?(?!#)"i, r"<!ENTITY"i]
+
+"""Problems in an SVG diagram's text (empty when it is safe to serve and shows something)."""
+function svg_problems(txt::AbstractString)
+    out = String[]
+    occursin(r"<svg[\s>]", txt) || push!(out, "not an SVG document")
+    occursin(r"viewBox\s*="i, txt) || push!(out, "no viewBox (it must scale to the column)")
+    occursin(r"<title[\s>]", txt) || push!(out, "no <title> element")
+    for r in SVG_FORBIDDEN
+        occursin(r, txt) && push!(out, "contains $(r.pattern) (no scripts, handlers, external links or images)")
+    end
+    sizeof(txt) <= 64_000 || push!(out, "larger than 64 kB")
+    # A browser shows nothing for an SVG that is not well-formed XML. Catch the
+    # two slips hand-written text makes: a bare `<` (write `&lt;`) and a bare
+    # `&` (write `&amp;`).
+    for m in eachmatch(r"<(?![A-Za-z/!?])", txt)
+        push!(out, "bare '<' at byte $(m.offset) (not well-formed XML; write &lt;)")
+    end
+    for m in eachmatch(r"&(?!(?:[A-Za-z][A-Za-z0-9]*|#[0-9]+|#x[0-9A-Fa-f]+);)", txt)
+        push!(out, "bare '&' at byte $(m.offset) (not well-formed XML; write &amp;)")
+    end
+    return out
+end
+
+const REF_ID = r"^[a-z][a-z0-9-]*$"
+
+"""Checks on a unit's analogies, diagrams and references (Phase 5b)."""
+function enrichment_problems(u::Unit, dir::String = COURSE_DIR)
+    out = String[]
+    ids = [r.id for r in u.references]
+    for r in u.references
+        occursin(REF_ID, r.id) || push!(out, "$(u.id) reference '$(r.id)': id must be lowercase kebab-case")
+        count(==(r.id), ids) == 1 || push!(out, "$(u.id) reference '$(r.id)': duplicate id")
+        for (k, v) in (("authors", r.authors), ("title", r.title), ("venue", r.venue), ("note", r.note))
+            isempty(strip(v)) && push!(out, "$(u.id) reference '$(r.id)': no $k")
+        end
+        1600 <= r.year <= 2100 || push!(out, "$(u.id) reference '$(r.id)': year must be given")
+        occursin(r"^https://[^\s]+$", r.url) || push!(out, "$(u.id) reference '$(r.id)': url must be a public https link")
+        any(s -> r.id in s.refs, u.sections) || push!(out, "$(u.id) reference '$(r.id)': no section cites it")
+    end
+    files = String[]
+    for s in u.sections
+        for id in s.refs
+            id in ids || push!(out, "$(u.id) '$(s.title)': cites '$id', which is not in the unit's references")
+        end
+        for a in s.analogies
+            isempty(strip(a.text)) && push!(out, "$(u.id) '$(s.title)' analogy: no text")
+            length(strip(a.breaks)) >= 20 ||
+                push!(out, "$(u.id) '$(s.title)' analogy: say where it breaks down (`breaks`, a sentence or more)")
+        end
+        for g in s.diagrams
+            push!(files, g.file)
+            occursin(r"^[a-z0-9][a-z0-9-]*\.svg$", g.file) ||
+                push!(out, "$(u.id) '$(s.title)' diagram: file must be a kebab-case .svg name")
+            length(strip(g.alt)) >= 40 ||
+                push!(out, "$(u.id) '$(s.title)' diagram $(g.file): alt text must describe the picture (40+ characters)")
+            path = joinpath(diagrams_dir(u, dir), g.file)
+            if isfile(path)
+                append!(out, ["$(u.id) diagram $(g.file): $m" for m in svg_problems(read(path, String))])
+            else
+                push!(out, "$(u.id) diagram $(g.file): no file course/diagrams/$(u.id)/$(g.file)")
+            end
+        end
+    end
+    allunique(files) || push!(out, "$(u.id): a diagram is used twice")
+    d = diagrams_dir(u, dir)
+    for f in (isdir(d) ? readdir(d) : String[])
+        f in files || push!(out, "$(u.id): course/diagrams/$(u.id)/$f is not used by any section")
     end
     return out
 end
@@ -1177,6 +1743,7 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
         end
         isempty(u.sections) && push!(problems, "$(u.id): no sections")
         append!(problems, prose_problems(u))
+        append!(problems, enrichment_problems(u, dir))
         append!(problems, question_balance_problems(u))
         for s in u.sections, e in s.examples
             isempty(strip(e.code)) && push!(problems, "$(u.id): empty example in '$(s.title)'")
@@ -1187,6 +1754,8 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
                 append!(problems, ["$(u.id) '$(s.title)' checkpoint: $m" for m in checkpoint_problems(e.choose, e, u.kcs)])
             e.breakit === nothing ||
                 append!(problems, ["$(u.id) '$(s.title)' break-it: $m" for m in breakit_problems(e.breakit, e, u.kcs)])
+            e.explore === nothing ||
+                append!(problems, ["$(u.id) '$(s.title)' explorer: $m" for m in explorer_problems(e.explore, e, u.kcs)])
         end
         for s in u.sections, (i, q) in enumerate(s.questions)
             append!(problems, ["$(u.id) '$(s.title)' question $i: $m" for m in question_problems(q)])
@@ -1221,6 +1790,8 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
                 x in VARIANT_EXPECT || push!(problems, "$(p.id)/$(v.label): unknown expectation '$x'")
             end
             p.bug === nothing || append!(problems, ["$(p.id) find the bug: $m" for m in bug_problems(p, u.kcs)])
+            p.parsons === nothing || append!(problems, ["$(p.id) Parsons: $m" for m in parsons_problems(p, u.kcs)])
+            p.bug !== nothing && p.parsons !== nothing && push!(problems, "$(p.id): a problem is find-the-bug or Parsons, not both")
         end
     end
     return problems

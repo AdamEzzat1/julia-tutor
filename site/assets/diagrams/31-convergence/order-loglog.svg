@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 390" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Error against step size on log-log axes</title>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker>
+<marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker>
+</defs>
+<rect width="720" height="390" fill="#ffffff"/>
+<rect x="90.0" y="40.0" width="470.0" height="290.0" rx="0" fill="none" stroke="#776f82" stroke-width="1"/>
+<line x1="85.0" y1="330.0" x2="90.0" y2="330.0" stroke="#776f82" stroke-width="1"/>
+<text x="82" y="335.0" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">-12</tspan></text>
+<line x1="85.0" y1="277.3" x2="90.0" y2="277.3" stroke="#776f82" stroke-width="1"/>
+<text x="82" y="282.3" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">-10</tspan></text>
+<line x1="85.0" y1="224.5" x2="90.0" y2="224.5" stroke="#776f82" stroke-width="1"/>
+<text x="82" y="229.5" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">-8</tspan></text>
+<line x1="85.0" y1="171.8" x2="90.0" y2="171.8" stroke="#776f82" stroke-width="1"/>
+<text x="82" y="176.8" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">-6</tspan></text>
+<line x1="85.0" y1="119.1" x2="90.0" y2="119.1" stroke="#776f82" stroke-width="1"/>
+<text x="82" y="124.1" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">-4</tspan></text>
+<line x1="85.0" y1="66.4" x2="90.0" y2="66.4" stroke="#776f82" stroke-width="1"/>
+<text x="82" y="71.4" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">-2</tspan></text>
+<line x1="85.0" y1="40.0" x2="90.0" y2="40.0" stroke="#776f82" stroke-width="1"/>
+<text x="82" y="45.0" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">-1</tspan></text>
+<line x1="112.8" y1="330.0" x2="112.8" y2="335.0" stroke="#776f82" stroke-width="1"/>
+<text x="112.8" y="350.0" font-size="13" fill="#776f82" text-anchor="middle">0.0125</text>
+<line x1="254.3" y1="330.0" x2="254.3" y2="335.0" stroke="#776f82" stroke-width="1"/>
+<text x="254.3" y="350.0" font-size="13" fill="#776f82" text-anchor="middle">0.05</text>
+<line x1="325.0" y1="330.0" x2="325.0" y2="335.0" stroke="#776f82" stroke-width="1"/>
+<text x="325.0" y="350.0" font-size="13" fill="#776f82" text-anchor="middle">0.1</text>
+<line x1="466.5" y1="330.0" x2="466.5" y2="335.0" stroke="#776f82" stroke-width="1"/>
+<text x="466.5" y="350.0" font-size="13" fill="#776f82" text-anchor="middle">0.4</text>
+<text x="325.0" y="372.0" font-size="13" fill="#776f82" text-anchor="middle">step size h (log scale)</text>
+<text x="24" y="185.0" font-size="13" fill="#776f82" text-anchor="middle" transform="rotate(-90 24 185.0)">error at t = 2 (log scale)</text>
+<polyline points="466.5,54.6 395.7,62.5 325.0,71.1 254.3,79.1 183.5,87.3 112.8,95.0" fill="none" stroke="#776f82" stroke-width="2"/>
+<circle cx="466.5" cy="54.6" r="3.5" fill="#776f82" stroke="none" stroke-width="1.5"/>
+<circle cx="395.7" cy="62.5" r="3.5" fill="#776f82" stroke="none" stroke-width="1.5"/>
+<circle cx="325.0" cy="71.1" r="3.5" fill="#776f82" stroke="none" stroke-width="1.5"/>
+<circle cx="254.3" cy="79.1" r="3.5" fill="#776f82" stroke="none" stroke-width="1.5"/>
+<circle cx="183.5" cy="87.3" r="3.5" fill="#776f82" stroke="none" stroke-width="1.5"/>
+<circle cx="112.8" cy="95.0" r="3.5" fill="#776f82" stroke="none" stroke-width="1.5"/>
+<text x="476.5" y="59.6" font-size="14" fill="#776f82" text-anchor="start" font-weight="600">Euler</text>
+<polyline points="466.5,76.6 395.7,88.9 325.0,104.1 254.3,119.6 183.5,135.4 112.8,151.1" fill="none" stroke="#2b2733" stroke-width="2" stroke-dasharray="6 4"/>
+<circle cx="466.5" cy="76.6" r="3.5" fill="#2b2733" stroke="none" stroke-width="1.5"/>
+<circle cx="395.7" cy="88.9" r="3.5" fill="#2b2733" stroke="none" stroke-width="1.5"/>
+<circle cx="325.0" cy="104.1" r="3.5" fill="#2b2733" stroke="none" stroke-width="1.5"/>
+<circle cx="254.3" cy="119.6" r="3.5" fill="#2b2733" stroke="none" stroke-width="1.5"/>
+<circle cx="183.5" cy="135.4" r="3.5" fill="#2b2733" stroke="none" stroke-width="1.5"/>
+<circle cx="112.8" cy="151.1" r="3.5" fill="#2b2733" stroke="none" stroke-width="1.5"/>
+<text x="476.5" y="81.6" font-size="14" fill="#2b2733" text-anchor="start" font-weight="600">Heun</text>
+<polyline points="466.5,137.5 395.7,195.2 325.0,217.2 254.3,243.0 183.5,272.6 112.8,303.8" fill="none" stroke="#3657c8" stroke-width="2"/>
+<circle cx="466.5" cy="137.5" r="3.5" fill="#3657c8" stroke="none" stroke-width="1.5"/>
+<circle cx="395.7" cy="195.2" r="3.5" fill="#3657c8" stroke="none" stroke-width="1.5"/>
+<circle cx="325.0" cy="217.2" r="3.5" fill="#3657c8" stroke="none" stroke-width="1.5"/>
+<circle cx="254.3" cy="243.0" r="3.5" fill="#3657c8" stroke="none" stroke-width="1.5"/>
+<circle cx="183.5" cy="272.6" r="3.5" fill="#3657c8" stroke="none" stroke-width="1.5"/>
+<circle cx="112.8" cy="303.8" r="3.5" fill="#3657c8" stroke="none" stroke-width="1.5"/>
+<text x="476.5" y="142.5" font-size="14" fill="#3657c8" text-anchor="start" font-weight="600">RK4</text>
+<text x="580.0" y="70.0" font-size="13" fill="#776f82" text-anchor="start">Halving h divides</text>
+<text x="580.0" y="88.0" font-size="13" fill="#776f82" text-anchor="start">the error by 2^p.</text>
+<text x="580.0" y="120.0" font-size="13" fill="#776f82" text-anchor="start">Euler: slope 1</text>
+<text x="580.0" y="140.0" font-size="13" fill="#2b2733" text-anchor="start">Heun: slope 2</text>
+<text x="580.0" y="160.0" font-size="13" fill="#3657c8" text-anchor="start">RK4: slope 4</text>
+<text x="580.0" y="196.0" font-size="13" fill="#3657c8" text-anchor="start">RK4's coarse end</text>
+<text x="580.0" y="214.0" font-size="13" fill="#3657c8" text-anchor="start">bends: slope 7.3</text>
+<text x="580.0" y="232.0" font-size="13" fill="#3657c8" text-anchor="start">then 2.8 before it</text>
+<text x="580.0" y="250.0" font-size="13" fill="#3657c8" text-anchor="start">settles near 4.</text>
+<text x="20.0" y="22.0" font-size="14" fill="#2b2733" text-anchor="start" font-weight="600">Recorded errors of the three methods on u' = -u + sin(t), u(0) = 1</text>
+</svg>

@@ -31,6 +31,30 @@ MATLAB. The pitfalls are the same everywhere:
   error, not a guess;
 * a sign change is not always a root: `1/x` changes sign across its pole,
   and bisection converges to the pole.
+
+The diagram runs the first four bisection steps on `cos(x) - x` from the
+bracket `[0, 1]`.
+'''
+
+  [[section.diagram]]
+  file = "bisection.svg"
+  alt = "Five rows showing the bracket for cos(x) - x shrinking: [0, 1], then [0.5, 1], [0.5, 0.75], [0.625, 0.75] and [0.6875, 0.75]. Each row marks the midpoint with the value of f there, and a dashed line marks the root 0.7390851."
+  caption = "Each step keeps the half whose ends still have opposite signs, so the root is always inside and the bracket halves."
+
+  [[section.analogy]]
+  title = "Finding the dead bulb in a string of lights"
+  text = '''
+A string of old Christmas lights goes dark at one dead bulb: before it the
+power arrives, after it nothing does. Test the middle bulb's socket. If power
+reaches it, the fault is in the second half; if not, it is in the first.
+Each test halves the stretch to search. Bisection does the same with the
+sign of `f`: a `+` end and a `-` end play the parts of "power" and "no power".
+'''
+  breaks = '''
+A string of lights has exactly one fault and an exact test. A bracket can
+hold several roots (bisection finds one of them, which one depends on the
+midpoints), a sign change can come from a pole instead of a root, and the
+search stops at two adjacent floating-point numbers, not at an exact zero.
 '''
 
   [[section.example]]
@@ -281,6 +305,27 @@ gradients, and ForwardDiff must be loaded (`using ForwardDiff`). Older
 tutorials write `autodiff = :forward`; Optim 2 rejects that with a
 `TypeError`. Without `autodiff` (and without a gradient function) BFGS uses
 finite differences.
+
+Optim.jl itself is described by Mogensen and Riseth (2018).
+'''
+refs = ["mogensen-2018"]
+
+  [[section.analogy]]
+  title = "Walking down a valley in fog"
+  text = '''
+Minimising is walking downhill in fog, looking for the lowest point.
+Nelder-Mead is a walker with three walking poles planted around them (the
+simplex): they compare the heights at the poles and move the highest pole
+across to the other side. BFGS feels the slope under their feet (the
+gradient) and, from how the slope changed between steps, learns the shape of
+the valley, so it can take longer, better-aimed strides.
+'''
+  breaks = '''
+A walker has two horizontal directions; these methods work in as many
+dimensions as `x` has, where the picture no longer helps. BFGS does not
+remember the path itself, only a matrix built from changes in the gradient.
+And like a walker in fog, both stop in the first valley they reach, which may
+not be the lowest one (the section on checking an optimum shows this).
 '''
 
   [[section.example]]
@@ -490,6 +535,33 @@ valid for small changes. `shadow_price(c)` gives it with that sign
 convention (`dual(c)` gives the raw dual, whose sign depends on the
 objective sense). A constraint that is not tight at the optimum has shadow
 price 0: more of a resource you do not use up is worth nothing.
+
+Dunning, Huchette and Lubin (2017) describe JuMP's design as an algebraic
+modelling language that builds a model and passes it to a solver. The simplex
+solver in HiGHS is based on the dual revised simplex method of Huangfu and
+Hall (2018). The diagram draws the workshop LP: the optimum sits at a corner
+of the feasible region.
+'''
+refs = ["dunning-2017", "huangfu-2018"]
+
+  [[section.diagram]]
+  file = "lp-workshop.svg"
+  alt = "The workshop LP drawn in the plane of chairs and tables. The wood constraint 2c + 4t at most 40 and the labour constraint 3c + 2t at most 30 bound a shaded four-sided region with corners (0, 0), (10, 0), (5, 7.5) and (0, 10). Dashed lines of equal profit are drawn for profit 300 and 525; the line for 525 touches the region only at the corner (5, 7.5)."
+  caption = "The best point of a linear program is found at a corner of the feasible region, here where wood and labour both run out."
+
+  [[section.analogy]]
+  title = "What one more kilo of flour is worth"
+  text = '''
+A baker who runs out of flour before running out of anything else would pay
+for one more kilo: that kilo becomes more bread and more profit. The shadow
+price is that value for each constraint. If the baker has flour left over at
+the end of the day, one more kilo is worth nothing to them: a constraint that
+is not tight has shadow price 0.
+'''
+  breaks = '''
+The shadow price holds only for small changes. Add enough wood and, past some
+amount, labour becomes the only limit and the value of extra wood falls to
+0.
 '''
 
   [[section.example]]
@@ -1364,3 +1436,30 @@ function best_location(px, py)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "mogensen-2018"
+authors = "Mogensen, P. K.; Riseth, A. N."
+title = "Optim: A mathematical optimization package for Julia"
+venue = "Journal of Open Source Software 3(24)"
+year = 2018
+url = "https://doi.org/10.21105/joss.00615"
+note = "Describes Optim.jl, the library of Nelder-Mead, BFGS, LBFGS and Fminbox used in the Optim.jl sections."
+
+[[reference]]
+id = "dunning-2017"
+authors = "Dunning, I.; Huchette, J.; Lubin, M."
+title = "JuMP: A Modeling Language for Mathematical Optimization"
+venue = "SIAM Review 59(2)"
+year = 2017
+url = "https://arxiv.org/abs/1508.01982"
+note = "Describes JuMP as an algebraic modelling language that hands models to swappable solvers, as in the JuMP and knapsack sections."
+
+[[reference]]
+id = "huangfu-2018"
+authors = "Huangfu, Q.; Hall, J. A. J."
+title = "Parallelizing the dual revised simplex method"
+venue = "Mathematical Programming Computation 10(1)"
+year = 2018
+url = "https://doi.org/10.1007/s12532-017-0130-5"
+note = "The dual revised simplex method on which the HiGHS solver used for the LPs in the JuMP section is based."

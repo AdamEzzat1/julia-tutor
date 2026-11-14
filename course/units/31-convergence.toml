@@ -56,6 +56,12 @@ the observed order approaches `p` from below or above as `h` shrinks. And
 at small `h` the error reaches the rounding floor (unit 30), where it stops
 decreasing and the slope means nothing.
 '''
+refs = ["hairer-norsett-wanner-1993"]
+
+  [[section.diagram]]
+  file = "order-loglog.svg"
+  alt = "Log-log plot of the error at t = 2 against step size h from 0.0125 to 0.4 for Euler, Heun and RK4 on u' = -u + sin(t), u(0) = 1, using the recorded errors. Euler's points lie on a line of slope 1 (0.028 down to 0.00082), Heun's on a line of slope 2 (0.0041 down to 6.1e-6), and RK4's fall from 2.0e-5 at h = 0.4 to 9.9e-12 at h = 0.0125, with a bend at the coarse end before the slope settles near 4."
+  caption = "The slope of each line is the method's order; RK4's line only straightens at small h, which is why an order is read from the small-h end."
 
   [[section.example]]
   caption = "Three fixed-step methods on `u' = -u + sin(t)`, `u(0) = 1`, up to `t = 2`, against the exact solution; errors (2 digits) and the observed order between consecutive halvings."
@@ -118,6 +124,52 @@ println("100 steps:     error ", round(e100; sigdigits = 2))
 println("100000 steps:  error more than 1000 times the h^4 prediction: ", e100k > 1000 * predicted)
 '''
 
+  [[section.example]]
+  caption = "The three methods again, as a grid: the error at `t = 2` for six step sizes from `0.4` to `0.0125`, each halving the last. The smallest step stops where RK4's error is still far above the rounding floor, so every printed digit is the same on any CPU."
+  notice = "Notice that on log-log axes the three lines straighten as `h` shrinks, with slopes near 1, 2 and 4, and that RK4's slope at the coarse end is far from 4 on both sides (the `C h^p` model holds for small `h`)."
+  code = '''
+f(t, u) = -u + sin(t)
+exact(t) = 1.5exp(-t) + (sin(t) - cos(t)) / 2
+euler(f, t, u, h) = u + h * f(t, u)
+heun(f, t, u, h) = (k1 = f(t, u); k2 = f(t + h, u + h * k1); u + h / 2 * (k1 + k2))
+function rk4(f, t, u, h)
+    k1 = f(t, u); k2 = f(t + h / 2, u + h / 2 * k1)
+    k3 = f(t + h / 2, u + h / 2 * k2); k4 = f(t + h, u + h * k3)
+    return u + h / 6 * (k1 + 2k2 + 2k3 + k4)
+end
+function integrate(step, n; T = 2.0)
+    h = T / n; u = 1.0
+    for i in 0:n-1
+        u = step(f, i * h, u, h)
+    end
+    return u
+end
+for (name, step) in (("Euler", euler), ("Heun", heun), ("RK4", rk4)), n in (5, 10, 20, 40, 80, 160)
+    err = abs(integrate(step, n) - exact(2.0))
+    println(rpad(name, 6), "h = ", rpad(2.0 / n, 7), "error = ", round(err; sigdigits = 2))
+end
+'''
+
+    [section.example.explore]
+    kc = "convergence-order"
+    prompt = "Pick a method and move `h`. Each step halves `h`: by what factor does each method's error shrink? Read the slope shown with each point, and find the step sizes where RK4's slope is furthest from 4."
+    row = '(?<method>\S+) +h = (?<h>\S+) +error = (?<err>\S+)'
+    measure = "err"
+    label = "error at t = 2"
+    log = true
+    x = "h"
+    series = "method"
+    explain = "Halving `h` divides the error by about `2^p`: 2 for Euler, 4 for Heun, 16 for RK4, which is the slope `p` on log-log axes. RK4's slope is about 7.3 between `h = 0.4` and `h = 0.2`, then 2.8 between `0.2` and `0.1`, and only then settles: 3.3, 3.7, 3.9. At coarse steps the higher terms of its error are not small, and they can add to the leading term or cancel it, so one coarse pair can read above or below the true order. An order is read from the small-`h` end of the plot."
+
+      [[section.example.explore.axis]]
+      group = "method"
+      label = "method"
+
+      [[section.example.explore.axis]]
+      group = "h"
+      label = "step size h"
+      log = true
+
   [[section.question]]
   kind = "output"
   prompt = "Halving the step divided the error from `1.6e-3` to `1.0e-4`. What does this print?"
@@ -175,6 +227,30 @@ the error of one, is what adaptive solvers do at every step (section after
 next). Richardson needs the expansion to hold: the order `p` must be known,
 and `h` small enough that the next term is negligible.
 '''
+refs = ["richardson-gaunt-1927"]
+
+  [[section.analogy]]
+  title = "Two scales that read heavy by a known ratio"
+  text = '''
+Two bathroom scales both read too heavy, and you know that scale A's excess
+is exactly four times scale B's. A says 82 kg and B says 80.5 kg. The
+difference, 1.5 kg, is then three of B's excesses, so B is 0.5 kg heavy and
+you weigh 80 kg. In formulas: `(4 × 80.5 - 82) / 3 = 80`, and B's error is
+`(82 - 80.5) / 3 = 0.5`.
+
+That is Richardson extrapolation with `p = 2`: `A(h)` is scale A, `A(h/2)`
+is scale B, the ratio of their errors is `2^p = 4`, and the same two
+readings give both a better value `R(h)` and an estimate of the error of
+`A(h/2)`.
+'''
+  breaks = '''
+The ratio `2^p` holds only in the limit of small `h`: the expansion has
+further terms (`h^4` for the central difference), so `R(h)` still has an
+error, just of higher order. Real scales follow no such law. And if the
+order `p` is wrong (a bug, or `h` too large for the leading term to
+dominate), the weights are wrong and the "corrected" value can be worse
+than `A(h/2)`.
+'''
 
   [[section.example]]
   caption = "`D(h)` and its Richardson extrapolation `R(h)` for `sin'(1)`, and the error estimate `|D(h) - D(h/2)| / 3` against the true error of `D(h/2)` (all rounded to 2 digits)."
@@ -230,6 +306,29 @@ than the sum of local errors.
 An adaptive solver can only measure local errors. Nothing in a step knows
 how the problem will amplify the error later, which is why unit 24 said the
 tolerance bounds each step and not the result.
+'''
+refs = ["hairer-norsett-wanner-1993"]
+
+  [[section.analogy]]
+  title = "Walking in fog by compass and pace count"
+  text = '''
+A walker in fog navigates by compass and by counting paces. Each leg of the
+walk adds a small error: that is the **local error**. Where the walker ends
+up, compared with where they meant to be, is the **global error**: the sum
+of every leg's error, as carried along by the legs that followed.
+
+Suppose halving the length of each leg cut its error by 4. The walk now has
+twice as many legs, so the total error falls only by 2: one power is lost
+to the count of legs. That is why a local error of order `p + 1` gives a
+global error of order `p`.
+'''
+  breaks = '''
+On open ground a walker's early mistake stays with them unchanged. An ODE
+carries old errors along with its own dynamics: `u' = -u + sin(t)` damps
+them (the example's global error at `h = 0.1` is smaller than one local
+error), and a chaotic system amplifies them. A method's errors are also
+deterministic, fixed by the formula and the step, not the random wobble of
+paces.
 '''
 
   [[section.example]]
@@ -301,6 +400,32 @@ and `10` ([alg_utils.jl](https://raw.githubusercontent.com/SciML/OrdinaryDiffEq.
 
 Everything here is local: `err <= 1` says the step's estimated error is
 within tolerance. It says nothing about the error already in `u`.
+'''
+refs = ["dormand-prince-1980", "tsitouras-2011", "hairer-norsett-wanner-1993"]
+
+  [[section.diagram]]
+  file = "embedded-step.svg"
+  alt = "Flowchart of one step of the adaptive Heun-Euler solver: compute the stages k1 = f(t, u) and k2 = f(t + h, u + h k1); form low = u + h k1 (Euler, order 1) and high = u + h (k1 + k2)/2 (Heun, order 2); compute err = |high - low| / (tol + tol max(|u|, |high|)); if err is at most 1, accept (t += h, u = high), otherwise reject and keep t and u; in both cases set h *= min(5, max(0.2, 0.9 err^(-1/2)))."
+  caption = "Both methods share the stages, so the estimate costs nothing extra, and the new step size is computed after an accepted and after a rejected step alike."
+
+  [[section.analogy]]
+  title = "A thermostat that only sees the last minute"
+  text = '''
+A thermostat compares a reading with a set point and turns the heating up
+or down. A step-size controller does the same with the step: it compares
+the scaled estimate `err` with 1 (the tolerance is the set point), makes the
+next `h` larger when `err` is small and smaller when it is large, and uses
+the safety factor 0.9 and limits on the change so that `h` does not swing.
+A step whose estimate is too large is rejected and retried, as if the
+thermostat could undo the last minute.
+'''
+  breaks = '''
+A thermostat measures the room's actual temperature. The controller never
+measures the actual error of the solution: `err` estimates only the error
+the lower-order method made in this one step, starting from the current
+`u`. The error already in `u`, and how the problem amplifies it later, are
+invisible to it, which is why the global error can end above the tolerance
+(the limit cycle in the next section).
 '''
 
   [[section.example]]
@@ -418,6 +543,7 @@ Three things to read off the results:
   (about `tol^(-1/p)` steps), which is why unit 24 recommends Verner
   methods for tight tolerances.
 '''
+refs = ["hairer-norsett-wanner-1993", "tsitouras-2011"]
 
   [[section.example]]
   caption = "`Tsit5` and `Vern9` on the limit cycle (`r0 = 0.5`) to `t = 20` and `t = 200`, `abstol = reltol / 100`: global error, error over `reltol`, and right-hand-side calls. Recorded, not checked: the last digits of an adaptive solve depend on fused multiply-adds, which differ between CPUs, and step counts are not compared between runs."
@@ -957,3 +1083,152 @@ function rk4_solve(f, y0, T, n)
 end
 '''
   expect = ["correct"]
+
+[[problem]]
+id = "conv-midpoint-parsons"
+title = "Parsons: the explicit midpoint method, in order"
+difficulty = "warm-up"
+kcs = ["convergence-order"]
+entry = "midpoint_solve"
+packages = ["StableRNGs"]   # nothing needed; [] would load the whole scicomp env
+prompt = '''
+`midpoint_solve(f, y0, T, n)` advances `y' = f(t, y)` from `y(0) = y0` to
+`t = T` in `n` steps of the explicit midpoint method, a second-order
+Runge-Kutta method: take a half Euler step to the middle of the step, and use
+the slope there for the whole step.
+
+Put the lines in an order that works. The signature, `h = T / n` and the last
+two lines are fixed. Each line keeps its indentation, and the indentation
+must match the blocks your order creates. Two of the lines on offer are
+wrong: leave them out. More than one order works; the feedback tells you
+when yours is one of them.
+
+```julia
+midpoint_solve((t, y) -> -y + cos(t), 1.0, 1.0, 10)   # 0.87465; the exact y(1) is 0.87483
+```
+
+Every order that works was found by running all of them on the cases. Results
+are compared with `rtol = 1e-12`.
+'''
+reference = '''
+function midpoint_solve(f, y0, T, n)
+    h = T / n
+    t = 0.0
+    y = float(y0)
+    for k in 1:n
+        k1 = f(t, y)
+        k2 = f(t + h / 2, y + h / 2 * k1)
+        y += h * k2
+        t += h
+    end
+    return y
+end
+'''
+cases = [
+  "(t, y) -> -y, 1.0, 1.0, 10",
+  "(t, y) -> -y + cos(t), 1.0, 1.0, 10",
+  "(t, y) -> t * y, 1.0, 2.0, 40",
+]
+compare = "isapprox"
+# rtol: every working order performs the same operations on the same values, so results agree to the
+# last bit; 1e-12 leaves room for a hand-written solution that groups `h / 2 * k1` differently (a few eps
+# per step over 40 steps). A wrong order or a distractor changes y(T) by more than 1e-4 on these cases.
+rtol = 1e-12
+hints = [
+  "Within one step, which slope needs which? And which update must wait until both slopes of the step are known?",
+  "`k2` uses `k1`, and both use the time and state at the start of the step, so both updates (`y += ...` and `t += h`) come after them. Do those two updates depend on each other?",
+]
+
+  [problem.parsons]
+  kc = "convergence-order"
+  head = 2
+  tail = 2
+
+  [[problem.parsons.distractor]]
+  line = "        y += h * k1"
+  replaces = 6
+  misconception = '''
+This is the Euler step: it uses the slope at the start, and `k2` is computed
+but never used. The method drops to first order. The belief it models: the
+midpoint stage is a check on the step, while the step itself still uses the
+first slope.
+'''
+
+  [[problem.parsons.distractor]]
+  line = "        k2 = f(t + h / 2, y + h * k1)"
+  replaces = 5
+  misconception = '''
+The state passed to `f` is a full Euler step, `y + h k1`, while the time is
+the middle of the step. A slope must be evaluated at one point: time and
+state from the same place. A full-step state belongs with `t + h` (that is
+Heun's predictor); with `t + h / 2` the method loses its second order.
+'''
+
+  [[problem.variant]]
+  label = "time advanced before the second slope"
+  code = '''
+function midpoint_solve(f, y0, T, n)
+    h = T / n
+    t = 0.0
+    y = float(y0)
+    for k in 1:n
+        k1 = f(t, y)
+        t += h
+        k2 = f(t + h / 2, y + h / 2 * k1)
+        y += h * k2
+    end
+    return y
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "time from the step index, half step as 0.5h"
+  code = '''
+function midpoint_solve(f, y0, T, n)
+    h = T / n
+    y = float(y0)
+    for k in 0:n-1
+        t = k * h
+        y += h * f(t + 0.5h, y + 0.5h * f(t, y))
+    end
+    return y
+end
+'''
+  expect = ["correct"]
+
+[[reference]]
+id = "richardson-gaunt-1927"
+authors = "Richardson, L. F.; Gaunt, J. A."
+title = "The deferred approach to the limit"
+venue = "Philosophical Transactions of the Royal Society of London, Series A 226, 299-361"
+year = 1927
+url = "https://doi.org/10.1098/rsta.1927.0008"
+note = "Develops the extrapolation of section 3: results at two step sizes, combined with weights set by the known order, cancel the leading error term."
+
+[[reference]]
+id = "hairer-norsett-wanner-1993"
+authors = "Hairer, E.; Nørsett, S. P.; Wanner, G."
+title = "Solving Ordinary Differential Equations I: Nonstiff Problems"
+venue = "Springer Series in Computational Mathematics, second revised edition"
+year = 1993
+url = "https://doi.org/10.1007/978-3-540-78862-1"
+note = "The standard reference for the order of Runge-Kutta methods, the link between local and global error, embedded pairs with step-size control, and work-precision diagrams (sections 2, 4, 5 and 6)."
+
+[[reference]]
+id = "dormand-prince-1980"
+authors = "Dormand, J. R.; Prince, P. J."
+title = "A family of embedded Runge-Kutta formulae"
+venue = "Journal of Computational and Applied Mathematics 6(1), 19-26"
+year = 1980
+url = "https://doi.org/10.1016/0771-050X(80)90013-3"
+note = "Built a 5(4) embedded pair designed to continue with the fifth-order result (local extrapolation), the design of section 5 that `Tsit5` also follows."
+
+[[reference]]
+id = "tsitouras-2011"
+authors = "Tsitouras, Ch."
+title = "Runge-Kutta pairs of order 5(4) satisfying only the first column simplifying assumption"
+venue = "Computers & Mathematics with Applications 62(2), 770-775"
+year = 2011
+url = "https://doi.org/10.1016/j.camwa.2011.06.002"
+note = "Derived the 5(4) pair that OrdinaryDiffEq implements as `Tsit5`, the solver measured in sections 5 and 6."

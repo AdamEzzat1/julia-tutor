@@ -24,6 +24,24 @@ In the second example notice that the state jumps from 2 to 4: `é` takes two
 bytes in UTF-8, so string states are byte positions, not character counts.
 '''
 
+  [[section.analogy]]
+  title = "A bookmark handed back with each page"
+  text = '''
+Think of `iterate` as a librarian who reads you a book one page at a time.
+You hand over the book and get back the first page plus a bookmark. To get
+the next page you hand over the book *and* the bookmark, and you get that
+page plus a new bookmark. When no pages are left, the librarian hands back
+`nothing`. The bookmark is the **state**: the small value that says where to
+continue.
+'''
+  breaks = '''
+A real bookmark sits inside the book. In Julia the state is a separate value
+that the loop holds, and for a `Vector` or a `String` calling `iterate` does
+not change the collection at all, so two loops can walk the same vector at
+once with two different states. The state need not count pages either: for a
+string it is a byte position, which is why it jumped from 2 to 4.
+'''
+
   [[section.example]]
   code = '''
 v = [10, 20, 30]
@@ -124,6 +142,23 @@ Use a generator when the values are consumed once, by `sum`, `maximum`,
 values again, or need to index them. Notice in the second example that
 nothing is printed until `first` pulls one value out, and only one value is
 computed.
+'''
+
+  [[section.analogy]]
+  title = "Batch cooking versus cooking to order"
+  text = '''
+A comprehension is batch cooking: every dish is made now and lined up on the
+counter (the new array), whether or not anyone eats it. A generator is a
+kitchen that keeps the recipe and cooks one dish each time a diner orders.
+Batch cooking needs counter space (memory); cooking to order needs none, but
+you cannot point at "the third dish" before it is made, which is why a
+generator cannot be indexed.
+'''
+  breaks = '''
+Ordering again from the generator kitchen repeats the work: looping over a
+generator a second time computes every value again. And a generator reads its
+input when each value is computed, not when the generator is created, so if
+the input vector is changed in between, the values change with it.
 '''
 
   [[section.example]]

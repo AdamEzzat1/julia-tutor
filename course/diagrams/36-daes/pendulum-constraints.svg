@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 340" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>The pendulum DAE and its constraint</title>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker>
+<marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker>
+</defs>
+<rect width="720" height="340" fill="#ffffff"/>
+<text x="20.0" y="26.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">The pendulum in Cartesian coordinates: four ODEs and one constraint</text>
+<path d="M40,90 A170,170 0 0 0 380,90" fill="none" stroke="#776f82" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="210.0" y="292.0" font-size="13" fill="#776f82" text-anchor="middle">dashed: the circle x² + y² = 1</text>
+<rect x="180" y="80" width="60" height="10" fill="#776f82" fill-opacity="0.4"/>
+<line x1="210.0" y1="90.0" x2="307.5" y2="229.3" stroke="#2b2733" stroke-width="2.5"/>
+<circle cx="210.0" cy="90.0" r="4" fill="#2b2733" stroke="none" stroke-width="1.5"/>
+<circle cx="307.5" cy="229.3" r="12" fill="#3657c8" stroke="none" stroke-width="1.5"/>
+<text x="325.5" y="235.3" font-size="14" fill="#3657c8" text-anchor="start">(x, y)</text>
+<line x1="307.5" y1="229.3" x2="364.8" y2="189.1" stroke="#3657c8" stroke-width="2" marker-end="url(#arrowb)"/>
+<text x="364.1" y="176.8" font-size="13" fill="#3657c8" text-anchor="start">(u, v)</text>
+<line x1="291.3" y1="223.5" x2="253.4" y2="169.5" stroke="#2b2733" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="247.4" y="183.7" font-size="13" fill="#2b2733" text-anchor="end">rod force -λ(x, y)</text>
+<line x1="307.5" y1="243.3" x2="307.5" y2="299.3" stroke="#776f82" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="315.5" y="295.3" font-size="13" fill="#776f82" text-anchor="start">gravity g</text>
+<text x="202.0" y="74.0" font-size="13" fill="#776f82" text-anchor="middle">pivot (0, 0)</text>
+<text x="440.0" y="70.0" font-size="14" fill="#2b2733" text-anchor="start" font-weight="600">unknowns x, y, u, v, λ</text>
+<text x="440.0" y="98.0" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">x' = u,   y' = v</text>
+<text x="440.0" y="120.0" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">u' = -λx, v' = -λy - g</text>
+<text x="440.0" y="142.0" font-size="14" fill="#3657c8" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0  = x² + y² - 1</text>
+<text x="440.0" y="180.0" font-size="13" fill="#776f82" text-anchor="start">λ has no equation of its own:</text>
+<text x="440.0" y="198.0" font-size="13" fill="#776f82" text-anchor="start">it is whatever force keeps the</text>
+<text x="440.0" y="216.0" font-size="13" fill="#776f82" text-anchor="start">mass on the circle.</text>
+<text x="440.0" y="250.0" font-size="13" fill="#2b2733" text-anchor="start" font-weight="600">A consistent state satisfies:</text>
+<text x="440.0" y="270.0" font-size="13" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">x² + y² = 1</text>
+<text x="440.0" y="290.0" font-size="13" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">x u + y v = 0</text>
+<text x="440.0" y="310.0" font-size="13" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">λ = (u² + v² - g y)/(x² + y²)</text>
+</svg>

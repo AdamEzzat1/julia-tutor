@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Finite-difference error against step size</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker><marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker></defs>
+<rect x="0" y="0" width="720" height="420" fill="#ffffff"/>
+<line x1="100.0" y1="340.0" x2="660.0" y2="340.0" stroke="#776f82" stroke-width="1.5"/>
+<line x1="100.0" y1="50.0" x2="100.0" y2="340.0" stroke="#776f82" stroke-width="1.5"/>
+<line x1="96.0" y1="340.0" x2="660.0" y2="340.0" stroke="#e4e1e8" stroke-width="1"/>
+<text x="90.0" y="345.0" font-size="13" text-anchor="end" fill="#776f82" >1e-12</text>
+<line x1="96.0" y1="287.3" x2="660.0" y2="287.3" stroke="#e4e1e8" stroke-width="1"/>
+<text x="90.0" y="292.3" font-size="13" text-anchor="end" fill="#776f82" >1e-10</text>
+<line x1="96.0" y1="234.5" x2="660.0" y2="234.5" stroke="#e4e1e8" stroke-width="1"/>
+<text x="90.0" y="239.5" font-size="13" text-anchor="end" fill="#776f82" >1e-8</text>
+<line x1="96.0" y1="181.8" x2="660.0" y2="181.8" stroke="#e4e1e8" stroke-width="1"/>
+<text x="90.0" y="186.8" font-size="13" text-anchor="end" fill="#776f82" >1e-6</text>
+<line x1="96.0" y1="129.1" x2="660.0" y2="129.1" stroke="#e4e1e8" stroke-width="1"/>
+<text x="90.0" y="134.1" font-size="13" text-anchor="end" fill="#776f82" >1e-4</text>
+<line x1="96.0" y1="76.4" x2="660.0" y2="76.4" stroke="#e4e1e8" stroke-width="1"/>
+<text x="90.0" y="81.4" font-size="13" text-anchor="end" fill="#776f82" >1e-2</text>
+<line x1="100.0" y1="340.0" x2="100.0" y2="345.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="100.0" y="362.0" font-size="13" text-anchor="middle" fill="#776f82" >1e-01</text>
+<line x1="180.0" y1="340.0" x2="180.0" y2="345.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="180.0" y="362.0" font-size="13" text-anchor="middle" fill="#776f82" >1e-03</text>
+<line x1="260.0" y1="340.0" x2="260.0" y2="345.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="260.0" y="362.0" font-size="13" text-anchor="middle" fill="#776f82" >1e-05</text>
+<line x1="340.0" y1="340.0" x2="340.0" y2="345.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="340.0" y="362.0" font-size="13" text-anchor="middle" fill="#776f82" >1e-07</text>
+<line x1="420.0" y1="340.0" x2="420.0" y2="345.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="420.0" y="362.0" font-size="13" text-anchor="middle" fill="#776f82" >1e-09</text>
+<line x1="500.0" y1="340.0" x2="500.0" y2="345.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="500.0" y="362.0" font-size="13" text-anchor="middle" fill="#776f82" >1e-11</text>
+<line x1="580.0" y1="340.0" x2="580.0" y2="345.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="580.0" y="362.0" font-size="13" text-anchor="middle" fill="#776f82" >1e-13</text>
+<line x1="660.0" y1="340.0" x2="660.0" y2="345.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="660.0" y="362.0" font-size="13" text-anchor="middle" fill="#776f82" >1e-15</text>
+<text x="380.0" y="388.0" font-size="14" text-anchor="middle" fill="#776f82" >step size h (smaller to the right)</text>
+<text x="20.0" y="195.0" font-size="14" text-anchor="middle" fill="#776f82" transform="rotate(-90 20 195)">error</text>
+<polyline points="100.0,59.7 180.0,112.7 260.0,165.4 340.0,218.1 420.0,215.5 500.0,179.7 580.0,106.3 660.0,71.7" fill="none" stroke="#3657c8" stroke-width="2"/>
+<circle cx="100.0" cy="59.7" r="4" fill="#3657c8"/>
+<circle cx="180.0" cy="112.7" r="4" fill="#3657c8"/>
+<circle cx="260.0" cy="165.4" r="4" fill="#3657c8"/>
+<circle cx="340.0" cy="218.1" r="4" fill="#3657c8"/>
+<circle cx="420.0" cy="215.5" r="4" fill="#3657c8"/>
+<circle cx="500.0" cy="179.7" r="4" fill="#3657c8"/>
+<circle cx="580.0" cy="106.3" r="4" fill="#3657c8"/>
+<circle cx="660.0" cy="71.7" r="4" fill="#3657c8"/>
+<polyline points="100.0,103.9 180.0,209.4 260.0,312.5 340.0,279.9 420.0,248.3 500.0,179.7 580.0,122.4 660.0,71.7" fill="none" stroke="#2b2733" stroke-width="2" stroke-dasharray="6 4"/>
+<circle cx="100.0" cy="103.9" r="4" fill="#2b2733"/>
+<circle cx="180.0" cy="209.4" r="4" fill="#2b2733"/>
+<circle cx="260.0" cy="312.5" r="4" fill="#2b2733"/>
+<circle cx="340.0" cy="279.9" r="4" fill="#2b2733"/>
+<circle cx="420.0" cy="248.3" r="4" fill="#2b2733"/>
+<circle cx="500.0" cy="179.7" r="4" fill="#2b2733"/>
+<circle cx="580.0" cy="122.4" r="4" fill="#2b2733"/>
+<circle cx="660.0" cy="71.7" r="4" fill="#2b2733"/>
+<line x1="300.0" y1="52.0" x2="330.0" y2="52.0" stroke="#3657c8" stroke-width="2"/>
+<text x="336.0" y="57.0" font-size="14" text-anchor="start" fill="#2b2733" >forward formula</text>
+<line x1="300.0" y1="74.0" x2="330.0" y2="74.0" stroke="#2b2733" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="336.0" y="79.0" font-size="14" text-anchor="start" fill="#2b2733" >central formula</text>
+<text x="380.0" y="410.0" font-size="13" text-anchor="middle" fill="#776f82" >Left of each dip truncation error dominates; right of it, round-off error grows as h shrinks.</text>
+<text x="340.0" y="240.1" font-size="13" text-anchor="middle" fill="#3657c8" >best forward h</text>
+<text x="260.0" y="334.5" font-size="13" text-anchor="middle" fill="#2b2733" >best central h</text>
+<text x="380.0" y="22.0" font-size="15" text-anchor="middle" fill="#2b2733" >error of d/dx sin(x) at x = 1 (recorded table, log scales)</text>
+</svg>

@@ -82,6 +82,27 @@ function that returns `0` on one branch and a `Float64` on another returns a
 followed by `s += x` for floats makes `s` an `Int` before the loop and a
 `Float64` after it, and an empty input returns the `Int`.
 '''
+refs = ["bezanson-2017"]
+
+  [[section.analogy]]
+  title = "A kitchen ticket that names the dish"
+  text = '''
+Picture the compiler as a kitchen that plans each order before cooking. If
+the ticket says "a bowl in, soup out", the next cook can lay out a spoon in
+advance: that is a type-stable function, and the plan becomes fixed machine
+code for that type. If the ticket says "soup or a sandwich, depending on what
+is in the fridge today" (the *value*), every later step must wait, look at
+what arrived and then pick a tool. Julia does that waiting by **boxing**
+(storing a value together with a tag that names its type) and by choosing
+the method at run time.
+'''
+  breaks = '''
+A kitchen can peek in the fridge; the compiler plans from types alone and
+never sees the values. And a small `Union` such as `Union{Float64, Int64}`
+costs less than the picture suggests: Julia can compile one branch per member
+(called *union splitting*), so the large slowdowns come from wider types such
+as `Any`.
+'''
 
   [[section.example]]
   caption = "The return type depends on the *value* of `x`; `zero(x)` fixes it."
@@ -195,6 +216,25 @@ real number, so code that reads it cannot be specialised. Make the struct
 **parametric** instead: `struct Point{T<:Real}; x::T; end` creates a separate
 concrete type `Point{Float64}`, `Point{Int64}`, … for each field type, with
 the same flexibility and none of the cost.
+'''
+
+  [[section.analogy]]
+  title = "An egg carton versus coat-check tickets"
+  text = '''
+A `Vector{Float64}` is an egg carton: every slot holds one egg of the same
+size, side by side, and you reach any slot by counting. A `Vector{Any}` is a
+row of coat-check tickets: each ticket is a **pointer** (the memory address
+of a value stored somewhere else), and you learn what the item is only when
+you fetch it. Summing the carton is one walk along a row. Summing the tickets
+is a trip to the back room for every item, plus a look at each one to decide
+how to add it.
+'''
+  breaks = '''
+Eggs are the same size by nature; a `Vector{Float64}` is uniform because its
+type promises it, and Julia converts or refuses any value stored into it that
+is not a `Float64`. That promise, checked on writing, is what lets reading
+skip all checks. The picture also leaves out the processor's cache, which
+loads neighbouring numbers together and favours the carton even more.
 '''
 
   [[section.example]]
@@ -316,6 +356,25 @@ with checks on, a wrong index is a `BoundsError`; under `@inbounds` it is
 **undefined behaviour**, i.e. garbage results or a crash, not an error. Prefer
 `eachindex(x)` over `1:length(x)`: it is always valid, so the compiler can
 often drop the checks by itself.
+'''
+
+  [[section.analogy]]
+  title = "Books along one long shelf"
+  text = '''
+Memory is one long shelf. Julia stores a matrix column by column: column 1 is
+on the shelf first, then column 2, and so on. Going down a column walks along
+the shelf, each book next to the last. Going along a row jumps a whole
+column's length at every step. The processor fetches memory in **cache
+lines** (blocks of bytes: 64 bytes on most x86 processors (128 on Apple's
+M-series); 64 bytes is eight `Float64`s), as if you
+were handed eight neighbouring books each time you reached for one. Walking
+along the shelf uses all eight; jumping uses one and wastes seven.
+'''
+  breaks = '''
+On a real shelf a longer jump means more walking. In memory the main cost is
+different: each block fetched from slower memory, and how many of its numbers
+go unused. Very long jumps add further costs, because the processor can no
+longer predict and fetch the next block early.
 '''
 
   [[section.example]]
@@ -1015,3 +1074,12 @@ function running_max!(v)
 end
 '''
   expect = ["correct", "fast"]
+
+[[reference]]
+id = "bezanson-2017"
+authors = "Bezanson, J.; Edelman, A.; Karpinski, S.; Shah, V. B."
+title = "Julia: A Fresh Approach to Numerical Computing"
+venue = "SIAM Review 59(1)"
+year = 2017
+url = "https://arxiv.org/abs/1411.1607"
+note = "Describes the dataflow type inference that works out the type of each expression from the argument types, the mechanism that type stability (section 2) depends on."

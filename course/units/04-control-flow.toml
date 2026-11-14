@@ -92,6 +92,23 @@ more. `enumerate` gives index and value together, and `for i in 1:2, j in 1:3`
 is a nested loop written on one line.
 '''
 
+  [[section.analogy]]
+  title = "A recipe card, not the cooked dish"
+  text = '''
+A range is like a recipe card that says "start at 1, add 2 each time, stop at
+9". The card is small whether it describes five steps or five billion.
+`collect` is cooking the recipe: it builds every element and stores them all
+in a `Vector`. A `for` loop over a range reads the card and makes each value
+as it needs it, so `for i in 1:10^9` uses no extra memory for the numbers.
+'''
+  breaks = '''
+A recipe card has to be followed from the start, but a range can answer
+`r[k]`, `length(r)` or `last(r)` at once by arithmetic, without stepping
+through the values. For ranges of floats, Julia computes each element with
+extra care so that rounding errors do not pile up along the range, so the
+values are not always what repeated `+ step` would give.
+'''
+
   [[section.example]]
   code = '''
 r = 1:2:9
@@ -166,6 +183,29 @@ Julia prints a warning and then throws an `UndefVarError`.
 Three fixes: write `global total += i` to say you mean the global, wrap the
 code in a function (the usual answer: loops in functions are also much faster),
 or use a `let` block. `local x` declares a fresh local explicitly.
+'''
+
+  [[section.analogy]]
+  title = "A meeting room with its own whiteboard"
+  text = '''
+Think of the top level of a file as a hallway with a big whiteboard (the
+globals), and a loop body as a meeting room with its own small whiteboard (its
+locals). Whatever is written on the room's board is wiped when the meeting
+ends: that is why `sq` is gone after the loop.
+
+When someone in the room says "add `i` to `total`", which board do they mean?
+In a file, Julia's rule is: a name that is *assigned* in the room belongs on
+the room's board, unless you say `global`. The room's board has no `total`
+written on it yet, so reading it fails. The REPL follows a looser rule: when
+the hallway already has a `total`, it assumes you meant that one (soft scope).
+'''
+  breaks = '''
+People decide which board to use at the moment they write. Julia decides
+before the loop runs, by reading the code: if a name is assigned anywhere in
+the loop body, it is local in the whole body, even on lines before that
+assignment. And each pass of a `for` loop gets a fresh board, so a value
+written in one iteration is not there at the start of the next unless it
+lives outside the loop.
 '''
 
   [[section.example]]

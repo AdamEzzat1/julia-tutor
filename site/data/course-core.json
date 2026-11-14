@@ -111,9 +111,12 @@
           "title": "Sum of squares"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [],
           "body": "Julia evaluates what you type and shows the value of the last expression, just\nlike the REPL (the `julia>` prompt you get by running `julia`). The sandbox\non this site does the same: press **Run** and you see what the REPL would\nprint.\n\nArithmetic works the way you expect, with one thing to notice early: `/`\nalways produces a floating-point number, even when both sides are integers.\nUse `÷` (type `\\div` then Tab) or `div` for integer division, and `%` for the\nremainder.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -147,10 +150,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Everything is an expression"
         },
         {
+          "analogies": [
+            {
+              "breaks": "Small values such as numbers are not kept in a jar you could point at: the\ncompiler may keep them in a register (a tiny storage slot inside the\nprocessor) or copy them freely, so two\ntags on \"the same\" 3 are not observably one object. And inside a function the\ncompiler does work out which types each name will hold (type inference), so\n\"tags have no type\" describes the language rules, not what the compiler knows.",
+              "text": "Think of values as jars in a kitchen, each with its contents printed on the\nglass: \"flour\", \"sugar\". A variable is a paper name tag you hang on a jar.\n`x = 3` hangs the tag `x` on a jar that says \"Int64, 3\". The type is printed\non the jar, not on the tag, which is why `typeof(x)` reports the type of the\nvalue the tag hangs on.\n\nRebinding, as in `α = \"now a string\"`, moves the tag to another jar. The old\njar is not changed; the tag now hangs somewhere else.",
+              "title": "Name tags on jars"
+            }
+          ],
           "body": "A variable is a name bound to a value; `x = 3` binds `x`. Variables do not\nhave types, *values* do, and `typeof` tells you which. On a 64-bit machine an\ninteger literal is an `Int64`, a literal with a decimal point is a `Float64`,\ntext in double quotes is a `String` and a single character in single quotes is\na `Char`.\n\nWhen you mix types in arithmetic, Julia *promotes* to a common type: `Int64`\nplus `Float64` is a `Float64`. Names can use Unicode, which is common in\nscientific code: type `\\alpha` then Tab to get `α`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -174,10 +186,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Variables and the types of values"
         },
         {
+          "analogies": [],
           "body": "`println` prints its arguments and a newline; `print` does not add the\nnewline. Inside a string, `$name` inserts the value of a variable and\n`$(expression)` inserts the value of any expression. The macro `@show` prints\nan expression together with its value, which helps while debugging.\n\nA trailing `;` on the last line hides the value, as in the REPL.\n\nOne trap: `!` is allowed in names (`push!` is a function), so `\"$name!\"`\nlooks for a variable called `name!`. Write `\"$(name)!\"` instead.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -201,10 +216,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Printing and string interpolation"
         },
         {
+          "analogies": [],
           "body": "Errors are part of learning a language, so read them. Julia's message names\nthe problem first: here an `UndefVarError` says a name has no value yet, and a\n`MethodError` says no method of a function accepts the argument types you gave\nit (you cannot add a number to a string). The sandbox shows the error and the\nline of your code where it happened.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -228,6 +246,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "When something goes wrong"
         }
       ],
@@ -387,9 +406,18 @@
           "title": "Mean of large integers"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [
+            {
+              "breaks": "An odometer rolls from its largest value to zero. A signed `Int64` rolls from\nits largest value, `typemax(Int)`, to its most negative one, `typemin(Int)`,\nbecause half of the circle is used for negative numbers. And the wheels of an\nodometer are decimal, while the dropped part of an `Int64` is a multiple of\n2^64, which is why `2^64` comes out as exactly `0`.",
+              "text": "An old car's odometer has six digit wheels. After 999999 km it does not grow\na seventh wheel: it rolls over to 000000. An `Int64` is the same kind of\ncounter with 64 binary wheels (bits). When a sum needs more bits than there\nare, the extra part is dropped and the counter starts again from the other\nend of its range. The result is exact arithmetic on a circle of 2^64 values,\nnot an approximation.",
+              "title": "A car's odometer"
+            }
+          ],
           "body": "An integer literal is an `Int64` (on a 64-bit machine `Int` is another name\nfor `Int64`). It holds 64 bits, so there is a largest and a smallest value:\n`typemax(Int)` and `typemin(Int)`.\n\nGoing past the largest value does **not** raise an error and does not switch\nto a bigger type, as Python does. The arithmetic *wraps around*: one more than\n`typemax(Int)` is `typemin(Int)`. Julia does this on purpose, because checking\nevery addition would make all integer code slower. Powers wrap too: `2^63`\nis one past `typemax(Int)`, so it comes out as `typemin(Int)`, and `2^64`\nneeds 65 bits, so what is left in 64 bits is `0`.\n\nSmaller types such as `Int8` (−128 to 127) wrap the same way, just sooner.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -413,10 +441,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Integers have a fixed size and wrap around"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A real ruler has evenly spaced marks. Float marks are not even: the gap\ndoubles at every power of two, so it is `eps()` near 1.0 but about a million\ntimes wider near 2^20 and far narrower near 0, which is why the tolerance in\n`≈` is relative. The rounding is also not sloppy reading: IEEE 754, the\nstandard every language here follows, fixes the exact result of each basic\noperation (`+`, `-`, `*`, `/`, `sqrt`), so the same sequence of those\noperations on the same inputs gives the same bits every time.",
+              "text": "Picture a ruler that has only a fixed set of tick marks. To store a number you\nmust put it on the nearest mark: this step is called *rounding*. `0.1` falls\nbetween two marks, so the ruler keeps the closest one, which is a tiny bit off.\nSo do `0.2` and `0.3`. Adding the stored `0.1` and the stored `0.2`, then\nrounding the sum to a mark, lands on a different mark than the stored `0.3`. That is all `0.1 + 0.2 == 0.3` being\n`false` means. `≈` asks \"are these on nearby marks?\" instead of \"the same\nmark?\".",
+              "title": "A ruler with a fixed set of marks"
+            }
+          ],
           "body": "A `Float64` stores a number in binary with about 16 significant decimal\ndigits. Most decimal fractions, like `0.1`, have no exact binary form, so\n`0.1 + 0.2` is not exactly `0.3` and `==` says `false`. This is the same in\nevery language that uses IEEE floating point (Python, MATLAB, R, C).\n\nCompare floats with `≈` (type `\\approx` then Tab), which is `isapprox`: equal\nwithin a relative tolerance. Close to zero a *relative* tolerance is useless\n(nothing is relatively close to 0), so pass an absolute one with `atol`.\n`eps()` is the gap between `1.0` and the next float.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -440,10 +477,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Floating point is approximate"
         },
         {
+          "analogies": [],
           "body": "`÷` (`\\div`) and `div` divide and **truncate toward zero**; `%` and `rem` give\nthe matching remainder, which has the sign of the *dividend*. `fld` rounds\ntoward minus infinity (floor) and `mod` gives the matching remainder, which has\nthe sign of the *divisor*. `cld` rounds up (ceiling).\n\nFor positive numbers `÷`/`fld` and `%`/`mod` agree. With a negative number they\ndo not, as the table shows. If you come from Python: Python's `//` is `fld`\nand Python's `%` is `mod`, not Julia's `%`. Use `mod` for \"wrap into the\nrange `0:n-1`\" (clock arithmetic, circular indexing).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -467,10 +507,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Integer division and remainders with negative numbers"
         },
         {
+          "analogies": [],
           "body": "`//` builds a `Rational`: an exact fraction, always stored in lowest terms.\nRationals never round, so `1//10 + 2//10 == 3//10` is `true`.\n\n`BigInt` is an integer of unlimited size; `big(x)` converts a number to it.\nUse it when results really exceed 64 bits. It is much slower than `Int`\n(every operation allocates memory), so do not use it \"just in case\".\nSome functions refuse to overflow silently: `factorial(21)` does not fit in an\n`Int64`, and `factorial` says so instead of wrapping.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -494,10 +537,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Exact arithmetic: Rational and BigInt"
         },
         {
+          "analogies": [],
           "body": "Calling a type as a function, `Int(x)`, converts *exactly or not at all*:\n`Int(2.0)` is `2`, but `Int(2.5)` throws an `InexactError` because 2.5 is not\nan integer. The same goes for values out of range, like `Int8(200)`.\n\nTo get an integer from a float that is not whole, say how to round:\n`round(Int, x)`, `trunc(Int, x)` (toward zero), `floor(Int, x)` (down) or\n`ceil(Int, x)` (up). Without the type they return a float. Notice that\n`round` breaks ties to the *even* neighbour: `round(2.5)` is `2.0`, while\n`round(3.5)` is `4.0`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -521,10 +567,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Converting between number types"
         },
         {
+          "analogies": [],
           "body": "When an operation mixes types, Julia *promotes* both arguments to a common type\nthat can represent them and then computes in that type: `Int` and `Float64`\ngive `Float64`, `Int` and `Rational` give a `Rational`, a `Rational` and a\n`Float64` give `Float64`. `promote` shows the result of that step.\n\nMixing an `Int8` with an `Int` gives an `Int`; the small type does not\n\"win\". This is why you rarely need to convert by hand before arithmetic.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -538,6 +587,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Promotion: mixing number types"
         }
       ],
@@ -712,9 +762,12 @@
           "title": "Run-length encoding"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [],
           "body": "Double quotes make a `String`, single quotes make a `Char` (one Unicode\ncharacter). They are different types: `\"a\" == 'a'` is `false`. A `Char` is a\ncode point, so `'a' + 1` is `'b'`.\n\nJulia joins strings with `*`, not `+` (in algebra `*` is the operation that\nneed not commute, like joining text), and repeats them with `^`. `string(...)`\nconverts and joins any values, and interpolation with `$` (unit 1) is usually\nthe clearest way to build text.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -738,10 +791,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "String and Char, and building strings"
         },
         {
+          "analogies": [
+            {
+              "breaks": "In UTF-8 the \"middle plots\" are not empty land: each holds a continuation\nbyte (a byte whose first two bits are `10`, marking it as part of the\ncharacter before). Julia uses exactly that marking to spot an invalid index.\nAnd a character never spans more than four bytes, a limit a street of houses\ndoes not have.",
+              "text": "Imagine a street divided into equal plots, numbered 1, 2, 3, ... Most houses\nfill one plot, but some are wider and fill two, three or four. A house's\naddress is the number of its first plot. In `\"héllo\"` the `h` sits on plot 1\nand the wide `é` covers plots 2 and 3, so the next house, `l`, has address 4.\nAsking for \"the house at 3\" (`s[3]`) points at the middle of `é`'s plot, and\nJulia refuses with a `StringIndexError` rather than hand you half a house.\n\n`nextind(s, i)` walks to the next front door, and `eachindex(s)` lists every\nfront door on the street.",
+              "title": "House numbers on a street of plots"
+            }
+          ],
           "body": "Julia strings are UTF-8. ASCII characters take one byte, but `é` takes two\n(other characters up to four). A string index is a **byte position**, so for text with\nnon-ASCII characters not every integer is a valid index: `s[3]` below lands in\nthe middle of `é` and throws a `StringIndexError`.\n\n`length(s)` counts characters, `ncodeunits(s)` counts bytes. To move between\ncharacters use `eachindex(s)` (all valid indices), `nextind(s, i)` and\n`prevind(s, i)`, and `firstindex`/`lastindex` instead of `1` and `length(s)`.\n`s[end]` is safe: `end` means `lastindex(s)`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -765,10 +827,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Indexing is by byte, not by character"
         },
         {
+          "analogies": [],
           "body": "A `for` loop over a string visits each **character**, decoding UTF-8 for you,\nso it never hits an invalid index. `collect(s)` gives a `Vector{Char}`, and\nfunctions such as `count`, `reverse` and `uppercase` work character by\ncharacter. Most of the time this is all you need, and you never touch byte\nindices.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -782,10 +847,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Iterating over characters"
         },
         {
+          "analogies": [],
           "body": "The functions you would reach for in Python exist under similar names, but as\nfunctions, not methods: `split(s, \",\")`, not `s.split(\",\")`.\n\n* `split` and `join` break text apart and glue it back together;\n* `replace(s, \"old\" => \"new\")` takes a `Pair`;\n* `occursin(needle, haystack)` (note the order), `startswith`, `endswith`;\n* `uppercase`, `lowercase`, `strip`.\n\nStrings are immutable: these functions return new strings and leave the\noriginal alone.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -799,10 +867,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Everyday string functions"
         },
         {
+          "analogies": [],
           "body": "`parse(T, s)` reads a number of type `T` from a string and throws an\n`ArgumentError` if the text is not one. When bad input is expected (user\ninput, messy files), use `tryparse`, which returns `nothing` instead of\nthrowing, and check for it with `=== nothing` or `isnothing`.\n\nThe reverse direction is `string(x)`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -816,10 +887,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Parsing numbers from text"
         },
         {
+          "analogies": [
+            {
+              "breaks": "Highlights in a real book can go stale if someone edits the page. A Julia\n`String` is immutable (it can never change), so a `SubString` always shows the\nsame text. The cost runs the other way: as long as a small `SubString` is kept,\nthe whole parent string stays in memory, which is one reason to copy with\n`String(x)` when you keep a short piece of a large text.",
+              "text": "A `SubString` is like highlighting a passage in a book instead of photocopying\nit. The highlight records where the passage starts and ends in the book; no\nnew paper is used. `String(x)` is the photocopy: a separate sheet you can keep\nafter the book is gone.",
+              "title": "A highlighted passage, not a photocopy"
+            }
+          ],
           "body": "`r\"...\"` is a regular expression (PCRE syntax). `match` returns the first\nmatch or `nothing`; a match's capture groups are in `m.captures` (or `m[1]`,\n`m[2]`, ...). `eachmatch` iterates over all matches.\n\nCaptures, like the pieces from `split`, are `SubString`s: views into the\noriginal string, with no copy. They behave like strings; call `String(x)` when\nyou want an independent copy.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -843,6 +923,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Regular expressions and SubString"
         }
       ],
@@ -1002,9 +1083,12 @@
           "title": "Count the primes up to n"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [],
           "body": "`if` ... `elseif` ... `else` ... `end` works as in most languages, and the\nwhole block is an expression with a value (unit 1). For a short choice\nbetween two values, `cond ? a : b` (the *ternary* operator) is common; the\nspaces around `?` and `:` are required.\n\nA condition must be a `Bool`. Unlike Python, R or C, Julia does not treat `0`,\n`\"\"` or an empty array as false: `if 1` is an error. Write the comparison you\nmean (`x != 0`, `!isempty(v)`).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1028,10 +1112,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "if, elseif, else and the ternary operator"
         },
         {
+          "analogies": [],
           "body": "`a && b` evaluates `b` only when `a` is true; `a || b` evaluates `b` only\nwhen `a` is false. Besides combining conditions, Julia code uses them as a\ncompact `if`: `cond && action` runs the action when `cond` holds, and\n`cond || action` runs it when `cond` fails. Inside a function,\n`x < 0 && return 0` is an idiomatic early exit.\n\nComparisons chain the way they do in mathematics: `1 < x < 3` means\n`1 < x && x < 3`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1065,10 +1152,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Short-circuit && and ||, and comparison chains"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A recipe card has to be followed from the start, but a range can answer\n`r[k]`, `length(r)` or `last(r)` at once by arithmetic, without stepping\nthrough the values. For ranges of floats, Julia computes each element with\nextra care so that rounding errors do not pile up along the range, so the\nvalues are not always what repeated `+ step` would give.",
+              "text": "A range is like a recipe card that says \"start at 1, add 2 each time, stop at\n9\". The card is small whether it describes five steps or five billion.\n`collect` is cooking the recipe: it builds every element and stores them all\nin a `Vector`. A `for` loop over a range reads the card and makes each value\nas it needs it, so `for i in 1:10^9` uses no extra memory for the numbers.",
+              "title": "A recipe card, not the cooked dish"
+            }
+          ],
           "body": "`a:b` is the range from `a` to `b` **inclusive**, and `a:s:b` steps by `s`.\nA range stores only its start, step and stop, not its elements; `collect`\nturns it into a `Vector`. `length`, `step`, `reverse`, `first` and `last` all\nwork, and `5:1` is empty (count down with `5:-1:1`). `range(0, 1; length = 5)`\ngives evenly spaced floats.\n\n`for x in collection` loops over a range, a vector, a string, a tuple, and\nmore. `enumerate` gives index and value together, and `for i in 1:2, j in 1:3`\nis a nested loop written on one line.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1092,10 +1188,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Ranges and for loops"
         },
         {
+          "analogies": [],
           "body": "`while cond ... end` repeats while the condition holds. `break` leaves the\ninnermost loop, `continue` skips to its next iteration.\n\nJulia has no labelled `break` for leaving several nested loops at once. The\nidiomatic way is to put the search in a function and `return` from it as soon\nas you have the answer, as `find_pair` does below.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1119,10 +1218,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "while, break and continue"
         },
         {
+          "analogies": [
+            {
+              "breaks": "People decide which board to use at the moment they write. Julia decides\nbefore the loop runs, by reading the code: if a name is assigned anywhere in\nthe loop body, it is local in the whole body, even on lines before that\nassignment. And each pass of a `for` loop gets a fresh board, so a value\nwritten in one iteration is not there at the start of the next unless it\nlives outside the loop.",
+              "text": "Think of the top level of a file as a hallway with a big whiteboard (the\nglobals), and a loop body as a meeting room with its own small whiteboard (its\nlocals). Whatever is written on the room's board is wiped when the meeting\nends: that is why `sq` is gone after the loop.\n\nWhen someone in the room says \"add `i` to `total`\", which board do they mean?\nIn a file, Julia's rule is: a name that is *assigned* in the room belongs on\nthe room's board, unless you say `global`. The room's board has no `total`\nwritten on it yet, so reading it fails. The REPL follows a looser rule: when\nthe hallway already has a `total`, it assumes you meant that one (soft scope).",
+              "title": "A meeting room with its own whiteboard"
+            }
+          ],
           "body": "`for` and `while` loops (and functions) open a new *local scope*. A variable\nfirst assigned inside the loop is local to it and does not exist afterwards.\n\nThe tricky case is a loop that updates a **global** variable, one defined at\nthe top level. In the REPL, and in this site's sandbox, such a loop\nupdates the global (the REPL's *soft scope*). In a file run with\n`julia script.jl` or `include`, the same assignment inside the loop creates a\nnew *local* `total`, so `total += i` reads a local that has no value yet:\nJulia prints a warning and then throws an `UndefVarError`.\n\nThree fixes: write `global total += i` to say you mean the global, wrap the\ncode in a function (the usual answer: loops in functions are also much faster),\nor use a `let` block. `local x` declares a fresh local explicitly.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "REPL mode (the default here): the loop updates the global `total`.",
@@ -1176,6 +1284,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Scope: why a loop works in the REPL but not in a script"
         }
       ],
@@ -1337,9 +1446,12 @@
           "title": "Sort words by length, then alphabetically"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [],
           "body": "The long form is `function name(args) ... end`; for a one-line body the short\nform `name(args) = expression` is the same thing. A function returns the value\nof its **last expression**, so `return` is only needed to leave early. A\nfunction whose last expression is `println(...)` returns `nothing`.\n\nTo return several values, return a tuple; the caller can *destructure* it\ninto separate variables. `_` throws a value away.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1373,10 +1485,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Defining functions and returning values"
         },
         {
+          "analogies": [],
           "body": "Positional arguments can have defaults: `f(x, n = 2)`. Arguments after a\nsemicolon are **keyword arguments**, passed by name in any order\n(`round_to(x; digits = 2)`); they are best for options. A keyword argument\ncannot be passed by position, as the error shows.\n\n`args...` in a definition collects any number of arguments into a tuple\n(*varargs*). In a call, `f(v...)` does the opposite: it *splats* a collection\ninto separate arguments.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1410,10 +1525,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Default, keyword and variable arguments"
         },
         {
+          "analogies": [],
           "body": "`x -> x^2` is a function without a name (`(a, b) -> a + b` for two\narguments). Functions are values, so you can pass them to other functions:\n`map(f, v)` applies `f` to each element, `filter(pred, v)` keeps the elements\nfor which `pred` is `true`, and `sort(v; by = f)` sorts by the key `f(x)`.\n\nWhen the function argument is long, a **do-block** passes it as the first\nargument: `map(v) do x ... end` is `map(x -> ..., v)`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1437,10 +1555,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Anonymous functions, map, filter, sort and do-blocks"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A rented locker stays rented until someone returns it. Julia's storage for a\ncaptured variable is freed automatically once no function holds its key\nany more (the garbage collector, the part of Julia that reclaims unused\nmemory, does this). And the locker is not free: when a closure reassigns a\ncaptured variable, as the counter does, Julia often stores it in a `Core.Box`\n(an extra object in memory whose contents' type the compiler cannot see),\nwhich makes that code slower than a plain loop.",
+              "text": "Each call to `make_counter()` rents a new locker and puts a `count` of 0 in\nit. The function it returns carries the key to that locker. Every time you\ncall it, it opens the locker, adds one, and closes it again, which is why\n`c()` remembers how many times it was called. Call `make_counter()` again and\nyou get a second locker with its own key: the two counters never see each\nother's numbers.\n\nThis is the difference between capturing the *variable* (the locker) and\ncapturing a *value* (a photo of what was in the locker at the time).",
+              "title": "A function that carries a locker key"
+            }
+          ],
           "body": "A function defined inside another function can use the outer function's\nlocal variables; it *closes over* them, so it is called a **closure**.\n`make_adder(n)` returns a new function that remembers its own `n`.\n\nA closure captures the *variable*, not a snapshot of its value, so it can\nupdate it, like the counter below. In a loop, each iteration has a fresh\nloop variable, so closures made in a comprehension each see their own `i`\n(Python programmers expect `[3, 3, 3]` here).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1454,10 +1581,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Closures capture variables"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A cook can adapt a recipe on the fly; Julia writes a new prep sheet (compiles)\non the first call for each new combination of argument types, and that first\ncall takes extra time. Also, the recipe only works for ingredients that\nsupport every step: calling `f(\"a\")` fails with a `MethodError`, because there\nis no `2 * \"a\"` to compile, not because Julia rejects strings up front.",
+              "text": "`f(x) = 2x + 1` is like a recipe that says \"double it, then add one\", without\nnaming the ingredient. The first time a cook makes it with whole numbers, they\nwrite a prep sheet for whole numbers; the first time with fractions, a\nseparate prep sheet for fractions. Later orders of the same kind reuse the\nsheet that already exists. In Julia the prep sheet is machine code compiled\nfor that argument type, and `typeof(f(3))` and `typeof(f(1//3))` differ\nbecause each sheet works in its own type.",
+              "title": "One recipe, a prep sheet per ingredient"
+            }
+          ],
           "body": "By convention a function whose name ends in `!` **modifies one of its\narguments** (usually the first): `sort!(v)` sorts `v` in place, while `sort(v)`\nreturns a sorted copy and leaves `v` alone. `push!`, `append!` and `fill!`\nfollow the same rule. The `!` is only part of the name; Julia does not\nenforce it, but every Julia programmer reads it as a warning, so follow it in\nyour own code.\n\nFunction arguments without type annotations accept anything that supports the\noperations used. One definition of `f(x) = 2x + 1` works for an `Int`, a\n`Float64`, a `Rational` and a `BigInt`, and Julia compiles a specialised\nversion for each type, so generic code is not slow.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1481,6 +1617,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "The ! convention and generic functions"
         }
       ],
@@ -1603,9 +1740,12 @@
           "title": "Word frequencies"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [],
           "body": "A `Vector` is written with square brackets and commas. Every array has an\n**element type**, shown by `eltype` and in the type itself: `[1, 2, 3]` is a\n`Vector{Int64}`. Mixing integers and floats promotes them to a common type, so\n`[1, 2.5]` is a `Vector{Float64}`.\n\nAn empty `[]` has nothing to infer from, so it is a `Vector{Any}`, which can\nhold anything and is slow to compute with. When you start empty and fill a\nvector later, give the element type: `Int[]` or `Float64[]`.\n\nIndexing is **1-based**, as in MATLAB, R and Fortran, and unlike Python or C:\n`v[1]` is the first element and `v[end]` the last. `v[0]` is an error.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1639,10 +1779,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Vectors and their element type"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A desktop shortcut can break when the folder it points to is deleted. A Julia\narray is kept alive as long as any name refers to it, so `a` cannot be left\npointing at nothing. And numbers stored in an array are copied as values, not\nas shortcuts, so for a `Vector{Int}` a shallow copy already shares nothing.",
+              "text": "`b = a` is like making a desktop shortcut to a folder. Opening either one\nshows the same folder, so a file you change through one shows up through the\nother (`a === b` is `true`).\n\n`copy(a)` makes a new folder and fills it with what the old one held. If the\nold folder contained shortcuts to subfolders (an array of arrays), the new\nfolder gets the same shortcuts, still pointing at the same subfolders: that\nis a *shallow* copy. `deepcopy(a)` copies the subfolders too, all the way\ndown, so nothing is shared.",
+              "title": "Shortcuts to a folder on your computer"
+            }
+          ],
           "body": "`v[2:3]` makes a **new array** holding copies of those elements: changing\nthe slice does not change `v`. This differs from NumPy, where a basic slice is\na view. When you want a window into the original without copying, use\n`view(v, 2:3)` or the `@view` macro; the performance unit comes back to views.\n\nAssignment never copies. After `b = a`, the two names refer to the *same*\narray, so a change through `b` is visible through `a` (`===` tells you they\nare the same object). `copy(a)` makes a new outer array; for an array of\narrays the inner arrays are still shared, and `deepcopy` copies all the way\ndown.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1676,10 +1825,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Slices copy, names share"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A reader pays nothing to jump to another column. A processor does: it fetches\nmemory in blocks of neighbouring slots into its cache (a small, fast memory\nclose to the processor), so the next element down a column is usually already\nfetched, while the next element along a row may need a new fetch. The\ndifference is in speed only: both orders reach the same elements.",
+              "text": "Memory is one long line of slots, so a table has to be laid out in some\norder. Julia lays a matrix out like a newspaper page: the whole first column\nfrom top to bottom, then the whole second column. `vec([1 2 3; 4 5 6])` gives\n`[1, 4, 2, 5, 3, 6]` for that reason. Reading down a column (first index\nchanging fastest) moves along the line one slot at a time; reading across a\nrow jumps a whole column's length at every step.",
+              "title": "A newspaper printed in columns"
+            }
+          ],
           "body": "Inside brackets, spaces separate columns and `;` (or a new line) separates\nrows, so `[1 2 3; 4 5 6]` is a 2×3 `Matrix{Int64}`. Index with `A[row, col]`;\n`size(A)` is `(rows, columns)`.\n\nJulia stores a matrix **column by column** (like Fortran and MATLAB, unlike\nC and NumPy's default). `vec(A)` shows that memory order: down the first\ncolumn, then the second. `reshape` reuses the same order, so `reshape(1:6, 2, 3)`\nfills columns first (reshaping a range gives a lazy wrapper rather than a new\n`Matrix`; `collect` it if you need one). Loops over a matrix are fastest when the *first* index\nchanges fastest.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1703,10 +1861,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Matrices are column-major"
         },
         {
+          "analogies": [],
           "body": "A `Tuple` is a fixed-length, **immutable** sequence written with parentheses:\n`(1, \"a\", 2.5)`. Each position keeps its own type, which is why functions\nreturn several values as a tuple and why tuples are cheap: no heap array is\ncreated. You can index a tuple and destructure it, but not change it.\n\nA `NamedTuple` adds a name to each position, `(x = 1, y = 2)`, read with\n`p.x`. It is a lightweight record when a full struct (see the types unit)\nwould be overkill.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1720,10 +1881,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Tuples and named tuples"
         },
         {
+          "analogies": [],
           "body": "A `Dict` maps keys to values. Build one from `key => value` pairs; read with\n`d[key]` (an error if the key is absent) or `get(d, key, default)`; test with\n`haskey`. Assigning `d[key] = value` adds or replaces. Iterating a `Dict`\ngives `key => value` pairs, which you can destructure in the `for`. The order\nis determined by hashing, not insertion, so sort the keys when the order\nmatters.\n\nA `Set` holds each value at most once. `in` (also written `∈`, `\\in` Tab)\nasks whether a value is present; `union` and `intersect` combine sets.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1757,10 +1921,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Dictionaries and sets"
         },
         {
+          "analogies": [],
           "body": "A comprehension builds an array from a loop in one expression:\n`[f(x) for x in xs]`, optionally filtered with `if`. Two `for` clauses\nseparated by a comma build a **matrix**, the first variable running down the\nrows.\n\n`sort(v)` returns a new sorted array; `sort!(v)` sorts `v` in place. Both\naccept `rev = true` and `by = f` (sort by `f(x)`). `sortperm(v)` returns the\n*indices* that would sort `v`, which lets you reorder a second array the same\nway.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1784,6 +1951,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Comprehensions and sorting"
         }
       ],
@@ -1932,9 +2100,12 @@
           "title": "Largest absolute difference"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [],
           "body": "In Julia, `f.(x)` calls `f` on every element of `x` and collects the results.\nThis works for **every** function, including your own; there is no separate\nlist of \"vectorized\" functions as in NumPy or R. Operators get the dot in\nfront: `.+`, `.*`, `.^`, `.<`.\n\nWithout the dot, an operator means its mathematical meaning. `v * 2` is fine\n(scaling a vector), but `v + 1` is an error, because adding a number to a\nvector is not defined in linear algebra, and `v * w` for two vectors is an\nerror too (there is no vector-times-vector product of that shape). Write\n`v .+ 1` and `v .* w`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1958,10 +2129,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "The dot: any function, elementwise"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A cook can choose to work plate by plate anywhere. Julia fuses only the dotted\ncalls inside one expression: putting steps on separate lines, as `stepwise`\ndoes, or passing a dotted result to a call without a dot, such as `sum(x .^ 2)`,\nbuilds the full intermediate array first. And fusion calls each function once\nper element, so work that could be shared across elements is not shared.",
+              "text": "A kitchen has to make 1000 plates of \"sliced tomato plus twice the squared\ncucumber\". The stepwise way slices all 1000 tomatoes into one big bowl, squares\nall 1000 cucumbers into a second bowl, doubles them into a third, and only then\ncombines the bowls onto plates. The fused way takes one tomato and one\ncucumber, finishes that plate, and moves to the next. Both serve the same\nplates; the second never fills a bowl. In code each bowl is a *temporary\narray*: built only to be read once and thrown away.",
+              "title": "Plating one dish at a time"
+            }
+          ],
           "body": "When several dotted calls are nested, Julia **fuses** them into a single loop\nover the elements and allocates only the final result. `sin.(x) .+ 2 .* x .^ 2`\ndoes not build `sin.(x)`, then `x .^ 2`, then `2 .* (...)`: it computes the\nwhole expression for one element at a time.\n\nWriting the same thing in steps creates a temporary array at every step. The\nexample measures the bytes each version allocates, in units of the size of\n`x`: the fused version allocates one array's worth, the stepwise one four.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -1975,10 +2155,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Fusion: one loop, no temporaries"
         },
         {
+          "analogies": [],
           "body": "`y = x .* 2` creates a new array and binds the name `y` to it. `y .= x .* 2`\ninstead **writes into** the array `y` already refers to, so the fused loop\nallocates nothing at all. This is how you update arrays inside a loop without\ncreating garbage.\n\nDots everywhere get noisy; the `@.` macro adds a dot to every call and\noperator in an expression, including the assignment: `@. y = 2x^2 + 1` is\n`y .= 2 .* x .^ 2 .+ 1`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2002,10 +2185,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Writing into an existing array: .= and @."
         },
         {
+          "analogies": [
+            {
+              "breaks": "A table can have any edges, but broadcasting stretches a dimension only when\nits length is 1. `[1, 2, 3] .+ [1, 2]` puts two columns of different lengths\nside by side; neither has length 1 in that dimension, so there is no table to\nfill and Julia throws a `DimensionMismatch`. Also, the stretched values are\nnever copied in memory: Julia reads the same element again for each cell.",
+              "text": "`col .+ row` is the addition table from primary school. The column `[1, 2, 3]`\nruns down the left edge, the row `[10 20]` runs along the top, and each cell\nis its row's left number plus its column's top number. The column is used\nagain in every column of the table and the row in every row: that reuse is\nwhat \"a dimension of length 1 is stretched\" means. A scalar is a table with\none number that is reused in every cell.",
+              "title": "Filling in an addition table"
+            }
+          ],
           "body": "Broadcasting is more than \"same-length arrays\". Dimensions of length 1 are\n**stretched** to match: a column vector (a `Vector`, n×1) combined with a row\n(a 1×m matrix such as `[10 20]` or `v'`) gives an n×m matrix, without writing\na loop. A scalar is stretched along every dimension. Shapes that cannot be\nmatched give a `DimensionMismatch`.\n\nTo treat a whole container as a single value inside a broadcast, wrap it in\n`Ref(...)` (or a one-element tuple).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2029,10 +2221,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Broadcasting shapes"
         },
         {
+          "analogies": [],
           "body": "Functions are values, so many functions take one as their first argument.\n`map(f, xs)` is like `f.(xs)`; `filter(pred, xs)` keeps the elements where\n`pred` is true; `reduce(op, xs)` combines them with a binary operator;\n`mapreduce(f, op, xs)` does both in one pass without an intermediate array.\n`foldl` and `foldr` fix the order of combination, which matters for\noperators like `-`.\n\nThe everyday reductions also accept a function first: `sum(abs2, v)`,\n`maximum(length, words)`, `count(iseven, v)`, `any(>(3), v)`, `all(...)`.\nThese do not build `f.(v)` first. `>(3)` is a function that tests `x > 3`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2046,10 +2241,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "map, filter, reduce and functions as arguments"
         },
         {
+          "analogies": [],
           "body": "Unlike in Python or R, a plain `for` loop in Julia compiles to fast machine\ncode, so you never need to contort an algorithm into array operations for\nspeed. Broadcasting is for *expressing* elementwise work concisely. Write a\nloop when the work is sequential (each step depends on the last), when you can\nstop early, or when a chain of array operations would allocate several\ntemporaries.\n\nThe loop below stops at the first point where a running total passes a\nthreshold, something that is awkward to say with whole-array operations.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2063,6 +2261,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "When to write a loop"
         }
       ],
@@ -2228,9 +2427,18 @@
           "title": "Struct fields and speed"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [
+            {
+              "breaks": "Living species can split into subspecies, but a concrete Julia type is always\na leaf: nothing can be declared a subtype of `Int64`. Each Julia type also has\nexactly one parent, declared by a person, not discovered from evidence. And\nsome types do not fit a plain family tree: `Union{Int, String}` (later in this\nunit) is not a node in the tree at all, and for parametric types `Point2{Int}`\nand `Point2{Real}` are siblings, neither a subtype of the other, even though\n`Int` is a `Real`.",
+              "text": "A bird guide groups species into families: a robin is a thrush, a thrush is a\nsongbird, a songbird is a bird. You can see a robin in your garden, but you\nnever see a bird that is \"just a thrush\" and no particular species. Concrete\ntypes are the species: every value you meet is exactly one of them (`Int64`,\n`Float64`). Abstract types are the families (`Integer`, `Real`): they group\nspecies so you can say \"any real number\", but nothing is only a `Real`.\n`supertype` walks up from species to family; `subtypes` lists what a family\ncontains.",
+              "title": "Species and families in a field guide"
+            }
+          ],
           "body": "`typeof(x)` is the type of a value; `x isa T` asks whether it belongs to `T`\n(or to a subtype of `T`). Types form a single tree with `Any` at the top:\n`supertype` walks up, `subtypes` lists the children (it lives in the\n`InteractiveUtils` standard library, which the REPL loads for you; here we\nload it explicitly).\n\n**Abstract** types such as `Real` and `Integer` only group other types; no\nvalue has an abstract type as its `typeof`. **Concrete** types such as\n`Int64` and `Float64` are the leaves that values actually have. The lists\nbelow are those of Julia 1.10 with only Base loaded; packages can add more\nsubtypes.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2244,10 +2452,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Every value has a type, in one tree"
         },
         {
+          "analogies": [],
           "body": "`struct` defines a new concrete type with named fields. Its values are\n**immutable**: once created, a field cannot be reassigned. That lets the\ncompiler store them inline in arrays and registers, much like a tuple with\nnames. When you need to change a field, use `mutable struct`; those values\nlive on the heap and are shared by reference, like arrays.\n\nJulia defines a default constructor that takes the fields in order and\nconverts each argument to the field's declared type (so `Point(1, 2)` stores\n`1.0` and `2.0`). In the REPL you cannot redefine a struct with different\nfields; restart Julia (or use a new name) when you change one.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2271,10 +2482,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "struct and mutable struct"
         },
         {
+          "analogies": [],
           "body": "An **inner constructor** is a function inside the `struct` block that calls\n`new(...)`. Once you write one, the default constructor is gone, so every\nvalue of the type has passed your checks: here, an `Interval` with `lo > hi`\ncannot exist. Throw an `ArgumentError` for a bad argument.\n\nAn **outer constructor** is an ordinary method defined outside the block,\nusually a convenience that calls another constructor.\n\n`Base.@kwdef` lets a struct have default values and keyword construction,\nwhich suits configuration records.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2298,10 +2512,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Constructors that validate, and keyword structs"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A warehouse can relabel a shelf. A Julia type cannot change: `Tight{Float64}`\nand `Tight{Int64}` are two different types, each fixed when it is created,\nand a value of one is never a value of the other. The \"package\" is also\nliteral: an abstract-typed field stores a pointer to a separate object on the\nheap that carries its own type tag, which costs memory as well as time.",
+              "text": "A field `x::Real` is a shelf labelled \"some kind of real number\". A worker who\ntakes an item from it must first open the package to see whether it is an\ninteger, a float or a fraction, and only then knows how to handle it. That\ncheck happens at every use, while the program runs. A field of a parametric\ntype, as in `Tight{Float64}`, is a shelf labelled \"Float64, always\": the\nworker knows in advance what is there and the compiler can write the exact\ninstructions for a `Float64` ahead of time. That is the `Any` versus\n`Float64` you see in the `return_types` output.",
+              "title": "Warehouse shelves with labels"
+            }
+          ],
           "body": "A field declared with an abstract type, such as `x::Real`, can hold any\n`Real`, so the compiler cannot know what reading it returns: every use is a\nrun-time type check and the value is stored boxed. A field with no type at all\nis `Any`, the worst case.\n\nA **parametric** type keeps the flexibility without the cost: `Point2{T}` has\nfields of type `T`, and `Point2(1, 2)` is a `Point2{Int64}`, a concrete type.\n`Base.return_types` shows what the compiler infers for a function on given\nargument types: `Real`-field reads infer `Any`, parametric ones `Float64`.\nBoth fields share one `T`, so mixing `1` and `2.5` has no matching\nconstructor unless you add one (the dispatch unit shows how, with `promote`).\nThe performance unit returns to this; the `L02` lesson drills it.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2335,10 +2558,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Parametric types and concrete fields"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A clerk would say two unknown dates \"might be equal\". Julia's `missing ==\nmissing` gives `missing`, not `true` and not \"might\", and an `if` on that\nresult throws an error, so code must decide what to do with `ismissing` or\n`coalesce` before comparing. The form also hides that both are ordinary\nvalues of their own types (`Nothing`, `Missing`), which is what lets them sit\nin a `Union`.",
+              "text": "A paper form can be blank for two different reasons. \"Name of spouse: n/a\"\nmeans there is no such thing to write: that is `nothing`. \"Date of birth:\nunknown\" means there is a real date, but nobody knows it: that is `missing`.\nA clerk asked to add a year to an unknown birth date answers \"still unknown\",\nwhich is why `missing + 1` is `missing`. Asked to add a year to \"n/a\", the\nquestion makes no sense, which is why `nothing + 1` is an error.",
+              "title": "Two kinds of blank on a form"
+            }
+          ],
           "body": "`Union{A, B}` is the type of values that are either an `A` or a `B`. Two\nspecial values are common partners in a Union:\n\n* `nothing` (type `Nothing`) means \"no value\": `findfirst` returns it when\n  nothing is found. It is not a number; arithmetic on it is an error. Test\n  with `x === nothing` or `isnothing(x)`.\n* `missing` (type `Missing`) means \"a value exists but is unknown\", as in\n  statistics and SQL's `NULL`. It **propagates**: `missing + 1` is `missing`,\n  and so is `missing == 1`. Use `ismissing(x)` to test, `skipmissing(v)` to\n  iterate over the known values, and `coalesce(x, default)` to replace it.\n\n`isequal` treats `missing` as equal to itself, which is why dictionaries and\nthe grader use it.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2352,6 +2584,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Union, nothing and missing"
         }
       ],
@@ -2510,9 +2743,28 @@
           "title": "A 2-D vector type and the length of a path"
         }
       ],
+      "references": [
+        {
+          "authors": "Bezanson, J.; Edelman, A.; Karpinski, S.; Shah, V. B.",
+          "id": "bezanson-2017",
+          "note": "The design paper of Julia by its creators. It presents multiple dispatch, picking a method from the types of the arguments, as a main idea of the language, as stated in the first section of this unit.",
+          "title": "Julia: A Fresh Approach to Numerical Computing",
+          "url": "https://arxiv.org/abs/1411.1607",
+          "venue": "SIAM Review 59",
+          "year": 2017
+        }
+      ],
       "sections": [
         {
-          "body": "Each definition `f(args) = ...` with a different signature adds a\n**method** to the same generic function `f`; it does not replace the previous\none. `methods(f)` lists them. When you call `f`, Julia picks the most specific\nmethod that matches the types of the arguments **at run time**. The order in\nwhich the methods were defined plays no part.\n\nA method with no annotation on an argument accepts `Any`. Methods can also\ndiffer in the number of arguments.",
+          "analogies": [
+            {
+              "breaks": "A clerk reads the address on the envelope. Julia reads the type of the value\nitself, which is fixed and cannot be mislabelled. And \"more specific\" has a\nprecise meaning that no wall of rules spells out: one signature is more\nspecific when its types are subtypes of the other's, as the next section\nshows for several arguments.",
+              "text": "A sorting office has rules on the wall: \"anything: tray A\", \"anything to\nEurope: tray B\", \"anything to Germany: tray C\". A letter to Berlin matches all\nthree, and the clerk uses the most specific rule that fits, tray C. It does not\nmatter which rule was pinned up first. A letter to Japan matches only\n\"anything\", so it goes to tray A.\n\n`describe` works the same way: the methods are the rules, the types of the\narguments are the address, and `describe(3)` goes to the `Integer` rule\nbecause `Integer` is narrower than `Real`, which is narrower than `Any`.",
+              "title": "Sorting rules at a post office"
+            }
+          ],
+          "body": "Each definition `f(args) = ...` with a different signature adds a\n**method** to the same generic function `f`; it does not replace the previous\none. `methods(f)` lists them. When you call `f`, Julia picks the most specific\nmethod that matches the types of the arguments **at run time**. The order in\nwhich the methods were defined plays no part.\n\nA method with no annotation on an argument accepts `Any`. Methods can also\ndiffer in the number of arguments.\n\nChoosing a method from the types of the arguments is called *multiple\ndispatch*. Julia's designers present it as one of the main ideas of the\nlanguage in their paper on its design (Bezanson, Edelman, Karpinski and Shah,\n2017).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2526,10 +2778,21 @@
             }
           ],
           "questions": [],
+          "refs": [
+            "bezanson-2017"
+          ],
           "title": "A function is a set of methods"
         },
         {
+          "analogies": [],
           "body": "Julia looks at **every** argument, not just the first (a method does not\nbelong to the class of its first argument, as in Python or Java). Among the\nmethods that match, the one whose signature is a subtype of all the others\nwins. In the example, `(Int, Number)` beats `(Number, Number)` for `(1, 2.0)`,\nand `(Number, Int)` beats it for `(2.0, 1)`.\n\nThe types are those of the *values*: a `Vector{Any}` holding `3` still\ndispatches on `Int64`.",
+          "diagrams": [
+            {
+              "alt": "The call combine(1, 2.0) has argument types Int64 and Float64. It is checked against three methods: (Number, Number) matches, (Int, Number) matches, (Number, Int) does not match because Float64 is not an Int. Of the two matches, (Int, Number) is a subtype of (Number, Number), so it is chosen and the call returns int first.",
+              "caption": "Dispatch first keeps the methods that match all argument types, then picks the one whose signature is a subtype of every other match.",
+              "src": "assets/diagrams/09-dispatch/most-specific-method.svg"
+            }
+          ],
           "examples": [
             {
               "caption": "",
@@ -2543,10 +2806,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Specificity on all arguments"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A clerk might settle the tie with a habit, such as \"the sender's rule wins\".\nJulia has no such tie-breaker and never looks at the order of definitions;\nthe `MethodError` is raised only when such a call is actually made, so\nambiguous methods can sit unnoticed until a call lands in the overlap\n(`Test.detect_ambiguities` finds them ahead of time).",
+              "text": "A courier has two special rates: \"from Berlin to anywhere\" and \"from anywhere\nto Paris\". A parcel from Berlin to Paris fits both, and neither rule is\nnarrower than the other: one is specific about the sender, the other about\nthe destination. A careful clerk does not pick one at random; they stop and\nask for a rule that covers exactly \"Berlin to Paris\". That new rule is the\nintersection of the two, and it is what `combine(x::Int, y::Int)` adds.",
+              "title": "Two shipping rules that both claim a parcel"
+            }
+          ],
           "body": "With the three methods above, `combine(1, 2)` matches both `(Int, Number)` and\n`(Number, Int)`, and neither is more specific than the other. Julia does not\nguess: it throws a `MethodError` saying the call is **ambiguous**, and even\nsuggests the fix. Reordering the definitions changes nothing. Define a method\nfor the intersection, `(Int, Int)`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2570,10 +2842,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Ambiguity: fix it with the intersection"
         },
         {
+          "analogies": [],
           "body": "Code like `if s isa Circle ... elseif s isa Rect ... end` has to be edited\nevery time someone adds a shape. With dispatch each type brings its own\nmethod, and code written against the abstract type (`sum(area, shapes)`) works\nfor shapes that did not exist when it was written. A new type only needs new\nmethods; nothing else changes.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2587,10 +2862,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Methods instead of isa chains"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A post office could post a notice about the change. Julia gives no warning\nwhen a method is pirated, and the new rule wins wherever it is more specific,\nso the effect shows up as a surprising result in code far from the\ndefinition. Piracy is also a convention, not a rule the compiler enforces:\nthe code is legal, which is why reviews and checkers look for it.",
+              "text": "Back at the post office, the wall of rules is shared by every customer. Adding\n\"letters from me: tray D\" only changes your own mail, which is what a method\non your own type does. Adding \"letters from Berlin to Paris: tray D\" when you\nare neither the sender nor the receiver changes everyone else's mail too.\nThat is type piracy: `Base.:+(::Int, ::String)` adds a rule for two types\nthat belong to Base, and every package loaded in the same session sees it.",
+              "title": "Adding a rule to the shared sorting office"
+            }
+          ],
           "body": "Base functions are generic functions too, so you add methods to them for your\nown types: `Base.show(io::IO, p::Point)` decides how a value prints (in\narrays, in `println`, everywhere), and `Base.:+` lets `+`, and therefore\n`sum`, work on your type. Only add methods where at least one argument is\nyour own type; adding `Base.:+(::Int, ::String)` would change behaviour for\neveryone (\"type piracy\").\n\nEquality comes as a set. If you define `==`, define `hash` consistently\n(equal values must have equal hashes), because `Dict` and `Set` use `isequal`\ntogether with `hash`; `isequal` falls back to `==`. The default `==` on a\nstruct compares fields with `===`, which for a `Vector` field means \"the same\narray\", not \"equal contents\". In the example the Set still has two elements\nafter `==` is defined, until `hash` is defined to match.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2614,10 +2898,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Extending Base for your types"
         },
         {
+          "analogies": [],
           "body": "How does `1 + 2.5` work without a method for every pair of number types?\nBase has a fallback `+(x::Number, y::Number) = +(promote(x, y)...)`:\n`promote` converts its arguments to a common type, chosen by\n`promote_type`, and then the same-type method runs. `convert(T, x)` converts\none value, and refuses when the value would change (`InexactError`).\n\nThe same trick fixes the `Point2(1, 2.5)` error from the types unit: an outer\nconstructor that promotes, then calls the parametric one.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2641,6 +2928,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Promotion and conversion"
         }
       ],
@@ -2821,9 +3109,18 @@
           "title": "Withdrawals with the right errors"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [
+            {
+              "breaks": "A head chef who gets the note can still finish their other tasks. When an\nexception passes through a function in Julia, the rest of that function is\nskipped entirely, except for code in a `finally` block. And the note is not\nread by whoever happens to be nearby: only a `try` block that encloses the\ncall that is running can catch it.",
+              "text": "In a restaurant the owner asks the head chef for a dinner, the head chef asks\na cook for a sauce, and the cook finds the cream has gone off. The cook does\nnot carry on: they stop and pass a note back up, \"cream spoiled\". If the head\nchef knows what to do (use another recipe), the problem ends there. If not,\nthe note goes up to the owner, and if nobody handles it the restaurant stops\nserving. That chain of who-asked-whom is the *call stack* (the list of\nfunctions that are waiting on each other), `throw` is writing the note,\npassing it up is *unwinding*, and the first `catch` on the way handles it.\nThe note itself is the exception value, and its type (`DomainError`,\n`ArgumentError`) says what kind of problem it is.",
+              "title": "Handing a problem back up the chain of command"
+            }
+          ],
           "body": "When a function cannot do what it was asked, it **throws** an exception:\n`throw(x)` stops the function and unwinds the call stack until something\ncatches `x`. If nothing does, the program stops and prints the error.\n\nAn exception is an ordinary value whose type is a subtype of `Exception`.\n`throw(DomainError(x, \"message\"))` says \"this argument is outside the\nfunction's domain\"; `error(\"message\")` is a shortcut that throws an\n`ErrorException` with that message. Prefer a specific type when one fits:\ncode that catches errors can tell a `DomainError` from an `ArgumentError`,\nbut every `error(...)` looks the same.\n\nNotice in the output that the message names the type, then the value, then\nyour text, and the `@` line points at the line of your code where the failing\ncall was made.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2847,10 +3144,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Throwing an error"
         },
         {
+          "analogies": [],
           "body": "Base Julia throws a handful of exception types over and over. Learning them\nmakes error messages quick to read:\n\n* `DomainError`: the argument has the right type but a bad value (`sqrt(-1.0)`).\n* `ArgumentError`: an argument is invalid in some other way (`parse(Int, \"12a\")`).\n* `BoundsError`: an index is outside the array (Julia never wraps around or\n  silently extends, unlike negative indices in Python).\n* `KeyError`: a `Dict` has no such key.\n* `MethodError`: no method of the function accepts these argument types.\n\nThe hierarchy is flat: each of these is a direct subtype of `Exception`, so\n`catch` can tell them apart by type but there is no \"LookupError\" family to\ncatch at once, as Python has.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Each call fails with a different type; we print the type and the first line of the message.",
@@ -2874,10 +3174,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "The exception types you will meet"
         },
         {
+          "analogies": [
+            {
+              "breaks": "In a kitchen you could forget the habit. A `finally` block cannot be skipped\nby an error: Julia runs it on every exit from the `try`, including a `return`\nfrom inside it (only the whole Julia process stopping, for example with\n`exit()` or being killed, skips it). It cannot stop the error, though: after `finally` runs, an\nuncaught exception keeps travelling up as before.",
+              "text": "`finally` is the habit of turning off the stove before you leave the kitchen,\nwhether you leave because dinner is done, because you burned it and started\nover (a caught error), or because the smoke alarm sent everyone outside (an\nerror that propagates). Whatever the reason for leaving, the stove goes off.",
+              "title": "Turning off the stove on your way out"
+            }
+          ],
           "body": "`try ... catch e ... end` runs the `try` block, and if anything in it throws,\nruns the `catch` block with the exception bound to `e`. Two optional parts\ncomplete the picture:\n\n* `else` (Julia 1.8 and later) runs only when the `try` block did **not** throw.\n  Code there is not protected by the `catch`, which keeps the `try` block small.\n* `finally` runs **always**: after a normal finish, after a caught error, and\n  even when the error propagates out. It is where cleanup goes.\n\nEach block has its own scope, so a variable assigned only inside `try` is not\nvisible in `else`; declare it first with `local n`, as below.\n\n`catch e` catches *everything*, including typos (`UndefVarError`) and bugs.\nTo handle one kind of failure only, test the type and rethrow the rest:\n`e isa KeyError || rethrow()`. `rethrow()` re-throws the current exception\nwith its original backtrace.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2901,10 +3210,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "try, catch, else, finally"
         },
         {
+          "analogies": [],
           "body": "An exception type is a `struct` that subtypes `Exception`. Fields carry the\ndetails, and a method of `Base.showerror(io, e)` controls the message that\n`showerror` (and the REPL, for an uncaught error) prints. Callers can then\ncatch exactly your error with `e isa ValidationError` and leave every other\nerror alone.\n\n`@assert cond \"message\"` throws an `AssertionError` when `cond` is false. Use\nit for **invariants**: things that can only be false if *your* code has a bug.\nDo not use it to validate user input: the manual warns that assertions may be\ndisabled at some optimization levels, and an `AssertionError` tells the\ncaller nothing about what they passed. Throw `ArgumentError` or `DomainError`\nfor bad input instead.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2928,10 +3240,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Your own exception types, and @assert"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A \"sold out\" light is hard to miss. A returned `nothing` is not: if you forget\nto check it, the program carries on and fails later with a `MethodError`\n(for example on `nothing + 1`) at a line far from the real cause. An\nexception, by contrast, stops at the place where the problem happened, which\nis why throwing is still the right choice when the caller is not expected to\nhandle the failure.",
+              "text": "A vending machine that is out of your snack lights up \"sold out\" and lets you\nchoose again: that is `tryparse` returning `nothing`. It is an expected\nanswer, and checking it is cheap. A machine that rang the building's fire\nalarm every time a snack ran out would stop everyone and cost far more to\nrecover from: that is `parse` throwing for input you knew might be bad.\nKeep the alarm for situations that really are not supposed to happen.",
+              "title": "A sold-out light versus a fire alarm"
+            }
+          ],
           "body": "Not every failure is exceptional. When \"not found\" or \"not a number\" is a\nnormal outcome, Base returns `nothing` instead of throwing:\n\n* `tryparse(Int, s)` returns the number or `nothing` (`parse` throws).\n* `findfirst(pred, v)` returns an index or `nothing`.\n* `get(d, key, default)` returns `default` for a missing key (`d[key]` throws).\n\nThe caller checks with `=== nothing` (or `isnothing`), or supplies a default\nwith `something(x, default)`. Prefer this style in hot loops: throwing and\ncatching an exception costs far more than returning a value (the\n`parse-ints-count-failures` problem below lets the grader measure it).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2945,10 +3266,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Returning nothing instead of throwing"
         },
         {
+          "analogies": [],
           "body": "To process many items and keep going past bad ones, put the `try` inside the\nloop and collect what failed. Catch only the error you expect, so a real bug\nstill stops the program.\n\nResources (files, locks, connections) must be released even when the work\nfails. The pattern is a function that takes the work as its first argument\nand wraps it in `try ... finally`. Julia's `do` block syntax passes the block\nas that first argument: `with_resource(name) do r ... end` is\n`with_resource(r -> ..., name)`. Notice that `close db` is printed *before*\nthe error: `finally` ran on the way out. `open(path) do io ... end` (the I/O\nunit) works exactly this way and closes the file for you.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -2972,6 +3296,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Errors in a loop, and cleanup"
         }
       ],
@@ -3135,9 +3460,18 @@
           "title": "A Fibonacci iterator"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [
+            {
+              "breaks": "A real bookmark sits inside the book. In Julia the state is a separate value\nthat the loop holds, and for a `Vector` or a `String` calling `iterate` does\nnot change the collection at all, so two loops can walk the same vector at\nonce with two different states. The state need not count pages either: for a\nstring it is a byte position, which is why it jumped from 2 to 4.",
+              "text": "Think of `iterate` as a librarian who reads you a book one page at a time.\nYou hand over the book and get back the first page plus a bookmark. To get\nthe next page you hand over the book *and* the bookmark, and you get that\npage plus a new bookmark. When no pages are left, the librarian hands back\n`nothing`. The bookmark is the **state**: the small value that says where to\ncontinue.",
+              "title": "A bookmark handed back with each page"
+            }
+          ],
           "body": "Anything you can loop over implements one function, `iterate`:\n\n* `iterate(x)` returns `(first_item, state)`, or `nothing` if `x` is empty;\n* `iterate(x, state)` returns `(next_item, next_state)`, or `nothing` when done.\n\nThe state is whatever the type finds convenient: for a `Vector` it is the\nnext index, for a `String` the byte index of the next character. A loop\n`for c in s ... end` is rewritten by the compiler into exactly the `while`\nloop below, so arrays, strings, ranges, dictionaries and your own types all\nwork the same way.\n\nIn the second example notice that the state jumps from 2 to 4: `é` takes two\nbytes in UTF-8, so string states are byte positions, not character counts.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3161,10 +3495,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "The iteration protocol"
         },
         {
+          "analogies": [],
           "body": "To make a type iterable, add methods to `Base.iterate` (one-argument and\ntwo-argument; a default value for the state gives both at once). Two more\nmethods let the rest of Julia use your iterator well:\n\n* `Base.length(x)` if you know the number of items; `collect` uses it to\n  allocate the result once. If you do not know it, declare\n  `Base.IteratorSize(::Type{T}) = Base.SizeUnknown()` (or `IsInfinite()`);\n  the default is `HasLength()`, which promises a `length` method.\n* `Base.eltype(::Type{T})`, so `collect` builds a `Vector{Int}` and not a\n  vector with an element type guessed from the items.\n\nOnce `iterate` exists you get `for`, `collect`, `sum`, `maximum`, `in`,\n`enumerate` and the whole `Iterators` module for free.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3198,10 +3535,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Writing your own iterator"
         },
         {
+          "analogies": [
+            {
+              "breaks": "Ordering again from the generator kitchen repeats the work: looping over a\ngenerator a second time computes every value again. And a generator reads its\ninput when each value is computed, not when the generator is created, so if\nthe input vector is changed in between, the values change with it.",
+              "text": "A comprehension is batch cooking: every dish is made now and lined up on the\ncounter (the new array), whether or not anyone eats it. A generator is a\nkitchen that keeps the recipe and cooks one dish each time a diner orders.\nBatch cooking needs counter space (memory); cooking to order needs none, but\nyou cannot point at \"the third dish\" before it is made, which is why a\ngenerator cannot be indexed.",
+              "title": "Batch cooking versus cooking to order"
+            }
+          ],
           "body": "`[f(x) for x in xs]` is a **comprehension**: it computes every value now and\nstores them in a new array. `(f(x) for x in xs)` (round brackets, or no\nbrackets as the only argument of a function: `sum(f(x) for x in xs)`) is a\n**generator**: an iterator that computes each value when asked for it and\nstores nothing.\n\nUse a generator when the values are consumed once, by `sum`, `maximum`,\n`any`, a loop: it allocates no array. Use a comprehension when you need the\nvalues again, or need to index them. Notice in the second example that\nnothing is printed until `first` pulls one value out, and only one value is\ncomputed.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Inside functions, the generator version allocates nothing; the comprehension allocates a 1000-element array.",
@@ -3225,10 +3571,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Generators are lazy, comprehensions are eager"
         },
         {
+          "analogies": [],
           "body": "A few wrappers turn up in almost every loop:\n\n* `enumerate(xs)` yields `(i, x)` pairs, counting from 1;\n* `zip(a, b)` walks two collections in step and **stops at the shorter one**;\n* `pairs(v)` yields `index => value` (for a `Dict`, `key => value`);\n* `eachindex(v)` gives the valid indices of `v`; prefer it to `1:length(v)`,\n  which assumes indices start at 1.\n\nThe `Iterators` module adds lazy versions of the usual list operations:\n`Iterators.take(it, n)`, `Iterators.drop(it, n)`, `Iterators.filter(pred, it)`,\n`Iterators.map(f, it)`, plus `Iterators.product` (all combinations),\n`Iterators.partition` (chunks of a fixed size), `Iterators.flatten` (one\nlevel of nesting removed) and `Iterators.countfrom` (1, 2, 3, ... forever).\nNothing is computed until something like `collect`, `sum` or a loop consumes\nthe result.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3262,10 +3611,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "The Iterators toolbox"
         },
         {
+          "analogies": [],
           "body": "`Iterators.countfrom`, `Iterators.cycle` and `Iterators.repeated` never end.\nThey are useful as long as something stops them: `take` (a fixed count),\n`takewhile` (until a condition fails), `first` of a filtered iterator (the\nfirst match),\nor a `break` in a loop.\n\nCollecting an infinite iterator is refused: `IteratorSize` reports\n`IsInfinite()` and `collect` has no method for it, so you get a\n`MethodError` straight away instead of a program that never finishes.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3289,6 +3641,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Infinite iterators, made finite"
         }
       ],
@@ -3408,9 +3761,18 @@
           "title": "Unit conversion with a constant table"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [
+            {
+              "breaks": "Leaving a name out of `export` does not hide it: anyone can still write\n`Geometry.perimeter`, so export is a convenience, not privacy. And unlike a\nfamily, a module is not tied to one house: one file can hold several modules,\nand one module can be spread over many files.",
+              "text": "Two pupils called Sam in one school are told apart by surname: Sam Lee and\nSam Ortiz. A module works like the surname: `Geometry.area` and\n`Billing.area` can exist side by side without confusion. `export` is the\nfamily saying \"you may call our Sam just Sam\": after `using`, the short name\nworks.",
+              "title": "Surnames for functions"
+            }
+          ],
           "body": "`module Name ... end` creates a separate global namespace: names defined\ninside do not collide with names outside. From outside, refer to them with a\n**qualified name**, `Geometry.perimeter`. Module names are capitalized by\nconvention.\n\n`export area` marks `area` as part of the module's public interface;\n`using .Geometry` then makes the exported names available unqualified (and\nthe module name itself). Unexported names stay reachable with a qualified\nname. The leading dot in `.Geometry` means \"the module defined right here\",\nas opposed to an installed package (`using Statistics`).\n\nUnlike Python, a module is not tied to a file: one file can define several\nmodules, and one module is usually spread over several files.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3424,10 +3786,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "A module is a namespace"
         },
         {
+          "analogies": [],
           "body": "The forms you will see:\n\n* `using .M` brings in `M` and every name `M` exports.\n* `using .M: f, g` brings in only `f` and `g`.\n* `import .M` brings in only the name `M` (everything stays qualified).\n* `import .M: f` brings in `f` **and** allows adding methods to it.\n\nThe last point matters with multiple dispatch: a function belongs to the\nmodule that created it. Adding a method to another module's function needs\neither `import .M: f` or, the more common style, a qualified definition\n`M.f(x::MyType) = ...` (as with `Base.show` and `Base.iterate` in earlier\nunits). Defining `f(x::Int) = ...` after `using .M` is an error, because it\nwould silently create a *different* `f` that hides `M.f`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "`Shapes.area(c::Circle)` adds a method to the module's `area`, so the exported name works for both types.",
@@ -3461,10 +3826,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "using versus import, and extending a function"
         },
         {
+          "analogies": [],
           "body": "If two modules you `using` both export the same name, Julia does not pick\none: it prints a warning the first time you use the name, and the\nunqualified name is then undefined. Qualify it (`A.greet()`), or bring in\nonly what you need (`using .A: greet`).\n\nThe same happens with packages: `using Statistics` exports `mean`, so a\nmodule of your own that also exports `mean` clashes with it.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3478,10 +3846,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Name clashes"
         },
         {
+          "analogies": [],
           "body": "A global variable in a module can be rebound to a value of any type at any\ntime, so the compiler cannot assume its type inside a function: every use\nis a dynamic lookup and the result is inferred as `Any`. `const` promises the\nbinding never changes, so the type is known and functions using it are\nfast. Use `const` for module-level tables and parameters; pass changing\nvalues as function arguments.\n\n`Base.return_types` shows what the compiler infers: notice `Any` for the\nfunction that reads the non-constant global.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3495,10 +3866,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Constants and globals"
         },
         {
+          "analogies": [],
           "body": "Modules nest. Inside a module, `using .Inner` refers to a submodule defined\nin the current module and `using ..Sibling` goes one level up first, the same\ndots as relative paths.\n\nIn a real project each part usually lives in its own file and the top module\nstitches them together with `include(\"util.jl\")`. `include` evaluates the\nfile's code at that point, in the current module, as if pasted there; it\ndoes not create a namespace (that is the `module` keyword's job). A typical\npackage's `src/MyPkg.jl` is little more than\n\n```julia\nmodule MyPkg\ninclude(\"util.jl\")\ninclude(\"report.jl\")\nexport summary\nend\n```\n\nThe sandbox runs one file, so the example defines everything inline.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3512,10 +3886,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Submodules and include"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A receipt only records a purchase; `]instantiate` turns a Manifest back into\ninstalled packages, which no receipt can do. And the extra items on the\nreceipt are real dependencies of your dependencies, chosen by Pkg so that\nevery version bound in the whole tree holds at once, not extras the shop\nadded for convenience.",
+              "text": "`Project.toml` is the shopping list: \"CSV, version 1 or later; DataFrames\".\n`Manifest.toml` is the receipt from one trip: the exact version of every item\nthat went into the bag, including the items that your items needed. Anyone\nwith the receipt can bring home exactly the same bag. Anyone with only the\nlist gets something that fits the list but may differ in the details.",
+              "title": "A shopping list and the receipt"
+            }
+          ],
           "body": "A **package** is a module with a `Project.toml` (its name, UUID and\ndependencies), distributed so others can `using` it. Three kinds come up:\n\n* **Base**: always loaded (`sum`, `Dict`, `Iterators`).\n* **Standard libraries** (stdlib): ship with Julia but must be loaded:\n  `using Statistics`, `using Printf`, `using Random`, `using LinearAlgebra`.\n  Their version is tied to the Julia version.\n* **Registered packages** (DataFrames, CSV, Plots, ...): installed from the\n  General registry with the package manager: press `]` in the REPL, then\n  `add DataFrames`.\n\nAn **environment** is a directory with a `Project.toml` (what you depend on,\noptionally with `[compat]` version bounds) and a `Manifest.toml` (the exact\nversion of every package in the dependency tree, generated by Pkg).\n`]activate path` switches environment; `]instantiate` installs exactly what\na Manifest lists. Committing both files is what makes a project\nreproducible: anyone gets the same versions.\n\nThis course does exactly that. Every unit names an environment in\n`course/envs/`: `base` has no packages beyond the standard library, and the\n`data` environment's `Project.toml` lists CSV and DataFrames while its\ncommitted `Manifest.toml` pins them (CSV 1.3.0, for example) for Julia\n1.10.13.\n\nA package can define a function `__init__()`, which Julia runs each time the\npackage is loaded (not when it is precompiled): the place for setup that\nmust happen at runtime, such as reading environment variables or\ninitializing a C library.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Standard libraries load without installing anything.",
@@ -3529,6 +3912,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Packages and environments"
         }
       ],
@@ -3692,9 +4076,18 @@
           "title": "Parse a key = value config"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [
+            {
+              "breaks": "An envelope address gets the letter delivered; `repr` text does not always\nturn back into the same value. With the custom `show` for `Point` in the\nthird example, `repr(p)` gives `(1, 2)`, which Julia would read as a tuple,\nnot a `Point`. The round trip holds only when `show` is written to print\nvalid code.",
+              "text": "In conversation you say \"I live on Main Street\". On an envelope you write the\nfull form the post office needs. `print` is the spoken form, for people.\n`show` and `repr` are the envelope form: they keep the quotes on a string and\nthe colon on a symbol, so the text still says what kind of value it was.",
+              "title": "Saying an address versus writing it on an envelope"
+            }
+          ],
           "body": "Julia has two ways to turn a value into text:\n\n* `print` (and `println`, `string`, `\"$x\"`) writes the value **for humans**:\n  a string without its quotes, a character without its single quotes.\n* `show` (and `repr`) writes it **as Julia would read it back**: quotes,\n  escapes, type information where needed. This is what you see in the REPL\n  and in error messages.\n\nThe REPL actually calls `show(io, MIME\"text/plain\"(), x)`, a richer,\npossibly multi-line form; `repr(x)` and `show(x)` use the compact one-line\nform. Notice the differences in the output below: `print` loses the\ninformation that `\"hi\"` was a string and `:sym` a symbol, `repr` keeps it.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3728,10 +4121,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "print, show, string and repr"
         },
         {
+          "analogies": [
+            {
+              "breaks": "The notebook does fill up. When an `IOBuffer` runs out of spare room it moves\nits bytes to a larger block of memory, which is a copy. It grows in large\nsteps (writing one million bytes in ten-byte pieces moves the data 11 times\non Julia 1.10), so the total work stays roughly proportional to the final\nlength, not to its square.",
+              "text": "`s *= piece` is like a letter where adding a sentence means copying the whole\nletter onto a fresh sheet first, then writing the new sentence at the end.\nAfter 100 sentences, the first one has been copied 100 times. An `IOBuffer`\nis a notebook with blank pages at the back: each new sentence goes after the\nlast one, and nothing earlier is copied.",
+              "title": "Recopying a letter versus writing in a notebook"
+            }
+          ],
           "body": "`print` and `write` take an optional first argument: the **stream** to\nwrite to. Besides `stdout` and files, an `IOBuffer` is a stream in memory.\nWrite pieces into it, then `String(take!(io))` turns the bytes into a\nstring and empties the buffer.\n\nThis is the efficient way to build a long string in a loop. `s *= piece`\ncopies the whole string every time, so building `n` pieces that way costs\ntime proportional to `n²` (the `format-number-column` problem measures it).\n\n`sprint(f, args...)` is the shortcut: it creates the buffer, calls\n`f(io, args...)` and returns the string.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3745,10 +4147,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Building text in an IOBuffer"
         },
         {
+          "analogies": [],
           "body": "The `Printf` standard library gives C-style formatting: `@printf` prints and\n`@sprintf` returns a string. A format spec is `%[flags][width][.precision]type`:\n\n* types: `d` integer, `f` fixed-point, `e` scientific, `g` shortest, `s`\n  anything printed with `print`, `x` hexadecimal;\n* width pads to at least that many characters, right-aligned; the flag `-`\n  aligns left and `0` pads with zeros; `+` always shows the sign;\n* `.2f` means two digits after the decimal point (rounded, not truncated).\n\n`@printf(io, ...)` writes to any stream, an `IOBuffer` included. The format\nmust be a literal string: it is compiled by the macro.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3772,10 +4177,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Formatting numbers with Printf"
         },
         {
+          "analogies": [],
           "body": "`open(path, \"w\") do io ... end` opens a file for writing, runs the block\nwith the stream `io`, and closes the file afterwards, even if the block\nthrows (the `do` + `finally` pattern from the errors unit). The modes:\n`\"r\"` read (the default), `\"w\"` write (creates the file or **truncates** it),\n`\"a\"` append to the end.\n\nTo read: `read(path, String)` returns the whole file, `readlines(path)` a\nvector of lines without their newlines, and `eachline(path)` iterates over\nthe lines lazily, which is what you want for large files. `write(path, s)`\nwrites a whole string in one call.\n\n`mktempdir()` creates a fresh temporary directory (removed when Julia exits),\nwhich keeps examples from touching your own files. Its path differs on every\nrun and every system, so the examples print file *contents*, never paths.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3799,10 +4207,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Reading and writing files"
         },
         {
+          "analogies": [],
           "body": "`print(x)` is `print(stdout, x)`. A program has a second output stream,\n`stderr`, for diagnostics: `println(stderr, \"warning: ...\")`. Keeping\nmessages on `stderr` means the real output on `stdout` can be piped into a\nfile or another program without them. `@warn` and `@info` log to `stderr`.\n\n`write(io, x)` writes raw bytes (for a string, its UTF-8 encoding) and\nreturns how many it wrote; `print` writes the text form. For strings the\nresult looks the same, but the count shows that `é` takes two bytes.\n`redirect_stdout(f, io)` runs `f` with `stdout` pointed elsewhere (here\n`devnull`, which discards everything), which is useful in tests.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3816,10 +4227,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "stdout and stderr"
         },
         {
+          "analogies": [],
           "body": "For small, regular formats `split` and `parse` go a long way. `split(s, ',')`\nreturns `SubString`s (views into `s`, no copying); `strip` removes surrounding\nwhitespace; `parse(Int, s)` and `parse(Float64, s)` convert, throwing on bad\ninput (or use `tryparse`). `eachline(IOBuffer(text))` iterates over the lines\nof a string just as `eachline(path)` does for a file.\n\nHand parsing is fine for configuration files and quick scripts; for real CSV\n(quoted fields, embedded commas, missing values) use the CSV.jl package\n(the data unit).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -3833,6 +4247,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Parsing simple text by hand"
         }
       ],
@@ -4045,9 +4460,22 @@
           "title": "Running maximum, in place"
         }
       ],
+      "references": [
+        {
+          "authors": "Bezanson, J.; Edelman, A.; Karpinski, S.; Shah, V. B.",
+          "id": "bezanson-2017",
+          "note": "Describes the dataflow type inference that works out the type of each expression from the argument types, the mechanism that type stability (section 2) depends on.",
+          "title": "Julia: A Fresh Approach to Numerical Computing",
+          "url": "https://arxiv.org/abs/1411.1607",
+          "venue": "SIAM Review 59(1)",
+          "year": 2017
+        }
+      ],
       "sections": [
         {
+          "analogies": [],
           "body": "Julia compiles a function the first time you call it with a given combination\nof argument types. So the **first** call of anything measures the compiler as\nmuch as your code: `@time` reports that share as \"compilation time\". Always\ncall once to warm up, then measure, and repeat the measurement a few times and\nkeep the minimum (the least disturbed run). The package\n[BenchmarkTools.jl](https://juliaci.github.io/BenchmarkTools.jl/stable/)\nautomates this with `@btime` and `@benchmark`; here we stay with Base.\n\nTimings change from run to run and machine to machine, so the timing examples\non this page are recorded but not checked (the numbers you see are from one\nrun). Allocations are different: `@allocated` counts the bytes a call\nallocates, and once the function is compiled that number is deterministic.\nMeasure it **inside a function**, after a warm-up call: at global scope the\nmeasurement also counts the work of handling untyped global variables.\n\nLater sections use a one-line helper for this:\n\n```julia\nmeasure(f::F, args...) where {F} = (f(args...); @allocated f(args...))\n```\n\nThe `f::F ... where {F}` matters. Julia's heuristics sometimes decline to\nspecialise a method on a `Function` argument (here: one called with splatted\narguments), and the unspecialised call boxes its result. The type parameter\nforces a specialised version, so the helper adds nothing to the count; written\nas `measure(f, args...)` it reports 16 extra bytes for every call. The\n[performance tips](https://docs.julialang.org/en/v1/manual/performance-tips/#Be-aware-of-when-Julia-avoids-specializing)\nexplain when this happens.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "The first `@time` includes compiling `f`; the second is the work alone. Recorded, not checked: timings vary.",
@@ -4071,10 +4499,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Measuring without fooling yourself"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A kitchen can peek in the fridge; the compiler plans from types alone and\nnever sees the values. And a small `Union` such as `Union{Float64, Int64}`\ncosts less than the picture suggests: Julia can compile one branch per member\n(called *union splitting*), so the large slowdowns come from wider types such\nas `Any`.",
+              "text": "Picture the compiler as a kitchen that plans each order before cooking. If\nthe ticket says \"a bowl in, soup out\", the next cook can lay out a spoon in\nadvance: that is a type-stable function, and the plan becomes fixed machine\ncode for that type. If the ticket says \"soup or a sandwich, depending on what\nis in the fridge today\" (the *value*), every later step must wait, look at\nwhat arrived and then pick a tool. Julia does that waiting by **boxing**\n(storing a value together with a tag that names its type) and by choosing\nthe method at run time.",
+              "title": "A kitchen ticket that names the dish"
+            }
+          ],
           "body": "A function is **type-stable** when the type of its result follows from the\ntypes of its arguments alone, never from their values. Then the compiler knows\nthe type of every intermediate value and emits specialised machine code. When\nit cannot know, it has to box values and look methods up at run time.\n\n`Base.return_types(f, (ArgTypes...,))` asks the compiler what `f` returns. In\nthe REPL, `@code_warntype f(args...)` shows the inferred type of every local\nvariable and highlights the abstract ones (its output is long, so it is not\nshown here; try it on your own functions).\n\nThe classic mistake is a literal of the wrong type: `0` is an `Int`, so a\nfunction that returns `0` on one branch and a `Float64` on another returns a\n`Union`. The fix is to build the constant from the argument: `zero(x)`,\n`one(x)`, `zero(eltype(v))`. The same mistake hides in accumulators: `s = 0`\nfollowed by `s += x` for floats makes `s` an `Int` before the loop and a\n`Float64` after it, and an empty input returns the `Int`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "The return type depends on the *value* of `x`; `zero(x)` fixes it.",
@@ -4098,10 +4535,15 @@
             }
           ],
           "questions": [],
+          "refs": [
+            "bezanson-2017"
+          ],
           "title": "Type stability"
         },
         {
+          "analogies": [],
           "body": "A non-`const` global variable can be rebound to a value of any type at any\nmoment, so a function that reads it cannot assume anything about its type:\nthe result is inferred as `Any`, and every operation on it is a dynamic\nlookup. This is why \"put your code in functions\" is the first performance tip\nin the [manual](https://docs.julialang.org/en/v1/manual/performance-tips/).\nThree fixes, from most to least common:\n\n* pass the value as an **argument** (the function is then compiled for its type);\n* declare it `const` if it really never changes;\n* give the global a **type** (Julia 1.8 and later): `rate::Float64 = 1.5`. Its\n  value can still change, but only to another `Float64`.\n\nPython and MATLAB users write scripts full of top-level loops over globals;\nin Julia the same loop inside a function is often tens of times faster.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Reading an untyped global makes the result `Any`; `const` or an argument makes it concrete.",
@@ -4135,10 +4577,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Global variables"
         },
         {
+          "analogies": [
+            {
+              "breaks": "Eggs are the same size by nature; a `Vector{Float64}` is uniform because its\ntype promises it, and Julia converts or refuses any value stored into it that\nis not a `Float64`. That promise, checked on writing, is what lets reading\nskip all checks. The picture also leaves out the processor's cache, which\nloads neighbouring numbers together and favours the carton even more.",
+              "text": "A `Vector{Float64}` is an egg carton: every slot holds one egg of the same\nsize, side by side, and you reach any slot by counting. A `Vector{Any}` is a\nrow of coat-check tickets: each ticket is a **pointer** (the memory address\nof a value stored somewhere else), and you learn what the item is only when\nyou fetch it. Summing the carton is one walk along a row. Summing the tickets\nis a trip to the back room for every item, plus a look at each one to decide\nhow to add it.",
+              "title": "An egg carton versus coat-check tickets"
+            }
+          ],
           "body": "A `Vector{Float64}` stores the numbers themselves, side by side in memory. A\n`Vector{Any}` or a `Vector{Real}` stores *pointers* to boxed values, because\nits elements may have different types and sizes; every access then follows a\npointer and dispatches at run time. `isconcretetype` tells you whether a type\ncan be the type of an actual value: `Float64` can, `Real` cannot.\n\nThe same applies to struct fields. A field declared `x::Real` can hold any\nreal number, so code that reads it cannot be specialised. Make the struct\n**parametric** instead: `struct Point{T<:Real}; x::T; end` creates a separate\nconcrete type `Point{Float64}`, `Point{Int64}`, … for each field type, with\nthe same flexibility and none of the cost.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Same numbers, three containers. `sum` over the abstract ones allocates a box for each intermediate result.",
@@ -4162,10 +4613,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Concrete element types and fields"
         },
         {
+          "analogies": [],
           "body": "Allocating memory is not free, and the garbage collector must later reclaim\nit. Three sources dominate in numerical code.\n\n**Slices copy.** Unlike NumPy, `x[2:end-1]` creates a new array (MATLAB and R\ncopy too). `@view x[2:end-1]` creates a lightweight window into `x` instead,\nand `@views` in front of a function or block turns every slice in it into a\nview. Mutating a view mutates the parent.\n\n**Every vectorised operation makes an array**, unless you fuse it. `2x + x.^2`\nmakes three arrays (one per operation); the dotted `2 .* x .+ x .^ 2` fuses\ninto a single loop with a single result array; and `out .= 2 .* x .+ x .^ 2`\n(or `@. out = 2x + x^2`) writes into an existing array and allocates nothing.\n\n**Preallocate and update in place.** Functions whose names end in `!` modify\nan argument instead of returning a new value: `mul!(C, A, B)` from\n`LinearAlgebra` writes `A * B` into `C`, `sort!`, `push!`, `copyto!`, `fill!`.\nIn a loop that runs many times, allocate the output once outside it.\n\nIn the last example a 1000-element `Vector{Float64}` costs 8128 bytes (8000\nfor the data plus the array header): the unfused version allocates three of\nthem, the fused one a single array (plus 16 bytes of bookkeeping), the\nin-place one nothing; `A * B` allocates the 50×50 result, `mul!` nothing.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "A slice is a copy; a view is a window into the original array.",
@@ -4199,10 +4653,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Allocations: slices, views, fusion and in-place updates"
         },
         {
+          "analogies": [
+            {
+              "breaks": "On a real shelf a longer jump means more walking. In memory the main cost is\ndifferent: each block fetched from slower memory, and how many of its numbers\ngo unused. Very long jumps add further costs, because the processor can no\nlonger predict and fetch the next block early.",
+              "text": "Memory is one long shelf. Julia stores a matrix column by column: column 1 is\non the shelf first, then column 2, and so on. Going down a column walks along\nthe shelf, each book next to the last. Going along a row jumps a whole\ncolumn's length at every step. The processor fetches memory in **cache\nlines** (blocks of bytes: 64 bytes on most x86 processors (128 on Apple's\nM-series); 64 bytes is eight `Float64`s), as if you\nwere handed eight neighbouring books each time you reached for one. Walking\nalong the shelf uses all eight; jumping uses one and wastes seven.",
+              "title": "Books along one long shelf"
+            }
+          ],
           "body": "Loops are fast in Julia (unlike in Python or R there is no need to vectorise\nfor speed), but the processor still rewards some habits.\n\n**Arrays are column-major**, like Fortran and MATLAB and unlike C and NumPy's\ndefault: `A[1,1]`, `A[2,1]`, `A[3,1]`, … are adjacent in memory. Make the\n*first* index vary fastest, i.e. put the row loop inside the column loop.\nWalking along rows jumps through memory and wastes most of every cache line\nfetched; the gap grows with the matrix.\n\n**Do not repeat work in the inner loop.** A value that does not change inside\nthe loop (a norm, a length, a lookup) belongs before it. Recomputing an O(n)\nquantity n times turns an O(n) function into an O(n²) one.\n\n**`@inbounds` and `@simd`.** Every `x[i]` checks that `i` is a valid index.\n`@inbounds` removes the check, and `@simd` lets the compiler reorder a\nreduction so it can use vector instructions (so a floating-point sum may\ndiffer in the last bits). Write and test the bounds-checked version first:\nwith checks on, a wrong index is a `BoundsError`; under `@inbounds` it is\n**undefined behaviour**, i.e. garbage results or a crash, not an error. Prefer\n`eachindex(x)` over `1:length(x)`: it is always valid, so the compiler can\noften drop the checks by itself.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "`vec` shows the memory order: down the first column, then the second.",
@@ -4256,10 +4719,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Loops: memory order, hoisting, @inbounds and @simd"
         },
         {
+          "analogies": [],
           "body": "Sometimes a type really is unknown until run time: a value read from a file,\na `Dict{String,Any}` of columns, a user's choice. You cannot make that one\nlookup type-stable, but you can stop the uncertainty from spreading. Do the\nlookup in a small outer function and hand the value to a **kernel function**\nthat does the real work. Calling the kernel costs one dynamic dispatch; inside\nit, Julia compiles a specialised version for the actual type, so the loop is\nfast. This pattern is called a *function barrier*.\n\nIn the example, `sum_of_column` loops over a value of type `Any`; `kernel` is\ninferred concretely for a `Vector{Float64}`, and `sum_with_barrier` only adds\none dispatch in front of it. (Timings recorded, not checked.)",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4273,6 +4739,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Function barriers"
         }
       ],
@@ -4406,9 +4873,28 @@
           "title": "Derivatives with dual numbers"
         }
       ],
+      "references": [
+        {
+          "authors": "Bezanson, J.; Edelman, A.; Karpinski, S.; Shah, V. B.",
+          "id": "bezanson-2017",
+          "note": "States the design rule of section 2: type annotations are for selecting methods, not for performance, because the compiler infers types and specialises code itself.",
+          "title": "Julia: A Fresh Approach to Numerical Computing",
+          "url": "https://arxiv.org/abs/1411.1607",
+          "venue": "SIAM Review 59(1)",
+          "year": 2017
+        }
+      ],
       "sections": [
         {
+          "analogies": [
+            {
+              "breaks": "The fruit story explains the rule through writing, but invariance applies to\nevery parametric type, read-only ones included: `UnitRange{Int} <:\nAbstractVector{Real}` is `false` too. And there is a second reason the story\nleaves out: the two boxes are built differently in memory (numbers stored in\nplace versus pointers to boxed values), so even reading from them needs\ndifferent machine code.",
+              "text": "A `Vector{Real}` is a box labelled \"any fruit\": you may put in an apple, then\na banana. A `Vector{Int}` is a box labelled \"apples only\". If Julia let you\nhand the apples box to code that expects an any-fruit box, that code could\nlegally drop a banana (say `2.5`) into it and break the apples-only promise.\nSo the apples box is not an any-fruit box, even though every apple is a\nfruit. That is **invariance**: `Int <: Real` does not make\n`Vector{Int} <: Vector{Real}`. `AbstractVector{<:Real}` means \"a box of\nsome single kind of fruit, whichever kind\".",
+              "title": "A box of apples is not a box for any fruit"
+            }
+          ],
           "body": "A method signature can name the types it receives: in\n`f(v::AbstractVector{T}) where {T}` the *type parameter* `T` is bound to the\nelement type of the argument, and you can use it in the body like any value.\n`where {T<:Real}` restricts it. Writing the same parameter twice,\n`f(x::T, y::T) where {T}`, means \"both arguments have the same type\".\n\nOne rule surprises everyone: parametric types are **invariant**. A\n`Vector{Int}` is *not* a `Vector{Real}`, even though `Int <: Real`, because a\n`Vector{Real}` is a specific container that can hold any mix of reals (see the\nperformance unit for why it is slow). To accept \"a vector of any real type\",\nwrite `AbstractVector{<:Real}`, short for `AbstractVector{T} where {T<:Real}`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4432,10 +4918,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Parametric methods"
         },
         {
+          "analogies": [],
           "body": "Coming from C or Java, it is tempting to annotate every argument. In Julia it\ndoes not make the code faster: the compiler specialises a method for the\nconcrete types it is *called* with, annotated or not. `double(x) = 2x`\ncalled with a `Float64` compiles to the same single multiplication as\n`double(x::Float64) = 2x`, and it keeps working for integers, rationals,\n`BigFloat`s and types that do not exist yet.\n\nAnnotate to **choose between methods** (dispatch), or to document and\nreject what makes no sense. Over-narrow annotations such as `::Float64` or\n`::Vector{Float64}` are a common reason a package refuses an `Int`, a range,\na view or a `Float32` that would have worked.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "The untyped method, compiled for a `Float64`: one multiplication, inferred `Float64`.",
@@ -4459,10 +4948,15 @@
             }
           ],
           "questions": [],
+          "refs": [
+            "bezanson-2017"
+          ],
           "title": "Annotations are for dispatch, not speed"
         },
         {
+          "analogies": [],
           "body": "Generic code never hard-codes a type it can ask for:\n\n* `zero(T)`, `one(T)` (or `zero(x)`): the additive and multiplicative\n  identities of a type, for initialising sums and products;\n* `eltype(v)`: the element type of a collection;\n* `similar(v)`, `similar(v, T)`, `similar(v, T, dims)`: a new uninitialised\n  array \"like\" `v` (a range or a view gives a `Vector`);\n* `promote_type(S, T)`: the type that a mixed operation produces, e.g. the\n  type of an accumulator over two vectors of different element types.\n\nIn the first example notice the last line: the empty inputs return a zero of\nthe right type, which a literal `0` could not do.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4486,10 +4980,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Writing generic code: zero, one, eltype, similar, promote_type"
         },
         {
+          "analogies": [],
           "body": "`struct Interval{T<:Real}` defines a family of concrete types,\n`Interval{Int64}`, `Interval{Float64}`, …, with concretely typed fields.\nConstructors come in two kinds:\n\n* an **inner constructor** (inside the `struct`, calling `new`) is the only\n  way to create the object, so it is the place to enforce an invariant such as\n  `lo ≤ hi`;\n* **outer constructors** are ordinary methods that add conveniences: here\n  `Interval(1, 3)` infers `T` from the arguments, and `Interval(1, 2.5)`\n  promotes mixed arguments to a common type first.\n\nOnce you write an inner constructor, Julia no longer defines the default\nones, which is why the outer `Interval(lo::T, hi::T)` is needed.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4503,10 +5000,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Parametric structs and their constructors"
         },
         {
+          "analogies": [
+            {
+              "breaks": "Exchange rates change from day to day; Julia's choice depends only on the two\ntypes, never on the values, so `promote_type(Int, Float64)` is `Float64`\nevery time. Conversion can also lose information where money would not: an\n`Int` larger than 2^53 cannot always be stored exactly as a `Float64`.",
+              "text": "To add 5 dollars and 3 euros you first change both into one currency, then\nadd the numbers. `promote` does the same. `promote_rule` says which currency\nto use (the common type), `convert` is the exchange counter, and `+` on two\nvalues of the same type does the adding. A type with no promotion rule is a\ncurrency no counter accepts, which is why `Mod{7}(5) + 1` failed until the\nrule existed.",
+              "title": "Changing money before adding it"
+            }
+          ],
           "body": "Arithmetic between different types in Julia goes through **promotion**:\n`1 + 2.5` has no special method; the fallback `+(x::Number, y::Number)` calls\n`promote(x, y)` to convert both to a common type, then adds those. To make\nyour own type join in, write\n\n* the operations between two values of your type (`Base.:+`, `Base.:*`, …);\n* `Base.promote_rule(::Type{Mine}, ::Type{Other})`: the common type;\n* `Base.convert(::Type{Mine}, x::Other)`: how to convert.\n\nYou extend Base's functions (`Base.:+`), you do not shadow them; that is how\n`sum`, `prod`, `^` and every generic algorithm start working on the new type.\nBelow, integers modulo `N` with `N` a type parameter: `Mod{7}` and `Mod{5}`\nare different types, and mixing them is an error (no promotion rule\nbetween them) rather than a silent bug.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Operations between two `Mod{N}` values work; `a + 1` fails because there is no promotion rule yet: `promote` cannot find a common type.",
@@ -4530,10 +5036,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "A number-like type and promotion"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A warehouse worker reads the stickers while handling each parcel. A Julia\ntrait is computed from the type alone, so the compiler reads it once, while\ncompiling, and the choice costs nothing at run time. And each trait function\ngives a type exactly one answer: a type cannot carry both `KnownSorted` and\n`MaybeUnsorted`.",
+              "text": "A parcel sits on exactly one shelf in a warehouse (its single supertype), but\nit can carry many stickers: \"fragile\", \"this side up\", \"keep cold\". A Holy\ntrait is a sticker: a function that takes a *type* and returns a small marker\nobject, such as `KnownSorted()` (an instance of a struct with no fields,\ncalled a *singleton*). Methods that receive the marker decide how to handle\nthe parcel, whatever shelf it sits on. Anyone can add a sticker, so a trait\ncan be given to a type you did not write.",
+              "title": "Stickers on a parcel"
+            }
+          ],
           "body": "Julia supports two styles of generic code, and good code uses both.\n\n**Duck typing**: leave arguments unannotated and use only the operations you\nneed. `describe(x)` below calls `length` and `first`, so it works for arrays,\nstrings, tuples, dicts, even a number (numbers are iterable collections of one\nelement), with no declaration anywhere.\n\n**Dispatch on abstract types** picks a method by what a type *is*:\n`AbstractVector`, `AbstractString`, `Number`. But a type has only one\nsupertype, and many properties cut across the hierarchy (\"is it sorted?\",\n\"is its length known?\"). For those Julia uses **Holy traits** (after Tim\nHoly): a function from a *type* to a small singleton object, and methods that\ndispatch on that object. Base does this with `Base.IteratorSize`, which\n`collect` uses to decide whether it can preallocate. The trait is computed from\nthe type, so the compiler resolves the choice at compile time: there is no\nrun-time check left.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4567,10 +5082,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Duck typing, abstract types and Holy traits"
         },
         {
+          "analogies": [],
           "body": "`Val(3)` is an instance of the type `Val{3}`: it moves a value into the type\ndomain, so methods can dispatch on it and the compiler can treat it as a\nconstant. `ntuple(f, Val(4))` builds a tuple whose length is known at compile\ntime; `Val(:fast)` can select an algorithm by name.\n\nUse it only when the value is a **literal at the call site**. `Val(n)` with an\n`n` computed at run time creates a type the compiler could not predict, so the\ncall becomes a dynamic dispatch and is slower than an ordinary argument. For\nmost choices a plain argument or a keyword is the right tool.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4584,6 +5102,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Val: values as type parameters (sparingly)"
         }
       ],
@@ -4710,9 +5229,22 @@
           "title": "Substitute a value for a symbol"
         }
       ],
+      "references": [
+        {
+          "authors": "Bezanson, J.; Edelman, A.; Karpinski, S.; Shah, V. B.",
+          "id": "bezanson-2017",
+          "note": "Describes Julia macros as functions that run at parse time, taking parsed expressions in and returning transformed expressions, as in section 4.",
+          "title": "Julia: A Fresh Approach to Numerical Computing",
+          "url": "https://arxiv.org/abs/1411.1607",
+          "venue": "SIAM Review 59(1)",
+          "year": 2017
+        }
+      ],
       "sections": [
         {
+          "analogies": [],
           "body": "Before Julia runs your code it parses it into a data structure you can\ninspect and build yourself. A **`Symbol`** is an interned name: `:x` is the\nsymbol `x` (and `Symbol(\"x\")` makes the same one). An **`Expr`** has a\n`head` saying what kind of expression it is (`:call`, `:(=)`, `:block`,\n`:if`, …) and a vector `args` of sub-expressions, which can be symbols,\nliterals or further `Expr`s.\n\n`Meta.parse` turns a string into an expression, and `dump` prints the tree.\nNotice that an operator call `a + 1` is just a `:call` whose first argument is\nthe function's name `:+`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4726,10 +5258,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Symbols and expressions"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A cook can guess what a smudged word meant; Julia cannot. You can build an\n`Expr` that no parser would produce, and it fails only when it is evaluated.\nAnd cooking a card with `eval` always happens in the module's global scope: a\nkitchen that cannot see the local variables of the function that wrote the\ncard.",
+              "text": "Quoting is writing a recipe down instead of cooking it. `:(x + 1)` is a card\nthat says \"take x, add 1\"; nothing is cooked yet. The card is not a strip of\ntext but a list of steps that can contain smaller steps: the `Expr` tree with\nits `head` and `args`. Interpolation with `$` fills in an amount from what is\non the counter now: `:($x + 1)` writes the current value of `x` onto the card,\nwhile `:(x + 1)` leaves the word \"x\" to be looked up whenever someone cooks it.",
+              "title": "A recipe card instead of the meal"
+            }
+          ],
           "body": "`:( ... )` *quotes* code: it returns the expression instead of evaluating it.\nFor several lines, `quote ... end` does the same and produces a `:block`\nexpression; it also records source positions as `LineNumberNode`s (the\n`#= main.jl:3 =#` comments in the display), which\n`Base.remove_linenums!` strips.\n\nInside a quote, `$` **interpolates**: `:($x + 1)` puts the *value* of `x`\ninto the expression, while `:(x + 1)` keeps the symbol. `$(args...)` splices\na list of arguments. You can also build expressions directly with\n`Expr(head, args...)`, which is what quoting does for you.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4753,10 +5294,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Quoting and interpolation"
         },
         {
+          "analogies": [],
           "body": "`eval(ex)` evaluates an expression **in the global scope of the current\nmodule**. At the top level that is useful: it can define variables or\nfunctions whose names are computed (`eval(:($name = 42)))`).\n\nInside a function `eval` is almost always a mistake. It cannot see the\nfunction's local variables (they do not exist in global scope), it compiles\nthe expression anew on every call, and its result has a type the compiler\ncannot know. If you find yourself writing `eval` inside a function, you\nusually want a closure, a `Dict` from names to functions, or dispatch.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4780,10 +5324,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "eval, and why not inside functions"
         },
         {
+          "analogies": [
+            {
+              "breaks": "An editor may reread a document every time it is printed; a macro runs once,\nwhen the code containing it is expanded, not each time that code runs. A\nmacro inside a loop body is expanded once, and the loop then repeats the\nrewritten code. And an editor understands meaning, while a macro sees only\nthe shape of the expression: `@square(next!())` pastes the call twice without\nknowing it has a side effect.",
+              "text": "A macro is an editor who receives your draft (the code, unevaluated) and\nreturns a rewritten draft, which is what then gets compiled and run.\n`@macroexpand` shows you the editor's version. Hygiene is the editor's habit\nof writing their own notes in a private shorthand (fresh names from `gensym`)\nso the notes never overwrite your words. `esc` marks a passage as yours:\n\"leave this as written, and read it where the author wrote it\". Forget `esc`\nand your passage is read as if the editor had written it, in the macro's own\nmodule.",
+              "title": "An editor who rewrites your draft"
+            }
+          ],
           "body": "A **macro** is a function that runs when the code is *parsed*: it receives\nits arguments as expressions (unevaluated) and returns a new expression that\nreplaces the macro call. `@macroexpand` shows that replacement, which is the\nfirst thing to look at when a macro misbehaves.\n\nMacros are **hygienic**: variables that the macro's own code assigns are\nrenamed (to fresh names from `gensym`) so they cannot clash with the\ncaller's, and other names are looked up in the module where the macro was\ndefined. Code that comes from the *caller* must be wrapped in `esc(...)` so\nthat it keeps its meaning in the caller's scope. Forgetting `esc` is the\nclassic macro bug. In the second example the unescaped `x` in `x *= 3` is\nresolved in the macro's module, as the global `Main.x`, and an expansion may\nnot assign to a module-qualified name: the error points at the macro call.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4817,10 +5370,15 @@
             }
           ],
           "questions": [],
+          "refs": [
+            "bezanson-2017"
+          ],
           "title": "Macros, esc and hygiene"
         },
         {
+          "analogies": [],
           "body": "Macros earn their place when they need the *code itself*, not only its\nvalue: to skip evaluating it, to evaluate it differently, or to print it.\n`@unless cond body` evaluates `body` only when `cond` is false, which no\nfunction can do (a function's arguments are evaluated before it is called).\n`@logcall f(args...)` prints the call as written in the source together with\nthe argument values, then makes the call. Note how it checks its input and\nraises a clear error at expansion time for anything that is not a call.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4844,10 +5402,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Small useful macros"
         },
         {
+          "analogies": [],
           "body": "A macro is harder to read, to debug and to compose than a function, so use a\nfunction whenever the *values* are all you need. A macro that pastes its\nargument twice also **evaluates it twice**, with every side effect: below,\n`@square(next!())` calls `next!` twice and multiplies two different numbers,\nwhile the function `square` evaluates its argument once. Julia's compiler\nalready inlines small functions, so a macro is never needed \"for speed\".",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4861,10 +5422,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "When a function is enough"
         },
         {
+          "analogies": [],
           "body": "`@eval expr` is `eval(:(expr))` with interpolation: a loop over symbols can\ndefine many similar methods at once. This is how Base defines arithmetic for\nits many number types, and it is the right tool when the methods differ only\nin a name or an operator. The loop runs once, at load time; the generated\nmethods are ordinary compiled methods, with no run-time cost.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -4878,6 +5442,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Generating methods with @eval"
         }
       ],
@@ -5002,9 +5567,18 @@
           "title": "A Collatz iterator"
         }
       ],
+      "references": [],
       "sections": [
         {
+          "analogies": [
+            {
+              "breaks": "A plug that does not fit is rejected at once. Julia never checks that a type\nimplements a whole interface: a missing method shows up only as a\n`MethodError` when some generic function happens to call it, perhaps much\nlater. That gap is why the last section tests the interface.",
+              "text": "An appliance works in any socket built to the standard, and the socket does\nnot care whether it powers a lamp or a kettle. An interface is that standard:\na short list of methods (`iterate`, or `size` and `getindex`). Generic\nfunctions such as `sum` and `collect` are the appliances: written against the\nstandard only, they work with any type that follows it, including types\nwritten years later.",
+              "title": "A wall socket standard"
+            }
+          ],
           "body": "Julia has no `interface` keyword. An interface is a documented list of methods\n(see [Interfaces](https://docs.julialang.org/en/v1/manual/interfaces/) in the\nmanual): implement them for your type and every generic function written\nagainst the interface works with it.\n\nThe **iteration** interface is the smallest. `for x in itr` is rewritten to\n\n```julia\nnext = iterate(itr)\nwhile next !== nothing\n    (x, state) = next\n    # loop body\n    next = iterate(itr, state)\nend\n```\n\nso you define `Base.iterate(itr)` and `Base.iterate(itr, state)`, each\nreturning `(item, next_state)` or `nothing` at the end. Optional methods tell\ngeneric code more: `Base.length` (and `Base.IteratorSize` when the length is\nunknown), and `Base.eltype` so that `collect` can allocate the right array.\nThen `collect`, `sum`, `maximum`, comprehensions, `first(itr, n)`, `zip`, …\nall work.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5018,10 +5592,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Informal interfaces: iteration"
         },
         {
+          "analogies": [
+            {
+              "breaks": "Asking twice means computing twice: nothing is remembered, so an expensive\nrule is paid for on every access. And the child cannot be told \"row 2,\ncolumn 3 is now 7\": `Times` has no `setindex!`, so writing to it is an error,\nwhile a stored matrix accepts it.",
+              "text": "A child who knows the rule \"row times column\" can answer any question about a\nmultiplication table without a printed copy. `Times(4)` stores only `n`, and\n`getindex` is the rule, applied each time someone asks for an entry. A\n**lazy** array is that child: it computes entries on demand. Because it\nanswers the same two questions as a stored matrix (`size` and `getindex`),\n`sum`, slicing and broadcasting cannot tell the difference.",
+              "title": "A times table recited, not printed"
+            }
+          ],
           "body": "Subtype `AbstractArray{T,N}` (or `AbstractVector{T}`, `AbstractMatrix{T}`)\nand define two methods:\n\n* `Base.size(A)`: a tuple of dimensions;\n* `Base.getindex(A, i::Int)` for a vector, or `getindex(A, i::Int, j::Int, …)`\n  with one index per dimension.\n\nThat is enough for display, iteration, `sum`, broadcasting, `findfirst`,\nslicing, comparisons with `==`, and most of LinearAlgebra. Optional extras:\n`Base.setindex!` for a mutable array, and `Base.IndexStyle(::Type{<:MyArray})\n= IndexLinear()` when one linear index is the natural way to address the\nelements (then you define `getindex(A, i::Int)` even for a matrix). Lazy arrays\ncompute elements on demand: below, a one-hot vector stores two integers\ninstead of `n` values, and a multiplication table stores one.\n\nCheck the index yourself in `getindex`: `@boundscheck checkbounds(A, i)` raises\na `BoundsError` and lets a caller's `@inbounds` remove the check.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5055,10 +5638,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "The AbstractArray interface"
         },
         {
+          "analogies": [],
           "body": "Two methods control how a value is printed:\n\n* `Base.show(io::IO, x::T)`: the **compact**, one-line form used by `print`,\n  `string`, `repr`, string interpolation and inside containers. Ideally it\n  looks like code that would recreate the value.\n* `Base.show(io::IO, ::MIME\"text/plain\", x::T)`: the **rich** form the REPL\n  (and this site) uses to display a value on its own. It may span several\n  lines. If you define only the first, it is used for both.\n\nDo not overload `print` or `display` for this; `show` is the interface they\nboth call. `get(io, :compact, false)` tells you when the caller asked for an\nespecially short form (e.g. inside a matrix).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5072,10 +5658,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Custom display: show"
         },
         {
+          "analogies": [],
           "body": "**Ordering**: define `Base.isless(a::T, b::T)` and `sort`, `sort!`,\n`maximum`, `minimum`, `extrema`, `searchsorted` and `<` all work, because\nthey are written in terms of `isless`. Comparing tuples lexicographically is\na short way to get it right for several fields.\n\n**AbstractDict**: subtype `AbstractDict{K,V}` and define `Base.get(d, k,\ndefault)`, `Base.iterate` and `Base.length`; then `d[k]`, `haskey`, `keys`,\n`values`, `pairs` and display work. Below, a read-only dictionary of HTTP\nheaders that ignores the case of its keys.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5099,10 +5688,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Ordering and AbstractDict, briefly"
         },
         {
+          "analogies": [],
           "body": "An informal interface is often implemented half-way, so test it. The `Test`\nstandard library provides `@test expr` (passes when `expr` is `true`) and\n`@test_throws ExceptionType expr`; `@testset \"name\" begin ... end` groups\ntests and prints a summary. Test the *generic* functions that your methods are\nsupposed to enable, not only the methods themselves: that is what the\ninterface promises.\n\nA `@test` outside a test set prints `Test Passed`, or the failing expression\nwith its evaluated values and then throws an error (inside a test set,\nfailures are counted instead and reported in the summary). A test set prints one summary line with the counts\nand the time taken (so that example's output is recorded, not checked).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5136,6 +5728,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Testing an interface"
         }
       ],
@@ -5258,9 +5851,28 @@
           "title": "A race-free parallel sum"
         }
       ],
+      "references": [
+        {
+          "authors": "Savage, S.; Burrows, M.; Nelson, G.; Sobalvarro, P.; Anderson, T.",
+          "id": "savage-1997",
+          "note": "Defines a data race as two threads accessing a shared variable, at least one writing, with nothing preventing simultaneous access, and checks the rule of section 4 that every shared variable is protected by a lock.",
+          "title": "Eraser: a dynamic data race detector for multithreaded programs",
+          "url": "https://doi.org/10.1145/265924.265927",
+          "venue": "ACM Transactions on Computer Systems 15(4)",
+          "year": 1997
+        }
+      ],
       "sections": [
         {
+          "analogies": [
+            {
+              "breaks": "A real cook glances at the other pots whenever they like. A Julia task keeps\nits thread until it reaches a yield point, so a long computation that never\nwaits holds up every other task on that thread. With several threads, a task\nstarted with `Threads.@spawn` may also resume on a different thread from the\none it paused on, which no kitchen does with a half-stirred soup.",
+              "text": "One cook (a thread) is making soup, rice and tea. While the soup simmers, the\ncook starts the rice; while the rice cooks, the cook boils water for the tea.\nEach dish is a **task**: work that can be paused and resumed. The cook moves\nto another dish only when the current one is waiting, which in Julia is a\n**yield**. This is concurrency: many jobs in progress, one pair of hands.\nParallelism, in the threads section, is hiring more cooks.",
+              "title": "One cook, several pots"
+            }
+          ],
           "body": "A **task** (also called a coroutine or green thread) is a piece of work that\ncan be paused and resumed. `@async expr` wraps `expr` in a `Task`, schedules\nit, and returns the task immediately, without waiting. `fetch(t)` waits for\nthe task to finish and returns its value; `wait(t)` waits without returning the\nvalue; `istaskdone(t)` asks whether it has finished.\n\nA task only runs when the current one *yields*: when it waits (`fetch`,\n`wait`, `sleep`, I/O, `take!` on an empty channel) or calls `yield()`. Notice\nin the first example that the task is not done when we first ask: it has not\neven had a chance to start yet.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5304,10 +5916,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Tasks: start now, collect the result later"
         },
         {
+          "analogies": [],
           "body": "A `Channel{T}(n)` is a first-in first-out queue that tasks share: `put!(ch, x)`\nadds a value, `take!(ch)` removes the oldest one. The number `n` is the buffer\nsize: `put!` waits when the buffer is full and `take!` waits when it is empty,\nwhich is what lets a fast producer and a slow consumer cooperate. Give the\nchannel an element type, as with arrays: `Channel(n)` alone is a\n`Channel{Any}`, and every value taken out of it has the abstract type `Any`.\n\n`Channel{T}(f, n)` (usually written with `do`) starts a task running `f(ch)`\nand **closes** the channel when `f` returns. A `for` loop over a channel takes\nvalues until the channel is closed and empty, so producer/consumer code needs\nno explicit end-of-data marker.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5351,10 +5966,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Channels: passing values between tasks"
         },
         {
+          "analogies": [],
           "body": "Everything so far ran on **one** CPU core: the tasks took turns. That is\n*concurrency*, and it is what you want for waiting on many things at once\n(downloads, files, user input). *Parallelism* means running at the same\nmoment on several cores, which speeds up computation.\n\n`Threads.@spawn expr` is like `@async` but lets the scheduler run the task on\nany of Julia's threads. How many threads there are is fixed when Julia\nstarts: `julia -t auto` uses one per CPU core, `julia -t 4` uses four (or set\nthe environment variable `JULIA_NUM_THREADS`). This site runs your code with\n**one thread**, so the spawned tasks below take turns, but the same code runs\nin parallel when you start Julia with `-t auto` on your own machine, and it\ngives the same answer because results are combined only through `fetch`.\n(The practice problem at the end of this unit is graded on four threads.)",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5378,10 +5996,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Concurrency is not parallelism: threads"
         },
         {
+          "analogies": [
+            {
+              "breaks": "In the office, a clerk who looks at the board sees the latest number.\nProcessors and compilers may keep private copies of memory and reorder reads\nand writes, as long as a single thread cannot tell the difference, so a\nprogram with a data race can produce results that no order of the clerks'\nsteps would explain. Locks and atomics also force writes to become visible in\norder, which is part of how they fix the problem.",
+              "text": "A shared tally is written on a whiteboard. Each clerk reads the number, goes\nto their desk to add one, and comes back to write the result. If two clerks\nboth read 41 before either writes, both write 42, and one count is lost. That\nis a data race: two tasks access the same memory, at least one of them\nwrites, and nothing makes the accesses take turns. The three fixes are three\noffice rules. Each clerk keeps a tally on their own sheet and the sheets are\nadded at the end (per-task results). The board gets a click counter that adds\none in a single press (an atomic). Or there is one marker pen, and only the\nclerk holding it may read and write the board (a lock).",
+              "title": "Two clerks and one tally board"
+            }
+          ],
           "body": "A **data race** happens when tasks update shared state with a read, then a\nwrite, and another task gets in between. `total[] += 1` is exactly that: read\n`total[]`, add 1, write it back. With several threads, two tasks can read the\nsame old value and one increment is lost, so the result changes from run to\nrun.\n\nOn one thread the tasks only switch at yield points, so the race stays hidden.\nThe example below makes it visible anyway by yielding between the read and\nthe write: four tasks each add 1 a thousand times, and the total is 1000, not\n4000. (With real threads the lost updates happen without any `yield`.)\n\nThree race-free fixes, from best to worst for speed:\n\n* **Per-task partial results**, combined at the end with `fetch` (the\n  `chunked_sum` above). No shared state at all.\n* **`Threads.Atomic{Int}`** with `Threads.atomic_add!`: the read-modify-write\n  becomes one indivisible hardware operation. Works for plain numbers only.\n* **A lock** (`ReentrantLock`), held during the whole read-modify-write with\n  `lock(l) do ... end`. Works for anything (a `Dict`, a `push!`), but tasks\n  queue up to take turns.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "A race made visible on one thread: lost updates.",
@@ -5415,12 +6042,18 @@
             }
           ],
           "questions": [],
+          "refs": [
+            "savage-1997"
+          ],
           "title": "Data races and how to avoid them"
         },
         {
+          "analogies": [],
           "body": "Threads share memory inside one Julia process. Two other kinds of parallelism\nare worth knowing about (Distributed ships with Julia and unit 40 starts a worker\nwith it; no GPU package is installed in this sandbox):\n\n* **Distributed** (a standard library): `addprocs(4)` starts worker\n  *processes*, possibly on other machines; `@everywhere` defines code on all of\n  them, and `pmap(f, xs)` or `@distributed` share out the work. Workers do not\n  share memory, so data is copied to them: worth it for large independent jobs.\n* **GPUs**: packages such as CUDA.jl (NVIDIA), AMDGPU.jl and Metal.jl (Apple)\n  provide array types that live on the graphics card. Broadcasting and many\n  array functions on them run as GPU kernels, and you can write your own\n  kernels in Julia.\n\nWhatever the hardware, the rules from this unit carry over: split the work so\nthat each worker owns its piece, and combine the results at the end.",
+          "diagrams": [],
           "examples": [],
           "questions": [],
+          "refs": [],
           "title": "Beyond one process: Distributed and GPUs"
         }
       ],
@@ -5561,9 +6194,46 @@
           "title": "Ask the compiler: is the return type concrete?"
         }
       ],
+      "references": [
+        {
+          "authors": "Bezanson, J.; Edelman, A.; Karpinski, S.; Shah, V. B.",
+          "id": "bezanson-2017",
+          "note": "Lists dataflow type inference, aggressive specialization on run-time types and JIT compilation with LLVM as the features behind Julia's speed, the stages shown in sections 1 and 2.",
+          "title": "Julia: A Fresh Approach to Numerical Computing",
+          "url": "https://arxiv.org/abs/1411.1607",
+          "venue": "SIAM Review 59(1)",
+          "year": 2017
+        },
+        {
+          "authors": "Bezanson, J.; Chen, J.; Chung, B.; Karpinski, S.; Shah, V. B.; Vitek, J.; Zoubritzky, L.",
+          "id": "bezanson-2018",
+          "note": "Explains how the specializing just-in-time compiler removes the cost of dynamic typing and multiple dispatch, the one-method-many-instances model of section 1.",
+          "title": "Julia: dynamism and performance reconciled by design",
+          "url": "https://doi.org/10.1145/3276490",
+          "venue": "Proceedings of the ACM on Programming Languages 2 (OOPSLA)",
+          "year": 2018
+        },
+        {
+          "authors": "Belyakova, J.; Chung, B.; Gelinas, J.; Nash, J.; Tate, R.; Vitek, J.",
+          "id": "belyakova-2020",
+          "note": "Gives the formal semantics of world age, shows how it keeps inlining valid in the presence of eval, and studies how packages bypass it with invokelatest (section 4).",
+          "title": "World age in Julia: optimizing method dispatch in the presence of eval",
+          "url": "https://doi.org/10.1145/3428275",
+          "venue": "Proceedings of the ACM on Programming Languages 4 (OOPSLA)",
+          "year": 2020
+        }
+      ],
       "sections": [
         {
+          "analogies": [
+            {
+              "breaks": "The sizes are types, not values: `double(3)` and `double(4)` get the same\n`Int` garment, and a new value of a type already seen does not create a new\nmethod instance. And the rack is cleared when Julia exits, unless the code was\nprecompiled into a package's cache (last section).",
+              "text": "A tailor keeps one pattern for a shirt (the method). The first customer of\nsize M waits while an M is cut and sewn (Julia compiles a specialization for,\nsay, `Int`). The next customer of size M gets one at once from the rack. A\ncustomer of size L waits again while an L is made. Each finished size is a\n**method instance**: the method compiled for one combination of argument\ntypes.",
+              "title": "One sewing pattern, a garment per size"
+            }
+          ],
           "body": "When you call a function, Julia picks the **method** by the types of all the\narguments (multiple dispatch), and then compiles that method for exactly those\nargument types. The compiled version is a **method instance** (a\n*specialization*). `double(x) = 2x` is one method, but calling it with an\n`Int` and with a `Float64` compiles two separate pieces of machine code, each\nas fast as if you had written it for that type by hand.\n\n`methods(f)` lists the methods; `Base.specializations(m)` lists the instances\ncompiled for method `m` so far (we sort them by name, because the order they\nare stored in is not meaningful). `Base.return_types(f, (T,))` asks type\ninference what the result type would be for argument type `T`, without\nrunning anything.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5597,10 +6267,22 @@
             }
           ],
           "questions": [],
+          "refs": [
+            "bezanson-2017",
+            "bezanson-2018"
+          ],
           "title": "One method, many specializations"
         },
         {
+          "analogies": [],
           "body": "`@code_typed f(args...)` shows the code after type inference and\noptimization: each line is one operation with its inferred type after `::`,\nand `=> T` at the end is the return type. The `@code_...` macros live in the\n`InteractiveUtils` standard library, which the REPL loads for you; in a\nscript (and on this site) write `using InteractiveUtils` first.\n\nNotice what is *not* there: `2x` for an `Int` became a single\n`Base.mul_int` (an integer multiplication), with no dispatch left at run time.\nIn the unstable `pos`, the two `return` lines have different types; that is\nwhat `@code_warntype` highlights in red at the REPL.\n\nOne level further down, `@code_llvm` shows LLVM's intermediate code and\n`@code_native` the machine instructions. Their output depends on your CPU\nand contains generated names that change between runs, so we only show one\nexample, unchecked.",
+          "diagrams": [
+            {
+              "alt": "Six boxes in two rows. Top row, run once when a method definition is evaluated: parse the source text into an Expr (Meta.parse), expand macros (@macroexpand), lower to simple steps (@code_lowered). Bottom row, run on the first call with new argument types: type inference and optimization (@code_typed), LLVM IR (@code_llvm), machine code (@code_native). An arrow leads from machine code to a cache box: later calls with the same argument types reuse the stored code.",
+              "caption": "Each @code_ macro shows one stage; everything from inference down runs once per method instance, not once per method.",
+              "src": "assets/diagrams/19-under-the-hood/compilation-pipeline.svg"
+            }
+          ],
           "examples": [
             {
               "caption": "",
@@ -5634,10 +6316,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Reading the compiled code: @code_typed"
         },
         {
+          "analogies": [],
           "body": "Two optimizations explain a lot of Julia's speed:\n\n* **Inlining**: a small function's body is pasted into its caller, so the\n  call disappears. `x^3` with a literal exponent is turned into two\n  multiplications this way.\n* **Constant propagation**: when arguments are known constants, inference\n  computes with the values, not just the types. Below, `answer()` calls\n  `inc(41)`; the optimized code is just `return 42`.\n\n`optimize = false` shows the code before these passes: the call to `inc` is\nstill there, but inference already knows its result is the constant 42\n(`Core.Const(42)`).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5671,10 +6356,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Constant propagation and inlining"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A league prints a new edition now and then; Julia starts a new world with\nevery single method definition. And no old copy of the rulebook is kept: each\nmethod records the range of world numbers in which it is visible, and a call\nconsiders only the methods whose range includes its own world.",
+              "text": "A referee starts a match with the current edition of the rulebook and applies\nit until the final whistle, even if the league prints an amendment at half\ntime. A running function is that referee: it sees the methods that existed in\nthe **world** (the numbered state of all method tables) where it started.\n`invokelatest` is the referee phoning the league for the newest edition\nbefore one decision.",
+              "title": "A referee and the rulebook edition"
+            }
+          ],
           "body": "Every method definition increments a global counter, the **world age**. A\nrunning function sees the methods that existed in the world where it\nstarted, so the compiled code it is running stays valid. If a function\ndefines a new method with `@eval` (or `include`) and calls it right away, the\ncall fails with \"method too new to be called from this world context\".\n\n`Base.invokelatest(f, args...)` makes the call in the newest world. It is\nslower (a dynamic call), so use it at the boundary where code is loaded, not\nin an inner loop. At the top level of a script or the REPL each statement\nstarts in the latest world, which is why this never bites there.\n\nThe two world ages in the message are large numbers that depend on how many\nmethods were defined before, so the course shows them as `W` and `W+1`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5698,10 +6392,15 @@
             }
           ],
           "questions": [],
+          "refs": [
+            "belyakova-2020"
+          ],
           "title": "World age: why eval'd methods need invokelatest"
         },
         {
+          "analogies": [],
           "body": "Compilation happens the first time each method instance is called, so the\nfirst call is slow and later ones are fast. This is the \"time to first x\"\n(TTFX) you notice when a package's first plot takes seconds. The example\nbelow is unchecked because it prints timings; `@time` reports the share of\ncompilation time on the first call.\n\nTo cut that cost, packages **precompile**: when you install or update one,\nJulia stores its compiled code in a cache file (`.ji` plus, since Julia\n1.9, native code in a `.so`/`.dll`) so later sessions can load it.\nPrecompilation workloads (PrecompileTools.jl's `@compile_workload`) run\ntypical calls at that time so their specializations are cached too.\n\nAn **invalidation** happens when a newly loaded method could change what\nexisting compiled code would call: Julia must throw that code away and\ncompile it again. Defining `Base.+` for a new combination of Base types (type\npiracy) is a classic cause. SnoopCompile.jl finds invalidations and\ninference bottlenecks when load times matter.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5715,6 +6414,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Compile time, precompilation and invalidations"
         }
       ],
@@ -5870,9 +6570,28 @@
           "title": "Count the business days"
         }
       ],
+      "references": [
+        {
+          "authors": "Higham, N. J.",
+          "id": "higham-2002",
+          "note": "Gives the operation counts of LU factorization (about 2n³/3) and of computing the inverse (about 2n³), the threefold difference stated here.",
+          "title": "Accuracy and Stability of Numerical Algorithms",
+          "url": "https://doi.org/10.1137/1.9780898718027",
+          "venue": "SIAM, second edition",
+          "year": 2002
+        }
+      ],
       "sections": [
         {
+          "analogies": [
+            {
+              "breaks": "For one number the two routes cost about the same. For an n×n matrix,\ncomputing the inverse takes roughly three times the arithmetic of the LU\nfactorization that `\\` uses, and the extra error of the inverse route can\ngrow with how close `A` is to singular (its *condition number*), which the\n7x = 21 example cannot show.",
+              "text": "To solve 7x = 21 you divide 21 by 7. You would not first write 1/7 as\n0.142857 and then multiply: that takes two steps and rounds the reciprocal\nbefore you even use it. `A \\ b` is the direct division: it **factors** `A`\n(writes it as a product of triangular matrices, which can be solved one row\nat a time) and then solves. `inv(A) * b` is the reciprocal route: it builds\nthe whole inverse first, rounding as it goes, and then multiplies.",
+              "title": "Dividing directly instead of using a reciprocal"
+            }
+          ],
           "body": "The **standard library** is a set of packages that come with Julia: you load\nthem with `using` but never install them. `LinearAlgebra` adds `norm`, `dot`,\n`det`, `eigen`, factorizations, and `I`, the identity of whatever size is\nneeded. Matrix literals separate columns with spaces and rows with `;`, and\n`*` on matrices is the matrix product (`.*` is element by element).\n\nTo solve `A x = b`, write `A \\ b`. It picks a suitable factorization (LU for\na square matrix, QR for a tall one, which gives the least-squares solution)\nand is both faster and more accurate than `inv(A) * b`.\n\nFloating-point results from the underlying BLAS/LAPACK libraries can differ\nin the last digits between machines, so the examples round them with\n`round.(x; digits = 6)`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5916,10 +6635,15 @@
             }
           ],
           "questions": [],
+          "refs": [
+            "higham-2002"
+          ],
           "title": "LinearAlgebra: matrices and solving systems"
         },
         {
+          "analogies": [],
           "body": "`Statistics` provides `mean`, `median`, `var`, `std`, `quantile` and `cor`.\nTwo defaults to know:\n\n* `var` and `std` are the **sample** versions (divide by n − 1), like R and\n  unlike NumPy's default; pass `corrected = false` to divide by n.\n* `quantile` uses the same default definition as R (type 7, linear\n  interpolation between order statistics).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5943,10 +6667,19 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Statistics"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A generator does not read a table: it computes each number from a small\ninternal state with a fixed formula, and updates the state. That is why the\nsame seed repeats exactly, and why a Julia version that changes the formula\ncan give different numbers for the same seed, as this section warns. The\nnumbers only look random; the seed determines all of them.",
+              "text": "Before computers, people drew random numbers from printed tables of random\ndigits. A seed is like telling everyone to start at page 1234: everyone who\nstarts there reads the same digits in the same order, and reading on moves\nyou further down the page, which is why the second `rand` call gave\ndifferent rolls.",
+              "title": "A page number in a book of random digits"
+            }
+          ],
           "body": "For reproducible results, create a random number generator with a seed and\npass it as the first argument: `rand(rng, ...)`, `randn(rng, ...)`,\n`shuffle(rng, v)`, `randperm(rng, n)`. The same seed gives the same\nsequence. `Xoshiro` is Julia's default generator.\n\nBe aware that the numbers a given seed produces may change between Julia\nversions (they are only guaranteed within a release). For data that must stay\nthe same forever, such as test fixtures, use a package like StableRNGs.jl.\nFunctions that need randomness should take the generator as an argument, so\ncallers (and tests) can control it.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -5970,10 +6703,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Random: reproducible random numbers"
         },
         {
+          "analogies": [],
           "body": "`Date` is a calendar day, `DateTime` a day plus a time to the millisecond.\nArithmetic uses *periods* such as `Day(1)`, `Month(1)`, `Hour(12)`;\nsubtracting two dates gives a number of days. `dayofweek` numbers days from\nMonday = 1 to Sunday = 7. A range of dates, `d1:Day(1):d2`, iterates over\nevery day in between.\n\n`Date(\"2024-12-25\")` parses ISO dates; for other layouts give a format,\nwritten with the `dateformat\"...\"` string macro so it is parsed only once:\n`y` year, `m` month number, `u` abbreviated month name, `d` day, `H` hours,\n`M` minutes.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -6007,10 +6743,13 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Dates: calendar arithmetic"
         },
         {
+          "analogies": [],
           "body": "`@printf` and `@sprintf` (from `Printf`) format numbers C-style: `%.3f`\nthree decimals, `%5d` an integer padded to width 5, `%-6s` a left-aligned\nstring, `%e` scientific notation, `%08.2f` zero padding. The format is\nchecked when the macro expands.\n\n`Test` is how Julia packages are tested. `@test expr` passes when `expr` is\n`true`; `@test a ≈ b` compares floats with a tolerance (never use `==` on\ncomputed floats); `@test_throws T expr` passes when `expr` throws a `T`.\n`@testset` groups tests and prints a summary. The summary normally has a\n`Time` column; `showtiming = false` removes it, which we need here so the\noutput is the same on every run. A failing `@test` outside a testset is an\nerror that shows the expression and its evaluated value.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "",
@@ -6044,6 +6783,7 @@
             }
           ],
           "questions": [],
+          "refs": [],
           "title": "Printf and Test"
         }
       ],

@@ -334,6 +334,60 @@ end
     @test all(isempty, Course.prose_problems.(Course.load_course()))
 end
 
+@testset "analogies, diagrams and references: checked before they are shown" begin
+    dir = mktempdir()
+    mkpath(joinpath(dir, "diagrams", "99-x"))
+    good = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><title>t</title>
+              <defs><marker id="a"/></defs><path d="M0 0" marker-end="url(#a)"/></svg>"""
+    write(joinpath(dir, "diagrams", "99-x", "ok.svg"), good)
+    write(joinpath(dir, "diagrams", "99-x", "unused.svg"), good)
+    ref(id; url = "https://doi.org/10.1/x", year = 2019) = Course.Reference(id, "Raissi, M.", "T", "J. Comp. Phys.", year, url, "Backs the loss.")
+    alt = "Two boxes joined by an arrow, the left one labelled network."
+    secs = [Course.Section("s", "b", Course.Example[], Course.Question[],
+                           [Course.Analogy("A", "Like a map.", "A map is flat; the loss surface is not.")],
+                           [Course.Diagram("ok.svg", alt, "")], ["raissi"]),
+            Course.Section("t", "b", Course.Example[], Course.Question[],
+                           [Course.Analogy("B", "Like a sieve.", "too short")],
+                           [Course.Diagram("missing.svg", "short", ""), Course.Diagram("Bad Name.png", alt, "")],
+                           ["nobody"])]
+    u = Course.Unit("99-x", "x", "core", "base", "ready", "s", String[], String[], String[], String[], secs, Course.Problem[],
+                    [ref("raissi"), ref("Bad_ID"; url = "http://x.org", year = 0), ref("uncited")])
+    probs = Course.enrichment_problems(u, dir)
+    has(s) = any(contains(s), probs)
+    @test has("say where it breaks down")                  # every analogy names its limit
+    @test has("no file course/diagrams/99-x/missing.svg")
+    @test has("alt text must describe")
+    @test has("kebab-case .svg")
+    @test has("unused.svg is not used")
+    @test has("cites 'nobody'")
+    @test has("'uncited': no section cites it")
+    @test has("public https link") && has("kebab-case") && has("year must be given")
+    @test !any(p -> occursin("'raissi'", p) || occursin("ok.svg", p) || occursin("'s' analogy", p), probs)
+    # SVGs are served as files: nothing active, nothing fetched from elsewhere
+    @test isempty(Course.svg_problems(good))
+    for bad in ("<script>alert(1)</script>", "<rect onclick=\"x()\"/>", "<image href=\"https://x/y.png\"/>",
+                "<a href=\"https://evil.example\">x</a>", "<foreignObject/>", "<style>@import 'x.css';</style>",
+                "<rect style=\"fill:url(https://x/y)\"/>", "<a href=\"javascript:x()\">x</a>")
+        @test !isempty(Course.svg_problems(replace(good, "</svg>" => bad * "</svg>")))
+    end
+    @test any(contains("viewBox"), Course.svg_problems("<svg><title>t</title></svg>"))
+    # not well-formed XML shows as a broken image: a bare < or & is refused, entities are not
+    withtext(t) = replace(good, "</svg>" => "<text>$t</text></svg>")
+    @test any(contains("bare '<'"), Course.svg_problems(withtext("Re hλ < 0")))
+    @test any(contains("bare '&'"), Course.svg_problems(withtext("A & B")))
+    @test isempty(Course.svg_problems(withtext("Re hλ &lt; 0 &amp; &#955; &#x3bb;")))
+    # the shipped course passes, and the site gets what the course has
+    units = Course.load_course()
+    @test all(isempty, [Course.enrichment_problems(u) for u in units])
+    site = Dict(x["id"] => x for x in SiteData.course_data()["units"])
+    for u in units
+        @test length(site[u.id]["references"]) == length(u.references)
+        @test sum(length(s["diagrams"]) for s in site[u.id]["sections"]; init = 0) == sum(length(s.diagrams) for s in u.sections; init = 0)
+        @test sum(length(s["analogies"]) for s in site[u.id]["sections"]; init = 0) == sum(length(s.analogies) for s in u.sections; init = 0)
+    end
+    @test length(SiteData.course_diagrams()) == sum(length(s.diagrams) for u in units for s in u.sections; init = 0)
+end
+
 @testset "example notices: shown under the output, exported to the site" begin
     @test Course.Example("1", true, "c", "repl").notice == ""                  # optional
     exs = [e for s in SiteData.course_data()["units"] for sec in s["sections"] for e in sec["examples"]]
@@ -432,6 +486,222 @@ end
     end
 end
 
+@testset "precomputed explorers: the grid is read from the recorded output" begin
+    row = raw"(?<m>\S+) +h = (?<h>\S+) +err = (?<e>\S+)"
+    A(g, l = g; log = false) = Course.ExploreAxis(g, l, log)
+    X(; kc = "k", row = row, axes = [A("m", "method"), A("h", "step"; log = true)], x = "h", series = "m", measure = "e",
+      label = "error", log = true) = Course.Explorer(kc, "Move h.", row, axes, x, series, measure, label, log, "why")
+    E(x; check = true, predict = nothing, choose = nothing, breakit = nothing) =
+        Course.Example("println(1)", check, "c", "repl", "", predict, choose, breakit, x)
+    bad(x; kw...) = Course.explorer_problems(x, E(x; kw...), ["k"])
+    @test bad(X()) == String[]
+    @test any(contains("not one of the unit's kcs"), bad(X(; kc = "z")))
+    @test any(contains("check = false"), bad(X(); check = false))          # the grid needs a compared output
+    C = Course.Checkpoint("k", "p", ["a", "b"], ["x", "y"], "calls", 2.0, [1], "e", ["", "m"])
+    @test any(contains("no checkpoint or break-it"), bad(X(); choose = C))
+    P = Course.Prediction("k", "p", raw"(\d)", ["a", "b"], [(0.0, 1.0), (1.0, 2.0)], String[], 1, "e")
+    @test bad(X(); predict = P) == String[]                                # a prediction only delays the output
+    @test any(contains("1 to 3 axes"), bad(X(; axes = Course.ExploreAxis[], x = "h", series = "")))
+    @test any(contains("named twice"), bad(X(; axes = [A("h"), A("h")], series = "")))
+    @test any(contains("needs a label"), bad(X(; axes = [A("m", ""), A("h")])))
+    @test any(contains("also an axis"), bad(X(; measure = "h")))
+    @test any(contains("is not one of the axes"), bad(X(; x = "q")))
+    @test any(contains("other than x"), bad(X(; series = "h")))
+    @test any(contains("not a regular expression"), bad(X(; row = "(")))
+    @test any(contains("no named group `e`"), bad(X(; row = raw"(?<m>\S+) h = (?<h>\S+)")))
+    @test any(contains("no label"), bad(X(; label = " ")))
+
+    out = """
+    Euler h = 0.1  err = 0.02
+    Euler h = 0.2  err = 0.04
+    Euler h = 0.05 err = 0.01
+    RK4   h = 0.1  err = 1.0e-6
+    RK4   h = 0.2  err = 1.6e-5
+    RK4   h = 0.05 err = 6.2e-8
+    a line that does not match
+    """
+    g = Course.explorer_grid(X(), out)
+    @test [a.texts for a in g.axes] == [["Euler", "RK4"], ["0.05", "0.1", "0.2"]]   # words in order; numbers sorted
+    @test g.axes[2].nums == [0.05, 0.1, 0.2] && g.axes[2].numeric && !g.axes[1].numeric
+    @test g.values == ["0.01", "0.02", "0.04", "6.2e-8", "1.0e-6", "1.6e-5"]    # as printed, last axis fastest
+    # a full grid, and nothing else, passes
+    drop(s, l) = replace(s, l * "\n" => "")
+    @test contains(Course.explorer_grid(X(), drop(out, "RK4   h = 0.2  err = 1.6e-5")), "not full: nothing printed at RK4, 0.2")
+    @test contains(Course.explorer_grid(X(), out * "RK4   h = 0.1  err = 2.0e-6\n"), "printed twice")
+    @test contains(Course.explorer_grid(X(), out * "RK4   h = 0.10 err = 2.0e-6\n"), "one value two ways")
+    @test contains(Course.explorer_grid(X(), replace(out, "0.01" => "fast")), "is not a number")
+    @test contains(Course.explorer_grid(X(), ""), "no output line matches")
+    @test contains(Course.explorer_grid(X(), replace(out, "RK4" => "Euler")), "axis m has one value")
+    @test contains(Course.explorer_grid(X(; axes = [A("m"), A("h")], x = "m", series = "h"), out), "must be numbers")
+    two = join(filter(l -> !contains(l, "0.05"), split(out, "\n")), "\n")
+    @test contains(Course.explorer_grid(X(), two), "at least 3 make a line")
+    @test contains(Course.explorer_grid(X(), replace(out, "0.01" => "-0.01")), "log scale but a value is negative")
+    @test contains(Course.explorer_grid(X(; axes = [A("m", "m"; log = true), A("h")]), out), "positive numbers")
+    @test Course.explorer_grid(X(; log = false), replace(out, "0.01" => "-0.01")) isa NamedTuple
+    huge = join(["M$i h = $j err = 1.0" for i in 1:21, j in 1:20], "\n")
+    @test contains(Course.explorer_grid(X(), huge), "420 points (at most 400)")
+    # Inf and NaN are numbers here (a blow-up is a result); the site draws what it can
+    @test Course.explorer_grid(X(; log = false), replace(out, "0.01" => "Inf", "0.02" => "NaN")).values[1:2] == ["Inf", "NaN"]
+
+    # the course's explorers: each recorded output is a full grid, and the site gets exactly those
+    units = Course.load_course()
+    xs = [(u, e) for u in units for s in u.sections for e in s.examples if e.explore !== nothing]
+    @test sort([u.id for (u, _) in xs]) == ["30-floating-point", "31-convergence", "34-pde-discretization"]
+    for (u, e) in xs
+        @test isempty(Course.explorer_problems(e.explore, e, u.kcs))
+        @test isempty(Course.explorer_key_problems(u, Course.load_outputs(u)))
+    end
+    site = [e for u in SiteData.course_data()["units"] for s in u["sections"] for e in s["examples"] if haskey(e, "explore")]
+    @test length(site) == length(xs)
+    @test all(e -> length(e["explore"]["values"]) == prod(length(a["texts"]) for a in e["explore"]["axes"]), site)
+    # a recorded output that stops being a full grid is reported by verify's check
+    u, e = first(xs)
+    rec = Course.load_outputs(u)
+    k = Course.example_key(e.code, e.mode)
+    broken = Dict{String,Any}("examples" => Dict{String,Any}(k => Dict{String,Any}("output" => "nothing here", "ok" => true)))
+    @test any(contains("explorer: no output line matches"), Course.explorer_key_problems(u, broken))
+    @test any(contains("no recorded output"), Course.explorer_key_problems(u, Dict{String,Any}("examples" => Dict{String,Any}())))
+    @test haskey(rec["examples"], k)
+end
+
+@testset "Parsons problems: every arrangement measured, distractors never work" begin
+    ref = """
+    function f(x)
+        s = 0
+        for v in x
+            s += v
+        end
+        return s
+    end
+    """
+    dz(ds...) = Course.Parsons("k", 1, 2, collect(Course.Distractor, ds))
+    good = Course.Distractor("    s = 1", 1, "starts the sum at one")
+    Pz(z; reference = ref, compare = "isequal", gen = "", cases = ["[1, 2]", "Int[]"], starter = Course.parsons_starter(reference, z)) =
+        Course.Problem("p", "t", "core", ["k"], "", "f", starter, reference, cases, gen, compare,
+                       compare == "custom" ? "(a, b) -> a == b" : "", 1e-8, true, false, ["h"], nothing, Course.Variant[], 1, 1,
+                       String[], nothing, z)
+    probs(z; kw...) = Course.parsons_problems(Pz(z; kw...), ["k"])
+
+    # lines: fixed head and tail, movable lines in working order, then the distractors
+    p = Pz(dz(good))
+    l = Course.parsons_lines(p)
+    @test l.head == ["function f(x)"] && l.tail == ["    return s", "end"]
+    @test l.items == ["    s = 0", "    for v in x", "        s += v", "    end"]
+    @test Course.parsons_pool(p) == [l.items; "    s = 1"]
+    @test p.starter == "function f(x)\n    # put the lines here, in order\n    return s\nend\n"
+    @test isempty(probs(dz(good)))
+
+    # indentation is read as block structure, 4 spaces per level
+    @test Course.parsons_depth(1, "    for i in 1:n") == 2
+    @test Course.parsons_depth(2, "        x += 1") == 2
+    @test Course.parsons_depth(2, "    end") == 1
+    @test Course.parsons_depth(2, "    x += 1") == -1          # under-indented inside the loop
+    @test Course.parsons_depth(1, "        end") == -1         # an `end` at the wrong level
+    @test Course.parsons_depth(2, "    else") == 2 && Course.parsons_depth(1, "    if a") == 2
+    @test Course.parsons_depth(1, "    map(x) do v") == 2      # a do block opens
+    @test Course.parsons_depth(-1, "    x") == -1
+    @test Course.parsons_depth(0, ["function f(x)", "    s = 0", "    return s", "end"]) == 0
+
+    # structural problems
+    has(z, s; kw...) = any(m -> occursin(s, m), probs(z; kw...))
+    @test has(Course.Parsons("other", 1, 2, [good]), "kc 'other'")
+    @test has(Course.Parsons("k", 0, 2, [good]), "head and tail")
+    @test has(Course.Parsons("k", 1, 2, [good]), "starter is generated"; starter = Course.PARSONS_STARTER_GIVEN)
+    @test has(dz(good), "compare must be"; compare = "custom")
+    @test has(dz(good), "gen is not used"; gen = "rng -> [([1],)]")
+    @test has(dz(good), "two explicit cases"; cases = ["[1]"])
+    @test has(dz(Course.Distractor("        s = 1", 1, "m")), "indent it like the line it replaces (4 spaces)")
+    @test has(dz(Course.Distractor("    s = 0", 1, "m")), "the same text as a movable line")
+    @test has(dz(Course.Distractor("    s = 1", 9, "m")), "replaces must be 1 to 4")
+    @test has(dz(Course.Distractor("    s = 1", 1, " ")), "no misconception")
+    @test has(dz(good, Course.Distractor("    s = 2", 1, "m")), "two distractors replace the same line")
+    @test has(dz(good, good), "duplicate line")
+    @test has(dz(good), "`while`"; reference = replace(ref, "for v in x" => "while v in x"))
+    @test has(dz(good), "not indented 4 spaces"; reference = replace(ref, "        s += v" => "      s += v"))
+    @test has(dz(good), "blank"; reference = replace(ref, "    s = 0\n" => "    s = 0\n\n"))
+    @test has(dz(good), "3 to 8 movable lines"; reference = "function f(x)\n    s = 0\n    return s\nend\n")
+    @test has(Course.Parsons("k", 0, 1, [good]), "head must open the function")
+
+    # loading: the starter is generated, a hand-written one is refused
+    d = Dict("id" => "p", "title" => "t", "difficulty" => "core", "prompt" => "", "entry" => "f", "reference" => ref,
+             "parsons" => Dict("kc" => "k", "head" => 1, "tail" => 2,
+                               "distractor" => [Dict("line" => "    s = 1", "replaces" => 1, "misconception" => "m")]))
+    q = Course.load_problem(d)
+    @test q.starter == Course.parsons_starter(ref, q.parsons) && q.parsons.distractors[1].replaces == 1
+    @test Course.load_problem(merge(d, Dict("starter" => "f(x) = 0"))).starter == Course.PARSONS_STARTER_GIVEN
+
+    # the recorder's output: nothing unless it finished
+    @test Course.parse_parsons_output("accepted: 1 2\n") === nothing
+    @test Course.parse_parsons_output("accepted: 2 1 3\naccepted: 1 2 3\nparsons: 7 run\n") == ["1 2 3", "2 1 3"]
+
+    # feedback, in order: invalid, distractor, count, solved, longest working prefix
+    # (web/src/parsons.test.ts checks the same vectors)
+    pool = ["a", "b", "end", "end", "x"]
+    acc = ["1 2 3 3", "2 1 3 3"]
+    fb(o) = (r = Course.parsons_feedback(pool, 4, acc, o); (r.kind, r.value))
+    @test fb([1, 1, 3, 4]) == (:invalid, 0) && fb([1, 2, 3, 6]) == (:invalid, 0)
+    @test fb([1, 5, 3, 4]) == (:distractor, 1)
+    @test fb([1, 2, 3]) == (:count, 4)
+    @test fb([2, 1, 4, 3]) == (:solved, 4)                   # the two `end` lines are interchangeable
+    @test fb([1, 3, 2, 4]) == (:prefix, 1) && fb([3, 1, 2, 4]) == (:prefix, 0)
+    @test Course.parsons_key(pool, [2, 1, 4, 3]) == "2 1 3 3"
+
+    # the display order is a permutation that does not change between runs
+    o = Course.parsons_display_order("p", pool)
+    @test sort(o) == 1:5 && o == Course.parsons_display_order("p", pool)
+
+    # verify's checks on the measured set
+    u = Course.Unit("u", "t", "core", "base", "ready", "", ["k"], String[], String[], String[], Course.Section[], [p])
+    rp(stored, now) = Practice.parsons_record_problems(u, stored, now)
+    ok = Dict("p" => ["1 2 3 4"])
+    @test isempty(rp(ok, ok))
+    @test any(m -> occursin("own order is not", m), rp(Dict("p" => ["2 1 3 4"]), Dict("p" => ["2 1 3 4"])))
+    @test any(m -> occursin("distractor 1", m), rp(Dict("p" => ["1 2 3 4", "5 2 3 4"]), Dict("p" => ["1 2 3 4", "5 2 3 4"])))
+    @test any(m -> occursin("changed", m), rp(Dict("p" => ["1 2 3 4", "2 1 3 4"]), ok))
+    @test any(m -> occursin("no measured", m), rp(ok, nothing))
+    @test any(m -> occursin("stale", m), rp(Dict("p" => ["1 2 3 4"], "q" => ["1"]), ok))
+
+    # the course's Parsons problems are valid, measured, and on the site with their accepted sets
+    units = Course.load_course()
+    zs = [(u, p) for u in units for p in u.problems if p.parsons !== nothing]
+    @test length(zs) >= 3
+    for (u, p) in zs
+        @test isempty(Course.parsons_problems(p, u.kcs))
+        acc = Course.load_outputs(u)["parsons"][p.id]
+        @test isempty(Practice.parsons_record_problems(u, Course.load_outputs(u)["parsons"], Course.load_outputs(u)["parsons"]))
+        @test join(1:length(Course.parsons_lines(p).items), " ") in acc
+    end
+    site = [p for u in SiteData.course_data()["units"] for p in u["problems"]]
+    @test count(p -> haskey(p, "parsons"), site) == length(zs)
+    for (u, p) in zs
+        s = only(filter(x -> x["id"] == p.id, site))["parsons"]
+        @test s["accepted"] == [Base.parse.(Int, split(a)) for a in Course.load_outputs(u)["parsons"][p.id]]
+        @test s["pool"] == Course.parsons_pool(p) && s["n"] == length(Course.parsons_lines(p).items)
+    end
+
+    # the enumeration itself, in a fresh process: the two `s` lines commute only with
+    # the right indentation, and the distractor (sum starts at one) is never accepted
+    if !FAST
+        refm = """
+        function f(x)
+            s = 0
+            n = 0
+            for v in x
+                s += v
+                n += 1
+            end
+            return s - n
+        end
+        """
+        zm = Course.Parsons("k", 1, 2, [Course.Distractor("    s = 1", 1, "starts at one")])
+        pm = Pz(zm; reference = refm, cases = ["[1, 2, 3]", "[5]"])
+        um = Course.Unit("u", "t", "core", "base", "ready", "", ["k"], String[], String[], String[], Course.Section[], [pm])
+        acc = Practice.parsons_accepted(pm, um)
+        # s = 0 / n = 0 in either order, and s += v / n += 1 in either order: 4 orders
+        @test acc == ["1 2 3 4 5 6", "1 2 3 5 4 6", "2 1 3 4 5 6", "2 1 3 5 4 6"]
+    end
+end
+
 # A problem shell for assess(): only the fields assess reads matter.
 const P = Course.Problem("p", "t", "core", String[], "", "f", "", "", ["1"], "", "isequal", "", 1e-8, true,
                          false, String[], Course.Perf("n", [1000, 16000], false), Course.Variant[], 1, 1, String[])
@@ -500,6 +770,76 @@ raw_perf(; sub = (1e3, 16e3), ref = (1e3, 16e3), bytes = (0, 0), locals = Any[],
     @test "unstable" in r["verdicts"]
     @test any(f -> occursin("`acc::Union{Float64, Int64}` in `total`", f["title"]) &&
                    occursin("`acc` in `total` starts as one number type", f["detail"]), r["feedback"])
+end
+
+@testset "performance ladder (on synthetic measurements)" begin
+    states(l) = [x["state"] for x in l["rungs"]]
+    lad(raw; p = P, kw...) = Practice.ladder(p, Practice.assess(p, raw; kw...))
+
+    l = lad(raw_perf())                                          # par, no allocations
+    @test states(l) == ["reached", "reached", "reached"] && l["climbed"] == 3 && l["offered"] == 3
+    @test [x["id"] for x in l["rungs"]] == ["correct", "within-2x", "allocation-free"]
+    @test l["rungs"][3]["detail"] == "0 bytes per call at n = 1000 and n = 16000."
+
+    # the line is 2x at the largest size; the smaller size does not count
+    @test states(lad(raw_perf(sub = (9e3, 32e3))))[2] == "reached"          # exactly 2.0x
+    l = lad(raw_perf(sub = (1e3, 32.5e3)))                                  # 2.03x
+    @test states(l) == ["reached", "not-reached", "reached"] && l["climbed"] == 1
+    @test occursin("2.03× the reference's time at n = 16000", l["rungs"][2]["detail"])
+    @test occursin("Close to the line", l["rungs"][2]["detail"])
+    @test !occursin("Close to the line", lad(raw_perf(sub = (1e3, 40e3)))["rungs"][2]["detail"])  # 2.5x
+    # the 2x rung sits between the speed verdicts: "slower" (1.75 to 5x) can be on either side
+    r = Practice.assess(P, raw_perf(sub = (1e3, 30e3)))                     # 1.9x: slower, but within 2x
+    @test r["performance"]["time"] == "slower" && states(Practice.ladder(P, r))[2] == "reached"
+
+    # allocation-free means zero at every size, not "within the grader's slack"
+    l = lad(raw_perf(bytes = (64, 64)))
+    @test "allocates" ∉ Practice.assess(P, raw_perf(bytes = (64, 64)))["verdicts"]
+    @test states(l) == ["reached", "reached", "not-reached"] && l["climbed"] == 2
+    @test l["rungs"][3]["detail"] == "64 B per call at n = 16000; the reference allocates nothing."
+    @test states(lad(raw_perf(bytes = (0, 16))))[3] == "not-reached"
+
+    # rung 3 is not offered when the reference itself allocates
+    alloc_ref = raw_perf(bytes = (8000, 128000))
+    alloc_ref["perf"]["sizes"][2]["ref_bytes"] = 128000
+    l = lad(alloc_ref)
+    @test states(l) == ["reached", "reached", "not-offered"] && l["climbed"] == 2 && l["offered"] == 2
+    @test occursin("The reference itself allocates 125.0 KiB per call at n = 16000", l["rungs"][3]["detail"])
+
+    # climbed stops at the first rung not reached, even when a higher one holds
+    l = lad(raw_perf(sub = (1e4, 2.56e6)))                                  # slow, no allocations
+    @test states(l) == ["reached", "not-reached", "reached"] && l["climbed"] == 1
+
+    # wrong answers: nothing above rung 1 is measured
+    fail = Dict("status" => "ok", "correctness" => Dict("passed" => 3, "total" => 5, "explicit" => 1,
+        "failures" => Any[Dict("case" => 2, "input" => "f(2)", "reason" => "wrong value", "expected" => "4", "got" => "5", "shown" => false)]))
+    l = lad(fail)
+    @test states(l) == ["not-reached", "not-measured", "not-measured"] && l["climbed"] == 0 && l["offered"] == 3
+    @test l["rungs"][1]["detail"] == "3 of 5 cases pass."
+    l = lad(Dict("status" => "load-error", "message" => "ERROR: x"))
+    @test l["climbed"] == 0 && l["rungs"][1]["detail"] == "The tests did not run."
+
+    # correct, but the measurement timed out (far slower) or failed (an error at the perf sizes)
+    ok5 = Dict("passed" => 5, "total" => 5, "explicit" => 1, "failures" => Any[])
+    l = lad(Dict("status" => "ok", "phase" => "performance", "correctness" => ok5); timed_out = true)
+    @test states(l) == ["reached", "not-reached", "not-measured"] && l["climbed"] == 1
+    l = lad(Dict("status" => "ok", "phase" => "done", "perf_error" => "ERROR: boom", "correctness" => ok5))
+    @test states(l) == ["reached", "not-measured", "not-measured"] && l["climbed"] == 1
+
+    # a problem without a perf section offers rung 1 only
+    Q = Course.Problem("q", "t", "core", String[], "", "f", "", "", ["1"], "", "isequal", "", 1e-8, true,
+                       false, String[], nothing, Course.Variant[], 1, 1, String[])
+    l = lad(Dict("status" => "ok", "phase" => "done", "correctness" => ok5); p = Q)
+    @test states(l) == ["reached", "not-offered", "not-offered"] && l["climbed"] == 1 && l["offered"] == 1
+
+    # the terminal shows the same rungs
+    r = Practice.assess(P, raw_perf(bytes = (64, 64))); r["ladder"] = Practice.ladder(P, r)
+    txt = Practice.format_grade(r)
+    @test occursin("Performance ladder: 2 of 3 rungs", txt)
+    @test occursin("  ✗ 3. Allocation-free: 64 B per call at n = 16000;", txt)
+    @test occursin("160×", lad(raw_perf(sub = (1e4, 2.56e6)))["rungs"][2]["detail"])   # not 160.0
+    r = Practice.assess(P, alloc_ref); r["ladder"] = Practice.ladder(P, r)
+    @test occursin("  – 3. Allocation-free (not offered): The reference itself allocates", Practice.format_grade(r))
 end
 
 @testset "starter must mention the entry (bang names too)" begin
@@ -810,6 +1150,10 @@ if !FAST
         _, p = Course.find_problem(Course.load_course(), "sum-of-squares")
         g = Practice.grade(p, "sum_of_squares(n) = sum([i^2 for i in 1:n])")
         @test g["status"] == "passed" && "allocates" in g["verdicts"]
+        # the ladder on a real measurement: the reference allocates nothing, this array does
+        @test g["ladder"]["offered"] == 3 && g["ladder"]["rungs"][3]["state"] == "not-reached"
+        gr = Practice.grade(p, p.reference)
+        @test gr["ladder"]["climbed"] == 3
         g = Practice.grade(p, "sum_of_squares(n) = n")
         @test g["status"] == "failed"
         g = Practice.grade(p, "sum_of_squares(n) = (")

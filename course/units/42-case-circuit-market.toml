@@ -76,6 +76,28 @@ a capacitor that starts uncharged with no current,
 which has `v_b(0) = 0` and `v_b'(0) = 0`, as the circuit requires.
 '''
 
+  [[section.diagram]]
+  file = "rlc-node-equations.svg"
+  alt = "Circuit drawing: a step voltage source V_s feeds node a through a resistor R; an inductor L with current i_L joins node a to node b; a capacitor C joins node b to ground. The node equations are written beside each node."
+  caption = "Node a has no capacitor, so its equation has no derivative: that row of the mass matrix is zero."
+
+  [[section.analogy]]
+  title = "A roundabout and a car park"
+  text = '''
+**Kirchhoff's current law** is like a roundabout: every car that enters
+must leave, and none are stored there. So at a node the currents in and
+out sum to zero. A capacitor is like a car park beside the roundabout: it
+can hold cars, so the flow in and the flow out differ by how fast the car
+park fills. That is the `C dv/dt` term, and the reason a node with a
+capacitor gets a derivative while node `a` does not.
+'''
+  breaks = '''
+Charge is not counted in whole cars, and a current can be negative (the
+flow reverses). Voltage, which drives the currents, has no counterpart in
+traffic, and neither has the inductor, whose current resists change like
+the inertia of a heavy wheel.
+'''
+
   [[section.example]]
   caption = "R = 2 Ω, L = 1 H, C = 0.2 F, V_s = 1 V: α = 1, ω₀ = √5 and ω_d = 2. The node equations as a mass-matrix DAE, solved with `Rodas5P` at tolerances `1e-10`, against the analytic capacitor voltage."
   notice = "Notice that the largest difference over 10 s is below `1e-8`, and that `v_a = V_s - R i_L` holds along the solution: the solver kept the algebraic equation satisfied at every step, not only at the start."
@@ -150,6 +172,7 @@ equations can be solved for those unknowns, that is, when the block of `G`
 in those rows and columns is nonsingular. The example prints its
 determinant.
 '''
+refs = ["ho-ruehli-brennan-1975"]
 
   [[section.example]]
   caption = "The same circuit from a component list: three nodes (source node `s`, `a`, `b`), the source current and the inductor current as extra unknowns. The stamped DAE is solved and compared with the hand-written node equations' analytic answer."
@@ -242,6 +265,12 @@ raise the cost. Real dispatch adds what breaks the simple rule: start-up
 costs and minimum outputs (integer variables, unit 39), ramp limits over
 time, and the network, which the last section adds.
 '''
+refs = ["dunning-2017"]
+
+  [[section.diagram]]
+  file = "merit-order.svg"
+  alt = "Merit-order stack: generators sorted by cost, 300 MW at 12, 200 MW at 25, 250 MW at 40 and 150 MW at 90 euros per MWh, with demand 600 MW; the first two run fully, the 40 euro unit runs 100 MW and sets the price, the 90 euro unit is off."
+  caption = "The demand line crosses the 40 €/MWh step, so that unit is the marginal one and its cost is the price."
 
   [[section.example]]
   caption = "Four generators (costs 12, 25, 40 and 90 €/MWh; capacities 300, 200, 250 and 150 MW) and a demand of 600 MW, as a JuMP LP solved by HiGHS, against the merit order computed by sorting."
@@ -325,6 +354,25 @@ Two cautions, both visible below:
   function `cost*(D)` has a kink, its left and right slopes differ, and
   any `λ` between them is a valid dual. The solver returns one of them.
 '''
+refs = ["schweppe-1988"]
+
+  [[section.analogy]]
+  title = "Buying apples stall by stall"
+  text = '''
+You need a large number of apples and the market has stalls with
+different prices and limited stocks. You buy from the cheapest stall until
+it runs out, then the next, and so on. The cost of one more apple is the
+price at the stall you are buying from now: the **marginal** price. That is
+the merit order, and the dual of the demand constraint is that marginal
+price.
+'''
+  breaks = '''
+In an electricity market with a uniform price, every running generator is
+paid the marginal price, not its own cost; apple stalls each charge their
+own price. When your order ends exactly as one stall runs out (a
+breakpoint), the next apple and the last one cost different amounts, and
+the price is not unique.
+'''
 
   [[section.example]]
   caption = "The dual of the demand constraint and the cost change from one more megawatt, at three demands; then the breakpoint `D = 500` (the two cheapest units exactly full), with both one-sided differences."
@@ -405,6 +453,24 @@ node" in the words of the [LMP article](https://en.wikipedia.org/wiki/Locational
 where "Prices on either side of the constraint separate". The difference
 between the two prices is the dual of the line limit, the value of one more
 megawatt of transmission capacity.
+'''
+refs = ["schweppe-1988"]
+
+  [[section.analogy]]
+  title = "A narrow bridge between two towns"
+  text = '''
+Town A has a cheap bakery, town B a dear one, and one narrow bridge joins
+them. While the bridge has room, vans carry cheap bread to B and both towns
+pay about the same. Once the bridge is full, B must buy its extra bread
+from its own dear bakery, and the two towns' prices split. One more van
+slot on the bridge is worth the price difference: that is the dual of the
+line limit.
+'''
+  breaks = '''
+Electric power is not steered like vans. It splits over all lines by
+Kirchhoff's laws, so in a grid with loops a congested line can change
+prices at buses far from it. With two buses and one line, as here, the
+picture fits; in a real network it does not.
 '''
 
   [[section.example]]
@@ -831,3 +897,30 @@ end
 market_price(cost, cap, demand) = maximum(cost)
 '''
   expect = ["incorrect"]
+
+[[reference]]
+id = "ho-ruehli-brennan-1975"
+authors = "Ho, C.-W.; Ruehli, A. E.; Brennan, P. A."
+title = "The modified nodal approach to network analysis"
+venue = "IEEE Transactions on Circuits and Systems 22(6)"
+year = 1975
+url = "https://doi.org/10.1109/TCS.1975.1084079"
+note = "Introduced modified nodal analysis: node voltages plus one current per voltage source or inductor, assembled component by component, as the stamping section does."
+
+[[reference]]
+id = "dunning-2017"
+authors = "Dunning, I.; Huchette, J.; Lubin, M."
+title = "JuMP: a modeling language for mathematical optimization"
+venue = "SIAM Review 59(2)"
+year = 2017
+url = "https://arxiv.org/abs/1508.01982"
+note = "Describes JuMP, the modelling language in which the dispatch and two-bus models are written."
+
+[[reference]]
+id = "schweppe-1988"
+authors = "Schweppe, F. C.; Caramanis, M. C.; Tabors, R. D.; Bohn, R. E."
+title = "Spot Pricing of Electricity"
+venue = "Springer (Kluwer)"
+year = 1988
+url = "https://doi.org/10.1007/978-1-4613-1683-1"
+note = "The founding account of pricing electricity at marginal cost, node by node, with prices that separate when a transmission line is congested; the basis of the locational prices in the last two sections."

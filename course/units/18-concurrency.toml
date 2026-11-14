@@ -21,6 +21,24 @@ in the first example that the task is not done when we first ask: it has not
 even had a chance to start yet.
 '''
 
+  [[section.analogy]]
+  title = "One cook, several pots"
+  text = '''
+One cook (a thread) is making soup, rice and tea. While the soup simmers, the
+cook starts the rice; while the rice cooks, the cook boils water for the tea.
+Each dish is a **task**: work that can be paused and resumed. The cook moves
+to another dish only when the current one is waiting, which in Julia is a
+**yield**. This is concurrency: many jobs in progress, one pair of hands.
+Parallelism, in the threads section, is hiring more cooks.
+'''
+  breaks = '''
+A real cook glances at the other pots whenever they like. A Julia task keeps
+its thread until it reaches a yield point, so a long computation that never
+waits holds up every other task on that thread. With several threads, a task
+started with `Threads.@spawn` may also resume on a different thread from the
+one it paused on, which no kitchen does with a half-stirred soup.
+'''
+
   [[section.example]]
   code = '''
 t = @async begin
@@ -182,6 +200,29 @@ Three race-free fixes, from best to worst for speed:
 * **A lock** (`ReentrantLock`), held during the whole read-modify-write with
   `lock(l) do ... end`. Works for anything (a `Dict`, a `push!`), but tasks
   queue up to take turns.
+'''
+refs = ["savage-1997"]
+
+  [[section.analogy]]
+  title = "Two clerks and one tally board"
+  text = '''
+A shared tally is written on a whiteboard. Each clerk reads the number, goes
+to their desk to add one, and comes back to write the result. If two clerks
+both read 41 before either writes, both write 42, and one count is lost. That
+is a data race: two tasks access the same memory, at least one of them
+writes, and nothing makes the accesses take turns. The three fixes are three
+office rules. Each clerk keeps a tally on their own sheet and the sheets are
+added at the end (per-task results). The board gets a click counter that adds
+one in a single press (an atomic). Or there is one marker pen, and only the
+clerk holding it may read and write the board (a lock).
+'''
+  breaks = '''
+In the office, a clerk who looks at the board sees the latest number.
+Processors and compilers may keep private copies of memory and reorder reads
+and writes, as long as a single thread cannot tell the difference, so a
+program with a data race can produce results that no order of the clerks'
+steps would explain. Locks and atomics also force writes to become visible in
+order, which is part of how they fix the problem.
 '''
 
   [[section.example]]
@@ -518,3 +559,12 @@ function parallel_sum(xs, ntasks)
 end
 '''
   expect = ["correct", "fast"]
+
+[[reference]]
+id = "savage-1997"
+authors = "Savage, S.; Burrows, M.; Nelson, G.; Sobalvarro, P.; Anderson, T."
+title = "Eraser: a dynamic data race detector for multithreaded programs"
+venue = "ACM Transactions on Computer Systems 15(4)"
+year = 1997
+url = "https://doi.org/10.1145/265924.265927"
+note = "Defines a data race as two threads accessing a shared variable, at least one writing, with nothing preventing simultaneous access, and checks the rule of section 4 that every shared variable is protected by a lock."

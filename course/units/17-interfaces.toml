@@ -34,6 +34,23 @@ Then `collect`, `sum`, `maximum`, comprehensions, `first(itr, n)`, `zip`, …
 all work.
 '''
 
+  [[section.analogy]]
+  title = "A wall socket standard"
+  text = '''
+An appliance works in any socket built to the standard, and the socket does
+not care whether it powers a lamp or a kettle. An interface is that standard:
+a short list of methods (`iterate`, or `size` and `getindex`). Generic
+functions such as `sum` and `collect` are the appliances: written against the
+standard only, they work with any type that follows it, including types
+written years later.
+'''
+  breaks = '''
+A plug that does not fit is rejected at once. Julia never checks that a type
+implements a whole interface: a missing method shows up only as a
+`MethodError` when some generic function happens to call it, perhaps much
+later. That gap is why the last section tests the interface.
+'''
+
   [[section.example]]
   code = '''
 struct Countdown
@@ -71,6 +88,23 @@ instead of `n` values, and a multiplication table stores one.
 
 Check the index yourself in `getindex`: `@boundscheck checkbounds(A, i)` raises
 a `BoundsError` and lets a caller's `@inbounds` remove the check.
+'''
+
+  [[section.analogy]]
+  title = "A times table recited, not printed"
+  text = '''
+A child who knows the rule "row times column" can answer any question about a
+multiplication table without a printed copy. `Times(4)` stores only `n`, and
+`getindex` is the rule, applied each time someone asks for an entry. A
+**lazy** array is that child: it computes entries on demand. Because it
+answers the same two questions as a stored matrix (`size` and `getindex`),
+`sum`, slicing and broadcasting cannot tell the difference.
+'''
+  breaks = '''
+Asking twice means computing twice: nothing is remembered, so an expensive
+rule is paid for on every access. And the child cannot be told "row 2,
+column 3 is now 7": `Times` has no `setindex!`, so writing to it is an error,
+while a stored matrix accepts it.
 '''
 
   [[section.example]]

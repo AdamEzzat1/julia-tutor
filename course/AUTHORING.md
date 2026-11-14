@@ -124,6 +124,64 @@ figures small (`size = (600, 350)` in Makie, `size = (600, 350)` in Plots):
 they are committed. Plain data (arrays, strings, numbers) is never drawn.
 
 
+
+## Analogies, diagrams and references
+
+Three optional additions that make a unit easier to follow without loosening
+it. All are checked by `Course.enrichment_problems` (part of
+`tutor course validate`) and shown on the site beside the section's prose.
+
+```toml
+[[section]]
+title = "..."
+body = '''
+...
+'''
+refs = ["raissi-2019"]          # right after `body`: ids from the unit's [[reference]] list
+
+  [[section.diagram]]
+  file = "pinn-loss.svg"        # course/diagrams/<unit-id>/pinn-loss.svg
+  alt = "What the picture shows, in words (40+ characters)."
+  caption = "One sentence: what to notice."
+
+  [[section.analogy]]
+  title = "A tailor fitting a suit"
+  text = '''Markdown.'''
+  breaks = '''Where the analogy stops matching the mathematics (required).'''
+
+[[reference]]                   # at the end of the file
+id = "raissi-2019"              # lowercase kebab-case, unique in the unit
+authors = "Raissi, M.; Perdikaris, P.; Karniadakis, G. E."
+title = "..."
+venue = "Journal of Computational Physics 378"
+year = 2019
+url = "https://doi.org/10.1016/j.jcp.2018.10.045"
+note = "What in this unit it supports."
+```
+
+* **Analogies** sit beside a definition, never in place of one. `breaks` is
+  required: a sentence or more on where the picture stops being true. An
+  analogy must not imply something false (a network "understanding"
+  physics, a method "always" being faster).
+* **Diagrams** are hand-written SVG shown with `<img>` on a white card in
+  both themes. `svg_problems` refuses scripts, event handlers, links other
+  than `#local` ids, `<image>`, `<foreignObject>`, `@import` and external
+  `url(...)`, and needs a `viewBox` and a `<title>`. A bare `<` or `&` in
+  text is refused too (write `&lt;`, `&amp;`): the browser shows nothing for
+  an SVG that is not well-formed XML. Files must be used by a
+  section, and stay under 64 kB. Every number in a diagram comes from the
+  unit's recorded outputs or the mathematics; schematic curves say so.
+  `tutor site-data` copies `course/diagrams` to `site/assets/diagrams`.
+* **References** are public (https; an arXiv copy when the journal is
+  paywalled) and were fetched and checked when added: title, authors and
+  year against Crossref (`https://api.crossref.org/works/<doi>`) or the
+  arXiv abstract page. Every reference is cited by a section, and its
+  `note` says what it supports. CI does not fetch links (no network in the
+  checks); the check is at authoring time and in review.
+* Add, do not rewrite: progress on the site is keyed by section and example
+  position, so a new idea goes at the end of a section's body or in these
+  tables, never as a new section in the middle.
+
 ## Concept questions
 
 Each section can end with questions that check understanding of what the
@@ -330,6 +388,65 @@ found are counted per knowledge component in the browser.
 * An example carries one of a prediction, a checkpoint or a break-it
   challenge.
 
+## Precomputed explorers
+
+**Learning purpose.** Some results are a surface rather than a number: an
+error against the step size for three methods, a growth factor against a
+stability number on three grids. A table of 60 rows is hard to read, and
+the static site cannot run Julia. An explorer puts a slider on each axis
+of a grid that the example's output already recorded, shows the value at
+the chosen point exactly as it was printed, and plots the measure against
+one axis. It is labelled "precomputed by the reference; run it yourself
+with tutor serve": the example's "Edit and run" box runs the same code at
+other values. Nothing is scored or stored.
+
+```toml
+    [section.example.explore]
+    kc = "convergence-order"               # one of the unit's kcs
+    prompt = "Pick a method and move `h`. ..."   # what to try with the sliders
+    row = '(?<method>\S+) +h = (?<h>\S+) +error = (?<err>\S+)'   # a named group per axis, and the measure's
+    measure = "err"                        # the measured group
+    label = "error at t = 2"               # what the measure is
+    log = true                             # the measure on a log scale (values must not be negative)
+    x = "h"                                # the axis on the plot's horizontal (numbers, at least 3 values)
+    series = "method"                      # optional: one line per value of this axis
+    explain = "..."                        # shown under the explorer
+
+      [[section.example.explore.axis]]     # 1 to 3 axes, in the order the controls are shown
+      group = "method"
+      label = "method"                     # an axis of words gets buttons, in the order the output prints them
+
+      [[section.example.explore.axis]]
+      group = "h"
+      label = "step size h"
+      log = true                           # numbers get a slider, sorted ascending
+```
+
+* **The grid is the output.** Every line that `row` matches is a point. The
+  matched lines must form a full grid: every combination of the axes' values
+  exactly once, at most 400 points, each axis with at least 2 values, the
+  measure a number (`Inf` and `NaN` count; the site draws what the scale can
+  hold and the table shows the rest). `verify` checks this on the recorded
+  output, and `tutor site-data` exports only a grid that passes.
+* The example must have `check = true`, so `verify` compares every printed
+  value. Keep the grid where the digits are the same on every CPU: `sum`'s
+  `@simd` blocks and values near the rounding floor (`exp` and `sin` use
+  `muladd`, a fused multiply-add on some CPUs only) can move the last digits.
+  Unit 31's grid stops at `h = 0.0125` for this reason, and unit 30's writes
+  pairwise summation out instead of calling `sum`.
+* Print each axis value one way only (`0.1`, not sometimes `0.10`), and
+  round the measure to the digits the explanation needs. `@printf "%.3g"`
+  avoids the binary representation error that `round(x; sigdigits = 3)`
+  shows on large numbers (`9.360000000000001e44`).
+* **Every number in `prompt`, `notice` and `explain` is measured.** When both
+  the x axis and the measure are on log scales, the site also shows the
+  slope between the chosen point and its neighbour, computed from the printed
+  values. Check the prose against that slope: a claim such as "the slope is
+  below 4 at coarse steps" has to be the one the grid shows.
+* An explorer may follow a prediction on the same example (the explorer
+  appears with the output, once the prediction is committed), but not a
+  checkpoint or a break-it challenge, which are grids of their own.
+
 ## Practice problems
 
 ```toml
@@ -380,6 +497,29 @@ and must give the reference's answer every time). Add at least one case large
 enough for tasks to overlap, e.g. `"collect(1:1_000_000), 8"`, and a racy
 variant expected `["incorrect"]`: on several threads a lost update shows up
 within a few runs. The feedback then explains data races.
+
+### The performance ladder
+
+Every grade also reports three rungs, climbed in order (`Practice.ladder`,
+derived from the same measurement as the verdicts; nothing to author):
+
+1. **Correct**: every case passes.
+2. **Within 2× of the reference's time** at the largest `perf.sizes` (the
+   ratio from the same interleaved samples as the speed verdict). This is
+   looser than the "on par" verdict (1.75×), on purpose: the rung is a goal
+   a learner can reach, not a benchmark. Near 2× a rerun can land on either
+   side, and the text says so.
+3. **Allocation-free**: zero bytes per call at *every* perf size. Offered only
+   when the reference itself allocates nothing at every size. A reference
+   that returns a new array, or allocates a few bytes, leaves this rung "not
+   offered", never "impossible". To offer it, write the reference
+   allocation-free (an in-place `!` function, a loop instead of a temporary).
+
+A problem without `[problem.perf]` offers rung 1 only. The site keeps each
+problem's best climb in the browser (`julia-tutor/course/v1`, key `ladder`);
+there is no ranking and nothing is sent. In the base environment (60 problems,
+measured 2026-11-14), 29 offer three rungs, 29 two, and the 2 Parsons problems
+one; every reference climbs its full ladder.
 
 Results without a meaningful `isequal` (a figure, a fitted model, a chain of
 samples, a JuMP model) use `compare = "custom"` with a `checker`, a function
@@ -500,6 +640,80 @@ when the grader and every test pass on the same code; then the planted line,
 the reference's line and the misconception are shown. On the command line,
 `tutor practice <id> file.jl` prints the test table, and `--hints=N` shows the
 first N hints.
+
+### Parsons problems
+
+A Parsons problem gives the lines of a kernel shuffled, plus a few wrong
+lines, and asks for a working order. It sits between reading a worked example
+and writing the code: the learner makes the decisions that matter (which
+update waits for which value, what starts the accumulator, which loop is
+inside which) without typing syntax. Pick kernels where the *order* is the
+concept: Kahan's correction must be measured before `s` is overwritten; a
+stage needs the previous stage's slope.
+
+```toml
+[[problem]]
+id = "fp-kahan-parsons"
+entry = "kahan_sum"
+reference = '''
+function kahan_sum(x)      # head = 1: fixed
+    s = 0.0                # the movable lines, in a working order
+    ...
+    end
+    return s               # tail = 2: fixed
+end
+'''
+cases = ["fill(0.1, 10)", "..."]
+compare = "isequal"
+
+  [problem.parsons]
+  kc = "floating-point-rounding"
+  head = 1
+  tail = 2
+
+  [[problem.parsons.distractor]]
+  line = "        c = t - (s + y)"    # indented like the line it can replace
+  replaces = 6                         # 1-based, among the movable lines
+  misconception = "..."
+```
+
+**Which orders work is measured, not typed.** `tutor course record` runs every
+arrangement in one fresh process in the unit's env: one of each line or its
+distractor, every order, with equal texts (two `end` lines) tried once.
+Indentation is part of each line and must match the block structure (4 spaces
+per level, read by `Course.parsons_depth`), so most orders are rejected before
+they are parsed; the rest are parsed, and those that parse are run
+(interpreted, each in a new module) on the problem's cases and compared with
+the reference as the grader would. The working orders are stored under
+`parsons` in the unit's outputs file. `verify` re-runs the enumeration and
+fails when the set changes, when the reference's own order is not in it, or
+when any working order contains a distractor (then it is not a mistake).
+
+The rules (`Course.parsons_problems`):
+
+* The starter is generated (the fixed lines with a gap); remove `starter`.
+* 3 to 8 movable lines, at most 3 distractors; no blank lines, no tabs, no
+  movable `while` (an order could loop forever). The head must open the
+  function.
+* Each distractor has a misconception, replaces a different line, and is
+  indented like that line, so indentation alone does not give it away.
+* `compare` is `isequal` or `isapprox`, with at least two explicit cases and
+  no `gen`; every order runs on those cases only.
+* The usual problem rules hold too (an `incorrect` variant, a correct one in
+  another style): the grader still grades a whole file.
+
+Feedback is the same on the site and the command line
+(`Course.parsons_feedback`, `web/src/parsons.ts`): a distractor shows its
+misconception; a wrong number of lines says how many; otherwise the longest
+prefix that starts some working order. More than one order may work (two
+initialisations that do not depend on each other); the feedback says how many
+were measured. Hints open after the first check. The site needs no server to
+check an order; once it works, `tutor serve` can grade the whole program. On
+the command line, `tutor practice <id>` lists the lines with letters and
+`--order=c,e,a,...` checks an order.
+
+Measured on Windows (plain processes, 2026-11-13): the three course problems'
+enumerations take 2.5 to 7.4 s each.
 
 ## Style
 

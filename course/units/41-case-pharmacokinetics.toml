@@ -43,6 +43,7 @@ or nlmixr2 (an R package for NLME models, licensed GPL,
 here are invented for teaching, and the data are simulated from known
 parameters, so every answer can be checked.
 '''
+refs = ["lindstrom-bates-1990", "rackauckas-2020-pumas"]
 
 [[section]]
 title = "Two compartments and an absorption depot: one linear system"
@@ -80,6 +81,29 @@ time scale (half an hour), and over a horizon of days that costs only a
 few hundred steps, so `Tsit5` is the right choice. A model with rates
 spread over many more orders of magnitude (a fast infusion, a metabolite
 formed in seconds) would be stiff and call for `Rodas5P`, as in unit 35.
+'''
+refs = ["gibaldi-perrier-1982"]
+
+  [[section.diagram]]
+  file = "two-compartment-model.svg"
+  alt = "Box diagram: a dose of 100 mg enters the gut, flows at rate k_a A_g (k_a = 2 per hour) into the central compartment (V1 = 20 L), which exchanges drug with the peripheral compartment (V2 = 60 L) through Q = 4 L/h and loses it by elimination CL·C with CL = 5 L/h."
+  caption = "Every arrow is a rate proportional to the amount it leaves from, which is why the whole model is one linear system."
+
+  [[section.analogy]]
+  title = "A funnel and two connected tanks"
+  text = '''
+Pour water into a funnel (the gut). It drains into a main tank (the
+central compartment), which has a plughole (elimination) and a pipe to a
+side tank (the peripheral compartment). The more water in a tank, the
+faster it flows out of it. Fill the funnel and the main tank rises quickly,
+then falls fast while the side tank fills, then falls slowly as the side
+tank drains back: the three phases.
+'''
+  breaks = '''
+The compartments are not places in the body. They are groupings fitted to
+data, and their volumes are apparent volumes, which can exceed the body's
+size. Real drug spreads unevenly through tissues; "well-mixed" is an
+assumption of the model, not a fact about the body.
 '''
 
   [[section.example]]
@@ -146,6 +170,27 @@ Because the equations are linear, the exact answer for several doses is
 the **superposition** of single doses, each shifted to its own time:
 `u(t) = Σ_{t_d ≤ t} exp(K (t - t_d)) · [D, 0, 0]`. That is an independent
 check of the callback.
+'''
+refs = ["gibaldi-perrier-1982"]
+
+  [[section.diagram]]
+  file = "repeated-doses.svg"
+  alt = "Concentration over 72 hours for five 100 mg doses every 12 hours: with tstops the curve rises after every dose (0.962 mg/L at 30 h, 0.410 at 72 h); without tstops only the first dose appears and the curve decays to 0.129 mg/L at 30 h."
+  caption = "Without `tstops` the four later doses never happen, and nothing in the output says so."
+
+  [[section.analogy]]
+  title = "A bus that must stop at the stop"
+  text = '''
+A bus driver who stops only where traffic happens to let them will almost
+never stop at the exact bus stop, and the passengers waiting there are
+never picked up. `tstops` is the rule that the bus stops exactly at each
+stop. The callback can then let the passengers (the doses) on.
+'''
+  breaks = '''
+The solver does not see the dose and drive past it. The condition
+`t in dose_times` is checked only at the end of each step, and it is
+false at every step end that is not exactly a dose time, so nothing is
+recorded at all.
 '''
 
   [[section.example]]
@@ -218,6 +263,22 @@ Two ways to compute an AUC:
   If `C` decays exponentially from `c_1` to `c_2` over `Δt`, its integral
   is exactly `(c_1 - c_2) Δt / log(c_1 / c_2)`, while the straight line
   overestimates a convex decay. You will write this rule in a problem.
+'''
+
+  [[section.analogy]]
+  title = "Everything poured in goes down the drain"
+  text = '''
+Pour a bucket into a bathtub with the plug pulled. However the water
+sloshes, all of it leaves through the drain in the end. The total that
+leaves is the bucket. Here the drain rate is `CL · C(t)`, so the total
+eliminated is `CL · AUC_∞`, and it must equal the dose `D`. That is why
+`AUC_∞ = D / CL` whatever the other parameters are.
+'''
+  breaks = '''
+The bathtub counts amounts; the AUC integrates a concentration, which
+becomes an amount only after multiplying by `CL`. The argument also needs
+the whole dose to be absorbed. Many real oral drugs reach the blood only in
+part, and then `AUC_∞ = F D / CL` with an absorbed fraction `F < 1`.
 '''
 
   [[section.example]]
@@ -322,6 +383,25 @@ and 0.454 per hour); the terminal rate is the same in both. Both have the
 same clearance: `CL = D / AUC`, and the AUC is pinned down by the data
 whichever phase is which. That is the parameter to trust, and it comes with
 a standard error from the curvature, `sqrt(σ² (JᵀJ)⁻¹)`.
+'''
+refs = ["nocedal-wright-2006"]
+
+  [[section.analogy]]
+  title = "Telling the total but not who did what"
+  text = '''
+Two cooks prepare a sauce, one adding salt early and one late. From the
+finished sauce you can measure the total salt precisely, but not which cook
+added how much. In the fit, the clearance plays the role of the total: the
+data pin down `CL = D / AUC`. Which phase is called absorption and which
+distribution is the split between the cooks: two parameter sets give the
+same curve and the same sum of squares.
+'''
+  breaks = '''
+Here the swap is a property of sums of exponentials: exchanging two rates
+(and adjusting the volumes) leaves the predicted curve the same to fitting
+precision. Nothing in a kitchen is that exact. More data of another kind
+(an intravenous dose, for example) would separate the phases, while no
+amount of tasting tells the cooks apart.
 '''
 
   [[section.example]]
@@ -949,3 +1029,39 @@ function fit_clearance(t, c, dose, ka, CL0, V0)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "gibaldi-perrier-1982"
+authors = "Gibaldi, M.; Perrier, D."
+title = "Pharmacokinetics"
+venue = "Marcel Dekker, 2nd edition (now CRC Press)"
+year = 1982
+url = "https://doi.org/10.1201/b14095"
+note = "Textbook source for compartment models with first-order absorption, multiple dosing by superposition, and clearance and AUC, as used in the first three sections."
+
+[[reference]]
+id = "nocedal-wright-2006"
+authors = "Nocedal, J.; Wright, S. J."
+title = "Numerical Optimization"
+venue = "Springer, 2nd edition"
+year = 2006
+url = "https://doi.org/10.1007/978-0-387-40065-5"
+note = "Its chapter on nonlinear least squares describes the Gauss-Newton method with a line search, the method written by hand in the fitting section."
+
+[[reference]]
+id = "lindstrom-bates-1990"
+authors = "Lindstrom, M. J.; Bates, D. M."
+title = "Nonlinear mixed effects models for repeated measures data"
+venue = "Biometrics 46(3)"
+year = 1990
+url = "https://doi.org/10.2307/2532087"
+note = "A standard method for nonlinear mixed-effects (NLME) models, the population models that real analyses fit and that this teaching unit leaves out."
+
+[[reference]]
+id = "rackauckas-2020-pumas"
+authors = "Rackauckas, C.; Ma, Y.; Noack, A.; Dixit, V.; Mogensen, P. K.; Elrod, C.; Tarek, M.; Byrne, S.; Maddhashiya, S.; Calderón, J. B. S.; Hatherly, M.; Nyberg, J.; Gobburu, J. V. S.; Ivaturi, V."
+title = "Accelerated predictive healthcare analytics with Pumas, a high performance pharmaceutical modeling and simulation platform"
+venue = "bioRxiv preprint"
+year = 2020
+url = "https://doi.org/10.1101/2020.11.28.402297"
+note = "Describes Pumas, the Julia platform for population pharmacokinetic models that the first section names as the real tool for this work."

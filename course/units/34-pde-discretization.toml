@@ -63,6 +63,32 @@ neighbour on both sides.
 The stencil is the building block of everything below: a PDE contains
 `∂²u/∂x²`, and on a grid that becomes this combination of three neighbours.
 '''
+refs = ["leveque-2007", "richardson-1911"]
+
+  [[section.diagram]]
+  file = "truncation-roundoff.svg"
+  alt = "Log-log plot of the error of the second difference of sin(πx) at x = 0.3 against dx from 1e-6 to 1e-2, using the recorded errors: 6.6e-4 at dx = 1e-2, 6.6e-6 at 1e-3, 5.8e-8 at 1e-4, 1.9e-6 at 1e-5 and 1.6e-4 at 1e-6, forming a V. A blue dashed line for the truncation estimate dx² π⁴ |f| / 12 rises with dx; a grey dashed line for the round-off estimate 4u |f| / dx² falls with dx; the smallest measured error is at dx = 1e-4, near where the two lines cross."
+  caption = "Shrinking dx helps only until the round-off error, which grows like 1/dx², overtakes the truncation error, which shrinks like dx²."
+
+  [[section.analogy]]
+  title = "Zooming into a photo until you see the pixels"
+  text = '''
+Zooming into a photo shows more detail, up to the point where you see the
+pixels; past that, zooming only enlarges the grain. Shrinking `dx` is
+zooming in: the three-point stencil looks at the curve more closely, and its
+truncation error falls like `dx^2`. But every stored value carries a
+rounding error of up to `u` relative, the grain of floating point, and the
+stencil divides a difference of values by `dx^2`. At very small `dx` it is
+magnifying the grain, and the error grows again, as the second example
+shows.
+'''
+  breaks = '''
+Pixels are a fixed grid in the picture. Float rounding is relative to each
+value, so the grain is about `u |f|`, and the magnification by `1 / dx^2` is
+a growth you can compute (`4u |f| / dx^2`), not only see. The best `dx` also
+depends on the formula: a first difference divides by `dx`, not `dx^2`, and
+its best step is different (unit 23).
+'''
 
   [[section.example]]
   caption = "The second difference of `sin(πx)` on [0, 1] against the exact `-π² sin(πx)`, for four grid spacings (errors rounded to 3 digits), with the observed order `log2(E(dx) / E(dx/2))` between consecutive spacings (rounded to one decimal)."
@@ -84,7 +110,7 @@ println("dx^2 π^4 / 12 at dx = 0.1: ", round(0.1^2 * pi^4 / 12; sigdigits = 3))
 
   [[section.example]]
   caption = "The other error: at very small `dx` the numerator cancels its leading digits (unit 30's cancellation), and what is left is the rounding of the three values, up to `u = eps() / 2` relative each. Weighted 1, 2, 1, that is about `4u |f| / dx^2`, and it takes over."
-  notice = "Notice that the error falls until `dx = 1e-4` and then grows: below that, rounding in `f(x0 - dx) - 2f(x0) + f(x0 + dx)` is divided by a tiny `dx^2`. Balancing `dx^2 π^4 |f| / 12` against `4u |f| / dx^2` puts the best `dx` near `(24u / π^4)^(1/4) ≈ 7e-5`."
+  notice = "Notice that the error falls until `dx = 1e-4` and then grows: below that, rounding in `f(x0 - dx) - 2f(x0) + f(x0 + dx)` is divided by a tiny `dx^2`. Balancing `dx^2 π^4 |f| / 12` against `4u |f| / dx^2` puts the best `dx` near `(48u / π^4)^(1/4) ≈ 8.6e-5`."
   code = '''
 f(x) = sin(pi * x)
 x0 = 0.3
@@ -155,6 +181,32 @@ With `u0(x) = sin(πx)` the exact solution is `exp(-κπ²t) sin(πx)`. Solved a
 tight tolerances, the remaining difference from it is the error of the
 **grid**, not of the ODE solver: the semi-discrete system is a different
 equation, whose solution differs from the PDE's by `O(dx^2)`.
+'''
+refs = ["leveque-2007"]
+
+  [[section.diagram]]
+  file = "three-point-stencil.svg"
+  alt = "A line of 11 grid points from x₀ = 0 to x₁₀ = 1, spaced dx apart. The two ends are filled squares labelled u₀ = 0 and u₁₀ = 0 (given boundary values); the nine interior points are circles (the unknowns). Three neighbouring points are highlighted with the weights 1, -2 and 1. Below: duᵢ/dt = κ (uᵢ₋₁ - 2uᵢ + uᵢ₊₁) / dx²."
+  caption = "Each interior point gets one ODE that reads only its two neighbours; the boundary values enter as known numbers, not as unknowns."
+
+  [[section.analogy]]
+  title = "A row of cups on a shelf"
+  text = '''
+Picture a row of cups of tea on a shelf, each touching its two neighbours,
+with the cups at both ends packed in ice and held at 0. Each cup warms or
+cools according to how it compares with its neighbours: hotter than their
+average and it cools, colder and it warms. That is the stencil
+`u_{i-1} - 2u_i + u_{i+1}`, which is zero when a cup sits exactly at the
+average of its two neighbours. Each cup's temperature over time is one ODE,
+and the whole shelf is the ODE system that a solver from unit 24
+integrates.
+'''
+  breaks = '''
+Real cups also lose heat to the air and to the shelf; here each grid value
+exchanges heat only with its two neighbours, at the exact rate `κ / dx^2`.
+And the cups are not physical objects: refining the grid adds more of them,
+closer together, and the rate `1 / dx^2` grows, which is why the fastest
+modes, and the stiffness of unit 35, grow as the grid is refined.
 '''
 
   [[section.example]]
@@ -242,6 +294,7 @@ The same number sets two costs: conjugate gradients on `A` needs about `√κ`
 iterations (unit 33), and an explicit solver's step must shrink like
 `1 / |λ_n|` whatever accuracy you ask for (unit 35).
 '''
+refs = ["leveque-2007"]
 
   [[section.example]]
   caption = "The matrix form against the loop, and the eigenvalues against the formula, for 49 interior points."
@@ -260,6 +313,53 @@ println("eigenvalues match the formula: ", maximum(abs.(sort(λ) .- sort(formula
 println("nearest zero: ", round(maximum(λ); digits = 2), "   most negative: ", round(minimum(λ); digits = 0))
 println("ratio: ", round(minimum(λ) / maximum(λ); sigdigits = 3))
 '''
+
+  [[section.example]]
+  caption = "That cost, measured: 100 steps of forward and backward Euler on the heat equation (`κ = 1`), with time step `dt = r dx^2`, for three grids and ten values of `r`. The start `u = 1` at every interior point (0 at the ends) contains every grid mode, the zig-zag one included. `max |u|` is printed to 3 digits."
+  notice = "Notice the jump in forward Euler between `r = 0.5` and `r = 0.52`, at every grid: below it `max |u|` never exceeds the starting 1, above it the zig-zag mode grows by orders of magnitude. Backward Euler never grows."
+  code = '''
+using LinearAlgebra, Printf
+function after_steps(scheme, n, r; steps = 100)
+    u = ones(n)                       # u(x, 0) = 1 inside, 0 at both ends: every grid mode is present
+    if scheme == "forward"            # u + dt * κ A u, with dt = r dx^2
+        for _ in 1:steps
+            u = [u[i] + r * ((i > 1 ? u[i-1] : 0.0) - 2u[i] + (i < n ? u[i+1] : 0.0)) for i in 1:n]
+        end
+    else                              # solve (I - dt * κ A) u_new = u
+        F = lu(Tridiagonal(fill(-r, n - 1), fill(1 + 2r, n), fill(-r, n - 1)))
+        for _ in 1:steps
+            u = F \ u
+        end
+    end
+    return maximum(abs, u)
+end
+for scheme in ("forward", "backward"), n in (19, 39, 79), r in (0.3, 0.4, 0.45, 0.48, 0.5, 0.52, 0.55, 0.6, 0.7, 1.0)
+    @printf("%-9s n = %-3d r = %-5s max |u| after 100 steps = %.3g\n", scheme, n, r, after_steps(scheme, n, r))
+end
+'''
+
+    [section.example.explore]
+    kc = "method-of-lines"
+    prompt = "With forward Euler, move `r = dt / dx^2` up from 0.3 and find where `max |u|` jumps. Then change the grid: does the jump move? Switch to backward Euler at the same `r`."
+    row = '(?<scheme>\S+) +n = (?<n>\d+) +r = (?<r>\S+) +max \|u\| after 100 steps = (?<u>\S+)'
+    measure = "u"
+    label = "max |u| after 100 steps (it starts at 1)"
+    log = true
+    x = "r"
+    series = "scheme"
+    explain = "Forward Euler multiplies grid mode `k` by `1 + dt λ_k = 1 - 4r sin^2(k π dx / 2)` at every step. The zig-zag mode has `sin^2` close to 1, so its factor is about `1 - 4r`, which leaves `[-1, 1]` once `r` passes 1/2 (`0.503` for 19 points, closer to 1/2 on finer grids). That is why the jump sits at the same `r` on every grid. But `r = dt / dx^2`, so the step that is stable shrinks four times when `dx` halves: 79 points need a `dt` 16 times smaller than 19 points. Backward Euler's factor `1 / (1 + 4r sin^2(...))` is below 1 for every `r`, so it never grows; its step is limited by accuracy only (unit 35)."
+
+      [[section.example.explore.axis]]
+      group = "scheme"
+      label = "time stepping"
+
+      [[section.example.explore.axis]]
+      group = "n"
+      label = "interior points n"
+
+      [[section.example.explore.axis]]
+      group = "r"
+      label = "r = dt / dx²"
 
   [[section.question]]
   kind = "choice"
@@ -378,6 +478,7 @@ telescope), and Runge-Kutta methods preserve every linear invariant of an
 ODE system, so the solver keeps it to rounding error. Such a conserved
 quantity is a check that needs no exact solution.
 '''
+refs = ["leveque-2007"]
 
   [[section.example]]
   caption = "Ends held at `u(0) = 1` and `u(1) = 3`: the steady state from one linear solve, and the time-dependent solve from `u = 0` at t = 2 (κ = 1)."
@@ -466,6 +567,25 @@ that violates the boundary condition. A complete check measures the
 residual inside, the boundary values and the initial values. Unit 47 builds
 a physics-informed neural network on exactly these three terms, and unit 48
 shows how a small residual at a few points can still hide a large error.
+'''
+
+  [[section.analogy]]
+  title = "A spell-checker"
+  text = '''
+A residual works like a spell-checker. It reads every word and flags the
+ones that are not words, so a clean report means each word is fine on its
+own. It cannot tell you whether the text is the letter you meant to write:
+"Dear Sam" passes even if the letter was for Alex. The residual checks that
+the equation holds at each point. The boundary and initial values are what
+pick out the solution you meant, and the residual never looks at them, which
+is why `v + 1` passes it.
+'''
+  breaks = '''
+A spell-checker gives yes or no per word. A residual is a number, and how a
+small residual turns into a small error depends on the problem's
+conditioning (unit 30). A residual computed with differences also contains
+the grid's own `O(dt^2 + dx^2)` error, so even the exact solution does not
+give zero.
 '''
 
   [[section.example]]
@@ -1026,3 +1146,21 @@ function poisson_dirichlet(f, n)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "leveque-2007"
+authors = "LeVeque, R. J."
+title = "Finite Difference Methods for Ordinary and Partial Differential Equations"
+venue = "SIAM"
+year = 2007
+url = "https://doi.org/10.1137/1.9780898717839"
+note = "Derives the second-order error of the three-point second difference (section 2), the method of lines for the heat equation (section 3), the eigenvalues of the discrete Laplacian and the step limit they impose on explicit methods (section 4), and Dirichlet and Neumann boundary conditions with ghost points (section 6)."
+
+[[reference]]
+id = "richardson-1911"
+authors = "Richardson, L. F."
+title = "The approximate arithmetical solution by finite differences of physical problems involving differential equations, with an application to the stresses in a masonry dam"
+venue = "Philosophical Transactions of the Royal Society of London, Series A 210, 307-357"
+year = 1911
+url = "https://doi.org/10.1098/rsta.1911.0009"
+note = "An early systematic use of finite differences on a grid to solve PDEs by arithmetic, replacing derivatives by differences of neighbouring values as in section 2."

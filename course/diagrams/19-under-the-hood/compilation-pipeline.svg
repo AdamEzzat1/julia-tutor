@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 350" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+  <title>From source text to cached machine code: the stages of Julia's compiler</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#776f82"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="720" height="350" fill="#ffffff"/>
+
+  <text x="20" y="26" font-size="13" fill="#776f82">Once per method: when the definition is evaluated</text>
+
+  <g fill="none" stroke="#776f82" stroke-width="1.5">
+    <rect x="20" y="40" width="200" height="72" rx="6"/>
+    <rect x="260" y="40" width="200" height="72" rx="6"/>
+    <rect x="500" y="40" width="200" height="72" rx="6"/>
+    <rect x="20" y="174" width="200" height="72" rx="6"/>
+    <rect x="260" y="174" width="200" height="72" rx="6"/>
+    <rect x="500" y="174" width="200" height="72" rx="6"/>
+  </g>
+  <rect x="500" y="280" width="200" height="56" rx="6" fill="none" stroke="#3657c8" stroke-width="2"/>
+
+  <g fill="#2b2733" font-size="14" font-weight="bold" text-anchor="middle">
+    <text x="120" y="64">1. Parse</text>
+    <text x="360" y="64">2. Expand macros</text>
+    <text x="600" y="64">3. Lower</text>
+    <text x="120" y="198">4. Infer and optimize</text>
+    <text x="360" y="198">5. Generate LLVM IR</text>
+    <text x="600" y="198">6. Machine code</text>
+    <text x="600" y="303" fill="#3657c8">Cache</text>
+  </g>
+  <g fill="#776f82" font-size="13" text-anchor="middle">
+    <text x="120" y="83">source text to an Expr</text>
+    <text x="360" y="83">macro calls replaced</text>
+    <text x="600" y="83">into simple steps</text>
+    <text x="120" y="217">types, inlining, constants</text>
+    <text x="360" y="217">portable low-level code</text>
+    <text x="600" y="217">instructions for your CPU</text>
+    <text x="600" y="322">one per method instance</text>
+  </g>
+  <g fill="#3657c8" font-size="13" font-family="ui-monospace, Consolas, monospace" text-anchor="middle">
+    <text x="120" y="102">Meta.parse</text>
+    <text x="360" y="102">@macroexpand</text>
+    <text x="600" y="102">@code_lowered</text>
+    <text x="120" y="236">@code_typed</text>
+    <text x="360" y="236">@code_llvm</text>
+    <text x="600" y="236">@code_native</text>
+  </g>
+
+  <g stroke="#776f82" stroke-width="1.5" fill="none" marker-end="url(#arrow)">
+    <line x1="220" y1="76" x2="258" y2="76"/>
+    <line x1="460" y1="76" x2="498" y2="76"/>
+    <polyline points="600,112 600,132 120,132 120,172"/>
+    <line x1="220" y1="210" x2="258" y2="210"/>
+    <line x1="460" y1="210" x2="498" y2="210"/>
+    <line x1="600" y1="246" x2="600" y2="278"/>
+  </g>
+
+  <text x="140" y="156" font-size="13" fill="#776f82">Once per method instance: at the first call with new argument types</text>
+
+  <g font-size="13" fill="#2b2733">
+    <text x="20" y="300">Later calls with the same argument types skip</text>
+    <text x="20" y="320">steps 4 to 6 and run the cached machine code.</text>
+  </g>
+</svg>

@@ -128,6 +128,8 @@ milestone's PR description (template at the end).
 | Toolchain / DevEx engineer | Pinned Julia (juliaup), committed Manifests, offline depot, CI, sysimage/latency, upgrade procedure | Anything depends on "latest Julia" or an unpinned package; a Julia/package bump lands without re-verifying every lesson key and the rule suite |
 | Learning scientist (reviewer) | Hint quality, fading, knowledge components, misconception-tied distractors | Level-1 hints give the answer; we measure completion instead of learning |
 | Skeptic (reviewer) | Honesty | A claim ("adaptive", "catches type instability", "fast", "works") lacks a mechanism or evidence |
+| Plain-language editor (critical reviewer) | Whether a newcomer can follow: jargon defined on first use, analogies at the hard ideas, diagrams that explain a mechanism | A technical word is used before it is defined; an analogy has no stated limit or implies something false; a diagram decorates instead of explaining; added text is harder to read than what it explains |
+| Citation and rigor reviewer | Sources: every cited paper is real, public, verified (Crossref or arXiv) and supports the sentence that cites it | A reference was not fetched and checked; a paper is cited for a claim it does not make; an analogy or a "useful for" paragraph overstates what the measurements in the unit show |
 
 ## Invariants (never break; each has a test or a CI check)
 
@@ -364,6 +366,11 @@ every role above has had the chance to object (recorded in the PR).
   in each of two runs (2026-11-10), each passing locally. A verdict that only
   appears on a retry is near its threshold; `allocates` and `unstable` are
   counted, not timed, and are never retried.
+* The performance ladder's 2× rung is timed too: near the line a rerun can
+  land on either side (the rung's text says so), and the site keeps the best
+  climb, so one lucky run counts. Its allocation-free rung is offered only
+  when the reference allocates nothing; a reference that allocates says
+  nothing about whether an allocation-free solution exists.
 * The `mtk` env holds ModelingToolkitBase (MIT) only: full ModelingToolkit's
   index reduction and tearing are AGPL since v11, a licensing decision for the
   project owner. Unit 36 teaches index reduction by hand.

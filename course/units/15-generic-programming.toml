@@ -23,6 +23,27 @@ performance unit for why it is slow). To accept "a vector of any real type",
 write `AbstractVector{<:Real}`, short for `AbstractVector{T} where {T<:Real}`.
 '''
 
+  [[section.analogy]]
+  title = "A box of apples is not a box for any fruit"
+  text = '''
+A `Vector{Real}` is a box labelled "any fruit": you may put in an apple, then
+a banana. A `Vector{Int}` is a box labelled "apples only". If Julia let you
+hand the apples box to code that expects an any-fruit box, that code could
+legally drop a banana (say `2.5`) into it and break the apples-only promise.
+So the apples box is not an any-fruit box, even though every apple is a
+fruit. That is **invariance**: `Int <: Real` does not make
+`Vector{Int} <: Vector{Real}`. `AbstractVector{<:Real}` means "a box of
+some single kind of fruit, whichever kind".
+'''
+  breaks = '''
+The fruit story explains the rule through writing, but invariance applies to
+every parametric type, read-only ones included: `UnitRange{Int} <:
+AbstractVector{Real}` is `false` too. And there is a second reason the story
+leaves out: the two boxes are built differently in memory (numbers stored in
+place versus pointers to boxed values), so even reading from them needs
+different machine code.
+'''
+
   [[section.example]]
   code = '''
 elementtype(v::AbstractVector{T}) where {T} = T
@@ -57,6 +78,7 @@ reject what makes no sense. Over-narrow annotations such as `::Float64` or
 `::Vector{Float64}` are a common reason a package refuses an `Int`, a range,
 a view or a `Float32` that would have worked.
 '''
+refs = ["bezanson-2017"]
 
   [[section.example]]
   caption = "The untyped method, compiled for a `Float64`: one multiplication, inferred `Float64`."
@@ -175,6 +197,23 @@ are different types, and mixing them is an error (no promotion rule
 between them) rather than a silent bug.
 '''
 
+  [[section.analogy]]
+  title = "Changing money before adding it"
+  text = '''
+To add 5 dollars and 3 euros you first change both into one currency, then
+add the numbers. `promote` does the same. `promote_rule` says which currency
+to use (the common type), `convert` is the exchange counter, and `+` on two
+values of the same type does the adding. A type with no promotion rule is a
+currency no counter accepts, which is why `Mod{7}(5) + 1` failed until the
+rule existed.
+'''
+  breaks = '''
+Exchange rates change from day to day; Julia's choice depends only on the two
+types, never on the values, so `promote_type(Int, Float64)` is `Float64`
+every time. Conversion can also lose information where money would not: an
+`Int` larger than 2^53 cannot always be stored exactly as a `Float64`.
+'''
+
   [[section.example]]
   caption = "Operations between two `Mod{N}` values work; `a + 1` fails because there is no promotion rule yet: `promote` cannot find a common type."
   code = '''
@@ -229,6 +268,25 @@ dispatch on that object. Base does this with `Base.IteratorSize`, which
 `collect` uses to decide whether it can preallocate. The trait is computed from
 the type, so the compiler resolves the choice at compile time: there is no
 run-time check left.
+'''
+
+  [[section.analogy]]
+  title = "Stickers on a parcel"
+  text = '''
+A parcel sits on exactly one shelf in a warehouse (its single supertype), but
+it can carry many stickers: "fragile", "this side up", "keep cold". A Holy
+trait is a sticker: a function that takes a *type* and returns a small marker
+object, such as `KnownSorted()` (an instance of a struct with no fields,
+called a *singleton*). Methods that receive the marker decide how to handle
+the parcel, whatever shelf it sits on. Anyone can add a sticker, so a trait
+can be given to a type you did not write.
+'''
+  breaks = '''
+A warehouse worker reads the stickers while handling each parcel. A Julia
+trait is computed from the type alone, so the compiler reads it once, while
+compiling, and the choice costs nothing at run time. And each trait function
+gives a type exactly one answer: a type cannot carry both `KnownSorted` and
+`MaybeUnsorted`.
 '''
 
   [[section.example]]
@@ -616,3 +674,12 @@ function value_and_derivative(coeffs, x)
 end
 '''
   expect = ["correct", "fast"]
+
+[[reference]]
+id = "bezanson-2017"
+authors = "Bezanson, J.; Edelman, A.; Karpinski, S.; Shah, V. B."
+title = "Julia: A Fresh Approach to Numerical Computing"
+venue = "SIAM Review 59(1)"
+year = 2017
+url = "https://arxiv.org/abs/1411.1607"
+note = "States the design rule of section 2: type annotations are for selecting methods, not for performance, because the compiler infers types and specialises code itself."

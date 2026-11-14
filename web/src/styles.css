@@ -243,6 +243,20 @@ body.quarto-dark {
 .jt-callout.ok .tag { color: var(--jt-green); }
 .jt-callout.reveal { border-color: color-mix(in srgb, var(--jt-purple) 30%, transparent); background: var(--jt-purple-soft); }
 .jt-callout.reveal .tag { color: var(--jt-purple); }
+/* Analogies are neutral (no status colour): a picture to think with, not a verdict. */
+.jt-callout.analogy .tag { color: var(--jt-muted); }
+.jt-callout.analogy .jt-md p:first-child { margin-top: 0.25rem; }
+.jt-analogy-breaks { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px dashed var(--jt-rule); }
+.jt-analogy-breaks .jt-md p { margin: 0.2rem 0 0; }
+/* Diagrams: hand-drawn SVG on a light card in both themes (an <img> cannot follow the theme). */
+.jt-diagram { margin: 0.8rem 0; }
+.jt-diagram img { display: block; width: 100%; max-width: 720px; height: auto; border: 1px solid var(--jt-rule);
+  border-radius: 8px; background: #fff; }
+.jt-diagram figcaption { margin-top: 0.35rem; }
+.jt-sources { margin: 0.4rem 0 0.2rem; }
+.jt-refs { padding-left: 1.4rem; }
+.jt-refs li { margin: 0.5rem 0; overflow-wrap: anywhere; }
+.jt-refs li:target { outline: 2px solid var(--jt-blue); outline-offset: 3px; border-radius: 4px; }
 
 .jt-stepper { display: flex; gap: 6px; align-items: center; }
 .jt-stepper span { width: 22px; height: 6px; border-radius: 3px; background: var(--jt-rule-strong); }
@@ -504,3 +518,35 @@ body.quarto-dark {
 @media (max-width: 860px) {
   .jt-syllabus { position: static; max-height: 18rem; }
 }
+
+/* Parsons problems: lines keep their indentation; the fixed lines are muted. */
+.jt-explore { margin: 0.6rem 0 0; padding: 0.7rem 0.8rem; border: 1px solid var(--jt-rule); border-radius: var(--jt-radius); background: var(--jt-panel-2); }
+.jt-explore-controls { display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; margin: 0.5rem 0; }
+.jt-explore-slider { display: flex; flex-direction: column; gap: 0.2rem; min-width: 12rem; flex: 1 1 12rem; font-size: 0.85rem; }
+.jt-explore-slider input { width: 100%; accent-color: var(--jt-ink-2); }
+.jt-explore-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; font-size: 0.85rem; }
+.jt-explore-readout { font-size: 0.88rem; margin: 0.3rem 0; }
+.jt-explore-plot { width: 100%; max-width: 640px; height: auto; display: block; margin: 0.4rem 0; }
+.jt-explore-plot text { font-family: var(--jt-mono); font-size: 10px; fill: var(--jt-muted); }
+.jt-explore-plot text.axis { font-family: var(--jt-sans); font-size: 11px; fill: var(--jt-ink-2); }
+.jt-explore-plot .grid { stroke: var(--jt-rule); stroke-width: 1; }
+.jt-explore-plot .sel { fill: none; stroke: var(--jt-ink); stroke-width: 2; }
+.jt-explore tr[aria-current="true"] td { font-weight: 600; }
+.jt-explore-legend { display: flex; flex-wrap: wrap; gap: 0.2rem 1rem; font-size: 0.8rem; color: var(--jt-muted); margin-top: 0.4rem; }
+.jt-explore-legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
+.jt-explore-legend span.current { color: var(--jt-ink); font-weight: 600; }
+.jt-parsons { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0.9rem; margin: 0.6rem 0; }
+@media (max-width: 760px) { .jt-parsons { grid-template-columns: minmax(0, 1fr); } }
+.jt-parsons h4 { margin: 0 0 0.35rem; font-size: 0.82rem; font-family: var(--jt-sans); color: var(--jt-muted); font-weight: 600; }
+.jt-parsons ol { list-style: none; margin: 0; padding: 0; border: 1px solid var(--jt-rule); border-radius: 9px; overflow: hidden; }
+.jt-parsons li { display: flex; align-items: center; gap: 0.4rem; border-bottom: 1px solid var(--jt-rule); padding: 0.18rem 0.4rem; min-height: 2rem; }
+.jt-parsons li:last-child { border-bottom: 0; }
+.jt-parsons li code { white-space: pre; font-family: var(--jt-mono); font-variant-ligatures: none; font-size: 0.82rem; flex: 1; overflow-x: auto; background: none; padding: 0; color: var(--jt-ink); }
+.jt-parsons li.fixed code { color: var(--jt-muted); }
+.jt-parsons li.good { background: var(--jt-green-soft); }
+.jt-parsons li.bad { background: var(--jt-red-soft); }
+.jt-parsons li.gap { color: var(--jt-muted); font-size: 0.8rem; font-style: italic; }
+.jt-parsons li button { min-width: 1.8rem; padding: 0.1rem 0.35rem; }
+/* Performance ladder (in the grading result) */
+.jt-perfladder .jt-fb-list li.off .t { color: var(--jt-muted); }
+.jt-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

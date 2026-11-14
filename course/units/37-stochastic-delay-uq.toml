@@ -59,6 +59,28 @@ use split-step handling": by default it evaluates `g` at `u_n + f h`
 instead of `u_n` (the source of `perform_step!` shows this). `EM(false)` is
 the textbook step, which the example reproduces up to rounding.
 '''
+refs = ["higham-2001", "kloeden-platen-1992"]
+
+  [[section.analogy]]
+  title = "A walk decided by coin tosses"
+  text = '''
+Toss a coin 100 times and take one step left or right each time. On
+average you end up about 8 steps from where you started, and the root mean
+square distance is exactly 10: not 100, because the steps do not all
+agree, and not 0, because they do not cancel exactly. The typical
+distance grows like the square root of the number of steps.
+
+Brownian motion behaves the same way over time. Over a time `h` its typical
+change is `sqrt(h)`. For a small step, `sqrt(h)` is much larger than `h`:
+with `h = 0.01`, `sqrt(h) = 0.1`. That is why the noise term `g ΔW` dominates
+the drift term `f h` within one step.
+'''
+  breaks = '''
+The coin walk has steps of fixed size, one per toss. Brownian increments
+are normal random numbers and exist at every time scale, however small. The
+coin walk only approaches Brownian motion when the steps get smaller and
+more numerous in the right proportion.
+'''
 
   [[section.example]]
   caption = "Euler-Maruyama by hand on GBM (μ = 1, σ = 0.5, 64 steps to T = 1) with increments from `StableRNG(5)`; the same path given to StochasticDiffEq as a `NoiseGrid`, with `EM(false)` and the default `EM()`; and the exact solution on that path (rounded to 6 digits)."
@@ -132,6 +154,34 @@ noise: a step multiplies `u²` by `(1 + μh + σΔW)²`, whose mean is
 `(1 + μh)² + σ²h`, so `E u_N² = u0² ((1 + μh)² + σ²h)^N`, against
 `E u(T)² = u0² e^{(2μ + σ²) T}`. That weak error needs no sampling at all,
 while the strong one is averaged over 2000 seeded paths.
+'''
+refs = ["higham-2001", "kloeden-platen-1992"]
+
+  [[section.diagram]]
+  file = "strong-weak-order.svg"
+  alt = "Log-log plot of error against step size h from 1/4 to 1/256 for Euler-Maruyama on geometric Brownian motion: the weak error (2.5, 0.82, 0.22, 0.056) falls with fitted slope 0.92, the strong error (0.3, 0.12, 0.053, 0.024) with fitted slope 0.61."
+  caption = "The weak error falls faster than the strong one (fitted slope 0.92 against 0.61, approaching 1 and 1/2). Its values are larger here only because it measures a different, bigger quantity, the error in the mean of u² rather than one path's error in u: compare the slopes, not the heights."
+
+  [[section.analogy]]
+  title = "Tomorrow's weather and the climate"
+  text = '''
+A weather model can be poor at predicting next Tuesday's temperature in
+your town and still be good at predicting the average July temperature.
+Getting each day right is a hard question. Getting an average right is an
+easier one, because errors of opposite sign cancel in the average.
+
+The **strong error** asks the hard question: is each simulated path close
+to the exact path driven by the same noise? The **weak error** asks the
+easier one: is an average over paths (a moment, a price) close to the
+exact average? That is why the weak order (1) can be higher than the strong
+order (1/2). The orders themselves are theorems.
+'''
+  breaks = '''
+Weather forecasts fail because the atmosphere is chaotic and its present
+state is not known exactly. Here the noise path is known exactly, and the
+only error is the one the time step makes. The orders 1/2 and 1 are
+theorems about that step error; nothing in weather forecasting has such
+clean rates.
 '''
 
   [[section.example]]
@@ -236,6 +286,24 @@ the standard normal), with `s` estimated by the sample standard deviation
 To separate sampling error from discretization error, the examples draw
 `u(T)` of GBM from its exact formula, `u0 exp((μ - σ²/2) T + σ sqrt(T) Z)`
 with `Z` standard normal, whose mean is `u0 e^{μT}`.
+'''
+
+  [[section.analogy]]
+  title = "An opinion poll"
+  text = '''
+A poll of 1000 voters has a 95% margin of error of about 3 percentage
+points (`1.96 · 0.5 / sqrt(1000) ≈ 0.031`). To halve that margin, a pollster
+must ask four times as many people, not twice as many. A Monte Carlo
+estimate obeys the same `1/sqrt(N)` rule: each sample is one more voter
+asked.
+'''
+  breaks = '''
+A poll samples a real population, and who agrees to answer can bias it.
+Monte Carlo draws are independent by construction, so they have no such
+bias; their bias comes instead from the time step of the method. And the
+interval `± 1.96 s / sqrt(N)` is only approximate for skewed samples at
+small `N`, as the coverage example measured (0.93 instead of 0.95 at
+`N = 50`).
 '''
 
   [[section.example]]
@@ -385,6 +453,27 @@ correct one" numerically: which one a model means is decided by how it was
 derived, and the method must match it. The example solves both on the same
 path and checks each against its own exact formula.
 '''
+refs = ["kloeden-platen-1992"]
+
+  [[section.analogy]]
+  title = "A trader who sets the holding by the morning price or the average"
+  text = '''
+A trader holds a number of shares that depends on the price, and each day
+earns the holding times the day's price change. Set the holding from the
+morning price (Itô) or from the average of the morning and evening prices
+(Stratonovich). If the holding rises with the price, the averaged rule holds
+more on days the price rose and less on days it fell, so it earns a little
+more on average. For a smooth price that extra shrinks to nothing as the
+days get shorter. For Brownian motion it does not: a day's change has size
+`sqrt(h)`, so its square has size `h`. The extra per unit time is the drift
+correction `(1/2) g ∂g/∂u`.
+'''
+  breaks = '''
+The trader picks a rule; here the choice is part of the model and neither is
+right in general. A Stratonovich equation is the limit of noise that is
+smooth on a very short time scale, an Itô equation fits noise that arrives
+as independent kicks, and you have to know which describes your system.
+'''
 
   [[section.example]]
   caption = "GBM (μ = 1, σ = 0.5) on one path (`StableRNG(11)`, 4096 steps to T = 1): `EM(false)` and `EulerHeun()` against the Itô and Stratonovich exact solutions, and Itô EM with the corrected drift `μ + σ²/2` (rounded to 3 digits)."
@@ -444,6 +533,34 @@ across these points without knowing about them loses accuracy there.
 DelayDiffEq's `MethodOfSteps(Tsit5())` turns an ODE method into a DDE
 method (with its own dense output for the past); passing
 `constant_lags = [1.0]` lets it put steps exactly at `0, 1, 2, ...`.
+'''
+refs = ["bellen-zennaro-2003"]
+
+  [[section.diagram]]
+  file = "dde-method-of-steps.svg"
+  alt = "The exact solution of u'(t) = -u(t - 1) with history u = 1 for t <= 0, drawn from t = -1 to 4: a flat history, then a straight line 1 - t on [0, 1], then polynomials of degree 2, 3 and 4 on the next intervals; an arrow from t = 2.6 back to t = 1.6 shows the rate looking back one time unit."
+  caption = "Each interval is solved as an ordinary ODE whose right-hand side is the piece one interval earlier."
+
+  [[section.analogy]]
+  title = "A thermostat that reads an old thermometer"
+  text = '''
+Imagine a heater whose power right now is set by the room temperature
+one hour ago. In the first hour you already know the readings it will
+use: they are the history you were given. So you can work out that hour
+completely. Then that hour's temperatures become the readings for the
+second hour, and so on. That is the **method of steps**: one ordinary ODE
+per interval of length `τ` (the delay), each fed by the one before.
+
+The late readings also explain the overshoot in the picture: the heater
+keeps reacting to a past that is no longer true, so `u` passes zero and
+keeps falling for a while.
+'''
+  breaks = '''
+A real thermostat switches on and off and the room has its own physics.
+The equation here is linear, with a delay of exactly 1. The analogy also
+hides that the initial condition is a whole function on `[-1, 0]`, not one
+number, and that the jump in `u'` at `t = 0` reappears in higher
+derivatives at `t = 1, 2, ...`, which a solver must step onto.
 '''
 
   [[section.example]]
@@ -854,3 +971,30 @@ dde_value(a, τ, T) = 1 - a * T
 dde_value(a, τ, T) = sum((-a)^k * max(T - (k - 1) * τ, 0.0)^k / factorial(k) for k in 0:(floor(Int, T / τ) + 1))
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "higham-2001"
+authors = "Higham, D. J."
+title = "An algorithmic introduction to numerical simulation of stochastic differential equations"
+venue = "SIAM Review 43(3)"
+year = 2001
+url = "https://webhomes.maths.ed.ac.uk/~dhigham/Publications/P42.pdf"
+note = "Introduces the Euler-Maruyama step and measures its strong order 1/2 and weak order 1 by experiments on a linear SDE with a known solution, as the first two sections do on geometric Brownian motion. The link is the author's free copy."
+
+[[reference]]
+id = "kloeden-platen-1992"
+authors = "Kloeden, P. E.; Platen, E."
+title = "Numerical Solution of Stochastic Differential Equations"
+venue = "Springer"
+year = 1992
+url = "https://doi.org/10.1007/978-3-662-12616-5"
+note = "Standard reference for Itô and Stratonovich integrals, the drift correction (1/2) g ∂g/∂u that converts one into the other, and the strong and weak orders of Euler-Maruyama."
+
+[[reference]]
+id = "bellen-zennaro-2003"
+authors = "Bellen, A.; Zennaro, M."
+title = "Numerical Methods for Delay Differential Equations"
+venue = "Oxford University Press"
+year = 2003
+url = "https://doi.org/10.1093/acprof:oso/9780198506546.001.0001"
+note = "Book on solving delay equations numerically: the method of steps, the propagation of derivative jumps to t = 1, 2, ..., and why a solver should put steps on those points, as `constant_lags` does in the last section."
