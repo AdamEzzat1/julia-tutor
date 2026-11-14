@@ -440,6 +440,29 @@ enough for tasks to overlap, e.g. `"collect(1:1_000_000), 8"`, and a racy
 variant expected `["incorrect"]`: on several threads a lost update shows up
 within a few runs. The feedback then explains data races.
 
+### The performance ladder
+
+Every grade also reports three rungs, climbed in order (`Practice.ladder`,
+derived from the same measurement as the verdicts; nothing to author):
+
+1. **Correct**: every case passes.
+2. **Within 2× of the reference's time** at the largest `perf.sizes` (the
+   ratio from the same interleaved samples as the speed verdict). This is
+   looser than the "on par" verdict (1.75×), on purpose: the rung is a goal
+   a learner can reach, not a benchmark. Near 2× a rerun can land on either
+   side, and the text says so.
+3. **Allocation-free**: zero bytes per call at *every* perf size. Offered only
+   when the reference itself allocates nothing at every size. A reference
+   that returns a new array, or allocates a few bytes, leaves this rung "not
+   offered", never "impossible". To offer it, write the reference
+   allocation-free (an in-place `!` function, a loop instead of a temporary).
+
+A problem without `[problem.perf]` offers rung 1 only. The site keeps each
+problem's best climb in the browser (`julia-tutor/course/v1`, key `ladder`);
+there is no ranking and nothing is sent. In the base environment (60 problems,
+measured 2026-11-14), 29 offer three rungs, 29 two, and the 2 Parsons problems
+one; every reference climbs its full ladder.
+
 Results without a meaningful `isequal` (a figure, a fitted model, a chain of
 samples, a JuMP model) use `compare = "custom"` with a `checker`, a function
 `(got, expected) -> Bool` written as Julia source and evaluated with the

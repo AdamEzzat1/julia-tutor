@@ -7,6 +7,7 @@
 // also makes the browser preflight each request so the server can check the
 // page's origin.
 import { useSyncExternalStore } from "react";
+import type { Ladder } from "./ladder";
 
 export interface Connection {
   port: number;
@@ -191,6 +192,8 @@ export interface GradeResult {
   feedback: FeedbackItem[];
   findings: { rule: string; severity: string; line: number; message: string }[];
   verdicts: string[];
+  /** the performance ladder (Practice.ladder); absent from an older tutor serve */
+  ladder?: Ladder;
   seconds: number;
 }
 

@@ -718,6 +718,76 @@ raw_perf(; sub = (1e3, 16e3), ref = (1e3, 16e3), bytes = (0, 0), locals = Any[],
                    occursin("`acc` in `total` starts as one number type", f["detail"]), r["feedback"])
 end
 
+@testset "performance ladder (on synthetic measurements)" begin
+    states(l) = [x["state"] for x in l["rungs"]]
+    lad(raw; p = P, kw...) = Practice.ladder(p, Practice.assess(p, raw; kw...))
+
+    l = lad(raw_perf())                                          # par, no allocations
+    @test states(l) == ["reached", "reached", "reached"] && l["climbed"] == 3 && l["offered"] == 3
+    @test [x["id"] for x in l["rungs"]] == ["correct", "within-2x", "allocation-free"]
+    @test l["rungs"][3]["detail"] == "0 bytes per call at n = 1000 and n = 16000."
+
+    # the line is 2x at the largest size; the smaller size does not count
+    @test states(lad(raw_perf(sub = (9e3, 32e3))))[2] == "reached"          # exactly 2.0x
+    l = lad(raw_perf(sub = (1e3, 32.5e3)))                                  # 2.03x
+    @test states(l) == ["reached", "not-reached", "reached"] && l["climbed"] == 1
+    @test occursin("2.03× the reference's time at n = 16000", l["rungs"][2]["detail"])
+    @test occursin("Close to the line", l["rungs"][2]["detail"])
+    @test !occursin("Close to the line", lad(raw_perf(sub = (1e3, 40e3)))["rungs"][2]["detail"])  # 2.5x
+    # the 2x rung sits between the speed verdicts: "slower" (1.75 to 5x) can be on either side
+    r = Practice.assess(P, raw_perf(sub = (1e3, 30e3)))                     # 1.9x: slower, but within 2x
+    @test r["performance"]["time"] == "slower" && states(Practice.ladder(P, r))[2] == "reached"
+
+    # allocation-free means zero at every size, not "within the grader's slack"
+    l = lad(raw_perf(bytes = (64, 64)))
+    @test "allocates" ∉ Practice.assess(P, raw_perf(bytes = (64, 64)))["verdicts"]
+    @test states(l) == ["reached", "reached", "not-reached"] && l["climbed"] == 2
+    @test l["rungs"][3]["detail"] == "64 B per call at n = 16000; the reference allocates nothing."
+    @test states(lad(raw_perf(bytes = (0, 16))))[3] == "not-reached"
+
+    # rung 3 is not offered when the reference itself allocates
+    alloc_ref = raw_perf(bytes = (8000, 128000))
+    alloc_ref["perf"]["sizes"][2]["ref_bytes"] = 128000
+    l = lad(alloc_ref)
+    @test states(l) == ["reached", "reached", "not-offered"] && l["climbed"] == 2 && l["offered"] == 2
+    @test occursin("The reference itself allocates 125.0 KiB per call at n = 16000", l["rungs"][3]["detail"])
+
+    # climbed stops at the first rung not reached, even when a higher one holds
+    l = lad(raw_perf(sub = (1e4, 2.56e6)))                                  # slow, no allocations
+    @test states(l) == ["reached", "not-reached", "reached"] && l["climbed"] == 1
+
+    # wrong answers: nothing above rung 1 is measured
+    fail = Dict("status" => "ok", "correctness" => Dict("passed" => 3, "total" => 5, "explicit" => 1,
+        "failures" => Any[Dict("case" => 2, "input" => "f(2)", "reason" => "wrong value", "expected" => "4", "got" => "5", "shown" => false)]))
+    l = lad(fail)
+    @test states(l) == ["not-reached", "not-measured", "not-measured"] && l["climbed"] == 0 && l["offered"] == 3
+    @test l["rungs"][1]["detail"] == "3 of 5 cases pass."
+    l = lad(Dict("status" => "load-error", "message" => "ERROR: x"))
+    @test l["climbed"] == 0 && l["rungs"][1]["detail"] == "The tests did not run."
+
+    # correct, but the measurement timed out (far slower) or failed (an error at the perf sizes)
+    ok5 = Dict("passed" => 5, "total" => 5, "explicit" => 1, "failures" => Any[])
+    l = lad(Dict("status" => "ok", "phase" => "performance", "correctness" => ok5); timed_out = true)
+    @test states(l) == ["reached", "not-reached", "not-measured"] && l["climbed"] == 1
+    l = lad(Dict("status" => "ok", "phase" => "done", "perf_error" => "ERROR: boom", "correctness" => ok5))
+    @test states(l) == ["reached", "not-measured", "not-measured"] && l["climbed"] == 1
+
+    # a problem without a perf section offers rung 1 only
+    Q = Course.Problem("q", "t", "core", String[], "", "f", "", "", ["1"], "", "isequal", "", 1e-8, true,
+                       false, String[], nothing, Course.Variant[], 1, 1, String[])
+    l = lad(Dict("status" => "ok", "phase" => "done", "correctness" => ok5); p = Q)
+    @test states(l) == ["reached", "not-offered", "not-offered"] && l["climbed"] == 1 && l["offered"] == 1
+
+    # the terminal shows the same rungs
+    r = Practice.assess(P, raw_perf(bytes = (64, 64))); r["ladder"] = Practice.ladder(P, r)
+    txt = Practice.format_grade(r)
+    @test occursin("Performance ladder: 2 of 3 rungs", txt)
+    @test occursin("  ✗ 3. Allocation-free: 64 B per call at n = 16000;", txt)
+    @test occursin("160×", lad(raw_perf(sub = (1e4, 2.56e6)))["rungs"][2]["detail"])   # not 160.0
+    r = Practice.assess(P, alloc_ref); r["ladder"] = Practice.ladder(P, r)
+    @test occursin("  – 3. Allocation-free (not offered): The reference itself allocates", Practice.format_grade(r))
+end
+
 @testset "starter must mention the entry (bang names too)" begin
     units = Course.load_course()
     _, p = Course.find_problem(units, "sum-of-squares")
@@ -1026,6 +1096,10 @@ if !FAST
         _, p = Course.find_problem(Course.load_course(), "sum-of-squares")
         g = Practice.grade(p, "sum_of_squares(n) = sum([i^2 for i in 1:n])")
         @test g["status"] == "passed" && "allocates" in g["verdicts"]
+        # the ladder on a real measurement: the reference allocates nothing, this array does
+        @test g["ladder"]["offered"] == 3 && g["ladder"]["rungs"][3]["state"] == "not-reached"
+        gr = Practice.grade(p, p.reference)
+        @test gr["ladder"]["climbed"] == 3
         g = Practice.grade(p, "sum_of_squares(n) = n")
         @test g["status"] == "failed"
         g = Practice.grade(p, "sum_of_squares(n) = (")

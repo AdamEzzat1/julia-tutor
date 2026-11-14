@@ -15,6 +15,7 @@ import { breakRates, juliaNumber, parseValue, probeCode, readProbe, settleBreak,
 import { drawable, extent, juliaValue, lines, localSlope, scale, startSelection, ticks, valueAt, type Selection } from "../explore";
 import { assemble, bumpParsons, displayOrder, parsonsFeedback, parsonsRates, unitParsons, type ParsonsFeedback, type ParsonsRecord } from "../parsons";
 import { loadProgress, saveProgress, type Progress } from "../progress";
+import { bestLadder, ladderTotals, type LadderRecord } from "../ladder";
 import { gradeCode, runCode, useServer, type GradeResult, type RunResult } from "../server";
 
 // A course's tracks, in track order (a track is listed once it has a unit).
@@ -61,7 +62,9 @@ export function CourseView() {
       const rank = { "needs-work": 0, good: 1, excellent: 2 } as const;
       const overall = r.performance?.overall ?? "excellent";
       const best = prev && rank[prev] >= rank[overall] ? prev : overall;
-      return saveProgress({ ...s, solved: { ...s.solved, [pid]: best } });
+      // The ladder keeps its own best climb (an older tutor serve sends none).
+      const ladder = r.ladder ? { ...s.ladder, [pid]: bestLadder(s.ladder[pid], r.ladder) } : s.ladder;
+      return saveProgress({ ...s, solved: { ...s.solved, [pid]: best }, ladder });
     });
   // The first settlement of a question is the one kept (a reload must not turn "later" into "first-try").
   const answered = (key: string, firstTry: boolean) =>
@@ -203,6 +206,7 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
   const bugs = unitBugs(unit);
   const parsons = unitParsons(unit);
   const parsonsSolved = parsons.filter((p) => progress.parsons[p.id]?.solved);
+  const lad = ladderTotals(progress.ladder, unit.problems.map((p) => p.id));
   const bugsFixed = bugs.filter((p) => progress.bugs[p.id]?.fixed);
   const pkeys = unitPredictionKeys(unit);
   const pmade = pkeys.filter((k) => progress.predictions[k]?.pick);
@@ -276,6 +280,11 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               Parsons: {parsonsSolved.length}/{parsons.length} in order
             </span>
           )}
+          {lad.graded > 0 && (
+            <span className="jt-chip" title="Performance ladder in this browser: rungs climbed (correct, within 2× of the reference, allocation-free) over the problems graded so far, and how many reached their top rung">
+              ladder: {lad.climbed}/{lad.offered} rungs · {lad.top} at the top
+            </span>
+          )}
         </div>
       </header>
 
@@ -324,14 +333,14 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               <button key={p.id} role="tab" aria-selected={p.id === problem?.id} onClick={() => openProblem(p.id === problem?.id ? null : p.id)}>
                 <span className={`dot ${progress.solved[p.id] ?? ""}`} aria-hidden="true" />
                 <span className="t">{p.title}</span>
-                <span className="s">{p.difficulty}{progress.solved[p.id] ? ` · solved (${progress.solved[p.id]})` : ""}</span>
+                <span className="s">{p.difficulty}{progress.solved[p.id] ? ` · solved (${progress.solved[p.id]})` : ""}{progress.ladder[p.id] ? ` · ladder ${progress.ladder[p.id].climbed}/${progress.ladder[p.id].offered}` : ""}</span>
               </button>
             ))}
           </div>
           {problem && (problem.parsons ?
-            <ParsonsProblem key={problem.id} p={problem} onSolved={(r) => onSolved(problem.id, r)}
+            <ParsonsProblem key={problem.id} p={problem} onSolved={(r) => onSolved(problem.id, r)} best={progress.ladder[problem.id] ?? null}
               record={progress.parsons[problem.id] ?? null} onCheck={(ok) => onParsons(problem.id, ok)} /> :
-            <ProblemPanel key={problem.id} p={problem} env={unit.env} onSolved={(r) => onSolved(problem.id, r)}
+            <ProblemPanel key={problem.id} p={problem} env={unit.env} onSolved={(r) => onSolved(problem.id, r)} best={progress.ladder[problem.id] ?? null}
               bugRecord={progress.bugs[problem.id] ?? null} onBug={(what) => onBug(problem.id, what)} />)}
         </section>
       )}
@@ -957,8 +966,9 @@ function readOrder(saved: string, size: number): number[] {
  * check the order against the measured set (no server needed). Once it works,
  * the whole program can also go through the grader, like any solution.
  */
-function ParsonsProblem({ p, onSolved, record, onCheck }: {
+function ParsonsProblem({ p, onSolved, record, onCheck, best }: {
   p: Problem; onSolved: (r: GradeResult) => void; record: ParsonsRecord | null; onCheck: (solved: boolean) => void;
+  best: LadderRecord | null;
 }) {
   const z = p.parsons!;
   const [saved, setSaved] = useDraft(`parsons/${p.id}`, "[]");
@@ -1103,7 +1113,7 @@ function ParsonsProblem({ p, onSolved, record, onCheck }: {
       ))}
       {busy && <Output result={null} error={null} running />}
       {error && <Output result={null} error={error} running={false} />}
-      {result && !busy && <Feedback r={result} />}
+      {result && !busy && <Feedback r={result} best={best} />}
     </article>
   );
 }
@@ -1161,8 +1171,8 @@ function BugFixed({ bug, record }: { bug: Bug; record: BugRecord }) {
   );
 }
 
-function ProblemPanel({ p, env, onSolved, bugRecord, onBug }: {
-  p: Problem; env: string; onSolved: (r: GradeResult) => void;
+function ProblemPanel({ p, env, onSolved, bugRecord, onBug, best }: {
+  p: Problem; env: string; onSolved: (r: GradeResult) => void; best: LadderRecord | null;
   bugRecord: BugRecord | null; onBug: (what: "run" | "hint" | "fixed") => void;
 }) {
   const [code, setCode] = useDraft(`problem/${p.id}`, p.starter);
@@ -1271,7 +1281,7 @@ function ProblemPanel({ p, env, onSolved, bugRecord, onBug }: {
       ))}
       {busy && <Output result={null} error={null} running />}
       {error && <Output result={null} error={error} running={false} />}
-      {result && !busy && <Feedback r={result} />}
+      {result && !busy && <Feedback r={result} best={best} />}
       {bug && bugRecord?.fixed && <BugFixed bug={bug} record={bugRecord} />}
     </article>
   );
