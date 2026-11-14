@@ -112,6 +112,22 @@ lists into Julia vectors). PythonCall's explicit style costs a call to
 `pyconvert`, but gives type-stable code and no hidden copies.
 '''
 
+  [[section.analogy]]
+  title = "A parcel held at customs"
+  text = '''
+A result from Python arrives in Julia like a parcel from abroad held at
+customs: a `Py`. Julia does not open it on its own, because it cannot know
+what is inside. `pyconvert(Float64, r)` is you declaring the contents ("this
+is a number"), and the parcel is released as a Julia value. Going the other
+way, small immutable values cross without a declaration, and Julia
+containers are lent rather than shipped.
+'''
+  breaks = '''
+A held parcel cannot be used, but a `Py` can: you can call its methods and
+pass it back to Python without converting it. And a wrong declaration does
+not slip through: if no conversion rule fits, `pyconvert` throws an error.
+'''
+
   [[section.example]]
   code = '''
 using PythonCall
@@ -208,6 +224,21 @@ memory. `PyArray(a)` reads all five from the array at run time, so the
 compiler cannot know them in advance; a function that must be type-stable
 names them all, e.g. `PyArray{Float64, 1, false, true, Float64}(a)` for a
 read-only view of a 1-D `float64` array.
+'''
+
+  [[section.analogy]]
+  title = "One whiteboard, two readers"
+  text = '''
+`PyArray(a)` is a second reader looking at the same whiteboard, not a
+photocopy of it. When Julia writes on the board, Python sees the change, and
+the other way round, because there is only one board. The two readers number
+the rows differently: the `Py` counts from 0, the Julia wrapper from 1.
+'''
+  breaks = '''
+Only the data buffer is shared; the Python object around it (its type, shape
+and strides) stays on the Python side, and the wrapper reads that
+description when it is created. A whiteboard has no element type either,
+while a `PyArray` reads memory as one fixed type such as `Float64`.
 '''
 
   [[section.example]]
@@ -375,6 +406,22 @@ Two ways avoid it:
 The timings below are measured on the machine that recorded this page and
 change from run to run (the example is not checked). The ratio between the
 first line and the other two is the point.
+'''
+
+  [[section.analogy]]
+  title = "A toll at the border"
+  text = '''
+Each crossing between Julia and Python pays a toll. A million cars, each
+carrying one number, pay a million tolls; one truck carrying all the numbers
+pays once. `a.sum()` sends the whole job to the Python side in one crossing,
+and `sum(PyArray(a))` reads the numbers where they are without crossing at
+all.
+'''
+  breaks = '''
+The toll is not a fixed fee: each element crossing allocates a Python object,
+creates a `Py` that the garbage collector must later free, and looks up a
+conversion rule at run time. The measured ratio between the loops also
+depends on the machine.
 '''
 
   [[section.example]]

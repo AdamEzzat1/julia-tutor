@@ -58,6 +58,12 @@ least squares does not give (next section).
 The library is a modelling choice. A term that is not in it cannot be
 found, and every term in it costs data: the next sections show both sides.
 '''
+refs = ["brunton-2016"]
+
+  [[section.diagram]]
+  file = "sindy-library.svg"
+  alt = "The matrix equation Xdot = Theta(X) Xi drawn as blocks: Xdot has 121 rows and two columns (xdot, ydot); Theta has six columns labelled 1, x, y, x squared, x y, y squared; Xi is a 6 by 2 grid of coefficients in which only four cells are nonzero and highlighted: 1.3 and -0.9 in the dx/dt column, -1.8 and 0.8 in the dy/dt column."
+  caption = "Each column of Xi is one equation, and the true Lotka-Volterra model uses only two of the six candidate terms per equation."
 
   [[section.example]]
   caption = "The library for a Lotka-Volterra trajectory, and the true coefficients reproducing the exact derivatives."
@@ -120,6 +126,25 @@ used).
 The derivatives in this example come from the data: central differences
 of noise-free samples every `h = 0.05` (unit 31), whose truncation error is
 about `1e-3`, as the next section measures.
+'''
+refs = ["brunton-2016", "zhang-2019"]
+
+  [[section.analogy]]
+  title = "A shelf of labelled jars"
+  text = '''
+Think of the library as a shelf of six labelled jars (`1`, `x`, `y`, `x²`,
+`xy`, `y²`) and the measured derivative as a drink you are trying to
+reproduce. `Ξ` says how many spoonfuls to take from each jar. A sensible
+recipe uses two or three jars, not a pinch of everything, and STLSQ is the
+rule: drop every jar you use less than `λ` spoonfuls of, then work out the
+amounts of the rest again.
+'''
+  breaks = '''
+Jars on a shelf are independent, but along one trajectory the library
+columns look alike (the last section measures a condition number of about
+1700), so a true term can at first look like a pinch and be thrown away,
+while its effect is spread over look-alikes. And a jar that is not on the
+shelf can never appear in the recipe, however good the data.
 '''
 
   [[section.example]]
@@ -223,6 +248,25 @@ The SINDy paper
 handles noisy data by denoising the derivative with total-variation
 regularization rather than plain differences; other options are smoothing
 the data first or fitting a smooth curve and differentiating that.
+'''
+refs = ["brunton-2016", "chartrand-2011"]
+
+  [[section.analogy]]
+  title = "Speed from two odometer readings"
+  text = '''
+Estimate a car's speed from two odometer readings, each of which can be off
+by about 10 metres. Readings an hour apart give the speed to within about
+0.01 km/h. Readings one second apart give it only to within about 50 km/h:
+the same reading error is divided by a much shorter time. That is the
+`σ / (√2 h)` term of this section, and why a smaller step makes noisy derivatives
+worse.
+'''
+  breaks = '''
+The analogy keeps only the noise. The road also bends: a car's speed changes
+during an hour, so very long gaps are wrong too, which is the truncation
+error of order `h²`. The best `h` balances the two errors, as units 30 and
+31 showed, and with noisy data even the best step can leave derivative
+errors large enough to cross the cliff shown below.
 '''
 
   [[section.example]]
@@ -398,7 +442,28 @@ their `STLSQ` is the algorithm written here (from the SINDy paper), with
 ridge regularization and threshold sweeps, next to `ADMM` (a lasso) and
 `SR3`. They are not installed in this course, on purpose: the hand-written
 version is short, and its every step can be inspected.
+
+**What this is useful for.** Brunton, Proctor and Kutz recovered the chaotic
+Lorenz system, a Hopf normal form (the simplest system that starts to
+oscillate as a parameter crosses a threshold) and a model of vortex shedding
+behind a cylinder (the swirls a flow leaves, alternately left and right,
+behind a post) from simulated data. Rudy, Brunton, Proctor and Kutz extended the
+method to partial differential equations (PDE-FIND). Kaiser, Kutz and
+Brunton added control inputs and used the identified models for model
+predictive control (a controller that re-plans from a model at every step)
+on the Lorenz system, a flight-control model of an F8 aircraft and an HIV
+model with drug treatment, where the SINDy models needed less data than
+neural network models. Zhang and Schaeffer proved that STLSQ approximates
+local minimizers of a least-squares problem with a penalty on the number of
+nonzero terms, and gave conditions under which it converges. The limits
+measured in this unit come with every use: derivative noise has a cliff, the
+threshold has a window that a plateau does not certify, a term outside the
+library cannot be found, and one trajectory can span too little of the
+library.
+
 '''
+
+refs = ["brunton-2016", "rudy-2017", "kaiser-2018", "zhang-2019"]
 
   [[section.example]]
   caption = "Train the UDE of unit 45 (same data, network, initial weights and two-stage training), then fit its learned term on the training states with two libraries. The condition numbers depend only on the data and are printed; coefficients are compared with bounds, since the trained weights vary between CPUs."
@@ -844,3 +909,48 @@ function active_terms(X, Y, λ)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "brunton-2016"
+authors = "Brunton, S. L.; Proctor, J. L.; Kutz, J. N."
+title = "Discovering governing equations from data by sparse identification of nonlinear dynamical systems"
+venue = "Proceedings of the National Academy of Sciences 113"
+year = 2016
+url = "https://doi.org/10.1073/pnas.1517384113"
+note = "Introduced SINDy: the library of section 2, the STLSQ algorithm of section 3, total-variation derivatives for noisy data (section 4), and the example systems listed in section 6."
+
+[[reference]]
+id = "rudy-2017"
+authors = "Rudy, S. H.; Brunton, S. L.; Proctor, J. L.; Kutz, J. N."
+title = "Data-driven discovery of partial differential equations"
+venue = "Science Advances 3"
+year = 2017
+url = "https://doi.org/10.1126/sciadv.1602614"
+note = "Extends sparse regression from ODEs to PDEs, one of the published uses in section 6."
+
+[[reference]]
+id = "kaiser-2018"
+authors = "Kaiser, E.; Kutz, J. N.; Brunton, S. L."
+title = "Sparse identification of nonlinear dynamics for model predictive control in the low-data limit"
+venue = "Proceedings of the Royal Society A 474"
+year = 2018
+url = "https://doi.org/10.1098/rspa.2018.0335"
+note = "Uses SINDy models for model predictive control with little data, the control use cited in section 6."
+
+[[reference]]
+id = "zhang-2019"
+authors = "Zhang, L.; Schaeffer, H."
+title = "On the Convergence of the SINDy Algorithm"
+venue = "Multiscale Modeling and Simulation 17"
+year = 2019
+url = "https://arxiv.org/abs/1805.06445"
+note = "Proves that sequential thresholded least squares (section 3) approximates local minimizers of an l0-penalized least-squares problem and gives convergence conditions."
+
+[[reference]]
+id = "chartrand-2011"
+authors = "Chartrand, R."
+title = "Numerical Differentiation of Noisy, Nonsmooth Data"
+venue = "ISRN Applied Mathematics 2011"
+year = 2011
+url = "https://doi.org/10.5402/2011/164564"
+note = "Total-variation regularized differentiation, the denoising approach for noisy derivatives that section 4 mentions."

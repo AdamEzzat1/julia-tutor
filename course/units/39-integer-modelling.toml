@@ -32,6 +32,12 @@ Relaxation bounds and optimal values are deterministic (an LP's optimal
 value is unique even when its solution is not); node counts and times are
 not, so no example shows them.
 '''
+refs = ["land-doig-1960"]
+
+  [[section.diagram]]
+  file = "branch-and-bound.svg"
+  alt = "A schematic tree: the root solves the LP relaxation; branching on y1 = 0 and y1 = 1, then on y2, gives leaves that are infeasible and pruned, an integer solution that becomes the best so far, a node whose bound is worse than the best and is pruned, and an integer node that is not better."
+  caption = "A node is dropped as soon as its LP bound cannot beat the best integer solution found so far."
 
 [[section]]
 title = "The LP relaxation, and why formulations differ"
@@ -57,6 +63,27 @@ the disaggregated one. The relaxation of the disaggregated form is
 to the integer optimum, and branch and bound prunes more. On this instance
 its bound equals the integer optimum, so there is no gap left for branch
 and bound to close.
+'''
+refs = ["wolsey-2020"]
+
+  [[section.analogy]]
+  title = "Renting a tenth of a warehouse"
+  text = '''
+The LP relaxation plans as if you could open a tenth of a facility for a
+tenth of its fixed cost. No real plan can do that, so the relaxed plan is
+at least as cheap as every real one. Its cost is therefore a **lower
+bound** on the true optimum.
+
+A **tighter formulation** writes rules that make such half-measures less
+useful. In the aggregated form, a tenth of a facility may still serve
+three whole customers. In the disaggregated form it may serve only a tenth
+of each. The cheat gains less, so the bound rises toward the true cost.
+'''
+  breaks = '''
+A fractional facility has no meaning at all; the relaxed plan is a device
+for computing a bound, not a plan anyone could carry out. And a tighter
+formulation raises the bound but need not close the gap: here it happened
+to reach the integer optimum exactly, which is a property of this instance.
 '''
 
   [[section.example]]
@@ -133,6 +160,29 @@ The [JuMP tips and tricks](https://jump.dev/JuMP.jl/stable/tutorials/linear/tips
 page gives the advice in one line: "Try to use domain knowledge to choose
 an `M` that is just right", and warns about both directions, which the next
 two sections show.
+'''
+
+  [[section.diagram]]
+  file = "relaxation-bounds.svg"
+  alt = "Dot plot of lower bounds on the cost: 61.65 with no fixed costs at all, 61.65 for big-M with M = 1e6, 61.90 for M = 100, 65.05 for the aggregated formulation and 81.15 for the disaggregated one (M = 1), against the integer optimum 81.15."
+  caption = "A loose M gives almost the same bound as ignoring the fixed costs; the tightest M = 1 reaches the integer optimum."
+
+  [[section.analogy]]
+  title = "A gate that a binary opens"
+  text = '''
+Think of `M` as how wide a gate opens when the binary is set to `y = 1`.
+If the gate is narrower than the widest truck that must pass (`M` below
+the largest feasible `x`), real deliveries are blocked: the optimum is cut
+off. If the gate is far wider than any truck, a gate opened only a crack
+(a small fractional `y`) already lets a whole truck through. The relaxation
+then pays a tiny fraction of the fixed cost, and the bound becomes weak.
+The right width is the widest truck, computed from the bounds.
+'''
+  breaks = '''
+A real gate has a width in metres, and a truck fits or it does not. In the
+model, "opening a crack" is a fractional `y` in a relaxation, or a value
+like `1e-6` that the solver's integrality tolerance counts as 0. Both
+exist only inside the solver's arithmetic.
 '''
 
   [[section.example]]
@@ -331,6 +381,7 @@ big-M with `M` computed for you from the bounds you declared. Declare the
 tightest bounds you know, and an indicator gives the tightest `M` without
 the arithmetic.
 '''
+refs = ["legat-2022"]
 
   [[section.example]]
   caption = "The facility model with indicator constraints `!y[j] --> {x[i, j] <= 0}`, first with the bound `x <= 1` declared, then without it."
@@ -400,6 +451,7 @@ synergies `P_ij` (some negative, for conflicts), maximizing
 `Σ w_i y_i + Σ_{i<j} P_ij y_i y_j`, and checks the linearized model against
 enumerating all 64 subsets.
 '''
+refs = ["glover-1975"]
 
   [[section.example]]
   caption = "Project selection with pairwise terms, linearized with one `z` per pair, against brute-force enumeration; then the same model without the `z ≥ y_i + y_j - 1` rows."
@@ -867,3 +919,39 @@ function either_or_max(c, a1, b1, a2, b2, lo, hi)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "land-doig-1960"
+authors = "Land, A. H.; Doig, A. G."
+title = "An automatic method of solving discrete programming problems"
+venue = "Econometrica 28(3)"
+year = 1960
+url = "https://doi.org/10.2307/1910129"
+note = "The original branch and bound method: solve LP relaxations, branch on a fractional variable, and drop branches whose bound cannot beat the best integer solution."
+
+[[reference]]
+id = "wolsey-2020"
+authors = "Wolsey, L. A."
+title = "Integer Programming"
+venue = "Wiley, 2nd edition"
+year = 2020
+url = "https://doi.org/10.1002/9781119606475"
+note = "Textbook treatment of formulations, LP relaxation bounds and why a tighter formulation helps branch and bound, with uncapacitated facility location as a standard example."
+
+[[reference]]
+id = "glover-1975"
+authors = "Glover, F."
+title = "Improved linear integer programming formulations of nonlinear integer problems"
+venue = "Management Science 22(4)"
+year = 1975
+url = "https://doi.org/10.1287/mnsc.22.4.455"
+note = "Shows how products involving binary variables, including a binary times a bounded continuous variable, are written exactly with linear constraints, as in the last section."
+
+[[reference]]
+id = "legat-2022"
+authors = "Legat, B.; Dowson, O.; Garcia, J. D.; Lubin, M."
+title = "MathOptInterface: a data structure for mathematical optimization problems"
+venue = "INFORMS Journal on Computing 34(2)"
+year = 2022
+url = "https://arxiv.org/abs/2002.03447"
+note = "Describes MathOptInterface and its bridges, which rewrite a constraint that a solver does not support into ones it does, as the indicator-to-MILP bridge does for HiGHS."

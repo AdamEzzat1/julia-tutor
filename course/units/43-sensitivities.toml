@@ -129,6 +129,28 @@ state) computes the same matrix a different way: it differentiates the
 solver's arithmetic. Both answers are approximations of the exact `S` at the
 solver's tolerance, so they agree to about that tolerance, not to rounding.
 '''
+refs = ["revels-2016"]
+
+  [[section.analogy]]
+  title = "A cook's notebook with one column per spice"
+  text = '''
+A cook wants to know how the taste of a stew at the end depends on each of
+four spices. Beside the pot she keeps a notebook with one column per spice.
+At every stir she updates each column from the current state of the pot,
+answering one question: if there were a touch more of this spice, how would
+the pot differ right now? The stew is `u`, the four columns are the four
+columns of `S`, and her update rule is `dS/dt = J S + F`. One cooking run
+gives all four answers at the end, but every extra spice is one more column
+to update at every stir.
+'''
+  breaks = '''
+A sensitivity is an exact derivative: the rate of change for an infinitely
+small change in a parameter, computed from the equations. The cook's
+question sounds like adding a real extra pinch and tasting again, which is
+the finite-difference method of the next section, with its own step-size
+error. The columns are also not separate pots: they are linear equations
+driven by the one solution `u`.
+'''
 
   [[section.example]]
   caption = "The augmented system solved with `Tsit5`, against ForwardDiff through the solver, both at `abstol = reltol = 1e-10`."
@@ -338,6 +360,23 @@ the truth on simulated data, plot the prediction against the data on real
 data.
 '''
 
+  [[section.analogy]]
+  title = "A hiker in fog who stops on flat ground"
+  text = '''
+BFGS is like a hiker walking downhill in thick fog who stops when the ground
+under her feet is flat. Flat ground is what a valley floor feels like, so
+she reports success. She cannot see whether a deeper valley lies beyond the
+next ridge. Starting from a good trailhead (a physically sensible guess), or
+from several, is how you find the deeper one.
+'''
+  breaks = '''
+The ground here has four directions, one per parameter, and BFGS measures
+the slope exactly with the gradient instead of feeling for it. It also takes
+long steps built from the curvature it has estimated, so it need not stop in
+the hollow nearest the start: the bad start in the example ended with `γ`
+near 7.9, far from the 2.8 it began at.
+'''
+
   [[section.example]]
   caption = "BFGS through Optimization.jl and through Optim.jl (reached as `OptimizationOptimJL.Optim`), from two start points. Parameters rounded to 3 digits, losses to 2."
   notice = "Notice that both interfaces return the same minimizer, that the good start recovers the parameters to within 0.1 but not exactly (the noise moves the minimum: the fitted loss 0.068 is below the 0.072 of the true parameters in the first example), and that the bad start ends far away with the same `Success`."
@@ -424,7 +463,31 @@ For four Lotka-Volterra parameters none of this matters. For a model with
 hundreds of parameters (a neural network inside an ODE, unit 44) forward
 sensitivities become the bottleneck, and the adjoint method, whose cost
 does not grow with `m`, takes over.
+
+**What this is useful for.** Gradients of a loss through an ODE solve are
+the standard tool for fitting mechanistic models (models built from known
+mechanisms, such as rate laws) to measurements. Ma, Dixit, Innes, Guo and
+Rackauckas compared these derivative methods on biological and
+pharmacometric models (pharmacometrics: models of how a drug spreads through
+the body and leaves it), including a discretized PDE. For small systems,
+below roughly 100 parameters plus equations, forward mode through the solver
+was the most efficient; beyond that size continuous adjoints were. That is
+the regime of this unit and the reason for unit 44. Revels, Lubin and
+Papamarkou describe ForwardDiff, the forward-mode tool used here, and the
+survey of Baydin, Pearlmutter, Radul and Siskind explains why forward mode
+costs one pass per input and reverse mode one pass per output. The limits
+above still apply: a gradient method stops at any local minimum and reports
+`Success`, so check the fit itself, and the cost of forward sensitivities
+grows with the number of parameters.
+
 '''
+
+refs = ["ma-2018", "revels-2016", "baydin-2018"]
+
+  [[section.diagram]]
+  file = "forward-sensitivity-state.svg"
+  alt = "Five boxes in a row: the state u (x and y) and four sensitivity columns S[:, 1] to S[:, 4], one per parameter, each holding two equations, ten states in all. Beside them, a table of the recorded runs for du/dt = A u: n = 2, 4 and 8 give 10, 68 and 520 states and a gradient that costs about 1, 9 and 116 times one solve."
+  caption = "Each parameter adds a column of n equations that the solver updates at every step, so the work grows with the number of parameters."
 
   [[section.example]]
   caption = "One loss gradient by ForwardDiff through `Tsit5`, for `du/dt = A u` with `m = n²` parameters. Timings vary between machines, so they are recorded, not checked; the state and chunk counts are exact."
@@ -823,3 +886,30 @@ function central_gradient(f, p, h)
 end
 '''
   expect = ["correct", "allocates"]
+
+[[reference]]
+id = "ma-2018"
+authors = "Ma, Y.; Dixit, V.; Innes, M.; Guo, X.; Rackauckas, C."
+title = "A Comparison of Automatic Differentiation and Continuous Sensitivity Analysis for Derivatives of Differential Equation Solutions"
+venue = "arXiv:1812.01892"
+year = 2018
+url = "https://arxiv.org/abs/1812.01892"
+note = "Benchmarks forward mode against adjoints on biological and pharmacometric models and finds forward mode faster below about 100 parameters plus equations, the rule of thumb in sections 4 and 6."
+
+[[reference]]
+id = "revels-2016"
+authors = "Revels, J.; Lubin, M.; Papamarkou, T."
+title = "Forward-Mode Automatic Differentiation in Julia"
+venue = "arXiv:1607.07892"
+year = 2016
+url = "https://arxiv.org/abs/1607.07892"
+note = "Describes ForwardDiff, the dual-number tool that differentiates the solver in the examples of sections 3, 4 and 6."
+
+[[reference]]
+id = "baydin-2018"
+authors = "Baydin, A. G.; Pearlmutter, B. A.; Radul, A. A.; Siskind, J. M."
+title = "Automatic differentiation in machine learning: a survey"
+venue = "Journal of Machine Learning Research 18(153)"
+year = 2018
+url = "https://arxiv.org/abs/1502.05767"
+note = "Survey of forward and reverse mode and their costs, behind the statement in section 6 that forward mode carries one direction per parameter."

@@ -131,6 +131,26 @@ the data, which is useful when one model definition serves both directions.
 
 The `Info: Found initial step size` line in the output is NUTS reporting its
 first tuning step on stderr; it is normal.
+
+Ge, Xu and Ghahramani (2018) describe Turing's design: models written as
+Julia functions, with a choice of inference algorithms.
+'''
+refs = ["ge-2018"]
+
+  [[section.analogy]]
+  title = "A recipe, read backwards by a detective"
+  text = '''
+The model is a recipe for making data: pick `p`, then flip a coin with that
+`p` ten times. Inference is a detective who sees the ten flips and asks which
+values of `p` could have produced them. Each candidate is weighed by its prior
+plausibility times how likely it makes the flips seen, and the posterior is
+that weighing over every possible `p`.
+'''
+  breaks = '''
+A detective usually ends with one suspect. The posterior keeps every value of
+`p` with a probability, and it depends on the prior you chose, which a
+detective's evidence does not. The weighing is exact arithmetic (Bayes' rule),
+not judgement.
 '''
 
   [[section.example]]
@@ -252,6 +272,28 @@ of a floating-point result can differ (whether a multiply and an add are fused
 into one instruction, for example), and a chain amplifies such a difference:
 after a few hundred steps the draws, and so the last printed digits of the
 means and ESS values in this unit, may change. The conclusions do not.
+
+The diagram draws the prior and the exact posterior of this section.
+'''
+
+  [[section.diagram]]
+  file = "coin-posterior.svg"
+  alt = "Density curves over p from 0 to 1. The prior Beta(1, 1) is a flat dashed line at height 1. The posterior Beta(8, 4) is a hump peaking near 2.9 at p = 0.7, with its mean 2/3 and the data fraction 0.7 marked and a standard deviation of 0.131."
+  caption = "Seven heads in ten flips move the flat prior into a hump around 2/3, still wide because ten flips say little."
+
+  [[section.analogy]]
+  title = "Asking the same family over and over"
+  text = '''
+To learn a town's opinion, asking 1000 independent people gives 1000
+opinions' worth of information. Asking members of the same few families, who
+mostly agree with the person asked just before them, gives far less. MCMC
+draws are like the family: each depends on the one before, and the effective
+sample size is the number of independent opinions they are worth.
+'''
+  breaks = '''
+ESS is estimated from the chain's correlations, and it can exceed the number
+of draws when successive draws are negatively correlated (the HMC example in the
+section on other inference gets an ESS above its 1000 draws), which no poll can do.
 '''
 
   [[section.example]]
@@ -364,6 +406,35 @@ On a one-parameter posterior with a uniform prior, like the coin's, MH and
 NUTS are not far apart. With many parameters a proposal from the prior almost
 never lands where the posterior is, nearly every MH step is rejected, and the
 gap in ESS grows by orders of magnitude.
+
+NUTS, the sampler used throughout, comes from Hoffman and Gelman (2014). The
+1.01 threshold for R-hat and the bulk and tail ESS printed by `summarystats`
+follow Vehtari et al. (2021). The diagram is a schematic run of a simple
+random-walk Metropolis chain, not output from this page.
+'''
+refs = ["hoffman-2014", "vehtari-2021"]
+
+  [[section.diagram]]
+  file = "markov-chain.svg"
+  alt = "A schematic trace plot: a chain for p starts at 0.2, climbs during a shaded warm-up stretch, then wanders between about 0.4 and 0.9 with some flat runs. On the right, a sideways histogram of the visited values follows the dashed shape of the exact posterior."
+  caption = "After warm-up, the values the chain visits pile up in proportion to the posterior, which is what lets averages over the draws estimate posterior means."
+
+  [[section.analogy]]
+  title = "A hiker mapping hills in fog"
+  text = '''
+Picture a hiker in fog on a range of hills, told to spend time at each place
+in proportion to its height (the posterior density). From where they stand
+they try a nearby spot. If it is higher they always go there. If it is lower
+they go there only sometimes, with probability equal to the ratio of the two
+heights. After a long walk, a tally of where they spent their time is a map of
+the heights. Several hikers starting in different places (several chains)
+should draw the same map; R-hat checks that they do.
+'''
+  breaks = '''
+The hiker's "time" is the number of draws, not a clock. NUTS does not try a
+random nearby spot: it follows the slope (the gradient) along a long path.
+And like hikers in fog, all chains can miss the same far-off hill, which is
+the limit of R-hat and ESS stated above.
 '''
 
   [[section.example]]
@@ -497,7 +568,11 @@ Two checks use the model's ability to generate data:
   passing `missing` for `y` turns it from data into something to generate.
   The spread of the predictions includes both the uncertainty in `α, β, σ`
   and the noise `σ`, which is why it is wider than the spread of `α + β x`.
+
+Gabry et al. (2019) describe prior and posterior predictive checks as steps
+of a Bayesian workflow.
 '''
+refs = ["gabry-2019"]
 
   [[section.example]]
   caption = "Fitting simulated data with known parameters (α = 1, β = 2, σ = 0.5). Recorded, not checked: the sampler's digits depend on the CPU's rounding (fused multiply-add)."
@@ -647,7 +722,11 @@ like R-hat tells you how far off it is. See the
 No sampler wins on every posterior; ESS is the measurement that tells you.
 Fixed HMC settings that work on one model can fail on another, which is why
 NUTS adapts them.
+
+Blei, Kucukelbir and McAuliffe (2017) review variational inference, including
+the mean-field family and its tendency to underestimate posterior variance.
 '''
+refs = ["blei-2017", "hoffman-2014"]
 
   [[section.example]]
   caption = "MAP and MLE for the coin, against their formulas."
@@ -1309,3 +1388,48 @@ function posterior_rate_mean(y, seed)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "ge-2018"
+authors = "Ge, H.; Xu, K.; Ghahramani, Z."
+title = "Turing: A Language for Flexible Probabilistic Inference"
+venue = "Proceedings of the 21st International Conference on Artificial Intelligence and Statistics (AISTATS), PMLR 84"
+year = 2018
+url = "https://proceedings.mlr.press/v84/ge18b.html"
+note = "Describes Turing.jl, whose @model functions and samplers this unit uses."
+
+[[reference]]
+id = "hoffman-2014"
+authors = "Hoffman, M. D.; Gelman, A."
+title = "The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo"
+venue = "Journal of Machine Learning Research 15"
+year = 2014
+url = "https://jmlr.org/papers/v15/hoffman14a.html"
+note = "Introduced NUTS, the default sampler here, which removes the fixed path length of HMC (see the section on other inference)."
+
+[[reference]]
+id = "vehtari-2021"
+authors = "Vehtari, A.; Gelman, A.; Simpson, D.; Carpenter, B.; Bürkner, P.-C."
+title = "Rank-normalization, folding, and localization: An improved R-hat for assessing convergence of MCMC"
+venue = "Bayesian Analysis 16(2)"
+year = 2021
+url = "https://arxiv.org/abs/1903.08008"
+note = "The R-hat and bulk and tail ESS diagnostics of the section on what a sampler does, with the recommendation to require R-hat below 1.01."
+
+[[reference]]
+id = "gabry-2019"
+authors = "Gabry, J.; Simpson, D.; Vehtari, A.; Betancourt, M.; Gelman, A."
+title = "Visualization in Bayesian workflow"
+venue = "Journal of the Royal Statistical Society Series A 182(2)"
+year = 2019
+url = "https://arxiv.org/abs/1709.01449"
+note = "Describes prior and posterior predictive checks as parts of the workflow, as in the regression section."
+
+[[reference]]
+id = "blei-2017"
+authors = "Blei, D. M.; Kucukelbir, A.; McAuliffe, J. D."
+title = "Variational Inference: A Review for Statisticians"
+venue = "Journal of the American Statistical Association 112(518)"
+year = 2017
+url = "https://arxiv.org/abs/1601.00670"
+note = "Review of variational inference and the mean-field family that vi fits in the section on other inference."

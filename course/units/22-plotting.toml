@@ -40,7 +40,11 @@ Assigning updates the figure; the section on observables explains why. A
 plot's attributes (a line's `color`) are stored differently since Makie 0.24,
 in an internal compute graph, but you change them the same way:
 `plt.color = :red`.
+
+Danisch and Krumbiegel (2021) is the paper that describes Makie, its
+backends and its design.
 '''
+refs = ["danisch-2021"]
 
   [[section.example]]
   caption = "Two plots in one axis, labels and a legend; the figure value is drawn, not printed."
@@ -254,6 +258,22 @@ files whose lines stay sharp at any zoom. `px_per_unit = 2` doubles the PNG
 resolution without changing the layout.
 '''
 
+  [[section.analogy]]
+  title = "A spreadsheet cell and the formulas that use it"
+  text = '''
+An `Observable` is like a spreadsheet cell. `lift(f, obs)` is a second cell
+holding a formula that refers to the first: type a new number into the first
+cell (`obs[] = v`) and every formula that refers to it is worked out again.
+A plot built from an observable is one more formula cell, so the picture
+follows the data.
+'''
+  breaks = '''
+A spreadsheet notices any edit, but an observable tells its listeners only
+when you assign with `obs[] = v`. Changing the array inside it in place
+(`obs[][1] = 5`) changes the value without telling anyone, until you call
+`notify(obs)`.
+'''
+
   [[section.example]]
   caption = "`lift` and `on` react to an assignment; the line plot's data follows the observable."
   code = '''
@@ -365,6 +385,23 @@ Python users will recognise seaborn's `hue=` and `col=`; R users ggplot2's
 `aes()` and `facet_wrap`. Because the output is a Makie figure, everything
 from the previous sections (themes, `save`, adding plots to an axis) still
 applies.
+'''
+
+  [[section.analogy]]
+  title = "Ordering from a menu instead of cooking"
+  text = '''
+Plain Makie is cooking for yourself: you pick the pan (the axis), the recipe
+(`scatter!`) and the seasoning (a color for each series), step by step.
+AlgebraOfGraphics is ordering from a menu: you say what you want in terms of
+the data ("`dose` across, `response` up, one color per `drug`") and it works
+out the steps, the colors and the legend. `*` adds details to one dish (one
+layer); `+` puts a second dish on the table (another layer).
+'''
+  breaks = '''
+A cook may make a dish differently each time; AoG follows fixed rules, so the
+same table and specification always give the same figure. And you can still
+walk into the kitchen: `draw` returns an ordinary Makie figure that you can
+change with the calls from the earlier sections.
 '''
 
   [[section.example]]
@@ -704,6 +741,28 @@ use. Further steps are a custom system image built with
 or keeping one session open (with Revise) instead of starting a new process
 per plot. The measurement below shows the effect; its numbers depend on the
 machine, so the example is recorded but not checked.
+
+The first-call cost follows from a design choice described in the paper that
+introduced Julia (Bezanson, Edelman, Karpinski and Shah, 2017): a function is
+compiled to machine code specialized for the types of its arguments, the first
+time it is called with those types.
+'''
+refs = ["bezanson-2017"]
+
+  [[section.analogy]]
+  title = "A cold espresso machine"
+  text = '''
+The first cup from a cold espresso machine is slow, because the machine must
+heat up first; the second cup is quick. The first plot in a fresh Julia
+session is slow for a similar reason: Julia compiles the methods the plot
+needs before it runs them. A package image is a machine warmed at the factory
+for the drinks on its menu (the precompile workload).
+'''
+  breaks = '''
+A warm machine makes any drink quickly. Julia compiles per method and per
+combination of argument types: a plot with a new kind of argument (another
+plot type, another element type) can still compile new code in a warm
+session. And nothing cools down: compiled code stays until the process ends.
 '''
 
   [[section.example]]
@@ -1392,3 +1451,21 @@ function stacked_panels(t, ys, names)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "danisch-2021"
+authors = "Danisch, S.; Krumbiegel, J."
+title = "Makie.jl: Flexible high-performance data visualization for Julia"
+venue = "Journal of Open Source Software 6(65)"
+year = 2021
+url = "https://doi.org/10.21105/joss.03349"
+note = "The paper describing Makie, the package behind the figure, layout and observable sections and AlgebraOfGraphics."
+
+[[reference]]
+id = "bezanson-2017"
+authors = "Bezanson, J.; Edelman, A.; Karpinski, S.; Shah, V. B."
+title = "Julia: A Fresh Approach to Numerical Computing"
+venue = "SIAM Review 59(1)"
+year = 2017
+url = "https://arxiv.org/abs/1411.1607"
+note = "Describes Julia's compilation of methods specialized on argument types, the cause of the time to first plot."

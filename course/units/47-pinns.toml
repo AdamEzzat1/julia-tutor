@@ -59,7 +59,15 @@ and `Float32` keeps only about 7 digits.
 
 Lux layers take a matrix with one column per input point (features ×
 batch), and return one column per point.
+
+Representing the solution of a differential equation by a neural network
+trained on the equation's residual goes back at least to Lagaris, Likas and
+Fotiadis (1998). They built the boundary conditions into the trial function,
+so that only the equation had to be trained, and compared their results with
+finite elements. The PINN of this unit puts the boundary conditions into the
+loss instead (section 4), as Raissi, Perdikaris and Karniadakis did.
 '''
+refs = ["lagaris-1998", "raissi-2019"]
 
   [[section.example]]
   caption = "A Lux network with 16 tanh units, its 49 parameters in Float64, and its output against the formula written by hand."
@@ -176,6 +184,29 @@ The loss is a function of any trial function `u`, network or not, which is
 a good way to test it: the exact solution must give a loss at rounding
 level, and a wrong function a large one, before any training happens.
 '''
+refs = ["raissi-2019"]
+
+  [[section.diagram]]
+  file = "pinn-loss.svg"
+  alt = "Data-flow diagram of the PINN loss: 30 collocation points inside (0, 1) and 2 boundary points; the network u_theta(x) with 49 weights feeds nested ForwardDiff, which gives u_theta''(x); the residual term is the mean of (u_theta''(x_i) - f(x_i)) squared, the boundary term is lambda times (u_theta(0) squared + u_theta(1) squared); their sum L(theta) goes to BFGS, which changes the weights."
+  caption = "No solution data enter the loss: it tests the equation at the chosen points and the two boundary values, and BFGS changes the weights to make both small."
+
+  [[section.analogy]]
+  title = "A tailor checking a suit at the pins"
+  text = '''
+A tailor cannot check every thread of a suit. She marks pins and checks the
+fit at each pin, and she fixes the hem at both ends to an exact length. The
+collocation points are the pins: the residual term asks whether the cloth
+follows the body there. The boundary term fixes the hems. Training adjusts
+the cloth, the weights, until every pin and both hems are right.
+'''
+  breaks = '''
+Nothing is checked between the pins: the cloth can fit at every pin and
+bulge between them, and unit 48 builds a function with zero loss and an
+error of 0.5. A tailor also sees the whole suit at a glance, while the loss
+sees only the numbers at the pins, and the network has no notion of a body,
+only of making those numbers small.
+'''
 
   [[section.example]]
   caption = "The PINN loss on 30 equally spaced collocation points, for the exact solution, for the exact solution plus a line, and for the untrained network."
@@ -249,7 +280,30 @@ Training results move between CPUs (rounding differs, and the optimizer
 amplifies it), so the example prints checked facts with wide margins, not
 the loss or the error digits; the timing example after it is recorded but
 not checked.
+
+**What this is useful for.** Raissi, Perdikaris and Karniadakis introduced
+the PINN for forward problems (solve the PDE) and for inverse problems (find
+unknown coefficients or fields from measurements, with the PDE as a
+constraint). The uses below are inverse problems. For forward problems
+(solving the equation when every parameter is known), unit 48 gives the
+published evidence that standard numerical methods do better.
+
+Raissi, Yazdani and Karniadakis inferred velocity and pressure fields from images of dye or
+smoke carried by a flow, with blood flow in an aneurysm among the examples.
+The review by Cai, Mao, Wang, Yin and Karniadakis shows PINNs on inverse
+problems for three-dimensional wake flows, supersonic flows and biomedical
+flows, and argues that classical solvers make such problems costly, since
+each needs its own formulation and code. Measured data enter the same loss
+as one more squared term, and the collocation points need no mesh. For a
+forward problem like the one in this section, the measurement above is the
+counterpoint: the finite-difference solve took microseconds against 62 s for
+the PINN in the recorded run, most of it compilation (a warm run in unit 48
+took 1.8 s), and unit 48 shows where PINNs fail and what a fair comparison
+needs.
+
 '''
+
+refs = ["raissi-2019", "raissi-2020", "cai-2021"]
 
   [[section.example]]
   caption = "The gradient checked against central differences, then BFGS on the PINN loss, then the finite-difference solve with 99 interior points; errors are measured on 1001 points against `sin(πx)`."
@@ -373,6 +427,22 @@ of unit 34 remains the baseline. For production PINN work, SciML's
 [NeuralPDE.jl](https://docs.sciml.ai/NeuralPDE/stable/) generates these
 losses from a symbolic description of the PDE; it is not installed in this
 environment.
+'''
+
+  [[section.analogy]]
+  title = "Painting the whole film strip at once"
+  text = '''
+A time-stepping solver films a scene frame by frame, each frame computed
+from the one before. A space-time PINN paints the whole film strip at once
+and then checks every frame it samples against the rules of motion, here the
+heat equation, the first frame and the two edges.
+'''
+  breaks = '''
+Painting the whole strip at once gives no guarantee that the early frames
+are right before the late ones, and the optimizer can fit late frames
+against a wrong start (unit 48, section on causality). The network also has
+no frames: it is one continuous function of `x` and `t`, checked only at its
+collocation points.
 '''
 
   [[section.example]]
@@ -733,3 +803,39 @@ function weighted_loss(u, f, xr, xb, gb, λ)
 end
 '''
   expect = ["incorrect"]
+
+[[reference]]
+id = "lagaris-1998"
+authors = "Lagaris, I. E.; Likas, A.; Fotiadis, D. I."
+title = "Artificial neural networks for solving ordinary and partial differential equations"
+venue = "IEEE Transactions on Neural Networks 9"
+year = 1998
+url = "https://arxiv.org/abs/physics/9705023"
+note = "An early method that trains neural-network trial functions on a differential equation's residual, with the boundary conditions built into the trial function, the idea of section 2 (the arXiv copy is the authors' 1997 preprint)."
+
+[[reference]]
+id = "raissi-2019"
+authors = "Raissi, M.; Perdikaris, P.; Karniadakis, G. E."
+title = "Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations"
+venue = "Journal of Computational Physics 378"
+year = 2019
+url = "https://doi.org/10.1016/j.jcp.2018.10.045"
+note = "Introduced the PINN loss (residual at collocation points plus boundary terms) built in sections 4 and 5, for forward and inverse problems. The journal version needs a subscription; there is no single open preprint of it. The two-part arXiv preprints 1711.10561 and 1711.10566 are earlier, separate documents."
+
+[[reference]]
+id = "raissi-2020"
+authors = "Raissi, M.; Yazdani, A.; Karniadakis, G. E."
+title = "Hidden fluid mechanics: Learning velocity and pressure fields from flow visualizations"
+venue = "Science 367; open preprint under the title Hidden Fluid Mechanics: A Navier-Stokes Informed Deep Learning Framework for Assimilating Flow Visualization Data"
+year = 2020
+url = "https://arxiv.org/abs/1808.04327"
+note = "An inverse problem solved with a PINN (flow fields from dye or smoke images, including an aneurysm), cited as a use in section 5."
+
+[[reference]]
+id = "cai-2021"
+authors = "Cai, S.; Mao, Z.; Wang, Z.; Yin, M.; Karniadakis, G. E."
+title = "Physics-informed neural networks (PINNs) for fluid mechanics: a review"
+venue = "Acta Mechanica Sinica 37"
+year = 2021
+url = "https://arxiv.org/abs/2105.09506"
+note = "Review of PINNs for inverse flow problems (wake, supersonic and biomedical flows), cited for the uses in section 5."

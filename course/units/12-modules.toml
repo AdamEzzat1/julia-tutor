@@ -24,6 +24,22 @@ Unlike Python, a module is not tied to a file: one file can define several
 modules, and one module is usually spread over several files.
 '''
 
+  [[section.analogy]]
+  title = "Surnames for functions"
+  text = '''
+Two pupils called Sam in one school are told apart by surname: Sam Lee and
+Sam Ortiz. A module works like the surname: `Geometry.area` and
+`Billing.area` can exist side by side without confusion. `export` is the
+family saying "you may call our Sam just Sam": after `using`, the short name
+works.
+'''
+  breaks = '''
+Leaving a name out of `export` does not hide it: anyone can still write
+`Geometry.perimeter`, so export is a convenience, not privacy. And unlike a
+family, a module is not tied to one house: one file can hold several modules,
+and one module can be spread over many files.
+'''
+
   [[section.example]]
   code = '''
 module Geometry
@@ -242,6 +258,23 @@ A package can define a function `__init__()`, which Julia runs each time the
 package is loaded (not when it is precompiled): the place for setup that
 must happen at runtime, such as reading environment variables or
 initializing a C library.
+'''
+
+  [[section.analogy]]
+  title = "A shopping list and the receipt"
+  text = '''
+`Project.toml` is the shopping list: "CSV, version 1 or later; DataFrames".
+`Manifest.toml` is the receipt from one trip: the exact version of every item
+that went into the bag, including the items that your items needed. Anyone
+with the receipt can bring home exactly the same bag. Anyone with only the
+list gets something that fits the list but may differ in the details.
+'''
+  breaks = '''
+A receipt only records a purchase; `]instantiate` turns a Manifest back into
+installed packages, which no receipt can do. And the extra items on the
+receipt are real dependencies of your dependencies, chosen by Pkg so that
+every version bound in the whole tree holds at once, not extras the shop
+added for convenience.
 '''
 
   [[section.example]]

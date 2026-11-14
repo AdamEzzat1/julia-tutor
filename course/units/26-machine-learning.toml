@@ -106,7 +106,11 @@ The XOR problem below (output 1 when exactly one input is 1) cannot be
 solved by a single `Dense` layer, since the classes are not separable by a
 line; a hidden layer with a nonlinearity can solve it. Before training,
 the outputs are just what the random weights give.
+
+Innes (2018) introduces Flux, in which layers and models are ordinary Julia
+code.
 '''
+refs = ["innes-2018-flux"]
 
   [[section.example]]
   code = '''
@@ -195,7 +199,12 @@ checked by hand. For residuals `r = ŷ - y` over `N` samples,
 `∂mse/∂W = (2/N) · r · xᵀ` and `∂mse/∂b = (2/N) · Σ r`. A second method
 that agrees with the AD result is the usual check that the loss was coded
 right.
+
+Zygote's approach, reverse-mode AD by transforming the compiler's
+intermediate form of the code (its SSA form, where every value is assigned
+once), is described by Innes in "Don't Unroll Adjoint" (2018).
 '''
+refs = ["innes-2018-zygote"]
 
   [[section.example]]
   code = '''
@@ -276,6 +285,32 @@ exactly on one machine. Across machines the last digits of a `Float32`
 loss can differ (the order of the additions in a sum or a matrix product
 depends on the CPU's vector width and BLAS kernel), so the examples print
 losses to two significant digits and the XOR predictions as integers.
+
+Adam was introduced by Kingma and Ba (2015): it scales each parameter's step
+using running averages of the gradient and of its square. The diagram shows
+one pass of the loop.
+'''
+refs = ["kingma-2015"]
+
+  [[section.diagram]]
+  file = "training-loop.svg"
+  alt = "A loop of boxes: the model with weights W and bias b feeds a forward pass on the data, the output goes into the loss, Flux.gradient runs the reverse pass to get one gradient entry per weight, and Flux.update! applies the rule and its state (for Adam, running averages) to change W and b in place, closing the loop."
+  caption = "The model holds only parameters; the optimiser's state is a separate tree updated alongside it."
+
+  [[section.analogy]]
+  title = "Walking downhill in fog, with a step length"
+  text = '''
+Training is walking downhill on the loss, in fog. The gradient tells you which
+way is steepest right where you stand; the learning rate `η` is the length of
+the step you take in that direction. `Descent` takes plain steps. `Adam`
+keeps a running memory of recent slopes, so it keeps moving through flat
+stretches and takes careful steps where the ground is rough.
+'''
+  breaks = '''
+The hill has one direction per parameter (33 for the XOR network), not two.
+The gradient is computed exactly for the current batch, not felt. And the
+loss of a network has many valleys: with too long a step the walker jumps
+across a valley, and where it ends up depends on the random start.
 '''
 
   [[section.example]]
@@ -383,6 +418,25 @@ classifier declares that its target must be `Finite` (`Multiclass` or
 converted with `coerce`. The point: an integer column can be a count, an
 index or a category code, and only you know which; MLJ makes you say it
 instead of guessing. `schema(X)` lists each column's scitype.
+
+MLJ's design, models as plain containers of hyperparameters and machines that
+bind them to data, is described by Blaom et al. (2020).
+'''
+refs = ["blaom-2020"]
+
+  [[section.analogy]]
+  title = "A recipe and the dish cooked from it"
+  text = '''
+An MLJ model is a recipe card: it says how deep the tree may grow, but holds
+no food. A machine is the dish: the recipe together with the ingredients
+(`X`, `y`) and, after `fit!`, what was cooked from them. You can cook the
+same recipe with other ingredients by making another machine.
+'''
+  breaks = '''
+A cooked dish is finished, but a machine can be fitted again on other rows
+(`fit!(mach, rows = train)`), replacing what it learned. And the recipe card
+never changes when a machine is fitted: the learned parameters live only in
+the machine.
 '''
 
   [[section.example]]
@@ -498,6 +552,33 @@ Standardizing the whole data set before splitting would let the test rows
 influence the training (leakage); inside a pipeline it cannot happen.
 '''
 
+  [[section.diagram]]
+  file = "overfitting-depth.svg"
+  alt = "Accuracy against maximum tree depth 1, 3, 6 and 20, from the first example. Training accuracy rises 0.69, 0.843, 0.929, 1.0. Test accuracy goes 0.656, 0.767, 0.678, 0.667, highest at depth 3."
+  caption = "Training accuracy keeps rising with depth, while accuracy on held-out rows peaks at depth 3 and then falls: that gap is overfitting."
+
+  [[section.diagram]]
+  file = "cv-folds.svg"
+  alt = "Seven rows of seven blocks, one row per cross-validation round. In round k, block k (22 or 21 rows of the 150) is held out and scored, and the other six blocks are used for fitting. The fold sizes are 22, 22, 22, 21, 21, 21, 21."
+  caption = "Each row of the data is held out exactly once, so every row is scored by a model that never saw it."
+
+  [[section.analogy]]
+  title = "Past exam papers and a new exam"
+  text = '''
+A student who memorises the answers to last year's exam papers scores 100%
+on those papers and does poorly on a new exam. Training accuracy is the score
+on the papers the model studied; test accuracy is the score on a new exam it
+never saw. Cross-validation is a set of mock exams: split the questions into
+seven piles, and seven times study six piles and take the seventh as the exam.
+'''
+  breaks = '''
+A model understands nothing in either case. "Memorising" here means a
+function flexible enough to fit the noise in the training labels, like a deep
+tree with one leaf per point. And a test score says how the model does on new
+data drawn the same way as the training data, not on data of a different
+kind.
+'''
+
   [[section.example]]
   caption = "Training and test accuracy as the tree gets deeper (labels with 20% noise)."
   code = '''
@@ -607,7 +688,10 @@ the global RNG.
 Each BetaML model is also registered with MLJ, so
 `@load RandomForestClassifier pkg=BetaML` gives the same algorithm with
 MLJ's machines, pipelines and cross-validation.
+
+BetaML is described by its author in Lobianco (2021).
 '''
+refs = ["lobianco-2021"]
 
   [[section.example]]
   caption = "k-means and a Gaussian mixture on two blobs (rows are records)."
@@ -1442,3 +1526,47 @@ end
 '''
   expect = ["correct"]
 
+[[reference]]
+id = "innes-2018-flux"
+authors = "Innes, M."
+title = "Flux: Elegant machine learning with Julia"
+venue = "Journal of Open Source Software 3(25)"
+year = 2018
+url = "https://doi.org/10.21105/joss.00602"
+note = "Introduces Flux.jl, whose Chain, Dense and training loop the first sections use."
+
+[[reference]]
+id = "innes-2018-zygote"
+authors = "Innes, M."
+title = "Don't Unroll Adjoint: Differentiating SSA-Form Programs"
+venue = "arXiv preprint"
+year = 2018
+url = "https://arxiv.org/abs/1810.07951"
+note = "Describes Zygote, the source-transformation reverse-mode AD behind Flux.gradient in the gradients section."
+
+[[reference]]
+id = "kingma-2015"
+authors = "Kingma, D. P.; Ba, J."
+title = "Adam: A Method for Stochastic Optimization"
+venue = "International Conference on Learning Representations (ICLR) 2015"
+year = 2015
+url = "https://arxiv.org/abs/1412.6980"
+note = "Introduced the Adam rule (running averages of the gradient and its square) used to train the XOR network."
+
+[[reference]]
+id = "blaom-2020"
+authors = "Blaom, A. D.; Kiraly, F.; Lienart, T.; Simillides, Y.; Arenas, D.; Vollmer, S. J."
+title = "MLJ: A Julia package for composable machine learning"
+venue = "Journal of Open Source Software 5(55)"
+year = 2020
+url = "https://doi.org/10.21105/joss.02704"
+note = "Describes MLJ: the model and machine split, scientific types and composition used in the MLJ and evaluation sections."
+
+[[reference]]
+id = "lobianco-2021"
+authors = "Lobianco, A."
+title = "BetaML: The Beta Machine Learning Toolkit, a self-contained repository of Machine Learning algorithms in Julia"
+venue = "Journal of Open Source Software 6(60)"
+year = 2021
+url = "https://doi.org/10.21105/joss.02849"
+note = "Describes BetaML, the pure-Julia algorithms of the BetaML section."

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 390" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>An embedded pair step with accept and reject</title>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker>
+<marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker>
+</defs>
+<rect width="720" height="390" fill="#ffffff"/>
+<text x="20.0" y="26.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">One step of the adaptive Heun-Euler solver in this section</text>
+<rect x="20.0" y="50.0" width="200.0" height="56.0" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<text x="120.0" y="72.0" font-size="13" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">k1 = f(t, u)</text>
+<text x="120.0" y="91.0" font-size="13" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">k2 = f(t + h, u + h k1)</text>
+<text x="120.0" y="124.0" font-size="13" fill="#776f82" text-anchor="middle">two stages, shared</text>
+<rect x="260.0" y="40.0" width="190.0" height="38.0" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<text x="355.0" y="62.0" font-size="13" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">low  = u + h k1</text>
+<rect x="260.0" y="86.0" width="190.0" height="38.0" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<text x="355.0" y="108.0" font-size="13" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">high = u + h (k1 + k2)/2</text>
+<text x="470.0" y="64.0" font-size="13" fill="#776f82" text-anchor="start">Euler, order 1</text>
+<text x="470.0" y="110.0" font-size="13" fill="#776f82" text-anchor="start">Heun, order 2</text>
+<line x1="220.0" y1="78.0" x2="258.0" y2="60.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="220.0" y1="78.0" x2="258.0" y2="104.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="150.0" y="160.0" width="420.0" height="40.0" rx="6" fill="none" stroke="#3657c8" stroke-width="1.5"/>
+<text x="360.0" y="182.0" font-size="13" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">err = |high - low| / (tol + tol max(|u|, |high|))</text>
+<line x1="355.0" y1="126.0" x2="355.0" y2="158.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="360.0" y1="200.0" x2="360.0" y2="226.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<polygon points="360,228 440,252 360,276 280,252" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<text x="360.0" y="257.0" font-size="14" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">err ≤ 1 ?</text>
+<line x1="280.0" y1="252.0" x2="200.0" y2="252.0" stroke="#2f8a4c" stroke-width="1.8" marker-end="url(#arrow)"/>
+<text x="240.0" y="244.0" font-size="13" fill="#2f8a4c" text-anchor="middle">yes</text>
+<rect x="30.0" y="232.0" width="168.0" height="58.0" rx="6" fill="none" stroke="#2f8a4c" stroke-width="1.5"/>
+<text x="114.0" y="254.0" font-size="13" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">accept:</text>
+<text x="114.0" y="273.0" font-size="13" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">t += h, u = high</text>
+<line x1="440.0" y1="252.0" x2="520.0" y2="252.0" stroke="#c0392b" stroke-width="1.8" marker-end="url(#arrow)"/>
+<text x="480.0" y="244.0" font-size="13" fill="#c0392b" text-anchor="middle">no</text>
+<rect x="522.0" y="232.0" width="168.0" height="58.0" rx="6" fill="none" stroke="#c0392b" stroke-width="1.5"/>
+<text x="606.0" y="254.0" font-size="13" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">reject:</text>
+<text x="606.0" y="273.0" font-size="13" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">keep t and u</text>
+<rect x="170.0" y="314.0" width="380.0" height="40.0" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<text x="360.0" y="336.0" font-size="13" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">h *= min(5, max(0.2, 0.9 err^(-1/2)))</text>
+<line x1="114.0" y1="290.0" x2="200.0" y2="312.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="606.0" y1="290.0" x2="520.0" y2="312.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="360.0" y="376.0" font-size="13" fill="#776f82" text-anchor="middle">then the next step; err measures this step only, never the error already in u</text>
+</svg>

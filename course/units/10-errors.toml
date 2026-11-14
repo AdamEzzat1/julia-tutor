@@ -25,6 +25,28 @@ your text, and the `@` line points at the line of your code where the failing
 call was made.
 '''
 
+  [[section.analogy]]
+  title = "Handing a problem back up the chain of command"
+  text = '''
+In a restaurant the owner asks the head chef for a dinner, the head chef asks
+a cook for a sauce, and the cook finds the cream has gone off. The cook does
+not carry on: they stop and pass a note back up, "cream spoiled". If the head
+chef knows what to do (use another recipe), the problem ends there. If not,
+the note goes up to the owner, and if nobody handles it the restaurant stops
+serving. That chain of who-asked-whom is the *call stack* (the list of
+functions that are waiting on each other), `throw` is writing the note,
+passing it up is *unwinding*, and the first `catch` on the way handles it.
+The note itself is the exception value, and its type (`DomainError`,
+`ArgumentError`) says what kind of problem it is.
+'''
+  breaks = '''
+A head chef who gets the note can still finish their other tasks. When an
+exception passes through a function in Julia, the rest of that function is
+skipped entirely, except for code in a `finally` block. And the note is not
+read by whoever happens to be nearby: only a `try` block that encloses the
+call that is running can catch it.
+'''
+
   [[section.example]]
   code = '''
 function checked_sqrt(x)
@@ -111,6 +133,22 @@ visible in `else`; declare it first with `local n`, as below.
 To handle one kind of failure only, test the type and rethrow the rest:
 `e isa KeyError || rethrow()`. `rethrow()` re-throws the current exception
 with its original backtrace.
+'''
+
+  [[section.analogy]]
+  title = "Turning off the stove on your way out"
+  text = '''
+`finally` is the habit of turning off the stove before you leave the kitchen,
+whether you leave because dinner is done, because you burned it and started
+over (a caught error), or because the smoke alarm sent everyone outside (an
+error that propagates). Whatever the reason for leaving, the stove goes off.
+'''
+  breaks = '''
+In a kitchen you could forget the habit. A `finally` block cannot be skipped
+by an error: Julia runs it on every exit from the `try`, including a `return`
+from inside it (only the whole Julia process stopping, for example with
+`exit()` or being killed, skips it). It cannot stop the error, though: after `finally` runs, an
+uncaught exception keeps travelling up as before.
 '''
 
   [[section.example]]
@@ -217,6 +255,25 @@ The caller checks with `=== nothing` (or `isnothing`), or supplies a default
 with `something(x, default)`. Prefer this style in hot loops: throwing and
 catching an exception costs far more than returning a value (the
 `parse-ints-count-failures` problem below lets the grader measure it).
+'''
+
+  [[section.analogy]]
+  title = "A sold-out light versus a fire alarm"
+  text = '''
+A vending machine that is out of your snack lights up "sold out" and lets you
+choose again: that is `tryparse` returning `nothing`. It is an expected
+answer, and checking it is cheap. A machine that rang the building's fire
+alarm every time a snack ran out would stop everyone and cost far more to
+recover from: that is `parse` throwing for input you knew might be bad.
+Keep the alarm for situations that really are not supposed to happen.
+'''
+  breaks = '''
+A "sold out" light is hard to miss. A returned `nothing` is not: if you forget
+to check it, the program carries on and fails later with a `MethodError`
+(for example on `nothing + 1`) at a line far from the real cause. An
+exception, by contrast, stops at the place where the problem happened, which
+is why throwing is still the right choice when the caller is not expected to
+handle the failure.
 '''
 
   [[section.example]]
