@@ -334,6 +334,55 @@ end
     @test all(isempty, Course.prose_problems.(Course.load_course()))
 end
 
+@testset "analogies, diagrams and references: checked before they are shown" begin
+    dir = mktempdir()
+    mkpath(joinpath(dir, "diagrams", "99-x"))
+    good = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><title>t</title>
+              <defs><marker id="a"/></defs><path d="M0 0" marker-end="url(#a)"/></svg>"""
+    write(joinpath(dir, "diagrams", "99-x", "ok.svg"), good)
+    write(joinpath(dir, "diagrams", "99-x", "unused.svg"), good)
+    ref(id; url = "https://doi.org/10.1/x", year = 2019) = Course.Reference(id, "Raissi, M.", "T", "J. Comp. Phys.", year, url, "Backs the loss.")
+    alt = "Two boxes joined by an arrow, the left one labelled network."
+    secs = [Course.Section("s", "b", Course.Example[], Course.Question[],
+                           [Course.Analogy("A", "Like a map.", "A map is flat; the loss surface is not.")],
+                           [Course.Diagram("ok.svg", alt, "")], ["raissi"]),
+            Course.Section("t", "b", Course.Example[], Course.Question[],
+                           [Course.Analogy("B", "Like a sieve.", "too short")],
+                           [Course.Diagram("missing.svg", "short", ""), Course.Diagram("Bad Name.png", alt, "")],
+                           ["nobody"])]
+    u = Course.Unit("99-x", "x", "core", "base", "ready", "s", String[], String[], String[], String[], secs, Course.Problem[],
+                    [ref("raissi"), ref("Bad_ID"; url = "http://x.org", year = 0), ref("uncited")])
+    probs = Course.enrichment_problems(u, dir)
+    has(s) = any(contains(s), probs)
+    @test has("say where it breaks down")                  # every analogy names its limit
+    @test has("no file course/diagrams/99-x/missing.svg")
+    @test has("alt text must describe")
+    @test has("kebab-case .svg")
+    @test has("unused.svg is not used")
+    @test has("cites 'nobody'")
+    @test has("'uncited': no section cites it")
+    @test has("public https link") && has("kebab-case") && has("year must be given")
+    @test !any(p -> occursin("'raissi'", p) || occursin("ok.svg", p) || occursin("'s' analogy", p), probs)
+    # SVGs are served as files: nothing active, nothing fetched from elsewhere
+    @test isempty(Course.svg_problems(good))
+    for bad in ("<script>alert(1)</script>", "<rect onclick=\"x()\"/>", "<image href=\"https://x/y.png\"/>",
+                "<a href=\"https://evil.example\">x</a>", "<foreignObject/>", "<style>@import 'x.css';</style>",
+                "<rect style=\"fill:url(https://x/y)\"/>", "<a href=\"javascript:x()\">x</a>")
+        @test !isempty(Course.svg_problems(replace(good, "</svg>" => bad * "</svg>")))
+    end
+    @test any(contains("viewBox"), Course.svg_problems("<svg><title>t</title></svg>"))
+    # the shipped course passes, and the site gets what the course has
+    units = Course.load_course()
+    @test all(isempty, [Course.enrichment_problems(u) for u in units])
+    site = Dict(x["id"] => x for x in SiteData.course_data()["units"])
+    for u in units
+        @test length(site[u.id]["references"]) == length(u.references)
+        @test sum(length(s["diagrams"]) for s in site[u.id]["sections"]; init = 0) == sum(length(s.diagrams) for s in u.sections; init = 0)
+        @test sum(length(s["analogies"]) for s in site[u.id]["sections"]; init = 0) == sum(length(s.analogies) for s in u.sections; init = 0)
+    end
+    @test length(SiteData.course_diagrams()) == sum(length(s.diagrams) for u in units for s in u.sections; init = 0)
+end
+
 @testset "example notices: shown under the output, exported to the site" begin
     @test Course.Example("1", true, "c", "repl").notice == ""                  # optional
     exs = [e for s in SiteData.course_data()["units"] for sec in s["sections"] for e in sec["examples"]]

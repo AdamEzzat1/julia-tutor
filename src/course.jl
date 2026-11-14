@@ -199,12 +199,53 @@ struct Question
     misconceptions::Vector{String}  # one per choice; "" for the right one
 end
 
+"""
+An analogy shown beside a section's prose, for readers new to the field.
+`breaks` is required: where the analogy stops matching the mathematics, so
+the picture never replaces the definition it illustrates.
+"""
+struct Analogy
+    title::String
+    text::String
+    breaks::String
+end
+
+"""
+A hand-drawn SVG diagram, `course/diagrams/<unit>/<file>`. `alt` describes
+what the diagram shows in words (for screen readers, and as a check that the
+picture says something the prose can state).
+"""
+struct Diagram
+    file::String
+    alt::String
+    caption::String
+end
+
+"""
+A published source: a paper, book or official documentation page that a
+unit cites. `url` must be public (https); `note` says what in the unit it
+supports, in the unit's own words.
+"""
+struct Reference
+    id::String
+    authors::String
+    title::String
+    venue::String
+    year::Int
+    url::String
+    note::String
+end
+
 struct Section
     title::String
     body::String
     examples::Vector{Example}
     questions::Vector{Question}
+    analogies::Vector{Analogy}
+    diagrams::Vector{Diagram}
+    refs::Vector{String}          # ids of the unit's references this section rests on
 end
+Section(title, body, examples, questions) = Section(title, body, examples, questions, Analogy[], Diagram[], String[])
 
 struct Perf
     args::String         # Julia expression(s) for the arguments, with `rng` and `n` in scope
@@ -335,7 +376,10 @@ struct Unit
     lessons::Vector{String}  # predict-the-output lessons (lessons/*.toml) that go with this unit
     sections::Vector{Section}
     problems::Vector{Problem}
+    references::Vector{Reference}
 end
+Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems) =
+    Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems, Reference[])
 
 getstr(d, k, default = "") = String(get(d, k, default))
 
@@ -747,11 +791,16 @@ function load_unit(path::String)
                                  load_checkpoint(get(e, "choose", nothing)), load_breakit(get(e, "breakit", nothing)),
                                  load_explorer(get(e, "explore", nothing)))
                          for e in get(s, "example", Any[])],
-                        [load_question(q) for q in get(s, "question", Any[])]) for s in get(d, "section", Any[])]
+                        [load_question(q) for q in get(s, "question", Any[])],
+                        [Analogy(getstr(a, "title"), getstr(a, "text"), getstr(a, "breaks")) for a in get(s, "analogy", Any[])],
+                        [Diagram(getstr(g, "file"), getstr(g, "alt"), getstr(g, "caption")) for g in get(s, "diagram", Any[])],
+                        String.(get(s, "refs", String[]))) for s in get(d, "section", Any[])]
+    refs = [Reference(getstr(r, "id"), getstr(r, "authors"), getstr(r, "title"), getstr(r, "venue"),
+                      Int(get(r, "year", 0)), getstr(r, "url"), getstr(r, "note")) for r in get(d, "reference", Any[])]
     return Unit(d["id"], d["title"], d["track"], getstr(d, "env", "base"), getstr(d, "status", "ready"),
                 d["summary"], String.(get(d, "kcs", String[])), String.(get(d, "prerequisites", String[])),
                 String.(get(d, "outline", String[])), String.(get(d, "lessons", String[])), sections,
-                [load_problem(p) for p in get(d, "problem", Any[])])
+                [load_problem(p) for p in get(d, "problem", Any[])], refs)
 end
 
 """All units in syllabus order (file names start with a sortable number)."""
@@ -1521,6 +1570,8 @@ function unit_prose(u::Unit)
     out = Tuple{String,String}[("summary", u.summary)]
     for s in u.sections
         push!(out, ("'$(s.title)'", s.title * "\n" * strip_code(s.body)))
+        append!(out, [("'$(s.title)' analogy", strip_code(join([a.title, a.text, a.breaks], "\n"))) for a in s.analogies])
+        append!(out, [("'$(s.title)' diagram", strip_code(g.alt * "\n" * g.caption)) for g in s.diagrams])
         append!(out, [("'$(s.title)' caption", e.caption * "\n" * e.notice) for e in s.examples])
         for e in s.examples
             p = e.predict
@@ -1549,6 +1600,7 @@ function unit_prose(u::Unit)
             push!(out, ("'$(s.title)' question", strip_code(txt)))
         end
     end
+    append!(out, [("reference $(r.id)", r.note) for r in u.references])
     for p in u.problems
         push!(out, (p.id, strip_code(join(vcat(p.title, p.prompt, p.hints, [v.label for v in p.variants]), "\n"))))
         b = p.bug
@@ -1574,6 +1626,75 @@ function prose_problems(u::Unit)
                 push!(out, "$(u.id) $where: filler phrase \"$w\"")
         end
         occursin('—', txt) && push!(out, "$(u.id) $where: em dash (use a colon, comma or parentheses)")
+    end
+    return out
+end
+
+"""Where a unit's hand-drawn diagrams live."""
+diagrams_dir(u::Unit, dir::String = COURSE_DIR) = joinpath(dir, "diagrams", u.id)
+
+# An SVG diagram is shown with <img>, which never runs its scripts, but the file
+# is also served as-is: refuse anything active or anything fetched from elsewhere.
+const SVG_FORBIDDEN = [r"<script"i, r"<foreignObject"i, r"\son\w+\s*="i, r"(href|src)\s*=\s*[\"'](?!#)"i,
+                       r"javascript:"i, r"<image"i, r"@import"i, r"url\(\s*[\"']?(?!#)"i, r"<!ENTITY"i]
+
+"""Problems in an SVG diagram's text (empty when it is safe to serve and shows something)."""
+function svg_problems(txt::AbstractString)
+    out = String[]
+    occursin(r"<svg[\s>]", txt) || push!(out, "not an SVG document")
+    occursin(r"viewBox\s*="i, txt) || push!(out, "no viewBox (it must scale to the column)")
+    occursin(r"<title[\s>]", txt) || push!(out, "no <title> element")
+    for r in SVG_FORBIDDEN
+        occursin(r, txt) && push!(out, "contains $(r.pattern) (no scripts, handlers, external links or images)")
+    end
+    sizeof(txt) <= 64_000 || push!(out, "larger than 64 kB")
+    return out
+end
+
+const REF_ID = r"^[a-z][a-z0-9-]*$"
+
+"""Checks on a unit's analogies, diagrams and references (Phase 5b)."""
+function enrichment_problems(u::Unit, dir::String = COURSE_DIR)
+    out = String[]
+    ids = [r.id for r in u.references]
+    for r in u.references
+        occursin(REF_ID, r.id) || push!(out, "$(u.id) reference '$(r.id)': id must be lowercase kebab-case")
+        count(==(r.id), ids) == 1 || push!(out, "$(u.id) reference '$(r.id)': duplicate id")
+        for (k, v) in (("authors", r.authors), ("title", r.title), ("venue", r.venue), ("note", r.note))
+            isempty(strip(v)) && push!(out, "$(u.id) reference '$(r.id)': no $k")
+        end
+        1600 <= r.year <= 2100 || push!(out, "$(u.id) reference '$(r.id)': year must be given")
+        occursin(r"^https://[^\s]+$", r.url) || push!(out, "$(u.id) reference '$(r.id)': url must be a public https link")
+        any(s -> r.id in s.refs, u.sections) || push!(out, "$(u.id) reference '$(r.id)': no section cites it")
+    end
+    files = String[]
+    for s in u.sections
+        for id in s.refs
+            id in ids || push!(out, "$(u.id) '$(s.title)': cites '$id', which is not in the unit's references")
+        end
+        for a in s.analogies
+            isempty(strip(a.text)) && push!(out, "$(u.id) '$(s.title)' analogy: no text")
+            length(strip(a.breaks)) >= 20 ||
+                push!(out, "$(u.id) '$(s.title)' analogy: say where it breaks down (`breaks`, a sentence or more)")
+        end
+        for g in s.diagrams
+            push!(files, g.file)
+            occursin(r"^[a-z0-9][a-z0-9-]*\.svg$", g.file) ||
+                push!(out, "$(u.id) '$(s.title)' diagram: file must be a kebab-case .svg name")
+            length(strip(g.alt)) >= 40 ||
+                push!(out, "$(u.id) '$(s.title)' diagram $(g.file): alt text must describe the picture (40+ characters)")
+            path = joinpath(diagrams_dir(u, dir), g.file)
+            if isfile(path)
+                append!(out, ["$(u.id) diagram $(g.file): $m" for m in svg_problems(read(path, String))])
+            else
+                push!(out, "$(u.id) diagram $(g.file): no file course/diagrams/$(u.id)/$(g.file)")
+            end
+        end
+    end
+    allunique(files) || push!(out, "$(u.id): a diagram is used twice")
+    d = diagrams_dir(u, dir)
+    for f in (isdir(d) ? readdir(d) : String[])
+        f in files || push!(out, "$(u.id): course/diagrams/$(u.id)/$f is not used by any section")
     end
     return out
 end
@@ -1613,6 +1734,7 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
         end
         isempty(u.sections) && push!(problems, "$(u.id): no sections")
         append!(problems, prose_problems(u))
+        append!(problems, enrichment_problems(u, dir))
         append!(problems, question_balance_problems(u))
         for s in u.sections, e in s.examples
             isempty(strip(e.code)) && push!(problems, "$(u.id): empty example in '$(s.title)'")

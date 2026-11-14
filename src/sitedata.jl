@@ -130,6 +130,20 @@ function course_figures()
     return out
 end
 
+"""
+Hand-drawn diagrams (course/diagrams/<unit>/<file>.svg) as site paths =>
+bytes; `tutor site-data` copies them to site/assets/diagrams/.
+"""
+function course_diagrams()
+    root = joinpath(Course.COURSE_DIR, "diagrams")
+    out = Pair{String,Vector{UInt8}}[]
+    isdir(root) || return out
+    for u in sort!(readdir(root)), f in sort!(readdir(joinpath(root, u)))
+        push!(out, "assets/diagrams/$u/$f" => read(joinpath(root, u, f)))
+    end
+    return out
+end
+
 """Exact package versions of a pinned course environment, from its Manifest."""
 function env_packages(env::String)
     dir = Course.env_dir(env)
@@ -207,7 +221,12 @@ function course_data()
                                  "choices" => q.choices, "answer" => q.answer, "explain" => strip(q.explain),
                                  "misconceptions" => q.misconceptions) for q in s.questions]
             push!(sections, Dict("title" => s.title, "body" => strip(s.body), "examples" => examples,
-                                 "questions" => questions))
+                                 "questions" => questions,
+                                 "analogies" => Any[Dict("title" => a.title, "text" => strip(a.text), "breaks" => strip(a.breaks))
+                                                    for a in s.analogies],
+                                 "diagrams" => Any[Dict("src" => "assets/diagrams/$(u.id)/$(g.file)", "alt" => strip(g.alt),
+                                                        "caption" => strip(g.caption)) for g in s.diagrams],
+                                 "refs" => s.refs))
         end
         problems = Any[Dict("id" => p.id, "title" => p.title, "difficulty" => p.difficulty, "kcs" => p.kcs,
                             "prompt" => strip(p.prompt), "entry" => p.entry, "starter" => p.starter,
@@ -226,7 +245,9 @@ function course_data()
                         "course" => get(cidx, u.id, nothing),
                         "status" => u.status, "summary" => strip(u.summary), "kcs" => u.kcs,
                         "prerequisites" => Course.prereq_unit.(u.prerequisites), "outline" => u.outline, "lessons" => u.lessons,
-                        "sections" => sections, "problems" => problems))
+                        "sections" => sections, "problems" => problems,
+                        "references" => Any[Dict("id" => r.id, "authors" => r.authors, "title" => r.title, "venue" => r.venue,
+                                                 "year" => r.year, "url" => r.url, "note" => strip(r.note)) for r in u.references]))
     end
     envs = sort!(unique([u.env for u in units]))
     return Dict("julia" => string(VERSION), "generated_by" => "tutor site-data (do not edit; regenerate)",
