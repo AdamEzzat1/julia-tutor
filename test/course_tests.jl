@@ -371,6 +371,11 @@ end
         @test !isempty(Course.svg_problems(replace(good, "</svg>" => bad * "</svg>")))
     end
     @test any(contains("viewBox"), Course.svg_problems("<svg><title>t</title></svg>"))
+    # not well-formed XML shows as a broken image: a bare < or & is refused, entities are not
+    withtext(t) = replace(good, "</svg>" => "<text>$t</text></svg>")
+    @test any(contains("bare '<'"), Course.svg_problems(withtext("Re hλ < 0")))
+    @test any(contains("bare '&'"), Course.svg_problems(withtext("A & B")))
+    @test isempty(Course.svg_problems(withtext("Re hλ &lt; 0 &amp; &#955; &#x3bb;")))
     # the shipped course passes, and the site gets what the course has
     units = Course.load_course()
     @test all(isempty, [Course.enrichment_problems(u) for u in units])

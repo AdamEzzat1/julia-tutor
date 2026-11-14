@@ -1648,6 +1648,15 @@ function svg_problems(txt::AbstractString)
         occursin(r, txt) && push!(out, "contains $(r.pattern) (no scripts, handlers, external links or images)")
     end
     sizeof(txt) <= 64_000 || push!(out, "larger than 64 kB")
+    # A browser shows nothing for an SVG that is not well-formed XML. Catch the
+    # two slips hand-written text makes: a bare `<` (write `&lt;`) and a bare
+    # `&` (write `&amp;`).
+    for m in eachmatch(r"<(?![A-Za-z/!?])", txt)
+        push!(out, "bare '<' at byte $(m.offset) (not well-formed XML; write &lt;)")
+    end
+    for m in eachmatch(r"&(?!(?:[A-Za-z][A-Za-z0-9]*|#[0-9]+|#x[0-9A-Fa-f]+);)", txt)
+        push!(out, "bare '&' at byte $(m.offset) (not well-formed XML; write &amp;)")
+    end
     return out
 end
 
