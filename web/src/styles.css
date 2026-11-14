@@ -506,6 +506,21 @@ body.quarto-dark {
 }
 
 /* Parsons problems: lines keep their indentation; the fixed lines are muted. */
+.jt-explore { margin: 0.6rem 0 0; padding: 0.7rem 0.8rem; border: 1px solid var(--jt-rule); border-radius: var(--jt-radius); background: var(--jt-panel-2); }
+.jt-explore-controls { display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; margin: 0.5rem 0; }
+.jt-explore-slider { display: flex; flex-direction: column; gap: 0.2rem; min-width: 12rem; flex: 1 1 12rem; font-size: 0.85rem; }
+.jt-explore-slider input { width: 100%; accent-color: var(--jt-ink-2); }
+.jt-explore-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; font-size: 0.85rem; }
+.jt-explore-readout { font-size: 0.88rem; margin: 0.3rem 0; }
+.jt-explore-plot { width: 100%; max-width: 640px; height: auto; display: block; margin: 0.4rem 0; }
+.jt-explore-plot text { font-family: var(--jt-mono); font-size: 10px; fill: var(--jt-muted); }
+.jt-explore-plot text.axis { font-family: var(--jt-sans); font-size: 11px; fill: var(--jt-ink-2); }
+.jt-explore-plot .grid { stroke: var(--jt-rule); stroke-width: 1; }
+.jt-explore-plot .sel { fill: none; stroke: var(--jt-ink); stroke-width: 2; }
+.jt-explore tr[aria-current="true"] td { font-weight: 600; }
+.jt-explore-legend { display: flex; flex-wrap: wrap; gap: 0.2rem 1rem; font-size: 0.8rem; color: var(--jt-muted); margin-top: 0.4rem; }
+.jt-explore-legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
+.jt-explore-legend span.current { color: var(--jt-ink); font-weight: 600; }
 .jt-parsons { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0.9rem; margin: 0.6rem 0; }
 @media (max-width: 760px) { .jt-parsons { grid-template-columns: minmax(0, 1fr); } }
 .jt-parsons h4 { margin: 0 0 0.35rem; font-size: 0.82rem; font-family: var(--jt-sans); color: var(--jt-muted); font-weight: 600; }

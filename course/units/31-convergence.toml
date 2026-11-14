@@ -118,6 +118,52 @@ println("100 steps:     error ", round(e100; sigdigits = 2))
 println("100000 steps:  error more than 1000 times the h^4 prediction: ", e100k > 1000 * predicted)
 '''
 
+  [[section.example]]
+  caption = "The three methods again, as a grid: the error at `t = 2` for six step sizes from `0.4` to `0.0125`, each halving the last. The smallest step stops where RK4's error is still far above the rounding floor, so every printed digit is the same on any CPU."
+  notice = "Notice that on log-log axes the three lines straighten as `h` shrinks, with slopes near 1, 2 and 4, and that RK4's slope at the coarse end is far from 4 on both sides (the `C h^p` model holds for small `h`)."
+  code = '''
+f(t, u) = -u + sin(t)
+exact(t) = 1.5exp(-t) + (sin(t) - cos(t)) / 2
+euler(f, t, u, h) = u + h * f(t, u)
+heun(f, t, u, h) = (k1 = f(t, u); k2 = f(t + h, u + h * k1); u + h / 2 * (k1 + k2))
+function rk4(f, t, u, h)
+    k1 = f(t, u); k2 = f(t + h / 2, u + h / 2 * k1)
+    k3 = f(t + h / 2, u + h / 2 * k2); k4 = f(t + h, u + h * k3)
+    return u + h / 6 * (k1 + 2k2 + 2k3 + k4)
+end
+function integrate(step, n; T = 2.0)
+    h = T / n; u = 1.0
+    for i in 0:n-1
+        u = step(f, i * h, u, h)
+    end
+    return u
+end
+for (name, step) in (("Euler", euler), ("Heun", heun), ("RK4", rk4)), n in (5, 10, 20, 40, 80, 160)
+    err = abs(integrate(step, n) - exact(2.0))
+    println(rpad(name, 6), "h = ", rpad(2.0 / n, 7), "error = ", round(err; sigdigits = 2))
+end
+'''
+
+    [section.example.explore]
+    kc = "convergence-order"
+    prompt = "Pick a method and move `h`. Each step halves `h`: by what factor does each method's error shrink? Read the slope shown with each point, and find the step sizes where RK4's slope is furthest from 4."
+    row = '(?<method>\S+) +h = (?<h>\S+) +error = (?<err>\S+)'
+    measure = "err"
+    label = "error at t = 2"
+    log = true
+    x = "h"
+    series = "method"
+    explain = "Halving `h` divides the error by about `2^p`: 2 for Euler, 4 for Heun, 16 for RK4, which is the slope `p` on log-log axes. RK4's slope is about 7.3 between `h = 0.4` and `h = 0.2`, then 2.8 between `0.2` and `0.1`, and only then settles: 3.3, 3.7, 3.9. At coarse steps the higher terms of its error are not small, and they can add to the leading term or cancel it, so one coarse pair can read above or below the true order. An order is read from the small-`h` end of the plot."
+
+      [[section.example.explore.axis]]
+      group = "method"
+      label = "method"
+
+      [[section.example.explore.axis]]
+      group = "h"
+      label = "step size h"
+      log = true
+
   [[section.question]]
   kind = "output"
   prompt = "Halving the step divided the error from `1.6e-3` to `1.0e-4`. What does this print?"

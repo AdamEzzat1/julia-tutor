@@ -679,6 +679,7 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
     append!(problems, Course.prediction_key_problems(u, rec))
     append!(problems, Course.checkpoint_key_problems(u, rec))   # on the fresh run: checked even for check = false
     append!(problems, Course.breakit_key_problems(u, rec))
+    append!(problems, Course.explorer_key_problems(u, rec))
     append!(problems, breakit_probe_problems(u, rec; log))
     grade_variants || return problems
     append!(problems, bug_problems(u; log))

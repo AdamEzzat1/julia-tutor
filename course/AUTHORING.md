@@ -330,6 +330,65 @@ found are counted per knowledge component in the browser.
 * An example carries one of a prediction, a checkpoint or a break-it
   challenge.
 
+## Precomputed explorers
+
+**Learning purpose.** Some results are a surface rather than a number: an
+error against the step size for three methods, a growth factor against a
+stability number on three grids. A table of 60 rows is hard to read, and
+the static site cannot run Julia. An explorer puts a slider on each axis
+of a grid that the example's output already recorded, shows the value at
+the chosen point exactly as it was printed, and plots the measure against
+one axis. It is labelled "precomputed by the reference; run it yourself
+with tutor serve": the example's "Edit and run" box runs the same code at
+other values. Nothing is scored or stored.
+
+```toml
+    [section.example.explore]
+    kc = "convergence-order"               # one of the unit's kcs
+    prompt = "Pick a method and move `h`. ..."   # what to try with the sliders
+    row = '(?<method>\S+) +h = (?<h>\S+) +error = (?<err>\S+)'   # a named group per axis, and the measure's
+    measure = "err"                        # the measured group
+    label = "error at t = 2"               # what the measure is
+    log = true                             # the measure on a log scale (values must not be negative)
+    x = "h"                                # the axis on the plot's horizontal (numbers, at least 3 values)
+    series = "method"                      # optional: one line per value of this axis
+    explain = "..."                        # shown under the explorer
+
+      [[section.example.explore.axis]]     # 1 to 3 axes, in the order the controls are shown
+      group = "method"
+      label = "method"                     # an axis of words gets buttons, in the order the output prints them
+
+      [[section.example.explore.axis]]
+      group = "h"
+      label = "step size h"
+      log = true                           # numbers get a slider, sorted ascending
+```
+
+* **The grid is the output.** Every line that `row` matches is a point. The
+  matched lines must form a full grid: every combination of the axes' values
+  exactly once, at most 400 points, each axis with at least 2 values, the
+  measure a number (`Inf` and `NaN` count; the site draws what the scale can
+  hold and the table shows the rest). `verify` checks this on the recorded
+  output, and `tutor site-data` exports only a grid that passes.
+* The example must have `check = true`, so `verify` compares every printed
+  value. Keep the grid where the digits are the same on every CPU: `sum`'s
+  `@simd` blocks and values near the rounding floor (`exp` and `sin` use
+  `muladd`, a fused multiply-add on some CPUs only) can move the last digits.
+  Unit 31's grid stops at `h = 0.0125` for this reason, and unit 30's writes
+  pairwise summation out instead of calling `sum`.
+* Print each axis value one way only (`0.1`, not sometimes `0.10`), and
+  round the measure to the digits the explanation needs. `@printf "%.3g"`
+  avoids the binary representation error that `round(x; sigdigits = 3)`
+  shows on large numbers (`9.360000000000001e44`).
+* **Every number in `prompt`, `notice` and `explain` is measured.** When both
+  the x axis and the measure are on log scales, the site also shows the
+  slope between the chosen point and its neighbour, computed from the printed
+  values. Check the prose against that slope: a claim such as "the slope is
+  below 4 at coarse steps" has to be the one the grid shows.
+* An explorer may follow a prediction on the same example (the explorer
+  appears with the output, once the prediction is committed), but not a
+  checkpoint or a break-it challenge, which are grids of their own.
+
 ## Practice problems
 
 ```toml
