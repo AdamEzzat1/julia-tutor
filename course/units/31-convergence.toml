@@ -957,3 +957,116 @@ function rk4_solve(f, y0, T, n)
 end
 '''
   expect = ["correct"]
+
+[[problem]]
+id = "conv-midpoint-parsons"
+title = "Parsons: the explicit midpoint method, in order"
+difficulty = "warm-up"
+kcs = ["convergence-order"]
+entry = "midpoint_solve"
+packages = ["StableRNGs"]   # nothing needed; [] would load the whole scicomp env
+prompt = '''
+`midpoint_solve(f, y0, T, n)` advances `y' = f(t, y)` from `y(0) = y0` to
+`t = T` in `n` steps of the explicit midpoint method, a second-order
+Runge-Kutta method: take a half Euler step to the middle of the step, and use
+the slope there for the whole step.
+
+Put the lines in an order that works. The signature, `h = T / n` and the last
+two lines are fixed. Each line keeps its indentation, and the indentation
+must match the blocks your order creates. Two of the lines on offer are
+wrong: leave them out. More than one order works; the feedback tells you
+when yours is one of them.
+
+```julia
+midpoint_solve((t, y) -> -y + cos(t), 1.0, 1.0, 10)   # 0.87465; the exact y(1) is 0.87483
+```
+
+Every order that works was found by running all of them on the cases. Results
+are compared with `rtol = 1e-12`.
+'''
+reference = '''
+function midpoint_solve(f, y0, T, n)
+    h = T / n
+    t = 0.0
+    y = float(y0)
+    for k in 1:n
+        k1 = f(t, y)
+        k2 = f(t + h / 2, y + h / 2 * k1)
+        y += h * k2
+        t += h
+    end
+    return y
+end
+'''
+cases = [
+  "(t, y) -> -y, 1.0, 1.0, 10",
+  "(t, y) -> -y + cos(t), 1.0, 1.0, 10",
+  "(t, y) -> t * y, 1.0, 2.0, 40",
+]
+compare = "isapprox"
+# rtol: every working order performs the same operations on the same values, so results agree to the
+# last bit; 1e-12 leaves room for a hand-written solution that groups `h / 2 * k1` differently (a few eps
+# per step over 40 steps). A wrong order or a distractor changes y(T) by more than 1e-4 on these cases.
+rtol = 1e-12
+hints = [
+  "Within one step, which slope needs which? And which update must wait until both slopes of the step are known?",
+  "`k2` uses `k1`, and both use the time and state at the start of the step, so both updates (`y += ...` and `t += h`) come after them. Do those two updates depend on each other?",
+]
+
+  [problem.parsons]
+  kc = "convergence-order"
+  head = 2
+  tail = 2
+
+  [[problem.parsons.distractor]]
+  line = "        y += h * k1"
+  replaces = 6
+  misconception = '''
+This is the Euler step: it uses the slope at the start, and `k2` is computed
+but never used. The method drops to first order. The belief it models: the
+midpoint stage is a check on the step, while the step itself still uses the
+first slope.
+'''
+
+  [[problem.parsons.distractor]]
+  line = "        k2 = f(t + h / 2, y + h * k1)"
+  replaces = 5
+  misconception = '''
+The state passed to `f` is a full Euler step, `y + h k1`, while the time is
+the middle of the step. A slope must be evaluated at one point: time and
+state from the same place. A full-step state belongs with `t + h` (that is
+Heun's predictor); with `t + h / 2` the method loses its second order.
+'''
+
+  [[problem.variant]]
+  label = "time advanced before the second slope"
+  code = '''
+function midpoint_solve(f, y0, T, n)
+    h = T / n
+    t = 0.0
+    y = float(y0)
+    for k in 1:n
+        k1 = f(t, y)
+        t += h
+        k2 = f(t + h / 2, y + h / 2 * k1)
+        y += h * k2
+    end
+    return y
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "time from the step index, half step as 0.5h"
+  code = '''
+function midpoint_solve(f, y0, T, n)
+    h = T / n
+    y = float(y0)
+    for k in 0:n-1
+        t = k * h
+        y += h * f(t + 0.5h, y + 0.5h * f(t, y))
+    end
+    return y
+end
+'''
+  expect = ["correct"]

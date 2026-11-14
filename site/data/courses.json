@@ -220,8 +220,8 @@
         "scicomp"
       ],
       "estimate": {
-        "basis": "30–60 min per ready unit (13), 10–25 min per practice problem (41), 2–4 h per guided project (0), 4–8 h per hole project (1); guessed rates, not measured",
-        "high_hours": 39,
+        "basis": "30–60 min per ready unit (13), 10–25 min per practice problem (44), 2–4 h per guided project (0), 4–8 h per hole project (1); guessed rates, not measured",
+        "high_hours": 40,
         "low_hours": 17
       },
       "guided": [],
@@ -300,7 +300,7 @@
           "text": "Carry a problem through all eight steps of the method with little scaffolding, in a report whose numbers are checked."
         }
       ],
-      "problems": 41,
+      "problems": 44,
       "projects": [
         "odeint"
       ],

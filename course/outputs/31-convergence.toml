@@ -41,6 +41,9 @@ output = """t = 20.0, Tsit5\n   reltol 0.0001  error 0.00056   error/reltol 5.6 
 ok = true
 output = """0.4\n"""
 
+[parsons]
+conv-midpoint-parsons = ["1 2 3 4 5 6 7 8", "1 2 3 4 5 7 6 8", "2 1 3 4 5 6 7 8", "2 1 3 4 5 7 6 8"]
+
 [[samples.conv-heun-euler-step]]
 call = "heun_euler_step((t, u) -> -u, 0.0, [1.0], 0.1, 1e-6, 1e-3)"
 result = "(false, [1.0], 0.040269343178154754)"
@@ -56,6 +59,16 @@ result = "(false, [0.001, 2.0], 0.0002)"
 [[samples.conv-heun-euler-step]]
 call = "heun_euler_step((t, u) -> zero(u), 0.0, [3.0, 4.0], 0.1, 1e-6, 1e-6)"
 result = "(true, [3.0, 4.0], 0.5)"
+
+[[samples.conv-midpoint-parsons]]
+call = "midpoint_solve((t, y) -> -y, 1.0, 1.0, 10)"
+result = "0.36854098483355185"
+[[samples.conv-midpoint-parsons]]
+call = "midpoint_solve((t, y) -> -y + cos(t), 1.0, 1.0, 10)"
+result = "0.8746461070522393"
+[[samples.conv-midpoint-parsons]]
+call = "midpoint_solve((t, y) -> t * y, 1.0, 2.0, 40)"
+result = "7.368842682642525"
 
 [[samples.conv-observed-order]]
 call = "observed_order([0.1, 0.05, 0.025], [1e-2, 2.5e-3, 6.25e-4])"

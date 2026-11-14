@@ -501,6 +501,80 @@ the reference's line and the misconception are shown. On the command line,
 `tutor practice <id> file.jl` prints the test table, and `--hints=N` shows the
 first N hints.
 
+### Parsons problems
+
+A Parsons problem gives the lines of a kernel shuffled, plus a few wrong
+lines, and asks for a working order. It sits between reading a worked example
+and writing the code: the learner makes the decisions that matter (which
+update waits for which value, what starts the accumulator, which loop is
+inside which) without typing syntax. Pick kernels where the *order* is the
+concept: Kahan's correction must be measured before `s` is overwritten; a
+stage needs the previous stage's slope.
+
+```toml
+[[problem]]
+id = "fp-kahan-parsons"
+entry = "kahan_sum"
+reference = '''
+function kahan_sum(x)      # head = 1: fixed
+    s = 0.0                # the movable lines, in a working order
+    ...
+    end
+    return s               # tail = 2: fixed
+end
+'''
+cases = ["fill(0.1, 10)", "..."]
+compare = "isequal"
+
+  [problem.parsons]
+  kc = "floating-point-rounding"
+  head = 1
+  tail = 2
+
+  [[problem.parsons.distractor]]
+  line = "        c = t - (s + y)"    # indented like the line it can replace
+  replaces = 6                         # 1-based, among the movable lines
+  misconception = "..."
+```
+
+**Which orders work is measured, not typed.** `tutor course record` runs every
+arrangement in one fresh process in the unit's env: one of each line or its
+distractor, every order, with equal texts (two `end` lines) tried once.
+Indentation is part of each line and must match the block structure (4 spaces
+per level, read by `Course.parsons_depth`), so most orders are rejected before
+they are parsed; the rest are parsed, and those that parse are run
+(interpreted, each in a new module) on the problem's cases and compared with
+the reference as the grader would. The working orders are stored under
+`parsons` in the unit's outputs file. `verify` re-runs the enumeration and
+fails when the set changes, when the reference's own order is not in it, or
+when any working order contains a distractor (then it is not a mistake).
+
+The rules (`Course.parsons_problems`):
+
+* The starter is generated (the fixed lines with a gap); remove `starter`.
+* 3 to 8 movable lines, at most 3 distractors; no blank lines, no tabs, no
+  movable `while` (an order could loop forever). The head must open the
+  function.
+* Each distractor has a misconception, replaces a different line, and is
+  indented like that line, so indentation alone does not give it away.
+* `compare` is `isequal` or `isapprox`, with at least two explicit cases and
+  no `gen`; every order runs on those cases only.
+* The usual problem rules hold too (an `incorrect` variant, a correct one in
+  another style): the grader still grades a whole file.
+
+Feedback is the same on the site and the command line
+(`Course.parsons_feedback`, `web/src/parsons.ts`): a distractor shows its
+misconception; a wrong number of lines says how many; otherwise the longest
+prefix that starts some working order. More than one order may work (two
+initialisations that do not depend on each other); the feedback says how many
+were measured. Hints open after the first check. The site needs no server to
+check an order; once it works, `tutor serve` can grade the whole program. On
+the command line, `tutor practice <id>` lists the lines with letters and
+`--order=c,e,a,...` checks an order.
+
+Measured on Windows (plain processes, 2026-11-13): the three course problems'
+enumerations take 2.5 to 7.4 s each.
+
 ## Style
 
 * Teach one idea per section; show it, then say what to notice in the output.
