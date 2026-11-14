@@ -864,3 +864,165 @@ function heat_residual(U, dx, dt, κ)
 end
 '''
   expect = ["correct", "allocates"]
+
+[[problem]]
+id = "pde-poisson-find-the-bug"
+title = "Find the bug: a Poisson solver that converges too slowly"
+difficulty = "core"
+kcs = ["finite-differences", "boundary-conditions"]
+entry = "poisson_dirichlet"
+packages = ["SparseArrays"]
+prompt = '''
+`poisson_dirichlet(f, n)` should solve `-u'' = f(x)` on `0 < x < 1` with
+`u(0) = u(1) = 0`, using the second difference on `n` equally spaced interior
+points, and return the vector of the `n` values `u(x_1), ..., u(x_n)`. The
+code in the editor runs, its answers look like the solution, and they get closer
+to the true solution as `n` grows. One line is wrong.
+
+Find it and fix it; change nothing else. The convergence tests measure the
+observed order of the maximum error, check that a solution of a symmetric
+problem is symmetric, and check a problem the second difference solves
+exactly. Run them and compare what passes with what fails.
+
+```julia
+poisson_dirichlet(x -> pi^2 * sinpi(x), 9)   # close to sinpi.((1:9) ./ 10)
+```
+
+Results are compared with `rtol = 1e-8`.
+'''
+reference = '''
+using SparseArrays
+
+function poisson_dirichlet(f, n)
+    dx = 1 / (n + 1)
+    x = [i * dx for i in 1:n]
+    A = spdiagm(-1 => fill(-1.0, n - 1), 0 => fill(2.0, n), 1 => fill(-1.0, n - 1)) / dx^2
+    return A \ f.(x)
+end
+'''
+cases = [
+  "x -> pi^2 * sinpi(x), 9",
+  "x -> 1.0, 20",
+  "x -> 12x^2, 50",
+  "x -> exp(x), 3",
+]
+compare = "isapprox"
+# rtol: the matrix has condition number about 4 (n + 1)^2 / pi^2 (2.6e3 at n = 50); a correct solver
+# that factors it differently (a dense or a tridiagonal solve) agrees to that times eps, about 1e-12.
+# 1e-8 leaves a wide margin; the planted error is off by at least 4% (2/n at n = 50).
+rtol = 1e-8
+hints = [
+  "The error still shrinks, but too slowly, and a symmetric problem gets a lopsided answer. Something about where the unknowns sit, and the scale of every equation, is off. Which quantity sets both?",
+  "With `n` interior points and the two boundary points, how many gaps are there between 0 and 1?",
+]
+
+  [problem.bug]
+  kc = "boundary-conditions"
+  find = "dx = 1 / (n + 1)"
+  replace = "dx = 1 / n"
+  answer_tokens = ["(n + 1)"]
+  misconception = '''
+The planted line divides the interval into `n` gaps, as if the `n` points were
+all the points. With two boundary points held at zero there are `n + 2`
+points and `n + 1` gaps. The belief it models: "n points, so the spacing is
+1/n", an off-by-one that ignores the boundary. The grid then ends at
+`x = 1` with an unknown where the boundary value should be, every equation is
+scaled by the wrong `dx^2`, and the error falls like `1/n`, not `1/n^2`. The
+last unknown sits on the right boundary while the first sits one gap inside
+the left one, so the two ends are treated differently: the symmetry test
+measured an asymmetry of about 1%. The values still look like a plausible
+solution and still improve with `n`, so a plot alone rarely shows it.
+'''
+
+  [[problem.bug.test]]
+  name = "observed order of the maximum error on -u'' = pi^2 sin(pi x)"
+  # expect: the second difference has truncation error h^2 u''''/12, so the max error is C h^2; on
+  # n = 9 ... 159 the fit gives 2.00, and the smallest error (3.2e-5) is far above rounding
+  # (cond about 1e4 times eps). An error of order 1 measures 1.0, so 1.8 to 2.2 separates them.
+  code = '''
+let ns = [9, 19, 39, 79, 159]
+    errs = [(x = (1:n) ./ (n + 1); maximum(abs.(poisson_dirichlet(x -> pi^2 * sinpi(x), n) .- sinpi.(x)))) for n in ns]
+    a = log.(1 ./ (ns .+ 1)); z = log.(errs)
+    p = sum((a .- sum(a) / 5) .* (z .- sum(z) / 5)) / sum((a .- sum(a) / 5) .^ 2)
+    println("observed order: ", round(p; digits = 2))
+end
+'''
+  row = '^observed order: (?<m>\S+)$'
+  expect = [1.8, 2.2]
+  explain = '''
+The slope of log(maximum error) against log(grid spacing) as the grid is
+refined, measured against the exact solution at the interior grid points. The second difference is
+second order, so this should be about 2. A slope near 1 means the error has a
+part that shrinks only like `1/n`: something is wrong on every grid, not
+just on coarse ones.
+'''
+
+  [[problem.bug.test]]
+  name = "symmetry: a symmetric problem has a symmetric solution"
+  # expect: for f(x) = x (1 - x), symmetric about 1/2, the discrete solution satisfies u_i = u_{n+1-i}
+  # in exact arithmetic; at n = 50 the solve rounds at about cond * eps, 1e-12 relative to max |u|.
+  code = '''
+let n = 50
+    u = poisson_dirichlet(x -> x * (1 - x), n)
+    println("asymmetry: ", maximum(abs.(u .- reverse(u))) / maximum(abs.(u)))
+end
+'''
+  row = '^asymmetry: (?<m>\S+)$'
+  expect = [0.0, 1e-9]
+  explain = '''
+The largest difference between `u` and `u` reversed, relative to the largest
+value. A large number means the boundary conditions are not applied the same
+way at the two ends.
+'''
+
+  [[problem.bug.test]]
+  name = "exact on a quadratic: -u'' = 2 has u = x (1 - x)"
+  # expect: the second difference is exact on quadratics, so the discrete solution equals x (1 - x) at
+  # the grid points up to rounding (about 1e-12 relative at n = 9); anything above 1e-9 is an error.
+  code = '''
+let n = 9
+    x = (1:n) ./ (n + 1)
+    u = poisson_dirichlet(x -> 2.0, n)
+    println("max relative error: ", maximum(abs.(u .- x .* (1 .- x))) / maximum(x .* (1 .- x)))
+end
+'''
+  row = '^max relative error: (?<m>\S+)$'
+  expect = [0.0, 1e-9]
+  explain = '''
+For this problem the second difference has no truncation error, so the
+discrete solution should equal `x (1 - x)` at the interior grid points to
+rounding. An error here is not discretization error: the system itself, or
+where its unknowns sit, is off.
+'''
+
+  [problem.perf]
+  args = "x -> sinpi(x), n"
+  sizes = [20000]
+
+  [[problem.variant]]
+  label = "the sign of the matrix flipped: solves u'' = f"
+  code = '''
+using SparseArrays
+
+function poisson_dirichlet(f, n)
+    dx = 1 / (n + 1)
+    x = [i * dx for i in 1:n]
+    A = spdiagm(-1 => fill(1.0, n - 1), 0 => fill(-2.0, n), 1 => fill(1.0, n - 1)) / dx^2
+    return A \ f.(x)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a Tridiagonal matrix from LinearAlgebra and a range for the grid"
+  code = '''
+using LinearAlgebra
+
+function poisson_dirichlet(f, n)
+    h = 1 / (n + 1)
+    x = range(h, step = h, length = n)
+    A = Tridiagonal(fill(-1 / h^2, n - 1), fill(2 / h^2, n), fill(-1 / h^2, n - 1))
+    return A \ f.(x)
+end
+'''
+  expect = ["correct"]

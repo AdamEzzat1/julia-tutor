@@ -521,6 +521,78 @@
           ],
           "starter": "function node_rhs(u, ps)\n    # hidden layer, then output layer, as Lux's Dense computes them\nend\n",
           "title": "A neural-ODE right-hand side from given weights"
+        },
+        {
+          "bug": {
+            "fixed": "λ *= 1 - 2h * θ * u",
+            "kc": "adjoint-method",
+            "misconception": "The planted line multiplies `λ` by `1 + 2hθu`, the derivative of a step of\n`u' = +θ u^2`, while the forward pass takes steps of `u' = -θ u^2`. The\nbelief it models: the adjoint runs \"the dynamics backward\", so the sign in\nfront of the right-hand side can be flipped when going back. What the backward\npass needs is the transpose of the forward step's Jacobian, `∂u_{k+1}/∂u_k =\n1 - 2hθu_k`, with its sign exactly as in the forward step. With the wrong\nfactor, `λ` grows where it should decay, and the gradient is off by a factor\nof about 19 here. The Taylor test exposes it without knowing the right\nanswer: with a correct gradient the remainder falls like `ε^2`, with any\nwrong one like `ε`.",
+            "planted": "λ *= 1 + 2h * θ * u",
+            "tests": [
+              {
+                "code": "let θ = 1.3, u0 = 1.0, h = 0.05, N = 40, target = 0.1\n    loss(th) = (u = u0; for _ in 1:N; u -= h * th * u^2; end; (u - target)^2 / 2)\n    g = euler_loss_gradient(θ, u0, h, N, target)\n    εs = [0.1 / 2^k for k in 0:4]\n    rs = [abs(loss(θ + ε) - loss(θ) - ε * g) for ε in εs]\n    x = log.(εs); z = log.(rs)\n    p = sum((x .- sum(x) / 5) .* (z .- sum(z) / 5)) / sum((x .- sum(x) / 5) .^ 2)\n    println(\"remainder order: \", round(p; digits = 2))\nend",
+                "expect": [
+                  1.8,
+                  2.2
+                ],
+                "explain": "If `g` is the true derivative, the remainder `L(θ + ε) - L(θ) - ε g` is the\nsecond-order term of the Taylor series and falls like `ε^2` (order 2). An\norder near 1 means a first-order term is left over: `g` is not the\nderivative of this loss. The loss here is computed by the test itself, with\nthe same forward steps.",
+                "name": "Taylor test: order of the remainder L(θ + ε) - L(θ) - ε g",
+                "row": "^remainder order: (?<m>\\S+)$"
+              },
+              {
+                "code": "let θ = 1.3, u0 = 1.0, h = 0.05, N = 40, target = 0.1, ε = 1e-6\n    loss(th) = (u = u0; for _ in 1:N; u -= h * th * u^2; end; (u - target)^2 / 2)\n    g = euler_loss_gradient(θ, u0, h, N, target)\n    fd = (loss(θ + ε) - loss(θ - ε)) / (2ε)\n    println(\"relative difference: \", abs(g - fd) / abs(fd))\nend",
+                "expect": [
+                  0.0,
+                  1.0e-6
+                ],
+                "explain": "`|g - fd| / |fd|`, where `fd` is the central difference of the same loss with\n`ε = 1e-6`. A correct gradient agrees to about 1e-9 here; a difference of\norder 1 means the gradient is wrong, by more than rounding or truncation\ncould explain.",
+                "name": "relative difference from a central difference",
+                "row": "^relative difference: (?<m>\\S+)$"
+              }
+            ]
+          },
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "euler_loss_gradient",
+          "hints": [
+            "The Taylor remainder shrinks like ε, not ε², so the gradient is wrong, not just imprecise; the forward pass, which the loss also uses, is not where to look. In the backward pass, which update could change the result's sign or size this much?",
+            "Differentiate one forward step, `u_{k+1} = u_k - h θ u_k^2`, with respect to `u_k`. Compare that derivative with the factor `λ` is multiplied by."
+          ],
+          "id": "adj-find-the-bug",
+          "kcs": [
+            "adjoint-method",
+            "reverse-mode"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              100000
+            ]
+          },
+          "prompt": "`euler_loss_gradient(θ, u0, h, N, target)` should return `dL/dθ` for\n\n    L(θ) = (u_N - target)^2 / 2,    u_{k+1} = u_k - h θ u_k^2,\n\n`N` forward-Euler steps of `u' = -θ u^2` from `u_0 = u0`, computed with the\ndiscrete adjoint: a forward pass that stores the states, then a backward pass\nthat carries `λ_k = dL/du_k` from `λ_N = u_N - target` down to `λ_0` and\ncollects `λ_{k+1} ∂u_{k+1}/∂θ` on the way. The code in the editor runs and\nreturns a number of a plausible size. One line is wrong.\n\nFind it and fix it; change nothing else. The convergence tests measure the\ngradient two ways that need no adjoint: a Taylor test (how fast\n`L(θ + ε) - L(θ) - ε g` shrinks as `ε` does) and a comparison with a central\ndifference.\n\n```julia\neuler_loss_gradient(1.3, 1.0, 0.05, 40, 0.1)   # about -0.02653\n```\n\nResults are compared with `rtol = 1e-10`.",
+          "random_cases": false,
+          "rtol": 1.0e-10,
+          "samples": [
+            {
+              "call": "euler_loss_gradient(1.3, 1.0, 0.05, 40, 0.1)",
+              "result": "-0.026531639422565124"
+            },
+            {
+              "call": "euler_loss_gradient(0.5, 2.0, 0.01, 200, 1.0)",
+              "result": "0.298921729076063"
+            },
+            {
+              "call": "euler_loss_gradient(2.0, 0.5, 0.1, 5, 0.0)",
+              "result": "-0.019879338189313416"
+            },
+            {
+              "call": "euler_loss_gradient(1.0, 1.0, 0.2, 1, 0.3)",
+              "result": "-0.1"
+            }
+          ],
+          "starter": "function euler_loss_gradient(θ, u0, h, N, target)\n    us = Vector{Float64}(undef, N + 1)\n    us[1] = u0\n    for k in 1:N\n        us[k+1] = us[k] - h * θ * us[k]^2\n    end\n    λ = us[N+1] - target          # dL/du_N\n    g = 0.0\n    for k in N:-1:1\n        u = us[k]\n        g += λ * (-h * u^2)       # λ_{k+1} ∂u_{k+1}/∂θ\n        λ *= 1 + 2h * θ * u       # λ_k = λ_{k+1} ∂u_{k+1}/∂u_k\n    end\n    return g\nend\n",
+          "title": "Find the bug: an adjoint gradient that points the wrong way"
         }
       ],
       "sections": [
