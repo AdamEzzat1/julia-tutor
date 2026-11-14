@@ -4169,12 +4169,12 @@
             {
               "caption": "Ten dimensions: Nelder-Mead against LBFGS.",
               "check": true,
-              "code": "using Optim, ForwardDiff\nad = Optim.ADTypes.AutoForwardDiff()\nxrosen(x) = sum(100 * (x[i+1] - x[i]^2)^2 + (1 - x[i])^2 for i in 1:length(x)-1)\nx0 = fill(-1.0, 10)\nnm = optimize(xrosen, x0, NelderMead())\nlb = optimize(xrosen, x0, LBFGS(); autodiff = ad)\nfor (name, res) in [(\"Nelder-Mead\", nm), (\"LBFGS\", lb)]\n    println(rpad(name, 12), \"converged = \", Optim.converged(res), \", iterations = \", Optim.iterations(res),\n            \", f(x) = \", round(Optim.minimum(res); digits = 2))\nend",
+              "code": "using Optim, ForwardDiff\nad = Optim.ADTypes.AutoForwardDiff()\nxrosen(x) = sum(100 * (x[i+1] - x[i]^2)^2 + (1 - x[i])^2 for i in 1:length(x)-1)\nx0 = fill(-1.0, 10)\nnm = optimize(xrosen, x0, NelderMead())\nlb = optimize(xrosen, x0, LBFGS(); autodiff = ad)\n# LBFGS's exact count moves by one or two with the CPU's floating-point paths,\n# so it is printed as a bound; Nelder-Mead stops at the budget.\niters(n) = n >= 1000 ? \"1000 (the budget)\" : n < 100 ? \"fewer than 100\" : string(n)\nfor (name, res) in [(\"Nelder-Mead\", nm), (\"LBFGS\", lb)]\n    println(rpad(name, 12), \"converged = \", Optim.converged(res), \", iterations = \", iters(Optim.iterations(res)),\n            \", f(x) = \", round(Optim.minimum(res); digits = 2))\nend",
               "images": [],
               "mode": "repl",
               "notice": "",
               "ok": true,
-              "output": "Nelder-Mead converged = false, iterations = 1000, f(x) = 1.87\nLBFGS       converged = true, iterations = 78, f(x) = 0.0\n"
+              "output": "Nelder-Mead converged = false, iterations = 1000 (the budget), f(x) = 1.87\nLBFGS       converged = true, iterations = fewer than 100, f(x) = 0.0\n"
             },
             {
               "caption": "A box that excludes the unconstrained minimum: the answer sits on the bound x₁ = 0.5.",
