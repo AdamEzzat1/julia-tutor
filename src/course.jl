@@ -176,6 +176,43 @@ struct Variant
     expect::Vector{String}   # verdicts the grader must give (see VARIANT_EXPECT)
 end
 
+"""
+A convergence test of a find-the-bug problem: Julia source appended to the
+learner's code (it calls the entry function), run in a fresh process, that
+prints one line matched by `row` (a regex with a named group `m`, the measured
+number). The test passes when `expect[1] <= m <= expect[2]`. `explain` is the
+measured feedback shown when it fails: what the measurement means, never
+where the error is.
+"""
+struct BugTest
+    name::String                     # shown in the table ("observed order on y' = -y + cos t")
+    code::String
+    row::String
+    expect::Tuple{Float64,Float64}   # inclusive; derived in a comment next to it in the unit
+    explain::String
+end
+
+"""
+Find the bug (Phase 5): a plausible solver with one planted error. The
+starter is not written by hand: it is the reference with `find` replaced by
+`replace`, which must occur exactly once and change exactly one line, so the
+learner fixes one line of otherwise correct code. The convergence tests are
+measured: `tutor course verify` requires every test to pass on the reference
+and at least one to fail on the planted starter. Hints fade: first the
+failing tests and what each measures, then the problem's `hints` one at a
+time; `answer_tokens` (pieces of the fix) may not appear in a test's text or
+the first hint. Once the learner's code passes the grader, `misconception`
+says what belief the planted line models.
+"""
+struct Bug
+    kc::String
+    find::String
+    replace::String
+    tests::Vector{BugTest}
+    misconception::String
+    answer_tokens::Vector{String}
+end
+
 struct Problem
     id::String
     title::String
@@ -198,7 +235,16 @@ struct Problem
     threads::Int             # Julia threads for grading (1; more for problems about threads)
     repeats::Int             # times each case runs: >1 catches data races
     packages::Vector{String} # packages loaded for cases/gen/checker; empty = every package of the env
+    bug::Union{Nothing,Bug}  # find the bug: the starter is the reference with one planted error
 end
+Problem(id, title, difficulty, kcs, prompt, entry, starter, reference, cases, gen, compare, checker, rtol,
+        check_type, compare_args, hints, perf, variants, threads, repeats, packages) =
+    Problem(id, title, difficulty, kcs, prompt, entry, starter, reference, cases, gen, compare, checker, rtol,
+            check_type, compare_args, hints, perf, variants, threads, repeats, packages, nothing)
+
+"""The reference with the planted error (the starter of a find-the-bug problem); `nothing` unless `find` occurs once."""
+plant(reference::AbstractString, b::Bug) =
+    isempty(b.find) || count(b.find, reference; overlap = true) != 1 ? nothing : replace(reference, b.find => b.replace)
 
 struct Unit
     id::String
@@ -235,13 +281,106 @@ function load_problem(d)
     perf = haskey(d, "perf") ?
         Perf(d["perf"]["args"], Int.(d["perf"]["sizes"]), get(d["perf"], "mutates", false)) : nothing
     variants = [Variant(v["label"], v["code"], String.(v["expect"])) for v in get(d, "variant", Any[])]
+    bug = load_bug(get(d, "bug", nothing))
+    reference = d["reference"]
+    # A find-the-bug starter is generated from the reference; a hand-written one
+    # (or a `find` that does not occur once) leaves a starter that validation rejects.
+    starter = bug === nothing ? d["starter"] :
+              haskey(d, "starter") ? BUG_STARTER_GIVEN : something(plant(reference, bug), "")
     return Problem(d["id"], d["title"], d["difficulty"], String.(get(d, "kcs", String[])), d["prompt"],
-                   d["entry"], d["starter"], d["reference"], String.(get(d, "cases", String[])),
+                   d["entry"], starter, reference, String.(get(d, "cases", String[])),
                    getstr(d, "gen"), getstr(d, "compare", "isequal"), getstr(d, "checker"), Float64(get(d, "rtol", 1e-8)),
                    get(d, "check_type", true), get(d, "compare_args", false),
                    String.(get(d, "hints", String[])), perf, variants,
-                   Int(get(d, "threads", 1)), Int(get(d, "repeats", 1)), String.(get(d, "packages", String[])))
+                   Int(get(d, "threads", 1)), Int(get(d, "repeats", 1)), String.(get(d, "packages", String[])), bug)
 end
+
+const BUG_STARTER_GIVEN = "# a find-the-bug problem's starter is generated from the reference: remove `starter`\n"
+
+function load_bug(b)
+    b === nothing && return nothing
+    tests = BugTest[]
+    for t in get(b, "test", Any[])
+        e = get(t, "expect", Any[])
+        expect = length(e) == 2 && all(x -> x isa Real, e) ? (Float64(e[1]), Float64(e[2])) : (NaN, NaN)
+        push!(tests, BugTest(getstr(t, "name"), getstr(t, "code"), getstr(t, "row"), expect, getstr(t, "explain")))
+    end
+    return Bug(getstr(b, "kc"), getstr(b, "find"), getstr(b, "replace"), tests, getstr(b, "misconception"),
+               String.(get(b, "answer_tokens", String[])))
+end
+
+"""The line numbers (1-based) where two texts differ, or `nothing` when their line counts differ."""
+function changed_lines(a::AbstractString, b::AbstractString)
+    la, lb = split(a, '\n'), split(b, '\n')
+    length(la) == length(lb) || return nothing
+    return [i for i in eachindex(la) if la[i] != lb[i]]
+end
+
+"""Structural problems of a find-the-bug problem (no Julia run needed)."""
+function bug_problems(p::Problem, kcs)
+    b = p.bug
+    out = String[]
+    b.kc in kcs || push!(out, "kc '$(b.kc)' is not one of the unit's KCs")
+    p.starter == BUG_STARTER_GIVEN && push!(out, "the starter is generated from the reference: remove `starter`")
+    n = isempty(b.find) ? 0 : count(b.find, p.reference; overlap = true)
+    n == 1 || push!(out, "`find` must occur exactly once in the reference (found $n times)")
+    b.find == b.replace && push!(out, "`replace` equals `find`: nothing is planted")
+    if n == 1 && b.find != b.replace
+        ch = changed_lines(p.reference, plant(p.reference, b))
+        ch !== nothing && length(ch) == 1 ||
+            push!(out, "the planted error must change exactly one line of the reference (one error, one line to fix)")
+    end
+    isempty(strip(b.misconception)) && push!(out, "no misconception (what belief the planted line models)")
+    isempty(b.answer_tokens) && push!(out, "no answer_tokens (pieces of the fix that the first hint and the tests may not show)")
+    for tok in b.answer_tokens
+        occursin(tok, b.find) || push!(out, "answer token \"$tok\" is not part of the fix (`find`)")
+        occursin(tok, b.replace) && push!(out, "answer token \"$tok\" also appears in the planted line, so it cannot give the fix away")
+    end
+    isempty(p.hints) && push!(out, "no hints (they fade in after the measured tests)")
+    length(b.tests) >= 1 || push!(out, "no convergence tests")
+    names = Set{String}()
+    for (i, t) in enumerate(b.tests)
+        w = "test $i"
+        isempty(t.name) && push!(out, "$w: no name")
+        t.name in names && push!(out, "$w: duplicate name '$(t.name)'")
+        push!(names, t.name)
+        isempty(strip(t.code)) && push!(out, "$w: no code")
+        isempty(strip(t.explain)) && push!(out, "$w: no explain (shown when it fails)")
+        lo, hi = t.expect
+        isfinite(lo) && isfinite(hi) && lo < hi || push!(out, "$w: expect must be two finite numbers, low then high")
+        re = try
+            Regex(t.row)
+        catch err
+            push!(out, "$w: row is not a valid regex ($(sprint(showerror, err)))"); nothing
+        end
+        re !== nothing && !has_group(re, "m") && push!(out, "$w: row needs a named group `m` (the measured number)")
+        # Level-1 feedback is the tests' text: it may say what is measured, never the fix.
+        for tok in b.answer_tokens
+            for (what, txt) in (("name", t.name), ("explain", t.explain))
+                occursin(tok, txt) && push!(out, "$w: the $what contains the answer token \"$tok\"")
+            end
+        end
+    end
+    for tok in b.answer_tokens
+        !isempty(p.hints) && occursin(tok, p.hints[1]) && push!(out, "the first hint contains the answer token \"$tok\"")
+    end
+    return out
+end
+
+"""The measured value of a test from its output: `nothing` unless exactly one line matches `row`."""
+function bug_test_value(t::BugTest, output::AbstractString)
+    re = try Regex(t.row) catch; return nothing end
+    ms = [m for m in (match(re, l) for l in split(output, '\n')) if m !== nothing]
+    length(ms) == 1 || return nothing
+    v = tryparse(Float64, something(ms[1]["m"], ""))
+    return v
+end
+
+"""Whether a test's measured value passes (`nothing`: the run gave no reading, a fail)."""
+bug_test_passes(t::BugTest, v) = v !== nothing && !isnan(v) && t.expect[1] <= v <= t.expect[2]
+
+"""The code a convergence test runs: the learner's code, then the test."""
+bug_test_code(code::AbstractString, t::BugTest) = rstrip(code) * "\n\n" * t.code
 
 # Git on Windows may check files out with CRLF; example keys hash the code, so
 # normalise line endings or Windows and Linux would disagree.
@@ -978,6 +1117,10 @@ function unit_prose(u::Unit)
     end
     for p in u.problems
         push!(out, (p.id, strip_code(join(vcat(p.title, p.prompt, p.hints, [v.label for v in p.variants]), "\n"))))
+        b = p.bug
+        b === nothing ||
+            push!(out, ("$(p.id) find the bug", strip_code(join(vcat(b.misconception, [t.name for t in b.tests],
+                                                                     [t.explain for t in b.tests]), "\n"))))
     end
     return out
 end
@@ -1077,6 +1220,7 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
             for v in p.variants, x in v.expect
                 x in VARIANT_EXPECT || push!(problems, "$(p.id)/$(v.label): unknown expectation '$x'")
             end
+            p.bug === nothing || append!(problems, ["$(p.id) find the bug: $m" for m in bug_problems(p, u.kcs)])
         end
     end
     return problems

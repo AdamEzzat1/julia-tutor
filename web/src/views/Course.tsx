@@ -6,8 +6,9 @@ import { Markdown, md } from "../components/Markdown";
 import { ConnectPanel, Output, RunBox, ServerPill, useDraft } from "../components/Runner";
 import {
   course, courseById, estimateText, landingHref, questionState, statusNote, TRACK_BLURB, TRACK_LABEL, trackRequirement, unitNumber,
-  type CourseInfo, type Example, type Problem, type Question, type Unit,
+  type Bug, type CourseInfo, type Example, type Problem, type Question, type Unit,
 } from "../course";
+import { bugRates, bugTestCode, bumpBug, hintsOpen, reading, unitBugs, type BugReading, type BugRecord } from "../findbug";
 import { predictionKey, predictionRates, settlePrediction, unitPredictionKeys, type PredictionRecord } from "../predict";
 import { choiceRates, costText, MAX_REASON, reasonOk, settleChoice, unitChoiceKeys, type ChoiceRecord } from "../choose";
 import { breakRates, juliaNumber, parseValue, probeCode, readProbe, settleBreak, sweepWith, unitBreakKeys, type BreakRecord } from "../breakit";
@@ -73,6 +74,9 @@ export function CourseView() {
   // A break-it edge too: the first committed value is kept.
   const broke = (key: string, r: BreakRecord) =>
     setProgress((s) => s.breaks[key] ? s : saveProgress({ ...s, breaks: { ...s.breaks, [key]: r } }));
+  // A find-the-bug record counts test runs and hints until it is fixed, then freezes.
+  const bugged = (pid: string, what: "run" | "hint" | "fixed") =>
+    setProgress((s) => saveProgress({ ...s, bugs: { ...s.bugs, [pid]: bumpBug(s.bugs[pid], what) } }));
 
   return (
     <div className="jt-split jt-course" ref={top}>
@@ -110,7 +114,7 @@ export function CourseView() {
         {unit === null ? <Overview c={active} progress={progress} go={go} /> :
           <UnitPage key={unit.id} unit={unit} problemId={problemId} progress={progress}
             openProblem={(p) => { setProblemId(p); writeParams(unit.id, p, active.id); }} onSolved={solved}
-            onAnswered={answered} onPredicted={predicted} onChose={chose} onBroke={broke} go={go} />}
+            onAnswered={answered} onPredicted={predicted} onChose={chose} onBroke={broke} onBug={bugged} go={go} />}
       </div>
     </div>
   );
@@ -143,6 +147,7 @@ function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: 
       <PredictionRates c={c} progress={progress} />
       <ChoiceRates c={c} progress={progress} />
       <BreakRates c={c} progress={progress} />
+      <BugRates c={c} progress={progress} />
       <div className="jt-tracks">
         {tracks.map((t) => {
           const units = course.units.filter((u) => u.course === c.id && u.track === t);
@@ -174,7 +179,7 @@ function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: 
   );
 }
 
-function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, onPredicted, onChose, onBroke, go }: {
+function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, onPredicted, onChose, onBroke, onBug, go }: {
   unit: Unit;
   problemId: string | null;
   progress: Progress;
@@ -184,8 +189,11 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
   onPredicted: (key: string, r: PredictionRecord) => void;
   onChose: (key: string, r: ChoiceRecord) => void;
   onBroke: (key: string, r: BreakRecord) => void;
+  onBug: (pid: string, what: "run" | "hint" | "fixed") => void;
   go: (u: string) => void;
 }) {
+  const bugs = unitBugs(unit);
+  const bugsFixed = bugs.filter((p) => progress.bugs[p.id]?.fixed);
   const pkeys = unitPredictionKeys(unit);
   const pmade = pkeys.filter((k) => progress.predictions[k]?.pick);
   const phits = pmade.filter((k) => progress.predictions[k].hit);
@@ -248,6 +256,11 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               break it: {bmade.length}/{bkeys.length}{bmade.length ? ` · ${bfound.length} found` : ""}
             </span>
           )}
+          {bugs.length > 0 && (
+            <span className="jt-chip" title="Find-the-bug problems fixed in this browser: the grader and every convergence test passed on the same code">
+              find the bug: {bugsFixed.length}/{bugs.length} fixed
+            </span>
+          )}
         </div>
       </header>
 
@@ -300,7 +313,8 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               </button>
             ))}
           </div>
-          {problem && <ProblemPanel key={problem.id} p={problem} onSolved={(r) => onSolved(problem.id, r)} />}
+          {problem && <ProblemPanel key={problem.id} p={problem} env={unit.env} onSolved={(r) => onSolved(problem.id, r)}
+            bugRecord={progress.bugs[problem.id] ?? null} onBug={(what) => onBug(problem.id, what)} />}
         </section>
       )}
 
@@ -740,28 +754,144 @@ function QuestionBlock({ q, number, total, onSettled }: {
   );
 }
 
-function ProblemPanel({ p, onSolved }: { p: Problem; onSolved: (r: GradeResult) => void }) {
+/** Find-the-bug problems fixed per knowledge component, over the ones worked on in this browser. */
+function BugRates({ c, progress }: { c: CourseInfo; progress: Progress }) {
+  const units = course.units.filter((u) => u.course === c.id);
+  const total = units.reduce((n, u) => n + unitBugs(u).length, 0);
+  if (total === 0) return null;
+  const rates = bugRates(progress.bugs, units);
+  return (
+    <section className="jt-panel jt-pad" aria-labelledby="jt-bug-rates">
+      <div className="jt-eyebrow">Find the bug</div>
+      <h3 id="jt-bug-rates" style={{ marginTop: "0.25rem" }}>Your fixes, by knowledge component</h3>
+      <p className="jt-small" style={{ maxWidth: "50rem" }}>
+        {total} practice problems in this course start from a solver with one planted error. A problem counts as fixed
+        when the grader and every convergence test pass on the same code; hints are counted up to the fix. The record
+        stays in this browser.
+      </p>
+      {rates.length === 0 ? <p className="jt-small jt-muted">No find-the-bug problem started yet.</p> : (
+        <table className="jt-table jt-small">
+          <thead><tr><th scope="col">Knowledge component</th><th scope="col">Fixed</th><th scope="col">Hints used on those</th></tr></thead>
+          <tbody>
+            {rates.map((r) => <tr key={r.kc}><td><code>{r.kc}</code></td><td>{r.fixed} of {r.total}</td><td>{r.hints}</td></tr>)}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+/** The convergence tests' measurements on the learner's code, with what each failing one measures. */
+function BugTests({ bug, readings, errors }: { bug: Bug; readings: BugReading[]; errors: string[] }) {
+  const failing = bug.tests.filter((_, i) => !readings[i]?.passed);
+  return (
+    <div className={`jt-callout ${failing.length ? "mis" : "ok"}`} aria-live="polite">
+      <span className="tag">{failing.length ? `${failing.length} of ${bug.tests.length} tests fail` : "Every test passes"}</span>
+      <div>
+        <table className="jt-table jt-small" style={{ margin: "0 0 0.4rem" }}>
+          <caption className="jt-muted" style={{ textAlign: "left", captionSide: "top" }}>Convergence tests on the code in the editor</caption>
+          <thead><tr><th scope="col">Test</th><th scope="col">Measured</th><th scope="col">A correct solver</th><th scope="col" /></tr></thead>
+          <tbody>
+            {bug.tests.map((t, i) => {
+              const r = readings[i];
+              return (
+                <tr key={t.name}>
+                  <td>{md(t.name)}</td>
+                  <td>{r?.value === null || r === undefined ? (errors[i] || "no reading") : String(r.value)}</td>
+                  <td>{t.expect[0]} to {t.expect[1]}</td>
+                  <td>{r?.passed ? "pass" : "fail"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {failing.map((t) => <div key={t.name} style={{ marginTop: "0.3rem" }}><strong>{md(t.name)}:</strong> {md(t.explain)}</div>)}
+        <details className="jt-small" style={{ marginTop: "0.4rem" }}>
+          <summary>The tests' code (each runs after yours, in a fresh Julia)</summary>
+          {bug.tests.map((t) => <Code key={t.name} src={t.code} />)}
+        </details>
+      </div>
+    </div>
+  );
+}
+
+/** Once fixed: the planted line next to the reference's, and the belief it models. */
+function BugFixed({ bug, record }: { bug: Bug; record: BugRecord }) {
+  return (
+    <div className="jt-callout ok">
+      <span className="tag">Fixed</span>
+      <div>
+        <div className="jt-small">
+          The grader and every convergence test passed on the same code, after {record.runs} test
+          run{record.runs === 1 ? "" : "s"} and {record.hints} hint{record.hints === 1 ? "" : "s"}. The planted line was
+        </div>
+        <Code src={bug.planted} />
+        <div className="jt-small">and the reference has</div>
+        <Code src={bug.fixed} />
+        <div style={{ marginTop: "0.3rem" }}>{md(bug.misconception)}</div>
+      </div>
+    </div>
+  );
+}
+
+function ProblemPanel({ p, env, onSolved, bugRecord, onBug }: {
+  p: Problem; env: string; onSolved: (r: GradeResult) => void;
+  bugRecord: BugRecord | null; onBug: (what: "run" | "hint" | "fixed") => void;
+}) {
   const [code, setCode] = useDraft(`problem/${p.id}`, p.starter);
   const { status } = useServer();
   const [result, setResult] = useState<GradeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [hints, setHints] = useState(0);
+  const [tests, setTests] = useState<{ readings: BugReading[]; errors: string[] } | null>(null);
   const connected = status.kind === "connected";
+  const canRunTests = connected && status.envs.includes(env);
+  const bug = p.bug;
+
+  // Every convergence test, one fresh run each, on `src`; returns whether all passed.
+  const runTests = async (src: string): Promise<boolean> => {
+    if (!bug) return false;
+    const readings: BugReading[] = [];
+    const errors: string[] = [];
+    for (const t of bug.tests) {
+      try {
+        const r = await runCode(bugTestCode(src, t), env);
+        readings.push(reading(t, r.output));
+        errors.push(r.ok ? "" : r.output.split("\n").find((l) => l.startsWith("ERROR")) ?? "the run ended with an error");
+      } catch (e) {
+        readings.push({ name: t.name, value: null, passed: false });
+        errors.push((e as Error).message);
+      }
+    }
+    setTests({ readings, errors });
+    onBug("run");
+    return readings.every((x) => x.passed);
+  };
 
   const grade = async () => {
     if (!connected || busy) return;
     setBusy(true); setError(null);
     try {
-      const r = await gradeCode(p.id, code);
+      const src = code;
+      const r = await gradeCode(p.id, src);
       setResult(r);
       if (r.status === "passed") onSolved(r);
+      // Fixed = the grader and every test pass on the same code.
+      if (bug && canRunTests && r.status === "passed" && await runTests(src)) onBug("fixed");
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   };
+  const testOnly = async () => {
+    if (!canRunTests || busy) return;
+    setBusy(true); setError(null);
+    try { await runTests(code); } finally { setBusy(false); }
+  };
+  const hintsReady = !bug || hintsOpen(bugRecord?.runs ?? 0, canRunTests);
+  const moreHint = () => { setHints((h) => h + 1); if (bug) onBug("hint"); };
 
   const how = p.compare === "isapprox" ? `isapprox (rtol ${p.rtol})` : "isequal";
   return (
@@ -770,6 +900,7 @@ function ProblemPanel({ p, onSolved }: { p: Problem; onSolved: (r: GradeResult) 
         <span className="jt-chip">{p.difficulty}</span>
         {p.kcs.map((k) => <span key={k} className="jt-chip kc">{k}</span>)}
         <span className="jt-chip info">define <code>{p.entry}</code></span>
+        {bug && <span className="jt-chip advice" title="The code in the editor is the reference with one line changed">find the bug: one line is wrong</span>}
       </div>
       <Markdown text={p.prompt} />
       {p.samples.length > 0 && (
@@ -793,19 +924,28 @@ function ProblemPanel({ p, onSolved }: { p: Problem; onSolved: (r: GradeResult) 
         <button className="jt-btn primary" disabled={!connected || busy} onClick={grade}>
           {busy ? "Grading…" : "Submit"} <span className="jt-kbd">Ctrl ⏎</span>
         </button>
+        {bug && (
+          <button className="jt-btn" disabled={!canRunTests || busy} onClick={testOnly}
+            title={canRunTests ? "Run every convergence test on the code in the editor" : `Needs tutor serve with the ${env} environment`}>
+            Run the convergence tests
+          </button>
+        )}
         {hints < p.hints.length && (
-          <button className="jt-btn ghost jt-small" onClick={() => setHints((h) => h + 1)}>
+          <button className="jt-btn ghost jt-small" disabled={!hintsReady} onClick={moreHint}
+            title={hintsReady ? undefined : "Run the convergence tests first: what they measure is the first hint"}>
             {hints === 0 ? "Show a hint" : "Another hint"} ({hints}/{p.hints.length})
           </button>
         )}
         {code !== p.starter && <button className="jt-btn ghost jt-small" onClick={() => setCode(p.starter)}>Back to the starter</button>}
       </div>
+      {bug && tests && <BugTests bug={bug} readings={tests.readings} errors={tests.errors} />}
       {p.hints.slice(0, hints).map((h, i) => (
         <div key={i} className="jt-callout hint"><span className="tag">Hint {i + 1}</span><div>{md(h)}</div></div>
       ))}
       {busy && <Output result={null} error={null} running />}
       {error && <Output result={null} error={error} running={false} />}
       {result && !busy && <Feedback r={result} />}
+      {bug && bugRecord?.fixed && <BugFixed bug={bug} record={bugRecord} />}
     </article>
   );
 }
