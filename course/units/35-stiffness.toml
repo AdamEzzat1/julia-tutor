@@ -151,6 +151,44 @@ for u in ([1.0, 0.0, 0.0], [0.9, 3.4e-5, 0.1], [0.5, 6e-6, 0.5])
 end
 '''
 
+  [[section.example]]
+  caption = "Forward Euler on `u' = λu` with the complex eigenvalue `λ = -3 + 4i`, 100 steps from `u = 1` at eight step sizes; the step's growth factor `|1 + hλ|` and the size of `u` at the end (rounded)."
+  notice = "Notice that `|u|` shrinks at every step up to `h = 0.23` and grows from `h = 0.25` on, and that the change sits where `|1 + hλ|` crosses 1, not at `2 / |λ| = 0.4`."
+  code = '''
+λ = -3.0 + 4.0im
+for h in (0.1, 0.2, 0.22, 0.23, 0.25, 0.26, 0.3, 0.4)
+    u = 1.0 + 0.0im
+    for _ in 1:100
+        u += h * λ * u
+    end
+    println("h = ", rpad(h, 5), "  |1 + hλ| = ", rpad(round(abs(1 + h * λ); digits = 3), 6),
+            "  |u| after 100 steps = ", round(abs(u); sigdigits = 3))
+end
+'''
+
+    [section.example.breakit]
+    kc = "stability"
+    prompt = "The exact solution of `u' = λu` with `λ = -3 + 4i` decays while it rotates. Find the largest step `h` at which forward Euler still makes `|u|` decay over 100 steps from `u = 1`. Work it out from the condition above, or try steps with the probe if a server is connected, then commit the edge."
+    param = "h"
+    measure = "|u| after 100 steps (from 1)"
+    row = 'h = (?<p>\S+) .*\|u\| after 100 steps = (?<m>\S+)'
+    fails = "above"
+    limit = 1.0
+    edge = [0.23, 0.25]
+    close = 1.25
+    probe = '''
+λ = -3.0 + 4.0im
+h = {{p}}
+u = 1.0 + 0.0im
+for _ in 1:100
+    u += h * λ * u
+end
+println("h = ", h, "  |1 + hλ| = ", round(abs(1 + h * λ); digits = 3), "  |u| after 100 steps = ", round(abs(u); sigdigits = 3))
+'''
+    explain = "With `λ = a + bi`, forward Euler multiplies `u` by `1 + hλ` at every step, and `|1 + hλ|^2 = (1 + ha)^2 + (hb)^2`. Setting it to 1 gives `h = -2a / (a^2 + b^2) = 6 / 25 = 0.24`, and the sweep changes between 0.23 and 0.25. A step of 0.25 has `|1 + hλ| = 1.031`: only 3% growth per step, but 100 steps compound it to about 20."
+    short = "At that step `|1 + hλ|` is still below 1, so `|u|` shrinks: the method works there. The edge is the step where `|1 + hλ|` reaches 1, which is longer."
+    past = "Forward Euler already grows there. If you used `2 / |λ| = 0.4`, that is the limit for a real eigenvalue of the same size: for a complex `λ` the stable steps fill a disk, and the imaginary part pulls the limit down to `-2a / |λ|^2 = 0.24`."
+
   [[section.question]]
   kind = "choice"
   prompt = "A linear system has Jacobian eigenvalues `-0.1` and `-5000`. After `t = 0.01` the fast mode has decayed to nothing. Which eigenvalue limits forward Euler's step for the rest of the solve?"

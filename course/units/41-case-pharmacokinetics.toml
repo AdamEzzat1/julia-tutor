@@ -376,6 +376,51 @@ end
 println("sums of squares equal to 1e-9 relative: ", isapprox(sse[1], sse[2]; rtol = 1e-9))
 '''
 
+  [[section.example]]
+  caption = "How well can the same 12 sample times and a 10% log error separate two exponential phases, `c(t) = A exp(-k1 t) + B exp(-k2 t)` with `A = B = 1` and `k1 = 0.5`, as the rate ratio `k2 / k1` shrinks? The standard errors `sqrt(σ² (JᵀJ)⁻¹)` of the four log parameters at the true values, with `σ = 0.1`; the largest of the four is printed (rounded). No data are simulated: this is the precision the design can give, before any fit."
+  notice = "Notice how fast the precision goes: the worst standard error is 0.35 at a ratio of 1.5, 0.54 at 1.4, and 21 at 1.1. Below a ratio of about 1.4 the two phases look like one, and the fit can trade amplitude and rate between them."
+  code = '''
+using LinearAlgebra
+tobs = [0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24]
+function worst_se(ρ; k1 = 0.5, σ = 0.1)
+    k2 = ρ * k1
+    e1, e2 = exp.(-k1 .* tobs), exp.(-k2 .* tobs)                   # A = B = 1
+    c = e1 .+ e2
+    J = hcat(e1 ./ c, e2 ./ c, -k1 .* tobs .* e1 ./ c, -k2 .* tobs .* e2 ./ c)   # ∂ log c / ∂ log(A, B, k1, k2)
+    return maximum(sqrt.(σ^2 .* diag(inv(J' * J))))
+end
+for ρ in (1.1, 1.2, 1.3, 1.4, 1.45, 1.5, 1.6, 1.8)
+    println("k2/k1 = ", rpad(ρ, 5), "  worst relative SE = ", round(worst_se(ρ); sigdigits = 3))
+end
+'''
+
+    [section.example.breakit]
+    kc = "parameter-identifiability"
+    prompt = "Call a parameter identified when its relative standard error is at most 0.5 (a 95% interval within about a factor of 2.7 either way; a convention, not a law). Find the rate ratio `k2 / k1` below which these 12 samples no longer identify all four parameters. Try ratios with the probe if a server is connected, then commit the edge."
+    param = "k2/k1"
+    measure = "worst relative SE of (A, B, k1, k2)"
+    row = 'k2/k1 = (?<p>\S+) +worst relative SE = (?<m>\S+)'
+    fails = "above"
+    limit = 0.5
+    edge = [1.4, 1.45]
+    close = 1.25
+    probe = '''
+using LinearAlgebra
+tobs = [0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24]
+function worst_se(ρ; k1 = 0.5, σ = 0.1)
+    k2 = ρ * k1
+    e1, e2 = exp.(-k1 .* tobs), exp.(-k2 .* tobs)
+    c = e1 .+ e2
+    J = hcat(e1 ./ c, e2 ./ c, -k1 .* tobs .* e1 ./ c, -k2 .* tobs .* e2 ./ c)
+    return maximum(sqrt.(σ^2 .* diag(inv(J' * J))))
+end
+ρ = {{p}}
+println("k2/k1 = ", ρ, "  worst relative SE = ", round(worst_se(ρ); sigdigits = 3))
+'''
+    explain = "Each column of `J` is how the log concentration moves with one parameter. As `k2` approaches `k1`, the columns for the two phases approach each other, `JᵀJ` approaches a singular matrix, and its inverse (the variances) grows without bound. The sweep changes between 1.4 and 1.45. This is a property of the design (the sample times and the noise), so it can be checked before any data exist. More samples, or less noise, move the edge to smaller ratios. The precision is lost the other way too: if the fast phase ends before the first sample, nothing measures it."
+    short = "At that ratio the two phases are still far enough apart: every relative standard error is below 0.5. The edge is at a smaller ratio, where the phases begin to look like one."
+    past = "The parameters are lost there, and already at larger ratios. Two rates do not need to be nearly equal to blur: with 12 samples and 10% noise, the precision goes long before `k2 / k1` reaches 1.1."
+
   [[section.question]]
   kind = "choice"
   prompt = "Two fits from different starts end with the same sum of squares to `1e-9` relative, `k_a = 2.3` in one and `k_a = 0.45` in the other, and the same `CL`. What should you report?"

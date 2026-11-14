@@ -151,6 +151,47 @@ println("double root at 1: x = ", d, ", error = ", round(abs(d - 1); sigdigits =
 '''
 
   [[section.example]]
+  caption = "Newton's method on `atan` by hand, 40 steps from nine start points. A run whose `|x|` passes `1e12` is stopped and reported as `Inf`: from there each step only grows."
+  notice = "Notice that every start up to `1.39` reaches the root exactly (`0.0`: near the root the error is cubed at each step), and every start from `1.395` on diverges. Nothing in between is half-converged: the start point decides."
+  code = '''
+function newton_atan(x, steps)
+    for _ in 1:steps
+        x -= (1 + x^2) * atan(x)        # the Newton step x - f(x) / f'(x)
+        abs(x) > 1e12 && return Inf     # diverged: the steps only grow from here
+    end
+    return abs(x)
+end
+for x0 in (0.5, 1.0, 1.3, 1.38, 1.39, 1.395, 1.4, 1.5, 2.0)
+    println("x0 = ", rpad(x0, 6), "  |x| after 40 steps = ", newton_atan(x0, 40))
+end
+'''
+
+    [section.example.breakit]
+    kc = "root-finding"
+    prompt = "Newton's method on `atan` converges from `x0 = 1` and diverges from `x0 = 2` (the example above). Find the start point `x0 > 0` beyond which it diverges. Reason about where the first step lands, or try start points with the probe if a server is connected, then commit the edge."
+    param = "x0"
+    measure = "|x| after 40 steps"
+    row = 'x0 = (?<p>\S+) +\|x\| after 40 steps = (?<m>\S+)'
+    fails = "above"
+    limit = 1.0
+    edge = [1.39, 1.395]
+    close = 1.1
+    probe = '''
+function newton_atan(x, steps)
+    for _ in 1:steps
+        x -= (1 + x^2) * atan(x)
+        abs(x) > 1e12 && return Inf
+    end
+    return abs(x)
+end
+x0 = {{p}}
+println("x0 = ", x0, "  |x| after 40 steps = ", newton_atan(x0, 40))
+'''
+    explain = "The Newton step for `atan` is `x - (1 + x^2) atan(x)`. Because `atan` is odd, a start whose first step lands exactly at `-x0` bounces between `x0` and `-x0` forever: that is the edge, the root of `2x = (1 + x^2) atan(x)`, at `x0 ≈ 1.3917`. Start inside it and each step lands closer to 0 than it started; start outside and each lands further out. The sweep changes between 1.39 and 1.395."
+    short = "From that start the first step lands closer to 0 than it started, and Newton converges. The edge is further out: where the first step lands exactly at `-x0`."
+    past = "Newton already diverges there, but it diverges from smaller starts too. Diverging from `x0 = 2` says nothing about where divergence begins: look for the start whose first step lands exactly at `-x0`."
+
+  [[section.example]]
   caption = "All zeros of sin(3x) - x/2 on [-3, 3]."
   code = '''
 using Roots

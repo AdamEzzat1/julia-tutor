@@ -88,6 +88,42 @@ end
 # could change verdict with a small drift in the counts; verify refuses it.
 const CHOICE_MARGIN = 1.5
 
+"""
+Break it (Phase 5): the learner looks for the value of a parameter (a step
+size, a start point, a rate ratio) where a method stops working, and commits
+that edge before the example's sweep is shown. Nothing is typed as a key: the
+example's output is a sweep, one line per parameter value, and `row` is a
+regex with named groups `p` (the value) and `m` (the measurement) matched on
+every line. The method *fails* at a value when `m > limit` (`fails =
+"above"`) or `m < limit` (`"below"`), or when `m` is NaN. Sorted by `p`, the
+sweep must change from working to failing exactly once, and the two values
+either side of that change are the measured edge, which must equal the
+declared `edge`; `tutor course verify` re-checks both on the fresh run (the
+example must have `check = true`). `probe` is the same computation at one
+value, with `{{p}}` where the value goes: the site runs it at the learner's
+value through `tutor serve`, and verify runs it at both ends of the edge and
+requires the first to work and the second to fail, so the probe and the
+sweep measure the same thing.
+"""
+struct BreakIt
+    kc::String
+    prompt::String
+    param::String                  # the parameter's name as the learner sees it ("h", "x0")
+    measure::String                # what `m` is, the table's column header ("|u| after 100 steps")
+    row::String                    # regex with named groups `p` and `m`, matched on every output line
+    fails::String                  # "above": failed when m > limit; "below": when m < limit
+    limit::Float64
+    edge::Tuple{Float64,Float64}   # declared: the swept values either side of the change, low then high
+    close::Float64                 # a committed value within this factor of the edge is "close"
+    probe::String                  # one run at one value: `{{p}}` is replaced by the value
+    explain::String                # shown with the sweep, whatever was committed
+    short::String                  # feedback for a value where the method still works
+    past::String                   # feedback for a value well past the edge, where it already fails
+end
+
+# The sweep needs this many rows for an edge to mean something.
+const BREAK_MIN_ROWS = 4
+
 struct Example
     code::String
     check::Bool          # false: output varies run to run (timings, threads); recorded, not compared
@@ -96,10 +132,13 @@ struct Example
     notice::String       # what to look at in the result; shown under the output (and figures)
     predict::Union{Nothing,Prediction}   # commit a prediction before the output is shown
     choose::Union{Nothing,Checkpoint}    # pick a method and give a reason before the output is shown
+    breakit::Union{Nothing,BreakIt}      # find where the method fails before the sweep is shown
 end
-Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing, nothing)
-Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing, nothing)
-Example(code, check, caption, mode, notice, predict) = Example(code, check, caption, mode, notice, predict, nothing)
+Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing, nothing, nothing)
+Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing, nothing, nothing)
+Example(code, check, caption, mode, notice, predict) = Example(code, check, caption, mode, notice, predict, nothing, nothing)
+Example(code, check, caption, mode, notice, predict, choose) =
+    Example(code, check, caption, mode, notice, predict, choose, nothing)
 
 """
 A concept question shown after a section's examples. `choice`: pick the
@@ -227,12 +266,21 @@ function load_checkpoint(c)
                       getstr(c, "explain"), String.(get(c, "misconceptions", fill("", length(choices)))))
 end
 
+function load_breakit(b)
+    b === nothing && return nothing
+    e = get(b, "edge", Any[])
+    edge = length(e) == 2 && all(x -> x isa Real, e) ? (Float64(e[1]), Float64(e[2])) : (NaN, NaN)  # malformed: validation says so
+    return BreakIt(getstr(b, "kc"), getstr(b, "prompt"), getstr(b, "param"), getstr(b, "measure"), getstr(b, "row"),
+                   getstr(b, "fails"), Float64(get(b, "limit", NaN)), edge, Float64(get(b, "close", 1.25)),
+                   getstr(b, "probe"), getstr(b, "explain"), getstr(b, "short"), getstr(b, "past"))
+end
+
 function load_unit(path::String)
     d = normalize_nl(TOML.parsefile(path))
     sections = [Section(s["title"], s["body"],
                         [Example(e["code"], get(e, "check", true), getstr(e, "caption"), getstr(e, "mode", "repl"),
                                  getstr(e, "notice"), load_prediction(get(e, "predict", nothing)),
-                                 load_checkpoint(get(e, "choose", nothing)))
+                                 load_checkpoint(get(e, "choose", nothing)), load_breakit(get(e, "breakit", nothing)))
                          for e in get(s, "example", Any[])],
                         [load_question(q) for q in get(s, "question", Any[])]) for s in get(d, "section", Any[])]
     return Unit(d["id"], d["title"], d["track"], getstr(d, "env", "base"), getstr(d, "status", "ready"),
@@ -733,6 +781,127 @@ function checkpoint_output_problems(c::Checkpoint, output::AbstractString)
     return out
 end
 
+has_group(re::Regex, name) = name in values(Base.PCRE.capture_names(re.regex))
+
+"""What is structurally wrong with an example's break-it challenge (empty = nothing)."""
+function breakit_problems(b::BreakIt, e::Example, kcs)
+    out = String[]
+    b.kc in kcs || push!(out, "kc '$(b.kc)' is not one of the unit's kcs $(kcs)")
+    for (f, what) in ((b.prompt, "prompt"), (b.explain, "explanation"), (b.param, "param (the parameter's name)"),
+                      (b.measure, "measure (what the row's number is)"), (b.short, "short (feedback where the method still works)"),
+                      (b.past, "past (feedback well past the edge)"))
+        isempty(strip(f)) && push!(out, "no $what")
+    end
+    # The edge is read from the output; an output verify does not compare could move it unnoticed.
+    e.check || push!(out, "the example has check = false: a break-it sweep needs an output that verify compares")
+    (e.predict === nothing && e.choose === nothing) ||
+        push!(out, "an example carries one of a prediction, a checkpoint or a break-it challenge")
+    re = compile_measure(b.row)
+    if re === nothing
+        push!(out, "row is not a regular expression")
+    elseif !(has_group(re, "p") && has_group(re, "m"))
+        push!(out, "row needs named groups `p` (the parameter) and `m` (the measurement)")
+    end
+    b.fails in ("above", "below") || push!(out, "fails must be \"above\" or \"below\"")
+    isfinite(b.limit) || push!(out, "limit must be a finite number")
+    1 < b.close <= 2 || push!(out, "close must be in (1, 2]")
+    lo, hi = b.edge
+    if !(isfinite(lo) && isfinite(hi) && 0 < lo < hi)
+        push!(out, "edge is [low, high] with 0 < low < high")
+    elseif hi / lo > b.close
+        push!(out, "the edge spans a factor $(round(hi / lo; sigdigits = 3)), wider than close = $(b.close): sweep more finely near it")
+    end
+    occursin("{{p}}", b.probe) || push!(out, "probe must contain {{p}} where the parameter's value goes")
+    return out
+end
+
+"""The `(p, m)` pairs of every line that `row` matches, or `nothing` if a matched value is not a number."""
+function breakit_rows(b::BreakIt, output::AbstractString)
+    re = compile_measure(b.row)
+    re === nothing && return nothing
+    rows = Tuple{Float64,Float64}[]
+    for line in eachline(IOBuffer(output))
+        m = match(re, line)
+        m === nothing && continue
+        p, x = tryparse(Float64, something(m["p"], "")), tryparse(Float64, something(m["m"], ""))
+        (p === nothing || x === nothing) && return nothing
+        push!(rows, (p, x))
+    end
+    return rows
+end
+
+"""Whether the method failed at a row whose measurement is `m` (NaN counts as failed: the run broke down)."""
+breakit_failed(b::BreakIt, m::Real) = isnan(m) || (b.fails == "above" ? m > b.limit : m < b.limit)
+
+"""
+Read a break-it sweep from an output: the rows sorted by the parameter,
+whether each failed, the measured edge and the side that fails (`"high"`:
+values above the edge fail). Returns a String saying what is wrong when the
+output has no single edge.
+"""
+function score_breakit(b::BreakIt, output::AbstractString)
+    rows = breakit_rows(b, output)
+    rows === nothing && return "a row matched with a value that is not a number"
+    length(rows) >= BREAK_MIN_ROWS || return "the sweep has $(length(rows)) rows (at least $BREAK_MIN_ROWS needed)"
+    ps = first.(rows)
+    all(p -> isfinite(p) && p > 0, ps) || return "every swept value must be a positive number"
+    allunique(ps) || return "a value is swept twice"
+    rows = sort(rows)
+    ps, ms = first.(rows), last.(rows)
+    failed = [breakit_failed(b, m) for m in ms]
+    all(failed) && return "the method fails at every swept value: there is no edge in the sweep"
+    any(failed) || return "the method works at every swept value: there is no edge in the sweep"
+    changes = findall(i -> failed[i] != failed[i+1], 1:length(failed)-1)
+    length(changes) == 1 ||
+        return "the method changes between working and failing $(length(changes)) times along the sweep: there is no single edge"
+    i = only(changes)
+    return (; ps, ms, failed, edge = (ps[i], ps[i+1]), side = failed[end] ? "high" : "low")
+end
+
+"""Why `output` does not support the challenge's declared edge (empty = it does)."""
+function breakit_output_problems(b::BreakIt, output::AbstractString)
+    sc = score_breakit(b, output)
+    sc isa String && return [sc]
+    all(isapprox.(sc.edge, b.edge; rtol = 1e-9)) && return String[]
+    return ["the sweep changes between $(sc.edge[1]) and $(sc.edge[2]), but edge = [$(b.edge[1]), $(b.edge[2])]"]
+end
+
+"""Break-it edges are measured: in `rec`, each sweep must have one edge, the declared one."""
+function breakit_key_problems(u::Unit, rec)
+    out = String[]
+    exs = get(rec, "examples", Dict())
+    for s in u.sections, e in s.examples
+        b = e.breakit
+        b === nothing && continue
+        where = "$(u.id) '$(s.title)' break-it"
+        r = get(exs, example_key(e.code, e.mode), nothing)
+        r === nothing && (push!(out, "$where: its example has no recorded output"); continue)
+        append!(out, ["$where: $m" for m in breakit_output_problems(b, r["output"])])
+    end
+    return out
+end
+
+"""The probe's code at value `x` (written as Julia reads it back: `repr`)."""
+probe_code(b::BreakIt, x::Float64) = replace(b.probe, "{{p}}" => repr(x))
+
+"""
+Why the probe's outputs at the edge's two ends disagree with the sweep (empty
+= they agree): each must print one `row` line, and the method must work at
+the end on its working side and fail at the other.
+"""
+function probe_problems(b::BreakIt, side::AbstractString, out_lo::AbstractString, out_hi::AbstractString)
+    out = String[]
+    for (x, o, should_fail) in ((b.edge[1], out_lo, side == "low"), (b.edge[2], out_hi, side == "high"))
+        rows = breakit_rows(b, o)
+        if rows === nothing || length(rows) != 1
+            push!(out, "the probe at $x prints $(rows === nothing ? "a row that is not a number" : "$(length(rows)) rows") (one is needed):\n$o")
+        elseif breakit_failed(b, only(rows)[2]) != should_fail
+            push!(out, "the probe at $x $(should_fail ? "works" : "fails"), but the sweep says it $(should_fail ? "fails" : "works") there")
+        end
+    end
+    return out
+end
+
 # Phrases that carry no information in teaching prose (marketing words, filler
 # transitions, chatbot openers). The course says what a thing does and shows
 # it; `prose_problems` keeps that mechanical. Matched case-insensitively on
@@ -796,6 +965,11 @@ function unit_prose(u::Unit)
             c === nothing && continue
             push!(out, ("'$(s.title)' checkpoint",
                         strip_code(join(vcat(c.prompt, c.choices, c.cost, c.explain, c.misconceptions), "\n"))))
+        end
+        for e in s.examples
+            b = e.breakit
+            b === nothing && continue
+            push!(out, ("'$(s.title)' break-it", strip_code(join([b.prompt, b.measure, b.explain, b.short, b.past], "\n"))))
         end
         for q in s.questions
             txt = join(vcat(q.prompt, q.explain, q.misconceptions, q.kind == "choice" ? q.choices : String[]), "\n")
@@ -868,6 +1042,8 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
                 append!(problems, ["$(u.id) '$(s.title)' prediction: $m" for m in prediction_problems(e.predict, e, u.kcs)])
             e.choose === nothing ||
                 append!(problems, ["$(u.id) '$(s.title)' checkpoint: $m" for m in checkpoint_problems(e.choose, e, u.kcs)])
+            e.breakit === nothing ||
+                append!(problems, ["$(u.id) '$(s.title)' break-it: $m" for m in breakit_problems(e.breakit, e, u.kcs)])
         end
         for s in u.sections, (i, q) in enumerate(s.questions)
             append!(problems, ["$(u.id) '$(s.title)' question $i: $m" for m in question_problems(q)])

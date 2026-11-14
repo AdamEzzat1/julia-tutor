@@ -275,6 +275,61 @@ scored, and good choices are counted per knowledge component in the browser.
   what the method does, not as a verdict. The page lists the choices before
   the output, so the choice text must not give the counts away.
 
+## Break it
+
+**Learning purpose.** Knowing a method's conditions is not the same as
+knowing where they bite. A break-it challenge asks for the value of one
+parameter (a step size, a start point, a rate ratio) at which a method stops
+working: it goes unstable, stops converging, or can no longer identify its
+parameters. The learner may derive the edge from the section, or measure it
+by running the challenge's *probe* at values of their choice through
+`tutor serve`. Then they commit one value, and the recorded sweep shows where
+the edge is. Like a prediction, only the first commit is scored, and edges
+found are counted per knowledge component in the browser.
+
+```toml
+    [section.example.breakit]
+    kc = "stability"                       # one of the unit's kcs
+    prompt = "... Find the largest step `h` at which ..."
+    param = "h"                            # the parameter's name, as the learner types it
+    measure = "|u| after 100 steps (from 1)"   # what the row's number is (a column header)
+    row = 'h = (?<p>\S+) .*\|u\| after 100 steps = (?<m>\S+)'   # named groups p and m, matched on every line
+    fails = "above"                        # the method failed where m > limit ("below": m < limit); NaN fails too
+    limit = 1.0
+    edge = [0.23, 0.25]                    # must equal the two swept values either side of the change
+    close = 1.25                           # a value within this factor of the edge is "close"
+    probe = '''
+    ... the same computation at one value: h = {{p}} ...
+    '''
+    explain = "..."
+    short = "..."                          # shown for a value where the method still works
+    past = "..."                           # shown for a value well past the edge
+```
+
+* The edge is measured, not typed. The example's output is a sweep, one line
+  per value; sorted by `p`, the method must change from working to failing
+  exactly once (at least 4 rows). The values either side of that change are
+  the measured edge, and `verify` fails unless it equals `edge`.
+* The example must have `check = true`: the edge is read from digits, so the
+  output must be one that `verify` compares.
+* Sweep finely near the edge: `edge` may span at most a factor `close`, so a
+  value inside it is a real answer and not a lucky region. Choose the sweep's
+  range so the measurement is monotone over it. If the method also fails far
+  on the other side (precision is lost both when two rates merge and when one
+  phase ends before the first sample), keep the sweep on one side and say so
+  in `explain`.
+* **The probe is checked too.** `verify` runs `probe` at both ends of `edge`
+  and fails unless each prints one `row` line, the method works at one end
+  and fails at the other, as in the sweep. So a learner's probe run measures
+  the same thing as the sweep. The site puts the learner's value into the
+  probe only after checking it is a plain positive number, and the run goes
+  through `tutor serve` like any other.
+* `limit` is a convention, not a law (a relative standard error of 0.5, a
+  growth above 1): state it in `prompt`, so the learner knows what "fails"
+  means before measuring.
+* An example carries one of a prediction, a checkpoint or a break-it
+  challenge.
+
 ## Practice problems
 
 ```toml
