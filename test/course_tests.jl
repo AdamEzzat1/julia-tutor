@@ -432,6 +432,84 @@ end
     end
 end
 
+@testset "precomputed explorers: the grid is read from the recorded output" begin
+    row = raw"(?<m>\S+) +h = (?<h>\S+) +err = (?<e>\S+)"
+    A(g, l = g; log = false) = Course.ExploreAxis(g, l, log)
+    X(; kc = "k", row = row, axes = [A("m", "method"), A("h", "step"; log = true)], x = "h", series = "m", measure = "e",
+      label = "error", log = true) = Course.Explorer(kc, "Move h.", row, axes, x, series, measure, label, log, "why")
+    E(x; check = true, predict = nothing, choose = nothing, breakit = nothing) =
+        Course.Example("println(1)", check, "c", "repl", "", predict, choose, breakit, x)
+    bad(x; kw...) = Course.explorer_problems(x, E(x; kw...), ["k"])
+    @test bad(X()) == String[]
+    @test any(contains("not one of the unit's kcs"), bad(X(; kc = "z")))
+    @test any(contains("check = false"), bad(X(); check = false))          # the grid needs a compared output
+    C = Course.Checkpoint("k", "p", ["a", "b"], ["x", "y"], "calls", 2.0, [1], "e", ["", "m"])
+    @test any(contains("no checkpoint or break-it"), bad(X(); choose = C))
+    P = Course.Prediction("k", "p", raw"(\d)", ["a", "b"], [(0.0, 1.0), (1.0, 2.0)], String[], 1, "e")
+    @test bad(X(); predict = P) == String[]                                # a prediction only delays the output
+    @test any(contains("1 to 3 axes"), bad(X(; axes = Course.ExploreAxis[], x = "h", series = "")))
+    @test any(contains("named twice"), bad(X(; axes = [A("h"), A("h")], series = "")))
+    @test any(contains("needs a label"), bad(X(; axes = [A("m", ""), A("h")])))
+    @test any(contains("also an axis"), bad(X(; measure = "h")))
+    @test any(contains("is not one of the axes"), bad(X(; x = "q")))
+    @test any(contains("other than x"), bad(X(; series = "h")))
+    @test any(contains("not a regular expression"), bad(X(; row = "(")))
+    @test any(contains("no named group `e`"), bad(X(; row = raw"(?<m>\S+) h = (?<h>\S+)")))
+    @test any(contains("no label"), bad(X(; label = " ")))
+
+    out = """
+    Euler h = 0.1  err = 0.02
+    Euler h = 0.2  err = 0.04
+    Euler h = 0.05 err = 0.01
+    RK4   h = 0.1  err = 1.0e-6
+    RK4   h = 0.2  err = 1.6e-5
+    RK4   h = 0.05 err = 6.2e-8
+    a line that does not match
+    """
+    g = Course.explorer_grid(X(), out)
+    @test [a.texts for a in g.axes] == [["Euler", "RK4"], ["0.05", "0.1", "0.2"]]   # words in order; numbers sorted
+    @test g.axes[2].nums == [0.05, 0.1, 0.2] && g.axes[2].numeric && !g.axes[1].numeric
+    @test g.values == ["0.01", "0.02", "0.04", "6.2e-8", "1.0e-6", "1.6e-5"]    # as printed, last axis fastest
+    # a full grid, and nothing else, passes
+    drop(s, l) = replace(s, l * "\n" => "")
+    @test contains(Course.explorer_grid(X(), drop(out, "RK4   h = 0.2  err = 1.6e-5")), "not full: nothing printed at RK4, 0.2")
+    @test contains(Course.explorer_grid(X(), out * "RK4   h = 0.1  err = 2.0e-6\n"), "printed twice")
+    @test contains(Course.explorer_grid(X(), out * "RK4   h = 0.10 err = 2.0e-6\n"), "one value two ways")
+    @test contains(Course.explorer_grid(X(), replace(out, "0.01" => "fast")), "is not a number")
+    @test contains(Course.explorer_grid(X(), ""), "no output line matches")
+    @test contains(Course.explorer_grid(X(), replace(out, "RK4" => "Euler")), "axis m has one value")
+    @test contains(Course.explorer_grid(X(; axes = [A("m"), A("h")], x = "m", series = "h"), out), "must be numbers")
+    two = join(filter(l -> !contains(l, "0.05"), split(out, "\n")), "\n")
+    @test contains(Course.explorer_grid(X(), two), "at least 3 make a line")
+    @test contains(Course.explorer_grid(X(), replace(out, "0.01" => "-0.01")), "log scale but a value is negative")
+    @test contains(Course.explorer_grid(X(; axes = [A("m", "m"; log = true), A("h")]), out), "positive numbers")
+    @test Course.explorer_grid(X(; log = false), replace(out, "0.01" => "-0.01")) isa NamedTuple
+    huge = join(["M$i h = $j err = 1.0" for i in 1:21, j in 1:20], "\n")
+    @test contains(Course.explorer_grid(X(), huge), "420 points (at most 400)")
+    # Inf and NaN are numbers here (a blow-up is a result); the site draws what it can
+    @test Course.explorer_grid(X(; log = false), replace(out, "0.01" => "Inf", "0.02" => "NaN")).values[1:2] == ["Inf", "NaN"]
+
+    # the course's explorers: each recorded output is a full grid, and the site gets exactly those
+    units = Course.load_course()
+    xs = [(u, e) for u in units for s in u.sections for e in s.examples if e.explore !== nothing]
+    @test sort([u.id for (u, _) in xs]) == ["30-floating-point", "31-convergence", "34-pde-discretization"]
+    for (u, e) in xs
+        @test isempty(Course.explorer_problems(e.explore, e, u.kcs))
+        @test isempty(Course.explorer_key_problems(u, Course.load_outputs(u)))
+    end
+    site = [e for u in SiteData.course_data()["units"] for s in u["sections"] for e in s["examples"] if haskey(e, "explore")]
+    @test length(site) == length(xs)
+    @test all(e -> length(e["explore"]["values"]) == prod(length(a["texts"]) for a in e["explore"]["axes"]), site)
+    # a recorded output that stops being a full grid is reported by verify's check
+    u, e = first(xs)
+    rec = Course.load_outputs(u)
+    k = Course.example_key(e.code, e.mode)
+    broken = Dict{String,Any}("examples" => Dict{String,Any}(k => Dict{String,Any}("output" => "nothing here", "ok" => true)))
+    @test any(contains("explorer: no output line matches"), Course.explorer_key_problems(u, broken))
+    @test any(contains("no recorded output"), Course.explorer_key_problems(u, Dict{String,Any}("examples" => Dict{String,Any}())))
+    @test haskey(rec["examples"], k)
+end
+
 @testset "Parsons problems: every arrangement measured, distractors never work" begin
     ref = """
     function f(x)

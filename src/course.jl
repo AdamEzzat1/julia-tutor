@@ -124,6 +124,44 @@ end
 # The sweep needs this many rows for an edge to mean something.
 const BREAK_MIN_ROWS = 4
 
+"""One axis of an explorer's grid: a named group of `row`, its label, and whether it is drawn on a log scale."""
+struct ExploreAxis
+    group::String
+    label::String
+    log::Bool
+end
+
+"""
+Precomputed explorer (Phase 5): sliders over a grid of results that the
+example's own output recorded (error against step size for three methods,
+growth against a stability number). Nothing is typed as data: `row` is a
+regex with one named group per axis and one for the `measure`, matched on
+every output line, and the matched lines must form a full grid (every
+combination of the axes' values exactly once). The site shows a slider (or,
+for an axis whose values are words, buttons) per axis, the measure at the
+chosen point as printed, and a plot of the measure against axis `x`, one
+line per value of `series` if there is one. It is labelled as precomputed
+by the reference; the example's code can be edited and run with `tutor
+serve`. `tutor course verify` re-runs the example (it must have `check =
+true`), so a changed grid is a changed output.
+"""
+struct Explorer
+    kc::String
+    prompt::String                 # what to try with the sliders
+    row::String                    # regex: a named group per axis, and one named `measure`'s group
+    axes::Vector{ExploreAxis}      # in the order the sliders are shown
+    x::String                      # the axis on the plot's horizontal (numeric)
+    series::String                 # the axis drawn as one line per value; "" = none
+    measure::String                # the measured group
+    label::String                  # what the measure is ("max error at t = 2")
+    log::Bool                      # the measure on a log scale
+    explain::String                # shown under the explorer
+end
+
+# Grids bigger than this make the site data heavy and the sliders coarse to use.
+const EXPLORE_MAX_POINTS = 400
+const EXPLORE_MAX_AXES = 3
+
 struct Example
     code::String
     check::Bool          # false: output varies run to run (timings, threads); recorded, not compared
@@ -133,12 +171,16 @@ struct Example
     predict::Union{Nothing,Prediction}   # commit a prediction before the output is shown
     choose::Union{Nothing,Checkpoint}    # pick a method and give a reason before the output is shown
     breakit::Union{Nothing,BreakIt}      # find where the method fails before the sweep is shown
+    explore::Union{Nothing,Explorer}     # sliders over the grid the output recorded
 end
-Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing, nothing, nothing)
-Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing, nothing, nothing)
-Example(code, check, caption, mode, notice, predict) = Example(code, check, caption, mode, notice, predict, nothing, nothing)
+Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing, nothing, nothing, nothing)
+Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing, nothing, nothing, nothing)
+Example(code, check, caption, mode, notice, predict) =
+    Example(code, check, caption, mode, notice, predict, nothing, nothing, nothing)
 Example(code, check, caption, mode, notice, predict, choose) =
-    Example(code, check, caption, mode, notice, predict, choose, nothing)
+    Example(code, check, caption, mode, notice, predict, choose, nothing, nothing)
+Example(code, check, caption, mode, notice, predict, choose, breakit) =
+    Example(code, check, caption, mode, notice, predict, choose, breakit, nothing)
 
 """
 A concept question shown after a section's examples. `choice`: pick the
@@ -690,12 +732,20 @@ function load_breakit(b)
                    getstr(b, "probe"), getstr(b, "explain"), getstr(b, "short"), getstr(b, "past"))
 end
 
+function load_explorer(x)
+    x === nothing && return nothing
+    axes = [ExploreAxis(getstr(a, "group"), getstr(a, "label"), get(a, "log", false) === true) for a in get(x, "axis", Any[])]
+    return Explorer(getstr(x, "kc"), getstr(x, "prompt"), getstr(x, "row"), axes, getstr(x, "x"), getstr(x, "series"),
+                    getstr(x, "measure"), getstr(x, "label"), get(x, "log", false) === true, getstr(x, "explain"))
+end
+
 function load_unit(path::String)
     d = normalize_nl(TOML.parsefile(path))
     sections = [Section(s["title"], s["body"],
                         [Example(e["code"], get(e, "check", true), getstr(e, "caption"), getstr(e, "mode", "repl"),
                                  getstr(e, "notice"), load_prediction(get(e, "predict", nothing)),
-                                 load_checkpoint(get(e, "choose", nothing)), load_breakit(get(e, "breakit", nothing)))
+                                 load_checkpoint(get(e, "choose", nothing)), load_breakit(get(e, "breakit", nothing)),
+                                 load_explorer(get(e, "explore", nothing)))
                          for e in get(s, "example", Any[])],
                         [load_question(q) for q in get(s, "question", Any[])]) for s in get(d, "section", Any[])]
     return Unit(d["id"], d["title"], d["track"], getstr(d, "env", "base"), getstr(d, "status", "ready"),
@@ -1317,6 +1367,108 @@ function probe_problems(b::BreakIt, side::AbstractString, out_lo::AbstractString
     return out
 end
 
+"""What is structurally wrong with an example's explorer (empty = nothing); the grid itself is checked on the output."""
+function explorer_problems(x::Explorer, e::Example, kcs)
+    out = String[]
+    x.kc in kcs || push!(out, "kc '$(x.kc)' is not one of the unit's kcs $(kcs)")
+    for (f, what) in ((x.prompt, "prompt"), (x.explain, "explanation"), (x.label, "label (what the measure is)"))
+        isempty(strip(f)) && push!(out, "no $what")
+    end
+    # The grid is read from the output; an output verify does not compare could change unnoticed.
+    e.check || push!(out, "the example has check = false: an explorer's grid needs an output that verify compares")
+    (e.choose === nothing && e.breakit === nothing) ||
+        push!(out, "an example with an explorer carries no checkpoint or break-it challenge (both hide the output)")
+    groups = [a.group for a in x.axes]
+    1 <= length(x.axes) <= EXPLORE_MAX_AXES || push!(out, "an explorer has 1 to $EXPLORE_MAX_AXES axes")
+    allunique(groups) || push!(out, "an axis is named twice")
+    any(a -> isempty(strip(a.label)), x.axes) && push!(out, "every axis needs a label")
+    x.measure in groups && push!(out, "the measure '$(x.measure)' is also an axis")
+    x.x in groups || push!(out, "x = '$(x.x)' is not one of the axes $(groups)")
+    isempty(x.series) || (x.series in groups && x.series != x.x) ||
+        push!(out, "series = '$(x.series)' must be an axis other than x (or left out)")
+    re = compile_measure(x.row)
+    if re === nothing
+        push!(out, "row is not a regular expression")
+    else
+        for g in vcat(groups, x.measure)
+            has_group(re, g) || push!(out, "row has no named group `$g`")
+        end
+    end
+    return out
+end
+
+"""
+Read an explorer's grid from an output: per axis, its values (numbers sorted
+ascending, or words in the order they first appear) with the text as
+printed, and the measure at every point as printed, in row-major order over
+the axes (the last axis varies fastest). Returns a String saying what is
+wrong when the matched lines are not a full grid.
+"""
+function explorer_grid(x::Explorer, output::AbstractString)
+    re = compile_measure(x.row)
+    re === nothing && return "row is not a regular expression"
+    pts = Tuple{Vector{String},String}[]
+    for line in eachline(IOBuffer(output))
+        m = match(re, line)
+        m === nothing && continue
+        cs = [something(m[a.group], "") for a in x.axes]
+        v = something(m[x.measure], "")
+        tryparse(Float64, v) === nothing && return "the measure '$v' is not a number: $line"
+        push!(pts, (cs, v))
+    end
+    isempty(pts) && return "no output line matches row"
+    axes = Any[]
+    for (k, a) in enumerate(x.axes)
+        texts = unique(p[1][k] for p in pts)
+        nums = tryparse.(Float64, texts)
+        numeric = all(n -> n !== nothing && isfinite(n), nums)
+        if numeric
+            allunique(nums) || return "axis $(a.group) prints one value two ways: $(texts)"
+            order = sortperm(nums)
+            texts, nums = texts[order], Float64.(nums[order])
+        end
+        length(texts) >= 2 || return "axis $(a.group) has one value: a slider needs at least 2"
+        a.group == x.x && !numeric && return "the x axis $(a.group) must be numbers: $(texts)"
+        a.group == x.x && length(texts) < 3 && return "the x axis $(a.group) has $(length(texts)) values (at least 3 make a line)"
+        a.log && !(numeric && all(>(0), nums)) && return "axis $(a.group) is on a log scale, so its values must be positive numbers"
+        push!(axes, (; group = a.group, label = a.label, log = a.log, numeric, texts, nums = numeric ? nums : Float64[]))
+    end
+    shape = [length(a.texts) for a in axes]
+    prod(shape) <= EXPLORE_MAX_POINTS || return "the grid has $(prod(shape)) points (at most $EXPLORE_MAX_POINTS)"
+    cells = fill("", shape...)
+    for (cs, v) in pts
+        ix = [findfirst(==(c), a.texts) for (c, a) in zip(cs, axes)]
+        isempty(cells[ix...]) || return "the point $(join(cs, ", ")) is printed twice"
+        cells[ix...] = v
+    end
+    missing_at = findfirst(isempty, cells)
+    missing_at === nothing ||
+        return "the grid is not full: nothing printed at $(join([a.texts[i] for (a, i) in zip(axes, Tuple(missing_at))], ", "))"
+    if x.log
+        vals = parse.(Float64, vec(cells))
+        any(v -> v < 0, vals) && return "the measure is on a log scale but a value is negative"
+    end
+    # row-major: the last axis varies fastest (Julia's arrays are column-major, so permute)
+    values = vec(permutedims(cells, reverse(1:length(shape))))
+    return (; axes, values)
+end
+
+"""Explorer grids are measured: in `rec`, each explorer's example output must be a full grid."""
+function explorer_key_problems(u::Unit, rec)
+    out = String[]
+    exs = get(rec, "examples", Dict())
+    for s in u.sections, e in s.examples
+        x = e.explore
+        x === nothing && continue
+        where = "$(u.id) '$(s.title)' explorer"
+        r = get(exs, example_key(e.code, e.mode), nothing)
+        r === nothing && (push!(out, "$where: its example has no recorded output"); continue)
+        g = explorer_grid(x, r["output"])
+        g isa String && push!(out, "$where: $g")
+    end
+    return out
+end
+
 # Phrases that carry no information in teaching prose (marketing words, filler
 # transitions, chatbot openers). The course says what a thing does and shows
 # it; `prose_problems` keeps that mechanical. Matched case-insensitively on
@@ -1385,6 +1537,12 @@ function unit_prose(u::Unit)
             b = e.breakit
             b === nothing && continue
             push!(out, ("'$(s.title)' break-it", strip_code(join([b.prompt, b.measure, b.explain, b.short, b.past], "\n"))))
+        end
+        for e in s.examples
+            x = e.explore
+            x === nothing && continue
+            push!(out, ("'$(s.title)' explorer",
+                        strip_code(join(vcat(x.prompt, x.label, x.explain, [a.label for a in x.axes]), "\n"))))
         end
         for q in s.questions
             txt = join(vcat(q.prompt, q.explain, q.misconceptions, q.kind == "choice" ? q.choices : String[]), "\n")
@@ -1465,6 +1623,8 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
                 append!(problems, ["$(u.id) '$(s.title)' checkpoint: $m" for m in checkpoint_problems(e.choose, e, u.kcs)])
             e.breakit === nothing ||
                 append!(problems, ["$(u.id) '$(s.title)' break-it: $m" for m in breakit_problems(e.breakit, e, u.kcs)])
+            e.explore === nothing ||
+                append!(problems, ["$(u.id) '$(s.title)' explorer: $m" for m in explorer_problems(e.explore, e, u.kcs)])
         end
         for s in u.sections, (i, q) in enumerate(s.questions)
             append!(problems, ["$(u.id) '$(s.title)' question $i: $m" for m in question_problems(q)])

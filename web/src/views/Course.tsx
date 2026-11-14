@@ -6,12 +6,13 @@ import { Markdown, md } from "../components/Markdown";
 import { ConnectPanel, Output, RunBox, ServerPill, useDraft } from "../components/Runner";
 import {
   course, courseById, estimateText, landingHref, questionState, statusNote, TRACK_BLURB, TRACK_LABEL, trackRequirement, unitNumber,
-  type Bug, type CourseInfo, type Example, type Problem, type Question, type Unit,
+  type Bug, type CourseInfo, type Example, type Explorer, type Problem, type Question, type Unit,
 } from "../course";
 import { bugRates, bugTestCode, bumpBug, hintsOpen, reading, unitBugs, type BugReading, type BugRecord } from "../findbug";
 import { predictionKey, predictionRates, settlePrediction, unitPredictionKeys, type PredictionRecord } from "../predict";
 import { choiceRates, costText, MAX_REASON, reasonOk, settleChoice, unitChoiceKeys, type ChoiceRecord } from "../choose";
 import { breakRates, juliaNumber, parseValue, probeCode, readProbe, settleBreak, sweepWith, unitBreakKeys, type BreakRecord } from "../breakit";
+import { drawable, extent, juliaValue, lines, localSlope, scale, startSelection, ticks, valueAt, type Selection } from "../explore";
 import { assemble, bumpParsons, displayOrder, parsonsFeedback, parsonsRates, unitParsons, type ParsonsFeedback, type ParsonsRecord } from "../parsons";
 import { loadProgress, saveProgress, type Progress } from "../progress";
 import { gradeCode, runCode, useServer, type GradeResult, type RunResult } from "../server";
@@ -640,6 +641,122 @@ function BreakResult({ ex, r }: { ex: Example; r: BreakRecord }) {
   );
 }
 
+// One meaning per colour (CLAUDE.md): series are told apart by ink tone and dash, not by green or red.
+const SERIES_STYLE = [
+  { stroke: "var(--jt-ink)", dash: "" },
+  { stroke: "var(--jt-blue)", dash: "6 4" },
+  { stroke: "var(--jt-muted)", dash: "2 3" },
+];
+
+/**
+ * A precomputed explorer: a slider per numeric axis (buttons for an axis of
+ * words), the measure at the chosen point as the output printed it, and a
+ * plot of the measure against the x axis. Every value is looked up in the
+ * recorded grid; nothing is computed except the plot's geometry and, on
+ * log-log axes, the slope between neighbouring printed values.
+ */
+function ExplorerPanel({ x }: { x: Explorer }) {
+  const [sel, setSel] = useState<Selection>(() => startSelection(x));
+  const set = (k: number, v: number) => setSel((s) => s.map((old, i) => (i === k ? v : old)));
+  const xi = x.axes.findIndex((a) => a.group === x.x);
+  const ax = x.axes[xi];
+  const ls = lines(x, sel);
+  const ext = extent(x.values.map(juliaValue), x.log);
+  const slope = localSlope(x, sel);
+  const W = 520, H = 260, L = 64, R = 14, T = 12, B = 38;
+  const sx = scale(ax.nums[0], ax.nums[ax.nums.length - 1], L, W - R, ax.log);
+  const sy = ext ? scale(ext[0], ext[1], H - B, T, x.log) : null;
+  const fmt = (v: number) => (x.log || ax.log) && (v >= 1e4 || v < 1e-3) ? v.toExponential(0).replace("e+", "e") : String(v);
+  const point = x.axes.map((a, k) => `${a.label}: ${a.texts[sel[k]]}`).join(" · ");
+  const hidden = ls.flatMap((l) => l.points).filter((p) => !drawable(p.v, x.log)).length;
+  return (
+    <div className="jt-explore">
+      <div className="jt-eyebrow">Explorer · precomputed by the reference; run it yourself with tutor serve</div>
+      <div className="jt-question-prompt">{md(x.prompt)}</div>
+      <div className="jt-explore-controls">
+        {x.axes.map((a, k) => a.numeric ? (
+          <label key={a.group} className="jt-explore-slider">
+            <span>{a.label}: <code>{a.texts[sel[k]]}</code></span>
+            <input type="range" min={0} max={a.texts.length - 1} step={1} value={sel[k]}
+              aria-valuetext={a.texts[sel[k]]} onChange={(e) => set(k, Number(e.target.value))} />
+          </label>
+        ) : (
+          <div key={a.group} className="jt-explore-choice" role="group" aria-label={a.label}>
+            <span>{a.label}:</span>
+            {a.texts.map((t, j) => (
+              <button key={t} className={`jt-btn jt-small ${sel[k] === j ? "" : "ghost"}`} aria-pressed={sel[k] === j}
+                onClick={() => set(k, j)}>{t}</button>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="jt-explore-readout" aria-live="polite">
+        <span className="jt-muted">{point}</span><br />
+        <strong>{x.label}: <code>{valueAt(x, sel)}</code></strong>
+        {slope && <><br />Slope on log-log axes from <code>{x.x} = {slope.from}</code> to <code>{slope.to}</code>: <code>{slope.slope.toFixed(2)}</code> (from the printed values)</>}
+      </div>
+      {sy && x.series && (
+        // A legend, not labels at the lines' ends: lines that end close together would overprint them.
+        <div className="jt-explore-legend" aria-hidden="true">
+          {ls.map((l, k) => {
+            const st = SERIES_STYLE[k % SERIES_STYLE.length];
+            return (
+              <span key={l.label} className={l.current ? "current" : ""}>
+                <svg width="28" height="10"><line x1="1" x2="27" y1="5" y2="5" stroke={st.stroke} strokeDasharray={st.dash} strokeWidth="2" /></svg>
+                {l.label}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {sy && (
+        <svg className="jt-explore-plot" viewBox={`0 0 ${W} ${H}`} role="img"
+          aria-label={`${x.label} against ${ax.label}${x.series ? `, one line per ${x.axes.find((a) => a.group === x.series)!.label}` : ""}; the selected point is circled. The same values are in the table below.`}>
+          {ticks(ext![0], ext![1], x.log, x.values.map(juliaValue).filter((v) => drawable(v, x.log))).map((t) => (
+            <g key={`y${t}`}>
+              <line x1={L} x2={W - R} y1={sy(t)} y2={sy(t)} className="grid" />
+              <text x={L - 6} y={sy(t) + 4} textAnchor="end">{fmt(t)}</text>
+            </g>
+          ))}
+          {ticks(ax.nums[0], ax.nums[ax.nums.length - 1], ax.log, ax.nums).map((t) => (
+            <text key={`x${t}`} x={sx(t)} y={H - B + 16} textAnchor="middle">{fmt(t)}</text>
+          ))}
+          <text x={(L + W - R) / 2} y={H - 4} textAnchor="middle" className="axis">{ax.label}{ax.log ? " (log)" : ""}</text>
+          {ls.map((l, k) => {
+            const pts = l.points.filter((p) => drawable(p.v, x.log));
+            const st = SERIES_STYLE[k % SERIES_STYLE.length];
+            return (
+              <g key={l.label} opacity={l.current ? 1 : 0.45}>
+                <polyline fill="none" stroke={st.stroke} strokeDasharray={st.dash} strokeWidth={l.current ? 2.2 : 1.4}
+                  points={pts.map((p) => `${sx(p.x)},${sy(p.v)}`).join(" ")} />
+              </g>
+            );
+          })}
+          {(() => {
+            const cur = ls.find((l) => l.current)!.points[sel[xi]];
+            return drawable(cur.v, x.log) ? <circle cx={sx(cur.x)} cy={sy(cur.v)} r={5} className="sel" /> : null;
+          })()}
+        </svg>
+      )}
+      {hidden > 0 && <p className="jt-small">{hidden} value{hidden === 1 ? "" : "s"} cannot be drawn on this scale (zero, negative, Inf or NaN); the table has them.</p>}
+      <details>
+        <summary className="jt-small">This slice as a table</summary>
+        <table className="jt-table jt-small">
+          <thead><tr><th scope="col"><code>{x.x}</code></th>{ls.map((l) => <th key={l.label} scope="col">{x.series ? l.label : x.label}</th>)}</tr></thead>
+          <tbody>
+            {ax.texts.map((t, j) => (
+              <tr key={t} aria-current={j === sel[xi] ? "true" : undefined}>
+                <td>{t}</td>{ls.map((l) => <td key={l.label}>{l.points[j].text}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+      <div style={{ marginTop: "0.4rem" }}>{md(x.explain)}</div>
+    </div>
+  );
+}
+
 function ExampleBlock({ ex, env, id, record, onPredicted, choice, onChose, broke, onBroke }: {
   ex: Example; env: string; id: string; record: PredictionRecord | null; onPredicted: (r: PredictionRecord) => void;
   choice: ChoiceRecord | null; onChose: (r: ChoiceRecord) => void;
@@ -706,6 +823,7 @@ function ExampleBlock({ ex, env, id, record, onPredicted, choice, onChose, broke
           )}
           {ex.choose && choice && <ChoiceResult ex={ex} r={choice} />}
           {ex.breakit && broke && <BreakResult ex={ex} r={broke} />}
+          {ex.explore && ex.output !== null && <ExplorerPanel x={ex.explore} />}
         </>
       )}
       <div className="jt-example-bar">

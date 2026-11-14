@@ -189,6 +189,18 @@ function course_data()
                                          "rows" => Any[Dict("p" => p, "m" => repr(m), "failed" => f)
                                                        for (p, m, f) in zip(sc.ps, sc.ms, sc.failed)])
                 end
+                x = e.explore
+                g = x === nothing || r === nothing ? nothing : Course.explorer_grid(x, r["output"])
+                if g !== nothing && !(g isa String)    # only a grid verify would accept is exported
+                    ed["explore"] = Dict("kc" => x.kc, "prompt" => strip(x.prompt), "x" => x.x, "series" => x.series,
+                                         "label" => x.label, "log" => x.log, "explain" => strip(x.explain),
+                                         # per axis: values as printed (and as numbers, for the plot)
+                                         "axes" => Any[Dict("group" => a.group, "label" => a.label, "log" => a.log,
+                                                            "numeric" => a.numeric, "texts" => a.texts, "nums" => a.nums)
+                                                       for a in g.axes],
+                                         # the measure as printed, row-major over the axes (last fastest)
+                                         "values" => g.values)
+                end
                 push!(examples, ed)
             end
             questions = Any[Dict("kind" => q.kind, "prompt" => strip(q.prompt), "code" => rstrip(q.code),
