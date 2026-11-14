@@ -33,6 +33,22 @@ output = """exact rank 3: three singular values below 1e-14: true\nnoisy:       
 ok = true
 output = """F \\ b ≈ A \\ b: true\nbytes allocated by ldiv!: 0\n"""
 
+[parsons]
+dla-forward-sub-parsons = ["1 2 3 4 5 6 7 8"]
+
+[[samples.dla-forward-sub-parsons]]
+call = "forward_sub([2.0 0 0; 1 3 0; -1 2 4], [2.0, 7, 9])"
+result = """3-element Vector{Float64}:\n 1.0\n 2.0\n 1.5"""
+[[samples.dla-forward-sub-parsons]]
+call = "forward_sub(fill(5.0, 1, 1), [10.0])"
+result = """1-element Vector{Float64}:\n 2.0"""
+[[samples.dla-forward-sub-parsons]]
+call = "forward_sub([1.0 0 0 0; 2 1 0 0; 0 -1 2 0; 3 0 1 4], [1.0, 4, 3, 13])"
+result = """4-element Vector{Float64}:\n 1.0\n 2.0\n 2.5\n 1.875"""
+[[samples.dla-forward-sub-parsons]]
+call = "forward_sub([4.0 0 0; 2 -1 0; 1 1 2], [8.0, 3, 0])"
+result = """3-element Vector{Float64}:\n  2.0\n  1.0\n -1.5"""
+
 [[samples.dla-implicit-euler-reuse]]
 call = "implicit_euler_linear([-2.0 1.0; 1.0 -2.0], [1.0, 0.0], 0.1, 10)"
 result = """2-element Vector{Float64}:\n 0.22904071985796884\n 0.15650256957156305"""

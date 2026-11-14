@@ -411,6 +411,7 @@ function cmd_practice(args)
         return 2
     end
     u, p = found
+    p.parsons === nothing || length(pos) != 1 || return practice_parsons(u, p, args)
     if length(pos) == 1
         println(p.title, "  [", p.difficulty, ", unit ", u.id, "]\n\n", strip(p.prompt), "\n\nStarter:\n", p.starter)
         println("\nWrite your solution to a file, then: tutor practice $(p.id) <file.jl>")
@@ -438,6 +439,59 @@ function cmd_practice(args)
         println("\nMore help: tutor practice $(p.id) $(pos[2]) --hints=$(nh + 1)")
     end
     return passed && all(t -> t.passed, tests) ? 0 : 1
+end
+
+"""
+A Parsons problem on the command line: the lines are shown with letters, and
+`--order=c,a,f,...` is checked against the measured accepted orderings (no
+Julia run). A file can still be graded with `tutor practice <id> file.jl`.
+"""
+function practice_parsons(u, p, args)
+    pool = Course.parsons_pool(p)
+    l = Course.parsons_lines(p)
+    n = length(l.items)
+    shown = Course.parsons_display_order(p.id, pool)          # letter k shows pool[shown[k]]
+    letter(k) = string('a' + (k - 1))
+    order_arg = flag(args, "order", "")
+    if isempty(order_arg)
+        println(p.title, "  [", p.difficulty, ", unit ", u.id, "]\n\n", strip(p.prompt), "\n")
+        foreach(x -> println("      ", x), l.head)
+        println("      ...")
+        foreach(x -> println("      ", x), l.tail)
+        println("\nLines (use $n of them):")
+        for (k, i) in enumerate(shown)
+            println("  ", letter(k), "   ", pool[i])
+        end
+        println("\nAnswer with: tutor practice $(p.id) --order=<your $n letters in order, comma-separated>")
+        return 0
+    end
+    accepted = get(get(Course.load_outputs(u), "parsons", Dict()), p.id, nothing)
+    accepted === nothing && (println("no measured orderings for $(p.id) (run `tutor course record $(u.id)`)"); return 2)
+    letters = strip.(split(order_arg, ','))
+    ks = [length(x) == 1 && 'a' <= x[1] < 'a' + length(pool) ? Int(x[1] - 'a') + 1 : 0 for x in letters]
+    order = [k == 0 ? 0 : shown[k] for k in ks]
+    fb = Course.parsons_feedback(pool, n, accepted, order)
+    if fb.kind == :invalid
+        println("Use each letter at most once, from a to ", letter(length(pool)), ".")
+    elseif fb.kind == :distractor
+        d = p.parsons.distractors[fb.value]
+        println("This line does not belong in a working kernel:\n    ", strip(d.line), "\n\n", strip(d.misconception))
+    elseif fb.kind == :count
+        println("A working order uses exactly ", fb.value, " lines; you gave ", length(order), ".")
+    elseif fb.kind == :solved
+        println("Works. This order is one of the ", length(accepted), " measured to work:\n")
+        println(join([l.head; pool[order]; l.tail], "\n"))
+        return 0
+    else
+        println("The first ", fb.value, " line", fb.value == 1 ? "" : "s", " can start a working order; line ",
+                fb.value + 1, " (", strip(pool[order[fb.value+1]]), ") cannot come next.")
+        nh = min(parse(Int, flag(args, "hints", "0")), length(p.hints))
+        for i in 1:nh
+            println("\nHint $i: ", p.hints[i])
+        end
+        nh < length(p.hints) && println("\nMore help: add --hints=$(nh + 1)")
+    end
+    return 1
 end
 
 function cmd_serve(args)

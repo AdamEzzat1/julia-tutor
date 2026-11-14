@@ -130,6 +130,23 @@ export interface Problem {
   perf: { sizes: number[]; mutates: boolean } | null;
   /** find the bug: the starter is the reference with one planted error (findbug.ts) */
   bug?: Bug;
+  /** Parsons: put the reference's lines in order (parsons.ts) */
+  parsons?: Parsons;
+}
+
+export interface Parsons {
+  kc: string;
+  /** the fixed lines before and after the movable ones */
+  head: string[];
+  tail: string[];
+  /** the movable lines in a working order, then the distractors (the site shuffles them) */
+  pool: string[];
+  /** how many lines a working order uses (pool[0..n-1]) */
+  n: number;
+  /** pool index (1-based) of each distractor, the line it can replace, and the belief it models */
+  distractors: { index: number; replaces: number; misconception: string }[];
+  /** every working order, measured by running all of them (1-based pool indices, canonical for repeated text) */
+  accepted: number[][];
 }
 
 /** A convergence test: Julia appended to the learner's code, printing one line that `row` reads. */

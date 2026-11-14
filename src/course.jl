@@ -213,6 +213,35 @@ struct Bug
     answer_tokens::Vector{String}
 end
 
+"""
+A distractor line of a Parsons problem: it can take the place of the movable
+line `replaces` (1-based), and stands for `misconception`.
+"""
+struct Distractor
+    line::String
+    replaces::Int
+    misconception::String
+end
+
+"""
+Parsons problem (Phase 5): the learner puts the reference's lines in order.
+The first `head` and last `tail` lines of the reference stay fixed; the lines
+between them are shuffled, together with the distractors. Lines keep their
+indentation, which must match the block structure (4 spaces per level), so an
+ordering whose indentation contradicts its `for`/`end` nesting is rejected
+before it is run. Which orderings work is measured: `tutor course record`
+runs every arrangement (one of each line/distractor pair, every order) that
+parses and is indented consistently on the problem's cases and stores those
+that match the reference; `verify` re-runs it and requires the reference's own
+order to be accepted and no ordering with a distractor to be.
+"""
+struct Parsons
+    kc::String
+    head::Int
+    tail::Int
+    distractors::Vector{Distractor}
+end
+
 struct Problem
     id::String
     title::String
@@ -236,11 +265,16 @@ struct Problem
     repeats::Int             # times each case runs: >1 catches data races
     packages::Vector{String} # packages loaded for cases/gen/checker; empty = every package of the env
     bug::Union{Nothing,Bug}  # find the bug: the starter is the reference with one planted error
+    parsons::Union{Nothing,Parsons}  # put the reference's lines in order
 end
 Problem(id, title, difficulty, kcs, prompt, entry, starter, reference, cases, gen, compare, checker, rtol,
         check_type, compare_args, hints, perf, variants, threads, repeats, packages) =
     Problem(id, title, difficulty, kcs, prompt, entry, starter, reference, cases, gen, compare, checker, rtol,
-            check_type, compare_args, hints, perf, variants, threads, repeats, packages, nothing)
+            check_type, compare_args, hints, perf, variants, threads, repeats, packages, nothing, nothing)
+Problem(id, title, difficulty, kcs, prompt, entry, starter, reference, cases, gen, compare, checker, rtol,
+        check_type, compare_args, hints, perf, variants, threads, repeats, packages, bug) =
+    Problem(id, title, difficulty, kcs, prompt, entry, starter, reference, cases, gen, compare, checker, rtol,
+            check_type, compare_args, hints, perf, variants, threads, repeats, packages, bug, nothing)
 
 """The reference with the planted error (the starter of a find-the-bug problem); `nothing` unless `find` occurs once."""
 plant(reference::AbstractString, b::Bug) =
@@ -282,17 +316,20 @@ function load_problem(d)
         Perf(d["perf"]["args"], Int.(d["perf"]["sizes"]), get(d["perf"], "mutates", false)) : nothing
     variants = [Variant(v["label"], v["code"], String.(v["expect"])) for v in get(d, "variant", Any[])]
     bug = load_bug(get(d, "bug", nothing))
+    parsons = load_parsons(get(d, "parsons", nothing))
     reference = d["reference"]
     # A find-the-bug starter is generated from the reference; a hand-written one
     # (or a `find` that does not occur once) leaves a starter that validation rejects.
-    starter = bug === nothing ? d["starter"] :
-              haskey(d, "starter") ? BUG_STARTER_GIVEN : something(plant(reference, bug), "")
+    # A Parsons starter is generated too: the fixed lines, with a gap between them.
+    starter = bug !== nothing ? (haskey(d, "starter") ? BUG_STARTER_GIVEN : something(plant(reference, bug), "")) :
+              parsons !== nothing ? (haskey(d, "starter") ? PARSONS_STARTER_GIVEN : parsons_starter(reference, parsons)) :
+              d["starter"]
     return Problem(d["id"], d["title"], d["difficulty"], String.(get(d, "kcs", String[])), d["prompt"],
                    d["entry"], starter, reference, String.(get(d, "cases", String[])),
                    getstr(d, "gen"), getstr(d, "compare", "isequal"), getstr(d, "checker"), Float64(get(d, "rtol", 1e-8)),
                    get(d, "check_type", true), get(d, "compare_args", false),
                    String.(get(d, "hints", String[])), perf, variants,
-                   Int(get(d, "threads", 1)), Int(get(d, "repeats", 1)), String.(get(d, "packages", String[])), bug)
+                   Int(get(d, "threads", 1)), Int(get(d, "repeats", 1)), String.(get(d, "packages", String[])), bug, parsons)
 end
 
 const BUG_STARTER_GIVEN = "# a find-the-bug problem's starter is generated from the reference: remove `starter`\n"
@@ -381,6 +418,245 @@ bug_test_passes(t::BugTest, v) = v !== nothing && !isnan(v) && t.expect[1] <= v 
 
 """The code a convergence test runs: the learner's code, then the test."""
 bug_test_code(code::AbstractString, t::BugTest) = rstrip(code) * "\n\n" * t.code
+
+# ---- Parsons problems ----------------------------------------------------------
+
+const PARSONS_STARTER_GIVEN = "# a Parsons problem's starter is generated from the reference: remove `starter`\n"
+const PARSONS_MAX_ITEMS = 8         # movable lines; every arrangement is enumerated, so keep it small
+const PARSONS_MAX_DISTRACTORS = 3
+
+function load_parsons(d)
+    d === nothing && return nothing
+    ds = [Distractor(getstr(x, "line"), Int(get(x, "replaces", 0)), getstr(x, "misconception"))
+          for x in get(d, "distractor", Any[])]
+    return Parsons(getstr(d, "kc"), Int(get(d, "head", 0)), Int(get(d, "tail", 0)), ds)
+end
+
+"""The reference's lines: the fixed head, the movable lines in their working order, the fixed tail."""
+function parsons_lines(reference::AbstractString, z::Parsons)
+    ls = String.(split(rstrip(reference, '\n'), '\n'))
+    n = length(ls) - z.head - z.tail
+    n < 0 && return (head = ls, items = String[], tail = String[])
+    return (head = ls[1:z.head], items = ls[z.head+1:z.head+n], tail = ls[z.head+n+1:end])
+end
+parsons_lines(p::Problem) = parsons_lines(p.reference, p.parsons)
+
+"""Every line a learner can place: the movable lines, then the distractors (indices follow this order)."""
+parsons_pool(p::Problem) = [parsons_lines(p).items; [d.line for d in p.parsons.distractors]]
+
+"""
+The pool index a line stands for when it is compared: the first index with the
+same text (two `end` lines are interchangeable).
+"""
+parsons_canonical(pool, i) = findfirst(==(pool[i]), pool)
+
+function parsons_starter(reference::AbstractString, z::Parsons)
+    l = parsons_lines(reference, z)
+    gap = isempty(l.items) ? "" : " "^parsons_indent(l.items[1]) * "# put the lines here, in order"
+    return join([l.head; gap; l.tail], "\n") * "\n"
+end
+
+# How a Parsons ordering is read: indentation (4 spaces per level) is part of
+# each line, so it must agree with the nesting the order creates.
+# `parsons_depth(d, line)` is the block depth after `line` given the depth `d`
+# before it, or -1 when the line's indentation is wrong for where it sits.
+# One source, evaluated here and spliced into the enumeration script, so the
+# validator and the recorder read indentation the same way.
+const PARSONS_DEPTH_SRC = raw"""
+parsons_indent(l) = length(l) - length(lstrip(l, ' '))
+const PARSONS_OPENER = r"^(function|for|while|if|let|begin|try|struct|mutable struct|module|quote|macro)\b|\bdo(\s+[^#]*)?$"
+const PARSONS_MIDDLE = r"^(else|elseif|catch|finally)\b"
+function parsons_depth(depth::Int, line::AbstractString)
+    depth < 0 && return -1
+    s = lstrip(line)
+    ind = parsons_indent(line)
+    if s == "end" || startswith(s, "end ") || startswith(s, "end#")
+        return ind == 4 * (depth - 1) ? depth - 1 : -1
+    elseif occursin(PARSONS_MIDDLE, s)
+        return ind == 4 * (depth - 1) ? depth : -1
+    else
+        ind == 4 * depth || return -1
+        return occursin(PARSONS_OPENER, s) ? depth + 1 : depth
+    end
+end
+parsons_depth(depth::Int, lines::AbstractVector) = foldl(parsons_depth, lines; init = depth)
+"""
+include_string(@__MODULE__, PARSONS_DEPTH_SRC, "PARSONS_DEPTH_SRC")
+
+"""Structural problems of a Parsons problem (no Julia run needed)."""
+function parsons_problems(p::Problem, kcs)
+    z = p.parsons
+    out = String[]
+    z.kc in kcs || push!(out, "kc '$(z.kc)' is not one of the unit's KCs")
+    p.starter == PARSONS_STARTER_GIVEN && push!(out, "the starter is generated from the reference: remove `starter`")
+    p.compare in ("isequal", "isapprox") || push!(out, "compare must be isequal or isapprox (orderings are compared in one process)")
+    p.compare_args && push!(out, "compare_args is not supported")
+    p.threads == 1 && p.repeats == 1 || push!(out, "threads and repeats must be 1")
+    isempty(p.gen) || push!(out, "gen is not used: orderings are checked on the explicit cases only")
+    length(p.cases) >= 2 || push!(out, "needs at least two explicit cases (every ordering runs on them)")
+    l = parsons_lines(p)
+    z.head >= 1 && z.tail >= 1 || push!(out, "head and tail must each fix at least one line (the signature and the final `end`)")
+    3 <= length(l.items) <= PARSONS_MAX_ITEMS || push!(out, "needs 3 to $PARSONS_MAX_ITEMS movable lines (found $(length(l.items)))")
+    for (i, x) in enumerate([l.head; l.items; l.tail])
+        isempty(strip(x)) && push!(out, "line $i of the reference is blank (every line is a card)")
+        occursin('\t', x) && push!(out, "line $i of the reference has a tab (indent with spaces)")
+    end
+    any(x -> occursin(r"^\s*while\b", x), l.items) && push!(out, "a movable `while` could make an ordering loop forever")
+    d0 = parsons_depth(0, l.head)
+    d0 >= 1 || push!(out, "the head must open the function (the movable lines go inside it)")
+    d0 >= 1 && parsons_depth(parsons_depth(d0, l.items), l.tail) != 0 &&
+        push!(out, "the reference's own lines are not indented 4 spaces per block level")
+    length(z.distractors) <= PARSONS_MAX_DISTRACTORS || push!(out, "at most $PARSONS_MAX_DISTRACTORS distractors")
+    seen = Set{String}()
+    for (k, d) in enumerate(z.distractors)
+        w = "distractor $k"
+        1 <= d.replaces <= length(l.items) || (push!(out, "$w: replaces must be 1 to $(length(l.items))"); continue)
+        d.line in l.items && push!(out, "$w: the same text as a movable line")
+        d.line in seen && push!(out, "$w: duplicate line")
+        push!(seen, d.line)
+        # Same indentation as the line it replaces, so indentation alone cannot give it away.
+        parsons_indent(d.line) == parsons_indent(l.items[d.replaces]) ||
+            push!(out, "$w: indent it like the line it replaces ($(parsons_indent(l.items[d.replaces])) spaces)")
+        isempty(strip(d.misconception)) && push!(out, "$w: no misconception")
+    end
+    allunique(d.replaces for d in z.distractors) ||
+        push!(out, "two distractors replace the same line")
+    return out
+end
+
+"""
+A Julia program that enumerates and runs every arrangement of a Parsons
+problem's lines, as `tutor course record` runs it (in the unit's env). It
+prints `accepted: i j k ...` (pool indices, canonical for repeated texts) for
+each arrangement whose results equal the reference's on every case, and then
+`parsons: <n> run`. Candidates are interpreted (`compile=min`), each in a new
+module: thousands of them, each called a few times, so compiling would cost
+far more than running.
+"""
+function parsons_script(p::Problem, usings::AbstractVector{<:AbstractString})
+    l = parsons_lines(p)
+    pool = parsons_pool(p)
+    n = length(l.items)
+    pairs = [(d.replaces, n + k) for (k, d) in enumerate(p.parsons.distractors)]
+    cmp = p.compare == "isapprox" ?
+        "(a, b) -> (try isapprox(a, b; rtol = $(p.rtol)) catch; isequal(a, b) end)" : "isequal"
+    return """
+    $(join(["using " * x for x in usings], "\n"))
+    const HEAD = $(repr(l.head))
+    const TAIL = $(repr(l.tail))
+    const POOL = $(repr(pool))
+    const N = $n
+    const PAIRS = $(repr(pairs))
+    const ENTRY = $(repr(Symbol(p.entry)))
+    const CASES = Any[$(join(["($a,)" for a in p.cases], ", "))]
+    const USINGS = $(repr(collect(String, usings)))
+    const SAME = $cmp
+    const CHECK_TYPE = $(p.check_type)
+    $PARSONS_DEPTH_SRC
+    $PARSONS_DRIVER
+    """
+end
+
+# The enumeration itself, spliced into `parsons_script` after the constants
+# and `parsons_depth`; it uses only Base. A prefix is extended only while its
+# indentation is consistent, and a full arrangement runs only if it parses.
+const PARSONS_DRIVER = raw"""
+hashead(ex, hs) = ex isa Expr && (ex.head in hs || any(a -> hashead(a, hs), ex.args))
+canon(i) = findfirst(==(POOL[i]), POOL)
+const RUNS = Ref(0)
+function results(order)
+    ex = Meta.parseall(join([HEAD; POOL[order]; TAIL], "\n"))
+    hashead(ex, (:error, :incomplete)) && return nothing
+    RUNS[] += 1
+    m = Module(:Candidate)
+    Core.eval(m, :(Base.Experimental.@compiler_options compile=min infer=false optimize=0))
+    f = try
+        foreach(u -> Core.eval(m, Meta.parse("using " * u)), USINGS)
+        Core.eval(m, ex)
+        Core.eval(m, ENTRY)
+    catch
+        return nothing
+    end
+    return Any[try (:ok, Base.invokelatest(f, deepcopy(c)...)) catch e; (:throws, typeof(e)) end for c in CASES]
+end
+same(a, b) = a[1] == b[1] &&
+    (a[1] === :throws ? a[2] == b[2] : SAME(a[2], b[2]) && (!CHECK_TYPE || typeof(a[2]) == typeof(b[2])))
+function walk!(accepted, prefix, d, rest, d0, ref)
+    if isempty(rest)
+        parsons_depth(d, TAIL) == 0 || return
+        r = results(prefix)
+        r !== nothing && all(same(a, b) for (a, b) in zip(r, ref)) && push!(accepted, canon.(prefix))
+        return
+    end
+    tried = Set{String}()
+    for (i, j) in enumerate(rest)
+        POOL[j] in tried && continue      # equal texts give equal programs
+        push!(tried, POOL[j])
+        d2 = parsons_depth(d, POOL[j])
+        d2 < d0 && continue               # mis-indented (-1), or closes the function early
+        walk!(accepted, [prefix; j], d2, deleteat!(copy(rest), i), d0, ref)
+    end
+end
+function parsons_main()
+    ref = results(collect(1:N))
+    ref === nothing && (println("parsons: the reference's own order does not run"); return)
+    d0 = parsons_depth(0, HEAD)
+    accepted = Set{Vector{Int}}()
+    for mask in 0:(2^length(PAIRS) - 1)
+        pool = collect(1:N)
+        for (k, (l, j)) in enumerate(PAIRS)
+            (mask >> (k - 1)) & 1 == 1 && (pool[l] = j)
+        end
+        walk!(accepted, Int[], d0, pool, d0, ref)
+    end
+    foreach(a -> println("accepted: ", join(a, " ")), sort!(collect(accepted)))
+    println("parsons: ", RUNS[], " run")
+end
+parsons_main()
+"""
+
+"""
+The accepted orderings printed by `parsons_script`, as strings of pool indices
+("1 2 3"), sorted; `nothing` when the run did not finish (no `parsons:` line).
+"""
+function parse_parsons_output(out::AbstractString)
+    occursin(r"(?m)^parsons: \d+ run$", out) || return nothing
+    return sort!([String(m[1]) for m in eachmatch(r"(?m)^accepted: ([\d ]+)$", out)])
+end
+
+"""A learner's arrangement (pool indices) in the form the accepted set is stored in."""
+parsons_key(pool, order) = join([parsons_canonical(pool, i) for i in order], " ")
+
+"""
+Feedback on an arrangement (pool indices, 1-based) against the measured
+accepted set, in this order: a line used twice or out of range (`:invalid`);
+a distractor (`:distractor`, with its number); the wrong number of lines
+(`:count`, with the number needed); a working order (`:solved`); otherwise the
+longest prefix that starts some working order (`:prefix`, with its length).
+`web/src/parsons.ts` gives the same answers (tested on the same vectors).
+"""
+function parsons_feedback(pool::AbstractVector, n::Int, accepted::AbstractVector{<:AbstractString}, order::AbstractVector{Int})
+    all(i -> 1 <= i <= length(pool), order) && allunique(order) || return (kind = :invalid, value = 0)
+    for i in order
+        i > n && return (kind = :distractor, value = i - n)
+    end
+    length(order) == n || return (kind = :count, value = n)
+    acc = [parse.(Int, split(a)) for a in accepted]
+    key = [parsons_canonical(pool, i) for i in order]
+    key in acc && return (kind = :solved, value = n)
+    best = maximum(a -> something(findfirst(k -> a[k] != key[k], 1:n), n + 1) - 1, acc; init = 0)
+    return (kind = :prefix, value = best)
+end
+
+"""
+A fixed display order for the pool (so the CLI's letters do not change between
+runs): sorted by an FNV-1a hash of the problem id and the line, which does not
+depend on Julia's `hash` (that can change between releases).
+"""
+function parsons_display_order(id::AbstractString, pool::AbstractVector)
+    fnv(s) = foldl((h, b) -> (h ⊻ UInt32(b)) * 0x01000193, codeunits(s); init = 0x811c9dc5)
+    return sortperm([(fnv(id * "\n" * x), i) for (i, x) in enumerate(pool)])
+end
 
 # Git on Windows may check files out with CRLF; example keys hash the code, so
 # normalise line endings or Windows and Linux would disagree.
@@ -1121,6 +1397,8 @@ function unit_prose(u::Unit)
         b === nothing ||
             push!(out, ("$(p.id) find the bug", strip_code(join(vcat(b.misconception, [t.name for t in b.tests],
                                                                      [t.explain for t in b.tests]), "\n"))))
+        z = p.parsons
+        z === nothing || push!(out, ("$(p.id) Parsons", strip_code(join([d.misconception for d in z.distractors], "\n"))))
     end
     return out
 end
@@ -1221,6 +1499,8 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
                 x in VARIANT_EXPECT || push!(problems, "$(p.id)/$(v.label): unknown expectation '$x'")
             end
             p.bug === nothing || append!(problems, ["$(p.id) find the bug: $m" for m in bug_problems(p, u.kcs)])
+            p.parsons === nothing || append!(problems, ["$(p.id) Parsons: $m" for m in parsons_problems(p, u.kcs)])
+            p.bug !== nothing && p.parsons !== nothing && push!(problems, "$(p.id): a problem is find-the-bug or Parsons, not both")
         end
     end
     return problems

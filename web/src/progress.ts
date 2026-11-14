@@ -5,6 +5,7 @@ import type { PredictionRecord } from "./predict";
 import type { ChoiceRecord } from "./choose";
 import type { BreakRecord } from "./breakit";
 import type { BugRecord } from "./findbug";
+import type { ParsonsRecord } from "./parsons";
 
 export type Overall = "excellent" | "good" | "needs-work";
 
@@ -21,6 +22,8 @@ export interface Progress {
   breaks: Record<string, BreakRecord>;
   /** find-the-bug problems by problem id: test runs, hints, fixed (findbug.ts) */
   bugs: Record<string, BugRecord>;
+  /** Parsons problems by problem id: checks before solving, solved, first try (parsons.ts) */
+  parsons: Record<string, ParsonsRecord>;
 }
 
 const KEY = "julia-tutor/course/v1";
@@ -30,9 +33,10 @@ export function loadProgress(): Progress {
     const raw = window.localStorage.getItem(KEY);
     const p = raw ? (JSON.parse(raw) as Partial<Progress>) : {};
     return { solved: p.solved ?? {}, opened: p.opened ?? {}, questions: p.questions ?? {},
-             predictions: p.predictions ?? {}, choices: p.choices ?? {}, breaks: p.breaks ?? {}, bugs: p.bugs ?? {} };
+             predictions: p.predictions ?? {}, choices: p.choices ?? {}, breaks: p.breaks ?? {}, bugs: p.bugs ?? {},
+             parsons: p.parsons ?? {} };
   } catch {
-    return { solved: {}, opened: {}, questions: {}, predictions: {}, choices: {}, breaks: {}, bugs: {} };
+    return { solved: {}, opened: {}, questions: {}, predictions: {}, choices: {}, breaks: {}, bugs: {}, parsons: {} };
   }
 }
 
@@ -56,7 +60,8 @@ export function progressByCourse(
     if (c) problemCourse.set(q.id, c);
   }
   const byCourse: Record<string, CourseCounts> = {};
-  for (const c of courses) byCourse[c.id] = { solved: 0, opened: 0, questions: 0, predictions: 0, choices: 0, breaks: 0, bugs: 0 };
+  for (const c of courses)
+    byCourse[c.id] = { solved: 0, opened: 0, questions: 0, predictions: 0, choices: 0, breaks: 0, bugs: 0, parsons: 0 };
   const unmapped: string[] = [];
   const put = (c: string | undefined, field: keyof CourseCounts, key: string) =>
     c ? (byCourse[c][field] += 1) : unmapped.push(`${field}/${key}`);
@@ -67,11 +72,13 @@ export function progressByCourse(
   for (const k of Object.keys(p.choices ?? {})) put(unitCourse.get(k.split("/")[0]), "choices", k);
   for (const k of Object.keys(p.breaks ?? {})) put(unitCourse.get(k.split("/")[0]), "breaks", k);
   for (const k of Object.keys(p.bugs ?? {})) put(problemCourse.get(k), "bugs", k);
+  for (const k of Object.keys(p.parsons ?? {})) put(problemCourse.get(k), "parsons", k);
   return { byCourse, unmapped: unmapped.sort() };
 }
 
 export interface CourseCounts {
   solved: number; opened: number; questions: number; predictions: number; choices: number; breaks: number; bugs: number;
+  parsons: number;
 }
 
 export function saveProgress(p: Progress): Progress {

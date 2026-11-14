@@ -769,3 +769,128 @@ using LinearAlgebra
 forward_error_bound(A, b, xhat) = opnorm(inv(A)) * norm(b - A * xhat) / norm(xhat)
 '''
   expect = ["correct"]
+
+[[problem]]
+id = "fp-kahan-parsons"
+title = "Parsons: the lines of Kahan's loop, in order"
+difficulty = "warm-up"
+kcs = ["floating-point-rounding"]
+entry = "kahan_sum"
+packages = []
+prompt = '''
+Put the lines of `kahan_sum(x)`, the compensated sum from this unit's first
+section, in an order that works. The signature and the last two lines are
+fixed. Each line keeps its indentation, and the indentation must match the
+blocks your order creates. Two of the lines on offer are wrong: leave them
+out.
+
+```julia
+kahan_sum([1.0; fill(1e-16, 10_000)])   # 1.000000000001; a plain loop returns 1.0
+kahan_sum(fill(0.1, 10))                # 1.0; a plain loop returns 0.9999999999999999
+```
+
+Every order that works was found by running all of them: the site checks
+your order against that measured set. Results are compared with `isequal`,
+since a correct order performs the same roundings.
+'''
+reference = '''
+function kahan_sum(x)
+    s = 0.0
+    c = 0.0
+    for v in x
+        y = v - c
+        t = s + y
+        c = (t - s) - y
+        s = t
+    end
+    return s
+end
+'''
+cases = [
+  "[1.0; fill(1e-16, 10_000)]",
+  "fill(0.1, 10)",
+  "[1e16, 1.0, 1.0]",
+  "[3.0, 1e-17, -2.0, 1e-17]",
+]
+compare = "isequal"
+hints = [
+  "The variable `c` holds what the last addition lost. Which lines must see the old running sum `s`, and which the new one?",
+  "`c = (t - s) - y` measures the rounding of `t = s + y`, so it needs `t` and the old `s` together: it goes after `t` is computed and before `s` is overwritten.",
+]
+
+  [problem.parsons]
+  kc = "floating-point-rounding"
+  head = 1
+  tail = 2
+
+  [[problem.parsons.distractor]]
+  line = "        c = t - (s + y)"
+  replaces = 6
+  misconception = '''
+`t - (s + y)` and `(t - s) - y` are equal in exact arithmetic, and the first
+reads as "what was lost". In floating point `s + y` is rounded to exactly the
+value `t` already holds, so the difference is always `0.0` and the loop
+becomes a plain sum. The belief it models: rearranging an expression does not
+change its value. The compensation works only because `t - s` is computed
+exactly (Sterbenz) and then compared with `y`.
+'''
+
+  [[problem.parsons.distractor]]
+  line = "        y = v + c"
+  replaces = 4
+  misconception = '''
+`c` is the lost part with its sign: `(t - s)` is what was really added, so
+`(t - s) - y` is the excess, usually negative when low digits were dropped.
+Adding it back doubles the error instead of cancelling it. The belief it
+models: a correction term is always added.
+'''
+
+  [[problem.variant]]
+  label = "s overwritten before the correction is measured"
+  code = '''
+function kahan_sum(x)
+    s = 0.0
+    c = 0.0
+    for v in x
+        y = v - c
+        t = s + y
+        s = t
+        c = (t - s) - y
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the correction written as t - (s + y): a plain sum"
+  code = '''
+function kahan_sum(x)
+    s = 0.0
+    c = 0.0
+    for v in x
+        y = v - c
+        t = s + y
+        c = t - (s + y)
+        s = t
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "s and c started in the other order, written with a tuple"
+  code = '''
+function kahan_sum(x)
+    c, s = 0.0, 0.0
+    for v in x
+        y = v - c
+        t = s + y
+        c = (t - s) - y
+        s = t
+    end
+    return s
+end
+'''
+  expect = ["correct"]

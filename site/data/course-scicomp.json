@@ -172,6 +172,101 @@
           ],
           "starter": "using LinearAlgebra\n\nfunction forward_error_bound(A, b, xhat)\n    return norm(b - A * xhat) / norm(b)\nend\n",
           "title": "How many digits can you trust?"
+        },
+        {
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "warm-up",
+          "entry": "kahan_sum",
+          "hints": [
+            "The variable `c` holds what the last addition lost. Which lines must see the old running sum `s`, and which the new one?",
+            "`c = (t - s) - y` measures the rounding of `t = s + y`, so it needs `t` and the old `s` together: it goes after `t` is computed and before `s` is overwritten."
+          ],
+          "id": "fp-kahan-parsons",
+          "kcs": [
+            "floating-point-rounding"
+          ],
+          "parsons": {
+            "accepted": [
+              [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ],
+              [
+                2,
+                1,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ]
+            ],
+            "distractors": [
+              {
+                "index": 9,
+                "misconception": "`t - (s + y)` and `(t - s) - y` are equal in exact arithmetic, and the first\nreads as \"what was lost\". In floating point `s + y` is rounded to exactly the\nvalue `t` already holds, so the difference is always `0.0` and the loop\nbecomes a plain sum. The belief it models: rearranging an expression does not\nchange its value. The compensation works only because `t - s` is computed\nexactly (Sterbenz) and then compared with `y`.",
+                "replaces": 6
+              },
+              {
+                "index": 10,
+                "misconception": "`c` is the lost part with its sign: `(t - s)` is what was really added, so\n`(t - s) - y` is the excess, usually negative when low digits were dropped.\nAdding it back doubles the error instead of cancelling it. The belief it\nmodels: a correction term is always added.",
+                "replaces": 4
+              }
+            ],
+            "head": [
+              "function kahan_sum(x)"
+            ],
+            "kc": "floating-point-rounding",
+            "n": 8,
+            "pool": [
+              "    s = 0.0",
+              "    c = 0.0",
+              "    for v in x",
+              "        y = v - c",
+              "        t = s + y",
+              "        c = (t - s) - y",
+              "        s = t",
+              "    end",
+              "        c = t - (s + y)",
+              "        y = v + c"
+            ],
+            "tail": [
+              "    return s",
+              "end"
+            ]
+          },
+          "perf": null,
+          "prompt": "Put the lines of `kahan_sum(x)`, the compensated sum from this unit's first\nsection, in an order that works. The signature and the last two lines are\nfixed. Each line keeps its indentation, and the indentation must match the\nblocks your order creates. Two of the lines on offer are wrong: leave them\nout.\n\n```julia\nkahan_sum([1.0; fill(1e-16, 10_000)])   # 1.000000000001; a plain loop returns 1.0\nkahan_sum(fill(0.1, 10))                # 1.0; a plain loop returns 0.9999999999999999\n```\n\nEvery order that works was found by running all of them: the site checks\nyour order against that measured set. Results are compared with `isequal`,\nsince a correct order performs the same roundings.",
+          "random_cases": false,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "kahan_sum([1.0; fill(1e-16, 10_000)])",
+              "result": "1.000000000001"
+            },
+            {
+              "call": "kahan_sum(fill(0.1, 10))",
+              "result": "1.0"
+            },
+            {
+              "call": "kahan_sum([1e16, 1.0, 1.0])",
+              "result": "1.0000000000000002e16"
+            },
+            {
+              "call": "kahan_sum([3.0, 1e-17, -2.0, 1e-17])",
+              "result": "1.0"
+            }
+          ],
+          "starter": "function kahan_sum(x)\n    # put the lines here, in order\n    return s\nend\n",
+          "title": "Parsons: the lines of Kahan's loop, in order"
         }
       ],
       "sections": [
@@ -684,6 +779,118 @@
           ],
           "starter": "function rk4_solve(f, y0, T, n)\n    h = T / n\n    y = float(y0)\n    for k in 0:n-1\n        t = k * h\n        k1 = f(t, y)\n        k2 = f(t, y + h / 2 * k1)\n        k3 = f(t + h / 2, y + h / 2 * k2)\n        k4 = f(t + h, y + h * k3)\n        y += h / 6 * (k1 + 2k2 + 2k3 + k4)\n    end\n    return y\nend\n",
           "title": "Find the bug: a fourth-order method that is not"
+        },
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "warm-up",
+          "entry": "midpoint_solve",
+          "hints": [
+            "Within one step, which slope needs which? And which update must wait until both slopes of the step are known?",
+            "`k2` uses `k1`, and both use the time and state at the start of the step, so both updates (`y += ...` and `t += h`) come after them. Do those two updates depend on each other?"
+          ],
+          "id": "conv-midpoint-parsons",
+          "kcs": [
+            "convergence-order"
+          ],
+          "parsons": {
+            "accepted": [
+              [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ],
+              [
+                1,
+                2,
+                3,
+                4,
+                5,
+                7,
+                6,
+                8
+              ],
+              [
+                2,
+                1,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ],
+              [
+                2,
+                1,
+                3,
+                4,
+                5,
+                7,
+                6,
+                8
+              ]
+            ],
+            "distractors": [
+              {
+                "index": 9,
+                "misconception": "This is the Euler step: it uses the slope at the start, and `k2` is computed\nbut never used. The method drops to first order. The belief it models: the\nmidpoint stage is a check on the step, while the step itself still uses the\nfirst slope.",
+                "replaces": 6
+              },
+              {
+                "index": 10,
+                "misconception": "The state passed to `f` is a full Euler step, `y + h k1`, while the time is\nthe middle of the step. A slope must be evaluated at one point: time and\nstate from the same place. A full-step state belongs with `t + h` (that is\nHeun's predictor); with `t + h / 2` the method loses its second order.",
+                "replaces": 5
+              }
+            ],
+            "head": [
+              "function midpoint_solve(f, y0, T, n)",
+              "    h = T / n"
+            ],
+            "kc": "convergence-order",
+            "n": 8,
+            "pool": [
+              "    t = 0.0",
+              "    y = float(y0)",
+              "    for k in 1:n",
+              "        k1 = f(t, y)",
+              "        k2 = f(t + h / 2, y + h / 2 * k1)",
+              "        y += h * k2",
+              "        t += h",
+              "    end",
+              "        y += h * k1",
+              "        k2 = f(t + h / 2, y + h * k1)"
+            ],
+            "tail": [
+              "    return y",
+              "end"
+            ]
+          },
+          "perf": null,
+          "prompt": "`midpoint_solve(f, y0, T, n)` advances `y' = f(t, y)` from `y(0) = y0` to\n`t = T` in `n` steps of the explicit midpoint method, a second-order\nRunge-Kutta method: take a half Euler step to the middle of the step, and use\nthe slope there for the whole step.\n\nPut the lines in an order that works. The signature, `h = T / n` and the last\ntwo lines are fixed. Each line keeps its indentation, and the indentation\nmust match the blocks your order creates. Two of the lines on offer are\nwrong: leave them out. More than one order works; the feedback tells you\nwhen yours is one of them.\n\n```julia\nmidpoint_solve((t, y) -> -y + cos(t), 1.0, 1.0, 10)   # 0.87465; the exact y(1) is 0.87483\n```\n\nEvery order that works was found by running all of them on the cases. Results\nare compared with `rtol = 1e-12`.",
+          "random_cases": false,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "midpoint_solve((t, y) -> -y, 1.0, 1.0, 10)",
+              "result": "0.36854098483355185"
+            },
+            {
+              "call": "midpoint_solve((t, y) -> -y + cos(t), 1.0, 1.0, 10)",
+              "result": "0.8746461070522393"
+            },
+            {
+              "call": "midpoint_solve((t, y) -> t * y, 1.0, 2.0, 40)",
+              "result": "7.368842682642525"
+            }
+          ],
+          "starter": "function midpoint_solve(f, y0, T, n)\n    h = T / n\n    # put the lines here, in order\n    return y\nend\n",
+          "title": "Parsons: the explicit midpoint method, in order"
         }
       ],
       "sections": [
@@ -1124,6 +1331,92 @@
           ],
           "starter": "using LinearAlgebra\n\nfunction numerical_rank(A, rtol)\n    return rank(A)\nend\n",
           "title": "Numerical rank from the singular values"
+        },
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "warm-up",
+          "entry": "forward_sub",
+          "hints": [
+            "Row `i` needs every `x[j]` with `j < i` before it can compute `x[i]`. Which loop runs over rows, and which over the earlier unknowns?",
+            "Start the row's sum at the right-hand side, subtract the known terms inside the inner loop, and divide by the diagonal once that loop has ended."
+          ],
+          "id": "dla-forward-sub-parsons",
+          "kcs": [
+            "matrix-factorization"
+          ],
+          "parsons": {
+            "accepted": [
+              [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ]
+            ],
+            "distractors": [
+              {
+                "index": 9,
+                "misconception": "Starting an accumulator at zero is the habit from computing a sum, but this\nrow's equation is `L[i, 1:i-1] x[1:i-1] + L[i, i] x[i] = b[i]`: what is left\nfor `x[i]` is `b[i]` minus the known terms. Starting at `0.0` solves `L x = 0`\nup to sign, so the result is wrong for every nonzero `b`.",
+                "replaces": 3
+              },
+              {
+                "index": 10,
+                "misconception": "`i+1:n` is the range of back substitution, where the unknowns after `i` are\nknown first. Here they are still zero when row `i` is solved, so this loop\nsubtracts nothing and the result is `b ./ diag(L)`. The belief it models: a\ntriangular solve runs over \"the other part\" of the row, whichever triangle\nit is.",
+                "replaces": 4
+              }
+            ],
+            "head": [
+              "function forward_sub(L, b)",
+              "    n = length(b)"
+            ],
+            "kc": "matrix-factorization",
+            "n": 8,
+            "pool": [
+              "    x = zeros(n)",
+              "    for i in 1:n",
+              "        s = b[i]",
+              "        for j in 1:i-1",
+              "            s -= L[i, j] * x[j]",
+              "        end",
+              "        x[i] = s / L[i, i]",
+              "    end",
+              "        s = 0.0",
+              "        for j in i+1:n"
+            ],
+            "tail": [
+              "    return x",
+              "end"
+            ]
+          },
+          "perf": null,
+          "prompt": "`forward_sub(L, b)` solves `L x = b` for a lower-triangular `L` with a\nnonzero diagonal: this is the triangular solve that `lu(A) \\ b` performs\nafter the factorization. Row `i` gives\n`x[i] = (b[i] - sum(L[i, j] * x[j] for j < i)) / L[i, i]`.\n\nPut the lines in an order that works. The signature, `n = length(b)` and the\nlast two lines are fixed. Each line keeps its indentation, and the\nindentation must match the blocks your order creates. Two of the lines on\noffer are wrong: leave them out.\n\n```julia\nforward_sub([2.0 0 0; 1 3 0; -1 2 4], [2.0, 7, 9])   # [1.0, 2.0, 1.5]\n```\n\nEvery order that works was found by running all of them on the cases. Results\nare compared with `rtol = 1e-12`.",
+          "random_cases": false,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "forward_sub([2.0 0 0; 1 3 0; -1 2 4], [2.0, 7, 9])",
+              "result": "3-element Vector{Float64}:\n 1.0\n 2.0\n 1.5"
+            },
+            {
+              "call": "forward_sub(fill(5.0, 1, 1), [10.0])",
+              "result": "1-element Vector{Float64}:\n 2.0"
+            },
+            {
+              "call": "forward_sub([1.0 0 0 0; 2 1 0 0; 0 -1 2 0; 3 0 1 4], [1.0, 4, 3, 13])",
+              "result": "4-element Vector{Float64}:\n 1.0\n 2.0\n 2.5\n 1.875"
+            },
+            {
+              "call": "forward_sub([4.0 0 0; 2 -1 0; 1 1 2], [8.0, 3, 0])",
+              "result": "3-element Vector{Float64}:\n  2.0\n  1.0\n -1.5"
+            }
+          ],
+          "starter": "function forward_sub(L, b)\n    n = length(b)\n    # put the lines here, in order\n    return x\nend\n",
+          "title": "Parsons: forward substitution, line by line"
         }
       ],
       "sections": [
