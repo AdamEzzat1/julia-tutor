@@ -12,6 +12,7 @@ import { bugRates, bugTestCode, bumpBug, hintsOpen, reading, unitBugs, type BugR
 import { predictionKey, predictionRates, settlePrediction, unitPredictionKeys, type PredictionRecord } from "../predict";
 import { choiceRates, costText, MAX_REASON, reasonOk, settleChoice, unitChoiceKeys, type ChoiceRecord } from "../choose";
 import { breakRates, juliaNumber, parseValue, probeCode, readProbe, settleBreak, sweepWith, unitBreakKeys, type BreakRecord } from "../breakit";
+import { assemble, bumpParsons, displayOrder, parsonsFeedback, parsonsRates, unitParsons, type ParsonsFeedback, type ParsonsRecord } from "../parsons";
 import { loadProgress, saveProgress, type Progress } from "../progress";
 import { gradeCode, runCode, useServer, type GradeResult, type RunResult } from "../server";
 
@@ -77,6 +78,9 @@ export function CourseView() {
   // A find-the-bug record counts test runs and hints until it is fixed, then freezes.
   const bugged = (pid: string, what: "run" | "hint" | "fixed") =>
     setProgress((s) => saveProgress({ ...s, bugs: { ...s.bugs, [pid]: bumpBug(s.bugs[pid], what) } }));
+  // A Parsons record counts checks until the order works, then freezes.
+  const parsoned = (pid: string, solvedNow: boolean) =>
+    setProgress((s) => saveProgress({ ...s, parsons: { ...s.parsons, [pid]: bumpParsons(s.parsons[pid], solvedNow) } }));
 
   return (
     <div className="jt-split jt-course" ref={top}>
@@ -114,7 +118,8 @@ export function CourseView() {
         {unit === null ? <Overview c={active} progress={progress} go={go} /> :
           <UnitPage key={unit.id} unit={unit} problemId={problemId} progress={progress}
             openProblem={(p) => { setProblemId(p); writeParams(unit.id, p, active.id); }} onSolved={solved}
-            onAnswered={answered} onPredicted={predicted} onChose={chose} onBroke={broke} onBug={bugged} go={go} />}
+            onAnswered={answered} onPredicted={predicted} onChose={chose} onBroke={broke} onBug={bugged}
+            onParsons={parsoned} go={go} />}
       </div>
     </div>
   );
@@ -148,6 +153,7 @@ function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: 
       <ChoiceRates c={c} progress={progress} />
       <BreakRates c={c} progress={progress} />
       <BugRates c={c} progress={progress} />
+      <ParsonsRates c={c} progress={progress} />
       <div className="jt-tracks">
         {tracks.map((t) => {
           const units = course.units.filter((u) => u.course === c.id && u.track === t);
@@ -179,7 +185,7 @@ function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: 
   );
 }
 
-function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, onPredicted, onChose, onBroke, onBug, go }: {
+function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, onPredicted, onChose, onBroke, onBug, onParsons, go }: {
   unit: Unit;
   problemId: string | null;
   progress: Progress;
@@ -190,9 +196,12 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
   onChose: (key: string, r: ChoiceRecord) => void;
   onBroke: (key: string, r: BreakRecord) => void;
   onBug: (pid: string, what: "run" | "hint" | "fixed") => void;
+  onParsons: (pid: string, solved: boolean) => void;
   go: (u: string) => void;
 }) {
   const bugs = unitBugs(unit);
+  const parsons = unitParsons(unit);
+  const parsonsSolved = parsons.filter((p) => progress.parsons[p.id]?.solved);
   const bugsFixed = bugs.filter((p) => progress.bugs[p.id]?.fixed);
   const pkeys = unitPredictionKeys(unit);
   const pmade = pkeys.filter((k) => progress.predictions[k]?.pick);
@@ -261,6 +270,11 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               find the bug: {bugsFixed.length}/{bugs.length} fixed
             </span>
           )}
+          {parsons.length > 0 && (
+            <span className="jt-chip" title="Parsons problems put in a working order in this browser">
+              Parsons: {parsonsSolved.length}/{parsons.length} in order
+            </span>
+          )}
         </div>
       </header>
 
@@ -313,8 +327,11 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               </button>
             ))}
           </div>
-          {problem && <ProblemPanel key={problem.id} p={problem} env={unit.env} onSolved={(r) => onSolved(problem.id, r)}
-            bugRecord={progress.bugs[problem.id] ?? null} onBug={(what) => onBug(problem.id, what)} />}
+          {problem && (problem.parsons ?
+            <ParsonsProblem key={problem.id} p={problem} onSolved={(r) => onSolved(problem.id, r)}
+              record={progress.parsons[problem.id] ?? null} onCheck={(ok) => onParsons(problem.id, ok)} /> :
+            <ProblemPanel key={problem.id} p={problem} env={unit.env} onSolved={(r) => onSolved(problem.id, r)}
+              bugRecord={progress.bugs[problem.id] ?? null} onBug={(what) => onBug(problem.id, what)} />)}
         </section>
       )}
 
@@ -778,6 +795,198 @@ function BugRates({ c, progress }: { c: CourseInfo; progress: Progress }) {
         </table>
       )}
     </section>
+  );
+}
+
+/** Parsons problems put in order per knowledge component, over the ones checked in this browser. */
+function ParsonsRates({ c, progress }: { c: CourseInfo; progress: Progress }) {
+  const units = course.units.filter((u) => u.course === c.id);
+  const total = units.reduce((n, u) => n + unitParsons(u).length, 0);
+  if (total === 0) return null;
+  const rates = parsonsRates(progress.parsons, units);
+  return (
+    <section className="jt-panel jt-pad" aria-labelledby="jt-parsons-rates">
+      <div className="jt-eyebrow">Parsons problems</div>
+      <h3 id="jt-parsons-rates" style={{ marginTop: "0.25rem" }}>Kernels put in order, by knowledge component</h3>
+      <p className="jt-small" style={{ maxWidth: "50rem" }}>
+        {total} practice problems in this course ask for the lines of a kernel in a working order. Every order that works
+        was found by running all of them, so a check here needs no server. The record stays in this browser.
+      </p>
+      {rates.length === 0 ? <p className="jt-small jt-muted">No Parsons problem checked yet.</p> : (
+        <table className="jt-table jt-small">
+          <thead><tr><th scope="col">Knowledge component</th><th scope="col">In order</th><th scope="col">On the first check</th></tr></thead>
+          <tbody>
+            {rates.map((r) => <tr key={r.kc}><td><code>{r.kc}</code></td><td>{r.solved} of {r.total}</td><td>{r.firstTry}</td></tr>)}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+/** Read a saved arrangement; anything malformed starts empty. */
+function readOrder(saved: string, size: number): number[] {
+  try {
+    const v: unknown = JSON.parse(saved);
+    return Array.isArray(v) && v.every((x) => Number.isInteger(x) && x >= 1 && x <= size) && new Set(v).size === v.length ? v as number[] : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A Parsons problem: place lines from the pool into the kernel, move them, and
+ * check the order against the measured set (no server needed). Once it works,
+ * the whole program can also go through the grader, like any solution.
+ */
+function ParsonsProblem({ p, onSolved, record, onCheck }: {
+  p: Problem; onSolved: (r: GradeResult) => void; record: ParsonsRecord | null; onCheck: (solved: boolean) => void;
+}) {
+  const z = p.parsons!;
+  const [saved, setSaved] = useDraft(`parsons/${p.id}`, "[]");
+  const order = readOrder(saved, z.pool.length);
+  const [fb, setFb] = useState<ParsonsFeedback | null>(null);
+  const [hints, setHints] = useState(0);
+  const [result, setResult] = useState<GradeResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { status } = useServer();
+  const connected = status.kind === "connected";
+  const setOrder = (o: number[]) => { setSaved(JSON.stringify(o)); setFb(null); setResult(null); };
+  const left = displayOrder(p.id, z.pool).filter((i) => !order.includes(i));
+  const move = (k: number, by: number) => {
+    const o = [...order];
+    [o[k], o[k + by]] = [o[k + by], o[k]];
+    setOrder(o);
+  };
+  const check = () => {
+    const f = parsonsFeedback(z.pool, z.n, z.accepted, order);
+    setFb(f);
+    if (f.kind !== "invalid") onCheck(f.kind === "solved");
+  };
+  const grade = async () => {
+    if (!connected || busy) return;
+    setBusy(true); setError(null);
+    try {
+      const r = await gradeCode(p.id, assemble(z, order));
+      setResult(r);
+      if (r.status === "passed") onSolved(r);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  // Rows the last check judged: a working prefix in green, the first line that cannot follow in red.
+  const rowClass = (k: number) => {
+    if (!fb) return "";
+    if (fb.kind === "prefix") return k < fb.good ? "good" : k === fb.good ? "bad" : "";
+    if (fb.kind === "distractor") return order[k] === z.n + fb.distractor ? "bad" : "";
+    return fb.kind === "solved" ? "good" : "";
+  };
+  const hintsReady = (record?.attempts ?? 0) > 0;
+  const distractor = fb?.kind === "distractor" ? z.distractors[fb.distractor - 1] : null;
+
+  return (
+    <article className="jt-problem">
+      <div className="jt-chips" style={{ marginBottom: "0.5rem" }}>
+        <span className="jt-chip">{p.difficulty}</span>
+        {p.kcs.map((k) => <span key={k} className="jt-chip kc">{k}</span>)}
+        <span className="jt-chip info">define <code>{p.entry}</code></span>
+        <span className="jt-chip advice" title="Put the lines in a working order; some lines on offer are wrong">
+          Parsons: {z.n} lines to place, {z.distractors.length} wrong
+        </span>
+      </div>
+      <Markdown text={p.prompt} />
+      {p.samples.length > 0 && (
+        <table className="jt-samples">
+          <caption className="jt-small jt-muted">The reference solution on the cases every order was run on</caption>
+          <tbody>
+            {p.samples.map((s) => <tr key={s.call}><td><code>{s.call}</code></td><td><code>{s.result}</code></td></tr>)}
+          </tbody>
+        </table>
+      )}
+      <div className="jt-parsons">
+        <div>
+          <h4 id={`pk-${p.id}`}>Your kernel ({order.length} of {z.n} lines)</h4>
+          <ol aria-labelledby={`pk-${p.id}`}>
+            {z.head.map((l, i) => <li key={`h${i}`} className="fixed"><code>{l}</code></li>)}
+            {order.length === 0 && <li className="gap">Pick lines on the right to place them here, in order.</li>}
+            {order.map((i, k) => (
+              <li key={i} className={rowClass(k)}>
+                <code>{z.pool[i - 1]}</code>
+                <button className="jt-btn ghost jt-small" disabled={k === 0} onClick={() => move(k, -1)} aria-label={`Move line ${k + 1} up`}>↑</button>
+                <button className="jt-btn ghost jt-small" disabled={k === order.length - 1} onClick={() => move(k, 1)} aria-label={`Move line ${k + 1} down`}>↓</button>
+                <button className="jt-btn ghost jt-small" onClick={() => setOrder(order.filter((x) => x !== i))} aria-label={`Remove line ${k + 1}`}>✕</button>
+              </li>
+            ))}
+            {z.tail.map((l, i) => <li key={`t${i}`} className="fixed"><code>{l}</code></li>)}
+          </ol>
+        </div>
+        <div>
+          <h4 id={`pp-${p.id}`}>Lines to place</h4>
+          <ol aria-labelledby={`pp-${p.id}`}>
+            {left.length === 0 && <li className="gap">Every line is placed.</li>}
+            {left.map((i) => (
+              <li key={i}>
+                <button className="jt-btn ghost jt-small" onClick={() => setOrder([...order, i])} aria-label={`Place: ${z.pool[i - 1].trim()}`}>+</button>
+                <code>{z.pool[i - 1]}</code>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+      <div className="jt-row">
+        <button className="jt-btn primary" disabled={order.length === 0} onClick={check}>Check the order</button>
+        {fb?.kind === "solved" && (
+          <button className="jt-btn" disabled={!connected || busy} onClick={grade}
+            title={connected ? "Grade the whole program, as for any solution" : "Needs tutor serve"}>
+            {busy ? "Grading…" : "Run it through the grader"}
+          </button>
+        )}
+        {hints < p.hints.length && (
+          <button className="jt-btn ghost jt-small" disabled={!hintsReady} onClick={() => setHints((h) => h + 1)}
+            title={hintsReady ? undefined : "Check an order first"}>
+            {hints === 0 ? "Show a hint" : "Another hint"} ({hints}/{p.hints.length})
+          </button>
+        )}
+        {order.length > 0 && <button className="jt-btn ghost jt-small" onClick={() => setOrder([])}>Start over</button>}
+      </div>
+      <div aria-live="polite">
+        {fb?.kind === "count" && (
+          <div className="jt-callout hint"><span className="tag">Not yet</span>
+            <div>A working order uses exactly {fb.need} lines; yours has {order.length}.</div></div>
+        )}
+        {fb?.kind === "prefix" && (
+          <div className="jt-callout mis"><span className="tag">Not this order</span>
+            <div>
+              {fb.good === 0 ? "No working order starts with your first line." :
+                `Your first ${fb.good} line${fb.good === 1 ? "" : "s"} can start a working order; line ${fb.good + 1} cannot come next.`}
+            </div></div>
+        )}
+        {distractor && (
+          <div className="jt-callout mis"><span className="tag">A wrong line</span>
+            <div>
+              <Code src={distractor && z.pool[distractor.index - 1].trim()} />
+              {md(distractor.misconception)}
+            </div></div>
+        )}
+        {fb?.kind === "solved" && (
+          <div className="jt-callout ok"><span className="tag">Works</span>
+            <div>
+              This order is one of {z.accepted.length} that work{z.accepted.length === 1 ? "s" : ""} on the cases
+              {record ? `, found on check ${record.attempts}` : ""}.
+              {z.accepted.length > 1 && " Lines that do not depend on each other can swap places."}
+            </div></div>
+        )}
+      </div>
+      {p.hints.slice(0, hints).map((h, i) => (
+        <div key={i} className="jt-callout hint"><span className="tag">Hint {i + 1}</span><div>{md(h)}</div></div>
+      ))}
+      {busy && <Output result={null} error={null} running />}
+      {error && <Output result={null} error={error} running={false} />}
+      {result && !busy && <Feedback r={result} />}
+    </article>
   );
 }
 

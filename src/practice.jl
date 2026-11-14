@@ -443,7 +443,57 @@ function record_unit(u::Course.Unit; ntasks::Int = default_ntasks(), figures::Un
         foreach(i -> write(joinpath(figures, k * "-" * i.name), i.data), r.images)
     end
     sm = Dict{String,Any}(p.id => samples(p, u.env) for p in u.problems)
-    return Dict("verified_on" => string(VERSION), "examples" => ex, "samples" => sm)
+    d = Dict{String,Any}("verified_on" => string(VERSION), "examples" => ex, "samples" => sm)
+    # Only units with Parsons problems get the key, so every other outputs file is unchanged.
+    pz = Dict{String,Any}(p.id => parsons_accepted(p, u) for p in u.problems if p.parsons !== nothing)
+    isempty(pz) || (d["parsons"] = pz)
+    return d
+end
+
+"""
+Every working arrangement of a Parsons problem's lines, measured: the
+enumeration (`Course.parsons_script`) runs in one fresh process in the unit's
+env, as an example would. Returns the accepted orderings as strings of pool
+indices, sorted.
+"""
+function parsons_accepted(p::Course.Problem, u::Course.Unit)
+    bad = Course.parsons_problems(p, u.kcs)
+    isempty(bad) || error("$(p.id): fix the Parsons problem before recording:\n" * join(bad, "\n"))
+    usings = String["Random"; isempty(p.packages) ? env_deps(u.env) : p.packages]
+    r = run_code(Course.parsons_script(p, usings); env = u.env, mode = "file", timeout = 600)
+    acc = Course.parse_parsons_output(r.output)
+    acc === nothing && error("$(p.id): the Parsons enumeration did not finish:\n$(r.output)")
+    return acc
+end
+
+"""
+Problems with the measured orderings of a unit's Parsons problems: the
+reference's own order must be accepted, no ordering that uses a distractor may
+be (it would not be a mistake), and the set must equal the recorded one.
+"""
+function parsons_record_problems(u::Course.Unit, stored, now)
+    out = String[]
+    now = something(now, Dict{String,Any}())
+    stored = something(stored, Dict{String,Any}())
+    for p in u.problems
+        p.parsons === nothing && continue
+        acc = get(now, p.id, nothing)
+        acc === nothing && (push!(out, "$(p.id): no measured Parsons orderings (re-record)"); continue)
+        n = length(Course.parsons_lines(p).items)
+        join(1:n, " ") in acc || push!(out, "$(p.id): the reference's own order is not an accepted Parsons ordering")
+        for (k, d) in enumerate(p.parsons.distractors)
+            hit = findfirst(a -> string(n + k) in split(a), acc)
+            hit === nothing ||
+                push!(out, "$(p.id): distractor $k (\"$(strip(d.line))\") is part of a working ordering ($(acc[hit])), so it is not a mistake")
+        end
+        old = get(stored, p.id, nothing)
+        old == acc || push!(out, "$(p.id): accepted Parsons orderings changed (re-record and review)\n--- recorded\n" *
+                                 join(something(old, String[]), "\n") * "\n--- now\n" * join(acc, "\n"))
+    end
+    for k in keys(stored)
+        any(p -> p.id == k && p.parsons !== nothing, u.problems) || push!(out, "$(u.id): stale Parsons orderings for $k (re-record)")
+    end
+    return out
 end
 
 function outputs_text(d)
@@ -624,6 +674,7 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
             push!(problems, "$(u.id): recorded outputs have stale entries (re-record)")
         get(stored, "verified_on", "") == string(VERSION) || push!(problems, "$(u.id): outputs were recorded on another Julia")
     end
+    append!(problems, parsons_record_problems(u, get(Course.load_outputs(u), "parsons", nothing), get(rec, "parsons", nothing)))
     append!(problems, question_key_problems(u, rec))
     append!(problems, Course.prediction_key_problems(u, rec))
     append!(problems, Course.checkpoint_key_problems(u, rec))   # on the fresh run: checked even for check = false

@@ -432,6 +432,144 @@ end
     end
 end
 
+@testset "Parsons problems: every arrangement measured, distractors never work" begin
+    ref = """
+    function f(x)
+        s = 0
+        for v in x
+            s += v
+        end
+        return s
+    end
+    """
+    dz(ds...) = Course.Parsons("k", 1, 2, collect(Course.Distractor, ds))
+    good = Course.Distractor("    s = 1", 1, "starts the sum at one")
+    Pz(z; reference = ref, compare = "isequal", gen = "", cases = ["[1, 2]", "Int[]"], starter = Course.parsons_starter(reference, z)) =
+        Course.Problem("p", "t", "core", ["k"], "", "f", starter, reference, cases, gen, compare,
+                       compare == "custom" ? "(a, b) -> a == b" : "", 1e-8, true, false, ["h"], nothing, Course.Variant[], 1, 1,
+                       String[], nothing, z)
+    probs(z; kw...) = Course.parsons_problems(Pz(z; kw...), ["k"])
+
+    # lines: fixed head and tail, movable lines in working order, then the distractors
+    p = Pz(dz(good))
+    l = Course.parsons_lines(p)
+    @test l.head == ["function f(x)"] && l.tail == ["    return s", "end"]
+    @test l.items == ["    s = 0", "    for v in x", "        s += v", "    end"]
+    @test Course.parsons_pool(p) == [l.items; "    s = 1"]
+    @test p.starter == "function f(x)\n    # put the lines here, in order\n    return s\nend\n"
+    @test isempty(probs(dz(good)))
+
+    # indentation is read as block structure, 4 spaces per level
+    @test Course.parsons_depth(1, "    for i in 1:n") == 2
+    @test Course.parsons_depth(2, "        x += 1") == 2
+    @test Course.parsons_depth(2, "    end") == 1
+    @test Course.parsons_depth(2, "    x += 1") == -1          # under-indented inside the loop
+    @test Course.parsons_depth(1, "        end") == -1         # an `end` at the wrong level
+    @test Course.parsons_depth(2, "    else") == 2 && Course.parsons_depth(1, "    if a") == 2
+    @test Course.parsons_depth(1, "    map(x) do v") == 2      # a do block opens
+    @test Course.parsons_depth(-1, "    x") == -1
+    @test Course.parsons_depth(0, ["function f(x)", "    s = 0", "    return s", "end"]) == 0
+
+    # structural problems
+    has(z, s; kw...) = any(m -> occursin(s, m), probs(z; kw...))
+    @test has(Course.Parsons("other", 1, 2, [good]), "kc 'other'")
+    @test has(Course.Parsons("k", 0, 2, [good]), "head and tail")
+    @test has(Course.Parsons("k", 1, 2, [good]), "starter is generated"; starter = Course.PARSONS_STARTER_GIVEN)
+    @test has(dz(good), "compare must be"; compare = "custom")
+    @test has(dz(good), "gen is not used"; gen = "rng -> [([1],)]")
+    @test has(dz(good), "two explicit cases"; cases = ["[1]"])
+    @test has(dz(Course.Distractor("        s = 1", 1, "m")), "indent it like the line it replaces (4 spaces)")
+    @test has(dz(Course.Distractor("    s = 0", 1, "m")), "the same text as a movable line")
+    @test has(dz(Course.Distractor("    s = 1", 9, "m")), "replaces must be 1 to 4")
+    @test has(dz(Course.Distractor("    s = 1", 1, " ")), "no misconception")
+    @test has(dz(good, Course.Distractor("    s = 2", 1, "m")), "two distractors replace the same line")
+    @test has(dz(good, good), "duplicate line")
+    @test has(dz(good), "`while`"; reference = replace(ref, "for v in x" => "while v in x"))
+    @test has(dz(good), "not indented 4 spaces"; reference = replace(ref, "        s += v" => "      s += v"))
+    @test has(dz(good), "blank"; reference = replace(ref, "    s = 0\n" => "    s = 0\n\n"))
+    @test has(dz(good), "3 to 8 movable lines"; reference = "function f(x)\n    s = 0\n    return s\nend\n")
+    @test has(Course.Parsons("k", 0, 1, [good]), "head must open the function")
+
+    # loading: the starter is generated, a hand-written one is refused
+    d = Dict("id" => "p", "title" => "t", "difficulty" => "core", "prompt" => "", "entry" => "f", "reference" => ref,
+             "parsons" => Dict("kc" => "k", "head" => 1, "tail" => 2,
+                               "distractor" => [Dict("line" => "    s = 1", "replaces" => 1, "misconception" => "m")]))
+    q = Course.load_problem(d)
+    @test q.starter == Course.parsons_starter(ref, q.parsons) && q.parsons.distractors[1].replaces == 1
+    @test Course.load_problem(merge(d, Dict("starter" => "f(x) = 0"))).starter == Course.PARSONS_STARTER_GIVEN
+
+    # the recorder's output: nothing unless it finished
+    @test Course.parse_parsons_output("accepted: 1 2\n") === nothing
+    @test Course.parse_parsons_output("accepted: 2 1 3\naccepted: 1 2 3\nparsons: 7 run\n") == ["1 2 3", "2 1 3"]
+
+    # feedback, in order: invalid, distractor, count, solved, longest working prefix
+    # (web/src/parsons.test.ts checks the same vectors)
+    pool = ["a", "b", "end", "end", "x"]
+    acc = ["1 2 3 3", "2 1 3 3"]
+    fb(o) = (r = Course.parsons_feedback(pool, 4, acc, o); (r.kind, r.value))
+    @test fb([1, 1, 3, 4]) == (:invalid, 0) && fb([1, 2, 3, 6]) == (:invalid, 0)
+    @test fb([1, 5, 3, 4]) == (:distractor, 1)
+    @test fb([1, 2, 3]) == (:count, 4)
+    @test fb([2, 1, 4, 3]) == (:solved, 4)                   # the two `end` lines are interchangeable
+    @test fb([1, 3, 2, 4]) == (:prefix, 1) && fb([3, 1, 2, 4]) == (:prefix, 0)
+    @test Course.parsons_key(pool, [2, 1, 4, 3]) == "2 1 3 3"
+
+    # the display order is a permutation that does not change between runs
+    o = Course.parsons_display_order("p", pool)
+    @test sort(o) == 1:5 && o == Course.parsons_display_order("p", pool)
+
+    # verify's checks on the measured set
+    u = Course.Unit("u", "t", "core", "base", "ready", "", ["k"], String[], String[], String[], Course.Section[], [p])
+    rp(stored, now) = Practice.parsons_record_problems(u, stored, now)
+    ok = Dict("p" => ["1 2 3 4"])
+    @test isempty(rp(ok, ok))
+    @test any(m -> occursin("own order is not", m), rp(Dict("p" => ["2 1 3 4"]), Dict("p" => ["2 1 3 4"])))
+    @test any(m -> occursin("distractor 1", m), rp(Dict("p" => ["1 2 3 4", "5 2 3 4"]), Dict("p" => ["1 2 3 4", "5 2 3 4"])))
+    @test any(m -> occursin("changed", m), rp(Dict("p" => ["1 2 3 4", "2 1 3 4"]), ok))
+    @test any(m -> occursin("no measured", m), rp(ok, nothing))
+    @test any(m -> occursin("stale", m), rp(Dict("p" => ["1 2 3 4"], "q" => ["1"]), ok))
+
+    # the course's Parsons problems are valid, measured, and on the site with their accepted sets
+    units = Course.load_course()
+    zs = [(u, p) for u in units for p in u.problems if p.parsons !== nothing]
+    @test length(zs) >= 3
+    for (u, p) in zs
+        @test isempty(Course.parsons_problems(p, u.kcs))
+        acc = Course.load_outputs(u)["parsons"][p.id]
+        @test isempty(Practice.parsons_record_problems(u, Course.load_outputs(u)["parsons"], Course.load_outputs(u)["parsons"]))
+        @test join(1:length(Course.parsons_lines(p).items), " ") in acc
+    end
+    site = [p for u in SiteData.course_data()["units"] for p in u["problems"]]
+    @test count(p -> haskey(p, "parsons"), site) == length(zs)
+    for (u, p) in zs
+        s = only(filter(x -> x["id"] == p.id, site))["parsons"]
+        @test s["accepted"] == [Base.parse.(Int, split(a)) for a in Course.load_outputs(u)["parsons"][p.id]]
+        @test s["pool"] == Course.parsons_pool(p) && s["n"] == length(Course.parsons_lines(p).items)
+    end
+
+    # the enumeration itself, in a fresh process: the two `s` lines commute only with
+    # the right indentation, and the distractor (sum starts at one) is never accepted
+    if !FAST
+        refm = """
+        function f(x)
+            s = 0
+            n = 0
+            for v in x
+                s += v
+                n += 1
+            end
+            return s - n
+        end
+        """
+        zm = Course.Parsons("k", 1, 2, [Course.Distractor("    s = 1", 1, "starts at one")])
+        pm = Pz(zm; reference = refm, cases = ["[1, 2, 3]", "[5]"])
+        um = Course.Unit("u", "t", "core", "base", "ready", "", ["k"], String[], String[], String[], Course.Section[], [pm])
+        acc = Practice.parsons_accepted(pm, um)
+        # s = 0 / n = 0 in either order, and s += v / n += 1 in either order: 4 orders
+        @test acc == ["1 2 3 4 5 6", "1 2 3 5 4 6", "2 1 3 4 5 6", "2 1 3 5 4 6"]
+    end
+end
+
 # A problem shell for assess(): only the fields assess reads matter.
 const P = Course.Problem("p", "t", "core", String[], "", "f", "", "", ["1"], "", "isequal", "", 1e-8, true,
                          false, String[], Course.Perf("n", [1000, 16000], false), Course.Variant[], 1, 1, String[])
