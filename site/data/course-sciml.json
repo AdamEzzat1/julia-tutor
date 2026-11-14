@@ -143,15 +143,49 @@
           "title": "A finite-difference gradient to check AD"
         }
       ],
+      "references": [
+        {
+          "authors": "Ma, Y.; Dixit, V.; Innes, M.; Guo, X.; Rackauckas, C.",
+          "id": "ma-2018",
+          "note": "Benchmarks forward mode against adjoints on biological and pharmacometric models and finds forward mode faster below about 100 parameters plus equations, the rule of thumb in sections 4 and 6.",
+          "title": "A Comparison of Automatic Differentiation and Continuous Sensitivity Analysis for Derivatives of Differential Equation Solutions",
+          "url": "https://arxiv.org/abs/1812.01892",
+          "venue": "arXiv:1812.01892",
+          "year": 2018
+        },
+        {
+          "authors": "Revels, J.; Lubin, M.; Papamarkou, T.",
+          "id": "revels-2016",
+          "note": "Describes ForwardDiff, the dual-number tool that differentiates the solver in the examples of sections 3, 4 and 6.",
+          "title": "Forward-Mode Automatic Differentiation in Julia",
+          "url": "https://arxiv.org/abs/1607.07892",
+          "venue": "arXiv:1607.07892",
+          "year": 2016
+        },
+        {
+          "authors": "Baydin, A. G.; Pearlmutter, B. A.; Radul, A. A.; Siskind, J. M.",
+          "id": "baydin-2018",
+          "note": "Survey of forward and reverse mode and their costs, behind the statement in section 6 that forward mode carries one direction per parameter.",
+          "title": "Automatic differentiation in machine learning: a survey",
+          "url": "https://arxiv.org/abs/1502.05767",
+          "venue": "Journal of Machine Learning Research 18(153)",
+          "year": 2018
+        }
+      ],
       "sections": [
         {
+          "analogies": [],
           "body": "This unit differentiates the solution of an ODE with respect to its\nparameters and then minimises a loss with those gradients. It relies on\nfour facts from earlier units; revisit the section named if one is unclear.\n\n* **Dual numbers carry derivatives through ordinary code** (unit 23,\n  \"Dual numbers: forward-mode AD by hand\"). A generic function run on duals\n  returns its value and its derivative; `ForwardDiff.gradient` and\n  `ForwardDiff.jacobian` do this for you.\n* **Forward mode costs in proportion to the number of inputs** (unit 23,\n  \"The cost of forward mode, and reverse mode\"): one evaluation per chunk of\n  at most 12 partials, while reverse mode costs a few evaluations whatever\n  the number of inputs.\n* **`f!(du, u, p, t)` and `remake`** (unit 24, \"In-place right-hand sides,\n  parameters and allocation\"): parameters travel with the problem, and\n  `remake(prob; p = new_p)` re-solves with new values. Tight tolerances\n  (unit 24, \"Tolerances, and checking against an exact answer\") decide how\n  many digits of a solution you can trust.\n* **Gradient-based minimisation and its result object** (unit 25,\n  \"Minimising with Optim.jl: Nelder-Mead and BFGS\" and \"Why gradients\n  matter: automatic differentiation and call counts\"): BFGS needs a gradient,\n  the AD backend is an ADTypes object such as `AutoForwardDiff()`, and you\n  check convergence before trusting the minimizer.\n\nEvery example here loads `OrdinaryDiffEq` (the ODE solvers that\nDifferentialEquations.jl re-exports in unit 24) rather than the whole\nDifferentialEquations package.",
+          "diagrams": [],
           "examples": [],
           "questions": [],
+          "refs": [],
           "title": "What you need from earlier units"
         },
         {
+          "analogies": [],
           "body": "Fitting means choosing parameters `p` so that the model's solution passes\nclose to measurements. With data `d[:, k]` at times `t_k`, the usual loss is\nthe sum of squared residuals\n\n    L(p) = Σ_k ‖u(t_k; p) - d[:, k]‖²\n\nwhere `u(t; p)` is the solution of `du/dt = f(u, p, t)`. Every evaluation of\n`L` is a full solve, and the solution enters only at the data times, which\n`saveat = ts` provides (unit 24).\n\nThe data here are **simulated**: solve the Lotka-Volterra model of unit 24\nwith known parameters `(α, β, γ, δ) = (1.5, 1, 3, 1)` and add Gaussian noise\nof standard deviation 0.05 from a `StableRNG`. StableRNGs.jl gives the same\nstream on every Julia version, which `Xoshiro` does not promise. Knowing the\ntrue parameters is what lets you check a fit: a method that does not find\nthem on simulated data will not find them on real data.\n\nThe loss is smooth in `p` but not convex: away from the truth the predicted\ncycles drift out of phase with the data, and the loss can rise and fall\nagain. A gradient method started far from the truth can stop in such a\nlocal minimum.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Simulated data and the loss along one parameter: α varies, the other three stay at their true values (losses rounded to 2 significant digits).",
@@ -183,10 +217,19 @@
               "prompt": "Why fit the model to data simulated from known parameters before fitting real measurements?"
             }
           ],
+          "refs": [],
           "title": "A loss computed through a solve"
         },
         {
+          "analogies": [
+            {
+              "breaks": "A sensitivity is an exact derivative: the rate of change for an infinitely\nsmall change in a parameter, computed from the equations. The cook's\nquestion sounds like adding a real extra pinch and tasting again, which is\nthe finite-difference method of the next section, with its own step-size\nerror. The columns are also not separate pots: they are linear equations\ndriven by the one solution `u`.",
+              "text": "A cook wants to know how the taste of a stew at the end depends on each of\nfour spices. Beside the pot she keeps a notebook with one column per spice.\nAt every stir she updates each column from the current state of the pot,\nanswering one question: if there were a touch more of this spice, how would\nthe pot differ right now? The stew is `u`, the four columns are the four\ncolumns of `S`, and her update rule is `dS/dt = J S + F`. One cooking run\ngives all four answers at the end, but every extra spice is one more column\nto update at every stir.",
+              "title": "A cook's notebook with one column per spice"
+            }
+          ],
           "body": "The gradient of `L` needs `∂u(t_k)/∂p`, the **sensitivity** of the solution\nto each parameter. Write `S(t)` for the `n × m` matrix with entries\n`S[i, j] = ∂u_i/∂p_j` (`n` states, `m` parameters). Differentiating\n`du/dt = f(u, p, t)` with respect to `p` and swapping the order of the\nderivatives gives another ODE for `S`:\n\n    dS/dt = J(t) S + F(t),    J = ∂f/∂u (n × n),   F = ∂f/∂p (n × m)\n\nwith `S(0) = 0` when the initial state does not depend on `p`. These are the\n**forward sensitivity equations**. Solve them together with `u`, in one\naugmented state of length `n + n m`, and the gradient of the loss follows by\nthe chain rule: `∂L/∂p_j = Σ_k 2 (u(t_k) - d_k) ⋅ S(t_k)[:, j]`.\n\nFor Lotka-Volterra, `n = 2` and `m = 4`, so the augmented system has\n`2 + 8 = 10` states:\n\n    J = [α - βy   -βx      ]      F = [x   -xy   0    0 ]\n        [δy        δx - γ  ]          [0    0   -y   xy ]\n\nRunning the solver on dual numbers (`ForwardDiff.jacobian` of the final\nstate) computes the same matrix a different way: it differentiates the\nsolver's arithmetic. Both answers are approximations of the exact `S` at the\nsolver's tolerance, so they agree to about that tolerance, not to rounding.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "The augmented system solved with `Tsit5`, against ForwardDiff through the solver, both at `abstol = reltol = 1e-10`.",
@@ -237,10 +280,15 @@
               "prompt": "You now also fit the initial prey population `x0` as a fifth parameter. What changes in the sensitivity system?"
             }
           ],
+          "refs": [
+            "revels-2016"
+          ],
           "title": "Forward sensitivities by hand"
         },
         {
+          "analogies": [],
           "body": "Writing the sensitivity equations by hand does not scale to every model.\nThere are two automatic routes, and both appear in this course:\n\n* **ForwardDiff through the solver.** `ForwardDiff.gradient(loss, p)` runs\n  the whole solve on dual numbers, as the previous example did with\n  `ForwardDiff.jacobian`. Nothing special is needed beyond a generic `f`.\n* **Reverse-mode AD (Zygote) with a rule for `solve`.** Zygote cannot\n  differentiate the solver's internals (they mutate arrays, unit 26,\n  \"Gradients with Zygote\"). Loading\n  [SciMLSensitivity.jl](https://docs.sciml.ai/SciMLSensitivity/stable/)\n  gives `solve` a derivative rule, and the keyword `sensealg` chooses how\n  that rule computes the derivative.\n\nThis course always passes `sensealg` explicitly, so that the method is a\ndecision you can see. `ForwardDiffSensitivity()` computes the derivatives\nwith dual numbers inside the rule (forward mode); the\n[sensitivity guide](https://docs.sciml.ai/SciMLSensitivity/stable/manual/differential_equation_sensitivities/)\ncalls it the fastest choice for small numbers of parameters (it says under\n100). Unit 44 adds the adjoint methods for the other case.\n\nAn AD gradient through a solve is the exact derivative of the solver's\narithmetic, which approximates the derivative of the true solution only to\nthe solver's tolerance. So check it by a second, independent method:\ncentral differences (unit 23, \"Three ways to get a derivative\") need only\nvalues of the loss. Their truncation error is of order `h²` (unit 31,\n\"Richardson extrapolation: two steps make a better answer\"), `1e-10`\nrelative for `h = 1e-5`. Each loss value also carries the solver's error,\nwhich the step choice can change by about the tolerance from one `p` to the\nnext, and the difference of two nearby loss values keeps that error while\nlosing the shared leading digits (unit 30, \"Cancellation is exact, and\nexposes earlier errors\"). Dividing by `2h` turns `1e-10` into a few times\n`1e-6` absolute.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "The gradient of the loss at a wrong guess, three ways: Zygote with `ForwardDiffSensitivity`, ForwardDiff through the solver, and central differences (`h = 1e-5`).",
@@ -289,10 +337,19 @@
               "prompt": "Your AD gradient and a central-difference gradient of the same loss differ in the fifth digit. What is the first thing to check?"
             }
           ],
+          "refs": [],
           "title": "Gradients through solve: SciMLSensitivity and an explicit sensealg"
         },
         {
+          "analogies": [
+            {
+              "breaks": "The ground here has four directions, one per parameter, and BFGS measures\nthe slope exactly with the gradient instead of feeling for it. It also takes\nlong steps built from the curvature it has estimated, so it need not stop in\nthe hollow nearest the start: the bad start in the example ended with `γ`\nnear 7.9, far from the 2.8 it began at.",
+              "text": "BFGS is like a hiker walking downhill in thick fog who stops when the ground\nunder her feet is flat. Flat ground is what a valley floor feels like, so\nshe reports success. She cannot see whether a deeper valley lies beyond the\nnext ridge. Starting from a good trailhead (a physically sensible guess), or\nfrom several, is how you find the deeper one.",
+              "title": "A hiker in fog who stops on flat ground"
+            }
+          ],
           "body": "Unit 25 called Optim.jl directly:\n`optimize(f, x0, BFGS(); autodiff = AutoForwardDiff())`.\n[Optimization.jl](https://docs.sciml.ai/Optimization/stable/) puts one\ninterface in front of many optimizer packages, and the SciML tutorials use\nit. Three things change:\n\n* **The AD backend moves into the function.**\n  `OptimizationFunction(f, AutoForwardDiff())` pairs the objective with the\n  backend that differentiates it; `AutoZygote()` would use reverse mode.\n* **The objective takes two arguments**, `f(p, data)`. The second is fixed\n  data passed through `OptimizationProblem(optf, p0, data)`; with no data\n  it is `SciMLBase.NullParameters()`, which `_` ignores.\n* **The optimizer comes from a wrapper package.** `BFGS()` and `LBFGS()`\n  here come from OptimizationOptimJL (which calls Optim.jl), `Adam` from\n  OptimizationOptimisers. `solve(prob, optimizer; maxiters)` runs it and\n  returns a solution with `sol.u` (the minimizer), `sol.objective` (the\n  loss there) and `sol.retcode`.\n\nThe first example runs the same BFGS through both interfaces from two\nstarts. It also shows why a good start matters: from a start where α, β and\nδ are 20% low and γ is 7% low, BFGS ends in a local minimum with a loss 2000 times larger,\nand still reports `Success`, because its stopping test (a small gradient)\nholds at any minimum. Check the fit, not only the return code: compare with\nthe truth on simulated data, plot the prediction against the data on real\ndata.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "BFGS through Optimization.jl and through Optim.jl (reached as `OptimizationOptimJL.Optim`), from two start points. Parameters rounded to 3 digits, losses to 2.",
@@ -341,10 +398,19 @@
               "prompt": "BFGS returns `ReturnCode.Success` with a loss 2000 times larger than at another start. What does `Success` mean here?"
             }
           ],
+          "refs": [],
           "title": "The fit with Optimization.jl, next to Optim.jl"
         },
         {
-          "body": "Forward mode carries one derivative direction per parameter. In the\nhand-written version that is visible in the state length, `n + n m`: every\nparameter adds `n` equations, and every step of the solver works on all of\nthem. ForwardDiff through the solver does the same work in chunks: one\nsolve per chunk of up to 12 partials (unit 23), and each of those solves\ncarries every partial of its chunk through every operation. A gradient\ntherefore costs about `m` times one plain solve, whether the partials come\nin one chunk or in several.\n\nThe example below fits the entries of a matrix in the linear system\n`du/dt = A u`: with `n` states there are `m = n²` parameters, so doubling\n`n` multiplies the parameters by four. The time of one gradient grows\nfaster than the time of one solve, because the solve gets more expensive\nwith `n` and the gradient needs more chunks with `m`.\n\nFor four Lotka-Volterra parameters none of this matters. For a model with\nhundreds of parameters (a neural network inside an ODE, unit 44) forward\nsensitivities become the bottleneck, and the adjoint method, whose cost\ndoes not grow with `m`, takes over.",
+          "analogies": [],
+          "body": "Forward mode carries one derivative direction per parameter. In the\nhand-written version that is visible in the state length, `n + n m`: every\nparameter adds `n` equations, and every step of the solver works on all of\nthem. ForwardDiff through the solver does the same work in chunks: one\nsolve per chunk of up to 12 partials (unit 23), and each of those solves\ncarries every partial of its chunk through every operation. A gradient\ntherefore costs about `m` times one plain solve, whether the partials come\nin one chunk or in several.\n\nThe example below fits the entries of a matrix in the linear system\n`du/dt = A u`: with `n` states there are `m = n²` parameters, so doubling\n`n` multiplies the parameters by four. The time of one gradient grows\nfaster than the time of one solve, because the solve gets more expensive\nwith `n` and the gradient needs more chunks with `m`.\n\nFor four Lotka-Volterra parameters none of this matters. For a model with\nhundreds of parameters (a neural network inside an ODE, unit 44) forward\nsensitivities become the bottleneck, and the adjoint method, whose cost\ndoes not grow with `m`, takes over.\n\n**What this is useful for.** Gradients of a loss through an ODE solve are\nthe standard tool for fitting mechanistic models (models built from known\nmechanisms, such as rate laws) to measurements. Ma, Dixit, Innes, Guo and\nRackauckas compared these derivative methods on biological and\npharmacometric models (pharmacometrics: models of how a drug spreads through\nthe body and leaves it), including a discretized PDE. For small systems,\nbelow roughly 100 parameters plus equations, forward mode through the solver\nwas the most efficient; beyond that size continuous adjoints were. That is\nthe regime of this unit and the reason for unit 44. Revels, Lubin and\nPapamarkou describe ForwardDiff, the forward-mode tool used here, and the\nsurvey of Baydin, Pearlmutter, Radul and Siskind explains why forward mode\ncosts one pass per input and reverse mode one pass per output. The limits\nabove still apply: a gradient method stops at any local minimum and reports\n`Success`, so check the fit itself, and the cost of forward sensitivities\ngrows with the number of parameters.",
+          "diagrams": [
+            {
+              "alt": "Five boxes in a row: the state u (x and y) and four sensitivity columns S[:, 1] to S[:, 4], one per parameter, each holding two equations, ten states in all. Beside them, a table of the recorded runs for du/dt = A u: n = 2, 4 and 8 give 10, 68 and 520 states and a gradient that costs about 1, 9 and 116 times one solve.",
+              "caption": "Each parameter adds a column of n equations that the solver updates at every step, so the work grows with the number of parameters.",
+              "src": "assets/diagrams/43-sensitivities/forward-sensitivity-state.svg"
+            }
+          ],
           "examples": [
             {
               "caption": "One loss gradient by ForwardDiff through `Tsit5`, for `du/dt = A u` with `m = n²` parameters. Timings vary between machines, so they are recorded, not checked; the state and chunk counts are exact.",
@@ -375,6 +441,11 @@
               ],
               "prompt": "A model has 3 states and 4 parameters, and you need the gradient of a scalar loss. A colleague says reverse mode is always cheaper for gradients. What do you use?"
             }
+          ],
+          "refs": [
+            "ma-2018",
+            "revels-2016",
+            "baydin-2018"
           ],
           "title": "What forward sensitivities cost as parameters grow"
         }
@@ -595,15 +666,70 @@
           "title": "Find the bug: an adjoint gradient that points the wrong way"
         }
       ],
+      "references": [
+        {
+          "authors": "Chen, R. T. Q.; Rubanova, Y.; Bettencourt, J.; Duvenaud, D.",
+          "id": "chen-2018",
+          "note": "Introduced the neural ODE built in section 5 and the adjoint training it uses; lists the uses named there (continuous-depth networks, time-series models, normalizing flows).",
+          "title": "Neural Ordinary Differential Equations",
+          "url": "https://arxiv.org/abs/1806.07366",
+          "venue": "Advances in Neural Information Processing Systems 31 (NeurIPS 2018)",
+          "year": 2018
+        },
+        {
+          "authors": "Rubanova, Y.; Chen, R. T. Q.; Duvenaud, D.",
+          "id": "rubanova-2019",
+          "note": "Applies neural ODEs to time series with uneven gaps, the published use cited in section 5.",
+          "title": "Latent ODEs for Irregularly-Sampled Time Series",
+          "url": "https://arxiv.org/abs/1907.03907",
+          "venue": "arXiv:1907.03907",
+          "year": 2019
+        },
+        {
+          "authors": "Gholami, A.; Keutzer, K.; Biros, G.",
+          "id": "gholami-2019",
+          "note": "Shows that optimize-then-discretize gradients can be inconsistent with the discretized solution (section 4) and can make training diverge (section 5).",
+          "title": "ANODE: Unconditionally Accurate Memory-Efficient Gradients for Neural ODEs",
+          "url": "https://arxiv.org/abs/1902.10298",
+          "venue": "arXiv:1902.10298",
+          "year": 2019
+        },
+        {
+          "authors": "Ma, Y.; Dixit, V.; Innes, M.; Guo, X.; Rackauckas, C.",
+          "id": "ma-2018",
+          "note": "Measures the forward-versus-adjoint crossover near 100 parameters plus equations (section 6) and finds backsolve adjoints unstable for most scientific models (section 5).",
+          "title": "A Comparison of Automatic Differentiation and Continuous Sensitivity Analysis for Derivatives of Differential Equation Solutions",
+          "url": "https://arxiv.org/abs/1812.01892",
+          "venue": "arXiv:1812.01892",
+          "year": 2018
+        }
+      ],
       "sections": [
         {
+          "analogies": [],
           "body": "This unit computes the same gradients as unit 43 in reverse, then puts a\nneural network inside the ODE. It relies on these facts:\n\n* **Forward sensitivities cost grows with the parameters** (unit 43,\n  \"Forward sensitivities by hand\" and \"What forward sensitivities cost as\n  parameters grow\"): the augmented system has `n + n m` states, one column\n  of `S` per parameter.\n* **`sensealg` is always explicit, and every gradient is checked a second\n  way** (unit 43, \"Gradients through solve: SciMLSensitivity and an explicit\n  sensealg\"): `ForwardDiffSensitivity()` for few parameters, cross-checked\n  by ForwardDiff or finite differences.\n* **Reverse mode costs a few evaluations whatever the number of inputs**\n  (unit 23, \"The cost of forward mode, and reverse mode\"), and Zygote cannot\n  differentiate code that mutates arrays (unit 26, \"Gradients with Zygote\").\n* **Lux keeps parameters outside the model** (unit 26, \"Where to go next\"):\n  `ps, st = Lux.setup(rng, model)` and `model(x, ps, st)` returns a pair\n  `(output, new_state)`. Unit 26 also explained why networks default to\n  `Float32` (\"Arrays as the data model: features by batch, Float32\").",
+          "diagrams": [],
           "examples": [],
           "questions": [],
+          "refs": [],
           "title": "What you need from earlier units"
         },
         {
+          "analogies": [
+            {
+              "breaks": "The backward rule is exact linear algebra: `λ_{k+1}` is multiplied by the\ntransposed step Jacobian `(I + h J_k)ᵀ`, and the shares add up only because derivatives\nare linear in small changes; real delays interact and do not split so\nneatly. The logbook is a real cost: the adjoint must store or recompute\nevery state `u_k`, the memory price measured in the next section.",
+              "text": "A parcel arrives late, and you want to know how much each of many settings\nalong its route (sorting speed, truck speed, loading time) added to the\ndelay. Forward mode would rerun the route once per setting. The adjoint\nstarts at the destination with a short list of numbers, one per state,\nsaying how the final lateness changes if the parcel's state there changes a\nlittle. It then walks the route backward once, using the logbook of where\nthe parcel was at every stop. At each stop it passes the list back one leg\nand adds that stop's share to every setting's total. One backward walk gives\nall the settings' shares.",
+              "title": "Tracing a late parcel back along its route"
+            }
+          ],
           "body": "Take the simplest solver, forward Euler with a fixed step `h`:\n\n    u_{k+1} = u_k + h f(u_k, p),   k = 0, ..., N-1\n\nand a loss of the final state, `L = g(u_N)`. Forward mode pushes the\nsensitivity `S_k = ∂u_k/∂p` (an `n × m` matrix) forward through every step.\nReverse mode instead pulls one vector backward. Define the **adjoint**\n`λ_k = ∂L/∂u_k` (a vector of length `n`). At the end, `λ_N = ∇g(u_N)`, and the\nchain rule through one step gives\n\n    λ_k = λ_{k+1} + h J_kᵀ λ_{k+1},        J_k = ∂f/∂u at (u_k, p)\n    ∂L/∂p += h F_kᵀ λ_{k+1},               F_k = ∂f/∂p at (u_k, p)\n\nfor `k = N-1` down to `0`. Each backward step needs `u_k`, so the forward\npass stores the trajectory (`N + 1` states). The products `Jᵀλ` and `Fᵀλ`\nare **vector-Jacobian products** (VJPs): the backward pass needs these\nproducts, never the full Jacobians, which is what lets AD tools compute\nthem cheaply for large `f`.\n\nThe result is the exact gradient of the Euler arithmetic, so it must agree\nwith ForwardDiff run through the same loop to rounding error, not to a\nsolver tolerance. That makes ForwardDiff a sharp check of a hand-written\nadjoint.",
+          "diagrams": [
+            {
+              "alt": "Two rows of boxes. Top row: states u0, u1, u2 up to uN, joined by arrows pointing right, the forward pass that keeps every state. Bottom row: adjoints lambda0 up to lambdaN, joined by arrows pointing left, the backward pass that starts from the gradient of g at uN; dashed arrows show each backward step reading the stored state above it.",
+              "caption": "The forward pass stores the trajectory; the backward pass carries one vector of length n back through it and adds each step's share to the gradient.",
+              "src": "assets/diagrams/44-adjoints-neural-odes/adjoint-two-passes.svg"
+            }
+          ],
           "examples": [
             {
               "caption": "The discrete adjoint of 200 Euler steps of Lotka-Volterra, for `L = ‖u_N - target‖² / 2`, against ForwardDiff through the same loop.",
@@ -654,10 +780,13 @@
               "prompt": "Why does the backward pass need the states `u_k` stored by the forward pass?"
             }
           ],
+          "refs": [],
           "title": "Reverse mode through N Euler steps, by hand"
         },
         {
+          "analogies": [],
           "body": "Count the work per Euler step, for `n` states and `m` parameters.\n\n* **Forward sensitivities** update `S_{k+1} = S_k + h (J_k S_k + F_k)`: a\n  product of an `n × n` with an `n × m` matrix, about `n² m` multiplications\n  per step, or `m` Jacobian-vector products. The work grows in proportion to\n  `m`.\n* **The adjoint** updates one vector, `λ_k = λ_{k+1} + h J_kᵀ λ_{k+1}`, and\n  adds `h F_kᵀ λ_{k+1}` to the gradient: `n²` plus `n m` multiplications, or\n  two vector-Jacobian products, per step. The `n m` term only reads `F`; when\n  AD computes the VJP `F_kᵀ λ` directly, its cost is a small multiple of one\n  evaluation of `f`, whatever `m` is.\n\nSo forward mode costs about `N m` products and the adjoint about `N`, for a\nscalar loss. The price of the adjoint is memory: it stores `N + 1` states\n(or recomputes them from checkpoints), while forward mode keeps only the\ncurrent `S`. This is reverse mode (unit 23) applied to a time-stepping loop.\nWhen the loss has many outputs instead (say you need the whole Jacobian of\nall final states), reverse mode needs one sweep per output and the balance\nshifts back: reverse mode is cheaper for few outputs and many parameters,\nnot always.\n\nThe timing below uses `du/dt = A u` with `m = n²` parameters (the entries of\n`A`), where the Jacobians are known in closed form (`J = A`, and\n`F_kᵀ λ = vec(λ u_kᵀ)`), so both methods run as plain matrix code.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Hand-written forward sensitivities against the hand-written adjoint, 100 Euler steps of `du/dt = A u` with `m = n²` parameters. Timings vary between machines, so the example is recorded, not checked; each row compares the two gradients and counts the states the adjoint stored.",
@@ -706,10 +835,13 @@
               "prompt": "What does the discrete adjoint of N Euler steps keep in memory that forward sensitivities do not?"
             }
           ],
+          "refs": [],
           "title": "Why the adjoint's cost does not grow with the parameters"
         },
         {
+          "analogies": [],
           "body": "An adaptive solver changes its steps with `p`, so differentiating its\narithmetic step by step is awkward. SciMLSensitivity's adjoint methods work\nwith the ODE instead: the adjoint `λ(t)` of the exact solution obeys its own\nODE backward in time,\n\n    dλ/dt = -J(t)ᵀ λ,\n\nwith jumps at the data times, and the gradient is an integral of\n`F(t)ᵀ λ(t)` over the time span. This is the continuous version of the\nrecursion in the previous sections (let `h → 0`). Solving it with a second\nadaptive solve is called **optimize-then-discretize**; differentiating the\nsolver's own steps (ForwardDiff through `Tsit5`, or the Euler adjoint above)\nis **discretize-then-optimize**. The two give the gradient of slightly\ndifferent things, so they agree to the solver tolerance, not to rounding.\n\n`GaussAdjoint` is the method the\n[sensitivity guide](https://docs.sciml.ai/SciMLSensitivity/stable/manual/differential_equation_sensitivities/)\nrecommends as the general adjoint (\"should be generally preferred\");\n`QuadratureAdjoint` and `InterpolatingAdjoint` trade memory and compute\ndifferently. Each needs the vector-Jacobian products `J(t)ᵀ λ` and\n`F(t)ᵀ λ`, and `autojacvec` says which AD tool computes them.\n`ZygoteVJP()` uses Zygote, which needs an **out-of-place** right-hand side\n`f(u, p, t)` that does not mutate arrays (the guide recommends `EnzymeVJP`\nfirst when it applies; Enzyme is not part of this course's examples).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "A Lotka-Volterra loss differentiated with `GaussAdjoint(autojacvec = ZygoteVJP())` and checked against ForwardDiff through `Tsit5`, at two tolerances.",
@@ -758,10 +890,21 @@
               "prompt": "Why does the example write `lv(u, p, t)` out of place when `GaussAdjoint` uses `ZygoteVJP()`?"
             }
           ],
+          "refs": [
+            "gholami-2019"
+          ],
           "title": "Continuous adjoints in SciMLSensitivity"
         },
         {
-          "body": "A **neural ODE** replaces the right-hand side by a network:\n`du/dt = NN(u; θ)`. In Chen et al. (\"Neural Ordinary Differential Equations\",\nNeurIPS 2018, [arXiv:1806.07366](https://arxiv.org/abs/1806.07366)) a\nnetwork parameterizes the derivative of the hidden state, and an ODE solver\nproduces the output. Fitting `θ` is the parameter\nfit of unit 43 with many more parameters.\n\nWith Lux the pieces are explicit:\n\n* `nn = Chain(Dense(2 => 16, tanh), Dense(16 => 2))` describes the function;\n* `ps, st = Lux.setup(StableRNG(1), nn)` draws the initial weights from a\n  stable generator you pass in (no global RNG) and returns the (empty)\n  state;\n* `f(u, p, t) = first(nn(u, p, st))` is the right-hand side: the model\n  returns `(output, state)`, and `first` keeps the output.\n\n`ps` is a nested `NamedTuple`, and solvers and optimizers want one flat\nvector. `ComponentArray(ps)` from ComponentArrays.jl is a flat vector that\nstill answers `ps.layer_1.weight`, so the same object serves Lux and the\nsolver.\n\n**The element type trap.** Lux initialises weights as `Float32`, the\ndeep-learning default (unit 26). A forward solve with a `Float64` state still\nworks, because `Float32` weights times a `Float64` state promote to\n`Float64`. Differentiating does not: with `ForwardDiffSensitivity` the\nsolver stops with `TypeNotConstantError`, its check that the output of\n`f` has the type of `u`, which fails once dual numbers of two element\ntypes meet. Convert once:\n`ps = ComponentArray{Float64}(ps)`. This course uses `Float64` throughout:\n`Float32` carries about 7 digits (`eps(Float32)` is about `1.2e-7`), so\nsolver tolerances below that mean nothing in it.",
+          "analogies": [
+            {
+              "breaks": "Real wind exists everywhere and can be measured; the network's arrows are\nfitted only where the boat's path went, and elsewhere they are whatever the\nweights happen to give (unit 45 tests what that does to prediction). The\narrows also know nothing about physics: nothing makes them conserve energy\nor keep populations positive unless the structure or the loss asks for it.",
+              "text": "A neural ODE is a map of wind arrows. At every point `u` the network draws\nan arrow, `NN(u; θ)`, saying which way and how fast the state moves. The ODE\nsolver is a paper boat dropped at `u0` that follows the arrows. Training\nadjusts the arrows until the boat's path passes near the data.",
+              "title": "A wind map and a paper boat"
+            }
+          ],
+          "body": "A **neural ODE** replaces the right-hand side by a network:\n`du/dt = NN(u; θ)`. In Chen et al. (\"Neural Ordinary Differential Equations\",\nNeurIPS 2018, [arXiv:1806.07366](https://arxiv.org/abs/1806.07366)) a\nnetwork parameterizes the derivative of the hidden state, and an ODE solver\nproduces the output. Fitting `θ` is the parameter\nfit of unit 43 with many more parameters.\n\nWith Lux the pieces are explicit:\n\n* `nn = Chain(Dense(2 => 16, tanh), Dense(16 => 2))` describes the function;\n* `ps, st = Lux.setup(StableRNG(1), nn)` draws the initial weights from a\n  stable generator you pass in (no global RNG) and returns the (empty)\n  state;\n* `f(u, p, t) = first(nn(u, p, st))` is the right-hand side: the model\n  returns `(output, state)`, and `first` keeps the output.\n\n`ps` is a nested `NamedTuple`, and solvers and optimizers want one flat\nvector. `ComponentArray(ps)` from ComponentArrays.jl is a flat vector that\nstill answers `ps.layer_1.weight`, so the same object serves Lux and the\nsolver.\n\n**The element type trap.** Lux initialises weights as `Float32`, the\ndeep-learning default (unit 26). A forward solve with a `Float64` state still\nworks, because `Float32` weights times a `Float64` state promote to\n`Float64`. Differentiating does not: with `ForwardDiffSensitivity` the\nsolver stops with `TypeNotConstantError`, its check that the output of\n`f` has the type of `u`, which fails once dual numbers of two element\ntypes meet. Convert once:\n`ps = ComponentArray{Float64}(ps)`. This course uses `Float64` throughout:\n`Float32` carries about 7 digits (`eps(Float32)` is about `1.2e-7`), so\nsolver tolerances below that mean nothing in it.\n\n**What this is useful for.** Chen, Rubanova, Bettencourt and Duvenaud used\nthis construction for continuous-depth versions of residual networks (deep networks in which each\nlayer adds a small correction to its input, which is one Euler step), for\ntime-series models with a continuous hidden state, and for continuous\nnormalizing flows (a model of probability distributions you can sample\nfrom). Rubanova, Chen and Duvenaud built latent ODE models on it for time\nseries measured at irregular times: the solver can stop at any time, so\nuneven gaps between observations need no special handling, and in their\nexperiments these models beat their recurrent-network counterparts\n(networks that update a hidden state one observation at a time) on such\ndata. The adjoint is what makes\nthe gradient affordable for the many weights of a network. Two cautions come\nwith it. Gholami, Keutzer and Biros showed that the optimize-then-discretize\ngradient can be inconsistent enough to make training diverge at small time\nsteps, and proposed a discretize-then-optimize method (ANODE); Ma et al.\nfound that adjoints which re-solve the forward ODE backward in time\n(backsolve) are numerically unstable and unsuitable for most scientific\nmodels. And the limits of this unit stay: the\nelement type trap above, and the cost crossover of the next section, where\nforward mode was faster at 42 parameters.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "A Lux network as the right-hand side: parameter count, the Float32 default, and a gradient with `ForwardDiffSensitivity` before and after converting to Float64, checked against a second method, the continuous adjoint `GaussAdjoint(autojacvec = ZygoteVJP())`.",
@@ -812,10 +955,18 @@
               "prompt": "Why does the example call `ComponentArray{Float64}(ps)` before differentiating?"
             }
           ],
+          "refs": [
+            "chen-2018",
+            "rubanova-2019",
+            "gholami-2019",
+            "ma-2018"
+          ],
           "title": "A neural network as the whole right-hand side"
         },
         {
+          "analogies": [],
           "body": "The operation count in the section on the adjoint's cost says that forward\nmode costs about `m` evaluations of the right-hand side per step and the\nadjoint a small, fixed number of them. For a neural ODE there is a catch:\nwidening the network adds parameters **and** makes each evaluation of `f`\nmore expensive, so the adjoint's time grows too, in proportion to the cost\nof `f`, while forward mode's grows with `m` times that cost. The\nmeasurement also shows the constant factors the count leaves out: the\nadjoint solves an extra ODE backward and calls Zygote for every\nvector-Jacobian product, so for small `m` it is slower than forward mode.\n\nThe example writes the network by hand (two layers, `tanh`, weights read\nfrom one flat vector with `reshape(view(...))`), so that changing the width\n`w` does not change any type and nothing is recompiled between widths; the\nparameter count is `m = 5w + 2`. Each row checks that the two gradients\nagree before timing them.\n\nWhere the crossover falls depends on the problem, the solver and the\nmachine. The sensitivity guide's rule of thumb (forward mode below about 100\nparameters) is a starting point; measure your own model, as here, when the\ngradient is the bottleneck.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Gradient time with `ForwardDiffSensitivity` (through ForwardDiff) and with `GaussAdjoint(autojacvec = ZygoteVJP())`, for a neural ODE of width `w`. Timings vary between machines, so they are recorded, not checked.",
@@ -846,6 +997,9 @@
               ],
               "prompt": "In the timing example the adjoint is slower than forward mode at 42 parameters. Which explanation fits?"
             }
+          ],
+          "refs": [
+            "ma-2018"
           ],
           "title": "Forward and adjoint cost as the parameters grow"
         }
@@ -992,15 +1146,61 @@
           "title": "What the network must learn"
         }
       ],
+      "references": [
+        {
+          "authors": "Rackauckas, C.; Ma, Y.; Martensen, J.; Warner, C.; Zubov, K.; Supekar, R.; Skinner, D.; Ramadhan, A.; Edelman, A.",
+          "id": "rackauckas-2020",
+          "note": "Introduced the name and framework of the UDE built in sections 2 to 5, and lists the applications cited in section 4.",
+          "title": "Universal Differential Equations for Scientific Machine Learning",
+          "url": "https://arxiv.org/abs/2001.04385",
+          "venue": "arXiv:2001.04385",
+          "year": 2020
+        },
+        {
+          "authors": "Chen, R. T. Q.; Rubanova, Y.; Bettencourt, J.; Duvenaud, D.",
+          "id": "chen-2018",
+          "note": "The pure neural ODE, du/dt = NN(u), that section 4 compares with the UDE.",
+          "title": "Neural Ordinary Differential Equations",
+          "url": "https://arxiv.org/abs/1806.07366",
+          "venue": "Advances in Neural Information Processing Systems 31 (NeurIPS 2018)",
+          "year": 2018
+        },
+        {
+          "authors": "Brunton, S. L.; Proctor, J. L.; Kutz, J. N.",
+          "id": "brunton-2016",
+          "note": "The sparse regression (SINDy) that turns the learned term into an equation, mentioned in section 4 and built in unit 46.",
+          "title": "Discovering governing equations from data by sparse identification of nonlinear dynamical systems",
+          "url": "https://doi.org/10.1073/pnas.1517384113",
+          "venue": "Proceedings of the National Academy of Sciences 113",
+          "year": 2016
+        }
+      ],
       "sections": [
         {
+          "analogies": [],
           "body": "A universal differential equation is a neural ODE (unit 44) in which the\nnetwork is only one term. This unit relies on:\n\n* **A Lux network as a right-hand side, with Float64 `ComponentArray`\n  parameters** (unit 44, \"A neural network as the whole right-hand side\"):\n  `first(nn(u, p, st))` is the network's output, and\n  `ComponentArray{Float64}(ps)` gives one flat Float64 vector.\n* **Fitting with Optimization.jl** (unit 43, \"The fit with Optimization.jl,\n  next to Optim.jl\"): `OptimizationFunction(loss, AutoForwardDiff())`, a\n  loss `loss(p, _)` of two arguments, and `sol.u` for the result; a failed\n  solve returns `Inf` instead of an error.\n* **Forward mode for few parameters** (unit 43, \"What forward sensitivities\n  cost as parameters grow\", and unit 44, \"Forward and adjoint cost as the\n  parameters grow\"): the networks here have 57 parameters, so ForwardDiff\n  through the solver is the cheaper gradient.\n* **The Lotka-Volterra model** (unit 24, problem \"Predators and prey, in\n  place\"): prey `x` grow at rate `α`, predators `y` die at rate `γ`, and the\n  `xy` terms with `β` and `δ` couple them. This unit and the next keep unit\n  24's names.",
+          "diagrams": [],
           "examples": [],
           "questions": [],
+          "refs": [],
           "title": "What you need from earlier units"
         },
         {
+          "analogies": [
+            {
+              "breaks": "Tasting judges only the finished dish, and so does the loss: it sees `known + NN`\ntogether. If a legible step was copied wrong, your guess for the\nsmudged line can quietly compensate and the dish still tastes right, which\nis what the last section of this unit measures. And a good taste on the\ndishes you have cooked says nothing about one you have not: the network is\nfitted only on the states the data visit.",
+              "text": "You have a family recipe in which every step is legible except one smudged\nline. Instead of inventing the dish from scratch (a pure neural ODE), you\nkeep the steps you can read and experiment only with the smudged one,\ntasting the result against the dish you remember. The known terms are the\nlegible steps, the network is your guess for the smudged line, and the data\nare the remembered taste.",
+              "title": "A family recipe with one smudged line"
+            }
+          ],
           "body": "Suppose you know how the prey reproduce and how the predators die, but not\nhow they interact. The true model, with the parameter values of the SciML\nmissing-physics tutorial (`docs.sciml.ai/Overview/stable/showcase/missing_physics/`),\nis\n\n    dx/dt = α x - β x y\n    dy/dt = δ x y - γ y,      α = 1.3, β = 0.9, δ = 0.8, γ = 1.8\n\nThe tutorial swaps the names of the last two (its `γ` is the interaction\nrate 0.8, its `δ` the death rate 1.8); here they follow unit 24. The\n**universal differential equation** (UDE) keeps the known terms and puts a\nnetwork where the unknown ones were:\n\n    dx/dt = α x + NN₁(x, y)\n    dy/dt = -γ y + NN₂(x, y)\n\nThe network must learn `NN(x, y) ≈ (-β x y, δ x y)`, a function of two\ninputs, instead of the whole dynamics. Rackauckas et al. introduced the\nname and the framework (\"Universal Differential Equations for Scientific\nMachine Learning\", [arXiv:2001.04385](https://arxiv.org/abs/2001.04385)).\n\nThe network is a smaller version of the tutorial's: two hidden `Dense`\nlayers of width 5 with the radial basis activation `exp(-x²)`, 57\nparameters (the tutorial has a third hidden layer, 87 parameters, and\ntrains for thousands of iterations instead of a few hundred). The data are\nsimulated: the true model from `u0 = [3, 1]`, saved every 0.25 on `[0, 3]`,\nwith Gaussian noise of 0.5% of each variable's mean (also the tutorial's\nchoice), drawn from a `StableRNG`.",
+          "diagrams": [
+            {
+              "alt": "Block diagram: the state u = (x, y) feeds two boxes, the fixed known terms (alpha x, minus gamma y) with alpha = 1.3 and gamma = 1.8, and a network NN(x, y) with 57 trained weights; their sum is du/dt, which an ODE solve turns into a prediction compared with the data, and the gradient arrow goes back to the network only.",
+              "caption": "Only the network's weights are trained; the known terms stay fixed, so the network has to learn a function of two inputs, not the whole dynamics.",
+              "src": "assets/diagrams/45-universal-odes/ude-structure.svg"
+            }
+          ],
           "examples": [
             {
               "caption": "The UDE's right-hand side with an untrained network, and with the exact missing term in place of the network.",
@@ -1032,10 +1232,21 @@
               "prompt": "Compared with a neural ODE for the same data, what does the UDE's network have to learn?"
             }
           ],
+          "refs": [
+            "rackauckas-2020"
+          ],
           "title": "Known physics plus a learned term"
         },
         {
+          "analogies": [
+            {
+              "breaks": "You could measure a scale's wobble by weighing yourself twice; here the\nfloor is known only because the data are simulated and the true model is at\nhand. On real data the noise has to be estimated separately, and a loss far\nbelow it is not a better model but a sign that the network is fitting the\nnoise.",
+              "text": "If your bathroom scale wobbles by about 100 grams, no model of your weight\ncan match its readings better than about 100 grams. A model that matches to\nwithin the wobble is as good as the scale can show. The noise floor is that\nwobble for these data: the loss that the true model itself gets.",
+              "title": "A bathroom scale that wobbles"
+            }
+          ],
           "body": "Training is the fit of unit 43 with the network's 57 weights as `p`: the\nloss is the mean squared difference between the UDE's solution at the data\ntimes and the noisy data. Two stages, as in the SciML tutorials: `Adam` with\nstep 0.05 for 300 iterations moves the weights out of the region where the\npredicted solution is far off, then `LBFGS` for 100 iterations refines.\nBoth come through Optimization.jl, and the AD backend is\n`AutoForwardDiff()`: dual numbers through the solver (unit 43), with no\nreverse-mode rule involved, so SciMLSensitivity is not loaded and no\n`sensealg` applies.\n\nHow low can the loss go? Even the true model misses the noisy data by the\nnoise, so its loss is the mean squared noise, here about `1e-4`. Call that\nthe **noise floor**. A final loss near it means the optimizer found a model\nthat fits as well as the truth does; a loss far above it means training\nstopped early or in a poor local minimum, however steadily the loss fell\non the way.\n\nTwo habits make a training run safe to automate. A solve that blows up for\nsome trial weights returns `Inf` instead of throwing, and the solver's\nwarnings are switched off for those trials. And the output of training is\nchecked against facts, not printed as raw losses: the digits of a loss after\nhundreds of steps change between CPUs (rounding differences compound), but\n\"the loss fell by more than 1000×\" does not.\n\nThe initial weights come from `StableRNG(5)`, a start that ends near the\nnoise floor; the next section trains from five starts and shows that not\nall of them do. The last check is possible only because the data are\nsimulated: the missing term is known. The learned term matches it **on the\nstates the training data visit**; nothing yet says what the network does\nelsewhere.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Adam then LBFGS on the UDE. Raw losses are not printed: their digits vary between CPUs.",
@@ -1101,10 +1312,13 @@
               "prompt": "The learned term matches `(-β x y, δ x y)` within 10% on the training states. What does that tell you about states the data never visit?"
             }
           ],
+          "refs": [],
           "title": "Training the UDE"
         },
         {
-          "body": "A model is useful when it predicts what was not in the data. The test here:\ntrain on `[0, 3]`, predict on `[3, 6]`, and compare with the true solution\nat the held-out times. The orbit's period is about 4.2, so for `3 < t < 4.2`\nthe states lie on the part of the orbit the data never visited, and after\nthat the orbit returns to states the network was fitted on. The held-out\nerror therefore measures an unseen quarter-orbit plus the phase error the\nmodel carries out of it.\n\nTwo models get the same data, network shape and training:\n\n* the **UDE**, `du/dt = known(u) + NN(u)`;\n* a **pure neural ODE**, `du/dt = NN(u)`, which must learn the whole\n  right-hand side (in the code, the same function with the known part\n  multiplied by 0).\n\nOne run of each is not a comparison: the previous section's training ends\nin different places from different initial weights. The second example\ntrains both models from five starts (seeds 1 to 5) and prints, per run, the\nfinal loss as a multiple of the noise floor and the two held-out errors. Its\noutput is not compared between runs: a different CPU or thread count moves\nwhere each training run stops, and with it every number in the table.\n\nTo see what holds beyond five runs, we ran the same comparison with seeds 1\nto 16 (Adam 300 iterations, then LBFGS 100, on this unit's data). What we\nfound, as tendencies of that experiment rather than rules:\n\n* The UDE had the lower held-out error in 9 of the 16 runs; the median of\n  the neural ODE's error divided by the UDE's was about 1.7.\n* The model with the lower training loss had the lower held-out error in 13\n  of the 16 runs, not all of them.\n* The UDE stopped more than 30 times above the noise floor in 5 runs, the\n  neural ODE in 1. Those stalled UDE runs tended to extrapolate worse than\n  the UDE runs that reached the floor, though one of them still beat its\n  neural ODE, and two UDE runs near the floor lost to theirs.\n* A UDE given a wrong growth rate (`α = 0.6` instead of 1.3) had the lower\n  held-out error than the correct one in 5 of 8 seeds: a wrong known term\n  was not reliably worse. The next section looks at why.\n\nSo the known terms tend to help, but the margin is not large next to the\nspread between runs. In practice, check each final loss against the noise\nfloor before comparing models, train from several starts, and compare\ndistributions of outcomes, not one run.",
+          "analogies": [],
+          "body": "A model is useful when it predicts what was not in the data. The test here:\ntrain on `[0, 3]`, predict on `[3, 6]`, and compare with the true solution\nat the held-out times. The orbit's period is about 4.2, so for `3 < t < 4.2`\nthe states lie on the part of the orbit the data never visited, and after\nthat the orbit returns to states the network was fitted on. The held-out\nerror therefore measures an unseen quarter-orbit plus the phase error the\nmodel carries out of it.\n\nTwo models get the same data, network shape and training:\n\n* the **UDE**, `du/dt = known(u) + NN(u)`;\n* a **pure neural ODE**, `du/dt = NN(u)`, which must learn the whole\n  right-hand side (in the code, the same function with the known part\n  multiplied by 0).\n\nOne run of each is not a comparison: the previous section's training ends\nin different places from different initial weights. The second example\ntrains both models from five starts (seeds 1 to 5) and prints, per run, the\nfinal loss as a multiple of the noise floor and the two held-out errors. Its\noutput is not compared between runs: a different CPU or thread count moves\nwhere each training run stops, and with it every number in the table.\n\nTo see what holds beyond five runs, we ran the same comparison with seeds 1\nto 16 (Adam 300 iterations, then LBFGS 100, on this unit's data). What we\nfound, as tendencies of that experiment rather than rules:\n\n* The UDE had the lower held-out error in 9 of the 16 runs; the median of\n  the neural ODE's error divided by the UDE's was about 1.7.\n* The model with the lower training loss had the lower held-out error in 13\n  of the 16 runs, not all of them.\n* The UDE stopped more than 30 times above the noise floor in 5 runs, the\n  neural ODE in 1. Those stalled UDE runs tended to extrapolate worse than\n  the UDE runs that reached the floor, though one of them still beat its\n  neural ODE, and two UDE runs near the floor lost to theirs.\n* A UDE given a wrong growth rate (`α = 0.6` instead of 1.3) had the lower\n  held-out error than the correct one in 5 of 8 seeds: a wrong known term\n  was not reliably worse. The next section looks at why.\n\nSo the known terms tend to help, but the margin is not large next to the\nspread between runs. In practice, check each final loss against the noise\nfloor before comparing models, train from several starts, and compare\ndistributions of outcomes, not one run.\n\n**What this is useful for.** Rackauckas et al. present the UDE as one\nframework for combining scientific models with machine learning, with\napplications that run from discovering biological mechanisms automatically\nto solving high-dimensional Hamilton-Jacobi-Bellman equations (equations\nfrom optimal control). The pure neural ODE of this section is the model of\nChen, Rubanova, Bettencourt and Duvenaud (unit 44). The SciML\nmissing-physics tutorial this unit follows ends by turning the learned term\ninto an equation with sparse regression, the method of Brunton, Proctor and\nKutz that unit 46 writes by hand. Use it with this unit's measurements in\nview: with this training budget the outcome varied from start to start, the\nUDE had the lower held-out error in 9 of 16 runs, not all, and a wrong known\nterm was absorbed instead of exposed (next section).",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Which held-out states are new? For each held-out time, the distance from the true state to the nearest state of the true trajectory on `[0, 3]`, sampled densely. This depends only on the true solution, not on any training.",
@@ -1182,10 +1396,17 @@
               "prompt": "The data are saved every 0.25 on `[0, 6]` and the model is trained on `t ≤ 3`. How many times are held out?"
             }
           ],
+          "refs": [
+            "rackauckas-2020",
+            "chen-2018",
+            "brunton-2016"
+          ],
           "title": "Extrapolation: a UDE against a pure neural ODE"
         },
         {
+          "analogies": [],
           "body": "The UDE's structure can only help if the known terms are right. Suppose\nthe growth rate in the known part is wrong: `α = 0.6` instead of the true\n1.3. The data constrain only the sum `known + NN`, so the best fit makes\nthe network supply the missing interaction **plus** a correction `0.7 x`,\nand nothing in the loss says which part is which. A correction that is a\nsmooth function of the state is something the network can learn, so the\ntraining fit can be as good as with the right `α`.\n\nThe example fits the UDE with the right `α` and with `α = 0.6`, each from\nthree starts keeping the lowest training loss (the remedy of the previous\nsection), and then asks what the network learned: a least-squares fit\n(unit 32, \"Least squares: QR, not the normal equations\") of the network's\nfirst output on the training states, `NN₁ ≈ c₁ x + c₂ x y`. A true\ninteraction term has `c₁ = 0`.\n\nTwo lessons. A good training fit is consistent with wrong known terms, and\na held-out window on the same orbit need not expose them either: after\n`t ≈ 4.2` it revisits the states where the network absorbed the\ncorrection. What exposes the error is the **form** of the learned term: an\ninteraction should vanish when `x` or `y` does, and a linear `x` in it says\nthe known growth rate is off by about that much. Right known terms are\nnecessary for the structure to help where there are no data, not\nsufficient (the previous section). The next unit turns the learned term\ninto an equation you can read.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "UDE training with the correct known part (`α = 1.3`) and with a wrong one (`α = 0.6`), each the best of three starts, then a least-squares fit of the learned `NN₁` on `[x, x y]` at the training states.",
@@ -1234,6 +1455,7 @@
               "prompt": "With the wrong `α = 0.6`, what has the network learned on the training states, compared with the true missing term `(-β x y, δ x y)`?"
             }
           ],
+          "refs": [],
           "title": "A wrong known part is absorbed, not exposed"
         }
       ],
@@ -1381,15 +1603,73 @@
           "title": "Name the terms of a learned function"
         }
       ],
+      "references": [
+        {
+          "authors": "Brunton, S. L.; Proctor, J. L.; Kutz, J. N.",
+          "id": "brunton-2016",
+          "note": "Introduced SINDy: the library of section 2, the STLSQ algorithm of section 3, total-variation derivatives for noisy data (section 4), and the example systems listed in section 6.",
+          "title": "Discovering governing equations from data by sparse identification of nonlinear dynamical systems",
+          "url": "https://doi.org/10.1073/pnas.1517384113",
+          "venue": "Proceedings of the National Academy of Sciences 113",
+          "year": 2016
+        },
+        {
+          "authors": "Rudy, S. H.; Brunton, S. L.; Proctor, J. L.; Kutz, J. N.",
+          "id": "rudy-2017",
+          "note": "Extends sparse regression from ODEs to PDEs, one of the published uses in section 6.",
+          "title": "Data-driven discovery of partial differential equations",
+          "url": "https://doi.org/10.1126/sciadv.1602614",
+          "venue": "Science Advances 3",
+          "year": 2017
+        },
+        {
+          "authors": "Kaiser, E.; Kutz, J. N.; Brunton, S. L.",
+          "id": "kaiser-2018",
+          "note": "Uses SINDy models for model predictive control with little data, the control use cited in section 6.",
+          "title": "Sparse identification of nonlinear dynamics for model predictive control in the low-data limit",
+          "url": "https://doi.org/10.1098/rspa.2018.0335",
+          "venue": "Proceedings of the Royal Society A 474",
+          "year": 2018
+        },
+        {
+          "authors": "Zhang, L.; Schaeffer, H.",
+          "id": "zhang-2019",
+          "note": "Proves that sequential thresholded least squares (section 3) approximates local minimizers of an l0-penalized least-squares problem and gives convergence conditions.",
+          "title": "On the Convergence of the SINDy Algorithm",
+          "url": "https://arxiv.org/abs/1805.06445",
+          "venue": "Multiscale Modeling and Simulation 17",
+          "year": 2019
+        },
+        {
+          "authors": "Chartrand, R.",
+          "id": "chartrand-2011",
+          "note": "Total-variation regularized differentiation, the denoising approach for noisy derivatives that section 4 mentions.",
+          "title": "Numerical Differentiation of Noisy, Nonsmooth Data",
+          "url": "https://doi.org/10.5402/2011/164564",
+          "venue": "ISRN Applied Mathematics 2011",
+          "year": 2011
+        }
+      ],
       "sections": [
         {
+          "analogies": [],
           "body": "This unit turns data, or a trained network, into an equation with a few\nterms. It relies on:\n\n* **Least squares with `\\`** (unit 32, \"Least squares: QR, not the normal\n  equations\"): for a tall matrix `A`, `A \\ b` returns the least-squares\n  solution through a column-pivoted QR factorization.\n* **Conditioning** (unit 30, \"Conditioning: how much the problem amplifies\n  errors\", and unit 32, \"The SVD and numerical rank\"): `cond(A)` bounds how\n  much a relative error in the data can grow in the solution, and nearly\n  dependent columns make it large.\n* **Finite differences and their two errors** (unit 31, \"Order of\n  accuracy, read from a log-log slope\", and unit 30, \"Cancellation is\n  exact, and exposes earlier errors\"): the central difference has a\n  truncation error of order `h²`, and dividing a difference of nearby\n  values by `h` amplifies any error those values carry.\n* **The learned term of a UDE** (unit 45, \"Training the UDE\"): after\n  training, the network approximates the missing interaction terms on the\n  states the data visit, and nowhere else.\n* **Simulated Lotka-Volterra data** (unit 45, \"Known physics plus a learned\n  term\"): `α = 1.3, β = 0.9, δ = 0.8, γ = 1.8` from `u0 = [3, 1]`, so the\n  right answer is known: `dx/dt = 1.3 x - 0.9 x y`, `dy/dt = -1.8 y + 0.8 x y`.",
+          "diagrams": [],
           "examples": [],
           "questions": [],
+          "refs": [],
           "title": "What you need from earlier units"
         },
         {
+          "analogies": [],
           "body": "Brunton, Proctor and Kutz (\"Discovering governing equations from data by\nsparse identification of nonlinear dynamical systems\", PNAS 113(15),\n3932-3937, 2016, [open access](https://pmc.ncbi.nlm.nih.gov/articles/PMC4839439/))\nstart from the observation that most models have few terms. Write the data\nas a matrix and guess a set of candidate functions:\n\n* `X`: the states at `N` times, here one row per time, `[x y]`;\n* `Θ(X)`: the **library**, one column per candidate term evaluated at every\n  time; with polynomials up to degree two in two variables that is\n  `[1  x  y  x²  xy  y²]`, an `N × 6` matrix (the paper's library \"may\n  consist of constant, polynomial, and trigonometric terms\");\n* `Ẋ`: the time derivatives at the same times.\n\nThe model is then linear in unknown coefficients: `Ẋ = Θ(X) Ξ`, with one\ncolumn of `Ξ` per equation. For Lotka-Volterra the true `Ξ` has two\nnonzero entries per column, and finding it is a regression problem with a\ntwist: we want the answer with **few** nonzero coefficients, which plain\nleast squares does not give (next section).\n\nThe library is a modelling choice. A term that is not in it cannot be\nfound, and every term in it costs data: the next sections show both sides.",
+          "diagrams": [
+            {
+              "alt": "The matrix equation Xdot = Theta(X) Xi drawn as blocks: Xdot has 121 rows and two columns (xdot, ydot); Theta has six columns labelled 1, x, y, x squared, x y, y squared; Xi is a 6 by 2 grid of coefficients in which only four cells are nonzero and highlighted: 1.3 and -0.9 in the dx/dt column, -1.8 and 0.8 in the dy/dt column.",
+              "caption": "Each column of Xi is one equation, and the true Lotka-Volterra model uses only two of the six candidate terms per equation.",
+              "src": "assets/diagrams/46-sindy/sindy-library.svg"
+            }
+          ],
           "examples": [
             {
               "caption": "The library for a Lotka-Volterra trajectory, and the true coefficients reproducing the exact derivatives.",
@@ -1421,10 +1701,21 @@
               "prompt": "The true model contains `sin(x)`, and your library holds polynomials up to degree 3. What can sparse regression return?"
             }
           ],
+          "refs": [
+            "brunton-2016"
+          ],
           "title": "A library of candidate terms"
         },
         {
+          "analogies": [
+            {
+              "breaks": "Jars on a shelf are independent, but along one trajectory the library\ncolumns look alike (the last section measures a condition number of about\n1700), so a true term can at first look like a pinch and be thrown away,\nwhile its effect is spread over look-alikes. And a jar that is not on the\nshelf can never appear in the recipe, however good the data.",
+              "text": "Think of the library as a shelf of six labelled jars (`1`, `x`, `y`, `x²`,\n`xy`, `y²`) and the measured derivative as a drink you are trying to\nreproduce. `Ξ` says how many spoonfuls to take from each jar. A sensible\nrecipe uses two or three jars, not a pinch of everything, and STLSQ is the\nrule: drop every jar you use less than `λ` spoonfuls of, then work out the\namounts of the rest again.",
+              "title": "A shelf of labelled jars"
+            }
+          ],
           "body": "Plain least squares, `Θ \\ ẋ`, spreads the data's errors over every column:\nall six coefficients come out nonzero, and an equation with six terms of\nwhich four are noise is not a discovery. **Sequential thresholded least\nsquares** (STLSQ), the algorithm of the SINDy paper's supplementary code,\nmakes the answer sparse with one parameter, the threshold `λ`:\n\n1. solve the least-squares problem `ξ = Θ \\ ẋ`;\n2. set every coefficient with `|ξ_j| < λ` to zero;\n3. solve the least-squares problem again **using only the surviving\n   columns**, and repeat from step 2 until the set of survivors stops\n   changing (a few iterations).\n\nThe refit in step 3 matters: once a noise term is removed, the remaining\ncoefficients are re-estimated without it. Each pass is one `\\` on a\nsmaller matrix, which is why the method is fast. A threshold has units:\nit compares coefficients, so columns of very different scale should be\nnormalized first (here all states are of order 1, so the raw library is\nused).\n\nThe derivatives in this example come from the data: central differences\nof noise-free samples every `h = 0.05` (unit 31), whose truncation error is\nabout `1e-3`, as the next section measures.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Plain least squares and STLSQ (`λ = 0.1`) on central-difference derivatives of noise-free samples. Coefficients rounded to 2 digits.",
@@ -1492,10 +1783,22 @@
               "prompt": "Your states are temperatures near 300 K and concentrations near 0.001. What should you do before applying a single threshold to the coefficients?"
             }
           ],
+          "refs": [
+            "brunton-2016",
+            "zhang-2019"
+          ],
           "title": "Sequential thresholded least squares"
         },
         {
+          "analogies": [
+            {
+              "breaks": "The analogy keeps only the noise. The road also bends: a car's speed changes\nduring an hour, so very long gaps are wrong too, which is the truncation\nerror of order `h²`. The best `h` balances the two errors, as units 30 and\n31 showed, and with noisy data even the best step can leave derivative\nerrors large enough to cross the cliff shown below.",
+              "text": "Estimate a car's speed from two odometer readings, each of which can be off\nby about 10 metres. Readings an hour apart give the speed to within about\n0.01 km/h. Readings one second apart give it only to within about 50 km/h:\nthe same reading error is divided by a much shorter time. That is the\n`σ / (√2 h)` term of this section, and why a smaller step makes noisy derivatives\nworse.",
+              "title": "Speed from two odometer readings"
+            }
+          ],
           "body": "Measured data give states, not derivatives, so `Ẋ` must be estimated, and\nthis is where most of the error enters. The error balance of units 30 and 31 applies:\nthe central difference `(x(t+h) - x(t-h)) / 2h` has a truncation error of\norder `h²`, and noise of standard deviation `σ` in each sample becomes an\nerror of about `σ / (√2 h)` in the derivative. With `h = 0.05`, noise of\n`0.01` (under 1% of the states) gives derivative errors near `0.14`. A\nsmaller step makes it worse, not better: at `h = 0.01` the same noise gives\n`0.7`.\n\nSTLSQ averages over many rows, so it survives moderate derivative noise,\nbut there is a cliff. Once the noise in `Ẋ` is comparable to the terms\nthemselves, the first fit spreads the signal over spurious columns. A small\nthreshold then keeps every term, which at least looks wrong. A larger one\ncan do worse: it removes a true term early, the refit on the survivors\nmoves its share onto a spurious one, and the result is a clean, sparse\nmodel with the wrong terms. Sparsity alone does not certify an answer.\nThe SINDy paper\nhandles noisy data by denoising the derivative with total-variation\nregularization rather than plain differences; other options are smoothing\nthe data first or fitting a smooth curve and differentiating that.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "RMS error of central-difference derivatives against the exact ones, for noise `σ` (from a `StableRNG`) and step `h` (rounded to 2 significant digits).",
@@ -1537,10 +1840,16 @@
               "prompt": "Derivatives from noisy samples are poor, so a colleague halves the sampling interval `h`. What happens to the central-difference error?"
             }
           ],
+          "refs": [
+            "brunton-2016",
+            "chartrand-2011"
+          ],
           "title": "Noisy derivatives dominate the error"
         },
         {
+          "analogies": [],
           "body": "The threshold `λ` is the one knob of STLSQ, and it has a window. Too small,\nand the noise coefficients survive: every term is kept. Too large, and the\ntrue terms are removed too. The first fit uses all columns, and columns\nthat are correlated along the trajectory share each true coefficient, so\neven a term with a true coefficient of 1.3 can start below the threshold;\nthe refit on the few survivors then cannot recover it, and the model can\ncollapse to nothing.\n\nNeither edge of the window can be read off the true model. Both are set by\nthe coefficients the **first fit and the refits** produce: the lower edge\nby how small the spurious ones become once the refits start removing terms\n(a spurious constant starts at 0.86 in this data and is still removed at\n`λ = 0.1`), the upper edge by how small the correlated fits make a true\nterm (`x` starts at 0.84, below its true 1.3). Sweeping `λ` and\nwatching where the set of terms stays the same is the practical way to\nfind the window; DataDrivenSparse's `STLSQ` accepts a vector of thresholds\nto explore. A plateau is necessary, not sufficient: the previous section's\nwrong model at `σ = 0.03` was stable from 0.3 to 0.7. When no plateau\nexists, the library or the data are the problem, not `λ`.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "The terms STLSQ keeps for a sweep of `λ`, on derivatives from samples with noise `σ = 0.01` (`h = 0.05`).",
@@ -1572,10 +1881,13 @@
               "prompt": "In the sweep, `λ = 1.0` removes every term, although the true coefficient of `x` in the first equation is 1.3. Why?"
             }
           ],
+          "refs": [],
           "title": "Choosing the threshold"
         },
         {
-          "body": "Unit 45 left a trained network that reproduces the missing interaction\nterm on the training states, but a network is not an explanation. SINDy\nturns it into one: evaluate the network at the states, and regress its\noutputs on a library. The network gives the missing term directly, so no\nderivative has to be estimated from data, which removes the error source\nof the previous sections. This is the last step of the SciML\nmissing-physics tutorial (`docs.sciml.ai/Overview/stable/showcase/missing_physics/`),\nwhich fits the network outputs with a sparse regression from\nDataDrivenDiffEq.\n\nTwo things limit what the regression can find:\n\n* **The network is only right where the data were.** Unit 45 measured it\n  within 10% of the true term on the training states; the regression uses\n  exactly those states.\n* **One trajectory spans little of the library.** The states lie on part of\n  one closed orbit, a curve, and along a curve the six degree-two\n  polynomials are nearly linearly dependent: the library's condition\n  number on these states is about 1700. Part of that is scale (with every\n  column normalized to unit length it is about 800), but most is the\n  near-dependence. By the bound of units 30 and 32, a relative error `ε`\n  in the targets can move the coefficients by up to about `cond · ε`\n  relative to their size; with errors of a few percent the bound allows\n  changes larger than the coefficients themselves, and the first\n  least-squares fit puts coefficients above 1 on terms the true model does\n  not have. A smaller library, `[1, x, y, xy]`, has condition number 85 on\n  the same states, its first fit stays close, and STLSQ recovers `xy`\n  alone over a range of thresholds. Richer data (several initial\n  conditions) is the other remedy.\n\nThe production tools are\n[DataDrivenDiffEq.jl and DataDrivenSparse.jl](https://docs.sciml.ai/DataDrivenDiffEq/stable/libs/datadrivensparse/sparse_regression/):\ntheir `STLSQ` is the algorithm written here (from the SINDy paper), with\nridge regularization and threshold sweeps, next to `ADMM` (a lasso) and\n`SR3`. They are not installed in this course, on purpose: the hand-written\nversion is short, and its every step can be inspected.",
+          "analogies": [],
+          "body": "Unit 45 left a trained network that reproduces the missing interaction\nterm on the training states, but a network is not an explanation. SINDy\nturns it into one: evaluate the network at the states, and regress its\noutputs on a library. The network gives the missing term directly, so no\nderivative has to be estimated from data, which removes the error source\nof the previous sections. This is the last step of the SciML\nmissing-physics tutorial (`docs.sciml.ai/Overview/stable/showcase/missing_physics/`),\nwhich fits the network outputs with a sparse regression from\nDataDrivenDiffEq.\n\nTwo things limit what the regression can find:\n\n* **The network is only right where the data were.** Unit 45 measured it\n  within 10% of the true term on the training states; the regression uses\n  exactly those states.\n* **One trajectory spans little of the library.** The states lie on part of\n  one closed orbit, a curve, and along a curve the six degree-two\n  polynomials are nearly linearly dependent: the library's condition\n  number on these states is about 1700. Part of that is scale (with every\n  column normalized to unit length it is about 800), but most is the\n  near-dependence. By the bound of units 30 and 32, a relative error `ε`\n  in the targets can move the coefficients by up to about `cond · ε`\n  relative to their size; with errors of a few percent the bound allows\n  changes larger than the coefficients themselves, and the first\n  least-squares fit puts coefficients above 1 on terms the true model does\n  not have. A smaller library, `[1, x, y, xy]`, has condition number 85 on\n  the same states, its first fit stays close, and STLSQ recovers `xy`\n  alone over a range of thresholds. Richer data (several initial\n  conditions) is the other remedy.\n\nThe production tools are\n[DataDrivenDiffEq.jl and DataDrivenSparse.jl](https://docs.sciml.ai/DataDrivenDiffEq/stable/libs/datadrivensparse/sparse_regression/):\ntheir `STLSQ` is the algorithm written here (from the SINDy paper), with\nridge regularization and threshold sweeps, next to `ADMM` (a lasso) and\n`SR3`. They are not installed in this course, on purpose: the hand-written\nversion is short, and its every step can be inspected.\n\n**What this is useful for.** Brunton, Proctor and Kutz recovered the chaotic\nLorenz system, a Hopf normal form (the simplest system that starts to\noscillate as a parameter crosses a threshold) and a model of vortex shedding\nbehind a cylinder (the swirls a flow leaves, alternately left and right,\nbehind a post) from simulated data. Rudy, Brunton, Proctor and Kutz extended the\nmethod to partial differential equations (PDE-FIND). Kaiser, Kutz and\nBrunton added control inputs and used the identified models for model\npredictive control (a controller that re-plans from a model at every step)\non the Lorenz system, a flight-control model of an F8 aircraft and an HIV\nmodel with drug treatment, where the SINDy models needed less data than\nneural network models. Zhang and Schaeffer proved that STLSQ approximates\nlocal minimizers of a least-squares problem with a penalty on the number of\nnonzero terms, and gave conditions under which it converges. The limits\nmeasured in this unit come with every use: derivative noise has a cliff, the\nthreshold has a window that a plateau does not certify, a term outside the\nlibrary cannot be found, and one trajectory can span too little of the\nlibrary.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Train the UDE of unit 45 (same data, network, initial weights and two-stage training), then fit its learned term on the training states with two libraries. The condition numbers depend only on the data and are printed; coefficients are compared with bounds, since the trained weights vary between CPUs.",
@@ -1623,6 +1935,12 @@
               ],
               "prompt": "With the degree-two library, the first least-squares fit of the network outputs puts a coefficient of about 3 on the constant term, which the true model does not have. What is the best next step?"
             }
+          ],
+          "refs": [
+            "brunton-2016",
+            "rudy-2017",
+            "kaiser-2018",
+            "zhang-2019"
           ],
           "title": "From a UDE's learned term to an equation"
         }
@@ -1774,15 +2092,58 @@
           "title": "Weighted loss terms"
         }
       ],
+      "references": [
+        {
+          "authors": "Lagaris, I. E.; Likas, A.; Fotiadis, D. I.",
+          "id": "lagaris-1998",
+          "note": "An early method that trains neural-network trial functions on a differential equation's residual, with the boundary conditions built into the trial function, the idea of section 2 (the arXiv copy is the authors' 1997 preprint).",
+          "title": "Artificial neural networks for solving ordinary and partial differential equations",
+          "url": "https://arxiv.org/abs/physics/9705023",
+          "venue": "IEEE Transactions on Neural Networks 9",
+          "year": 1998
+        },
+        {
+          "authors": "Raissi, M.; Perdikaris, P.; Karniadakis, G. E.",
+          "id": "raissi-2019",
+          "note": "Introduced the PINN loss (residual at collocation points plus boundary terms) built in sections 4 and 5, for forward and inverse problems. The journal version needs a subscription; there is no single open preprint of it. The two-part arXiv preprints 1711.10561 and 1711.10566 are earlier, separate documents.",
+          "title": "Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations",
+          "url": "https://doi.org/10.1016/j.jcp.2018.10.045",
+          "venue": "Journal of Computational Physics 378",
+          "year": 2019
+        },
+        {
+          "authors": "Raissi, M.; Yazdani, A.; Karniadakis, G. E.",
+          "id": "raissi-2020",
+          "note": "An inverse problem solved with a PINN (flow fields from dye or smoke images, including an aneurysm), cited as a use in section 5.",
+          "title": "Hidden fluid mechanics: Learning velocity and pressure fields from flow visualizations",
+          "url": "https://arxiv.org/abs/1808.04327",
+          "venue": "Science 367; open preprint under the title Hidden Fluid Mechanics: A Navier-Stokes Informed Deep Learning Framework for Assimilating Flow Visualization Data",
+          "year": 2020
+        },
+        {
+          "authors": "Cai, S.; Mao, Z.; Wang, Z.; Yin, M.; Karniadakis, G. E.",
+          "id": "cai-2021",
+          "note": "Review of PINNs for inverse flow problems (wake, supersonic and biomedical flows), cited for the uses in section 5.",
+          "title": "Physics-informed neural networks (PINNs) for fluid mechanics: a review",
+          "url": "https://arxiv.org/abs/2105.09506",
+          "venue": "Acta Mechanica Sinica 37",
+          "year": 2021
+        }
+      ],
       "sections": [
         {
+          "analogies": [],
           "body": "A PINN combines three things you have seen separately:\n\n* **Residuals**: plug a candidate into the equation and measure what is\n  left; a zero residual is not enough, the boundary values must be checked\n  too (unit 34, section \"Residuals: how far a candidate is from solving the\n  PDE\"). The classical solve beside each PINN uses the matrix of unit 34,\n  section \"The discrete Laplacian is a matrix\".\n* **Nested derivatives with ForwardDiff**: tags keep the perturbations of a\n  derivative inside a derivative apart, so `derivative(x -> derivative(f, x), x0)`\n  is the exact second derivative (unit 23, section \"ForwardDiff: derivative,\n  gradient, jacobian, hessian\").\n* **Lux's explicit parameters**: `ps, st = Lux.setup(rng, model)` and\n  `model(x, ps, st)`, so a network is a function of its parameters (unit 26,\n  section \"Where to go next\"). This unit uses it in full for the first time.\n* **Differentiating a loss with respect to a model's parameters**, as units\n  43 and 44 do through an ODE solver. Here the model has few parameters, so\n  forward mode (ForwardDiff) computes the gradient; unit 23, section \"The\n  cost of forward mode, and reverse mode\" says when reverse mode would be\n  cheaper. Nothing below depends on unit 44's code.",
+          "diagrams": [],
           "examples": [],
           "questions": [],
+          "refs": [],
           "title": "What you need from earlier units"
         },
         {
-          "body": "A PINN represents the unknown solution `u(x)` by a neural network\n`u_θ(x)` with parameters `θ`, and chooses `θ` so that `u_θ` satisfies the\nequation. The network is just a smooth function family. With one hidden\nlayer of `H` tanh units it is\n\n    u_θ(x) = W2 tanh.(W1 x .+ b1) .+ b2\n\nwith `W1` of size `H × 1`, `b1` of length `H`, `W2` of size `1 × H` and a\nscalar `b2`: `3H + 1` numbers.\n\nIn Lux, `Chain(Dense(1 => 16, tanh), Dense(16 => 1))` is that family with\n`H = 16`. `Lux.setup(rng, model)` draws the initial parameters from the\ngenerator you pass (here a `StableRNG`, whose stream does not change\nbetween Julia versions) and returns them as a nested named tuple, plus a\nstate `st` (empty for these layers). `ComponentArray` from\nComponentArrays.jl flattens the named tuple into one vector that still\nanswers to `ps.layer_1.weight`; optimizers and ForwardDiff want a flat\nvector. Lux initializes in `Float32`, the deep-learning default that unit\n26 used for Flux (section \"Arrays as the data model: features by batch,\nFloat32\"); `ComponentArray{Float64}(ps)` converts to `Float64`, which a\nPINN needs: its loss contains second derivatives,\nand `Float32` keeps only about 7 digits.\n\nLux layers take a matrix with one column per input point (features ×\nbatch), and return one column per point.",
+          "analogies": [],
+          "body": "A PINN represents the unknown solution `u(x)` by a neural network\n`u_θ(x)` with parameters `θ`, and chooses `θ` so that `u_θ` satisfies the\nequation. The network is just a smooth function family. With one hidden\nlayer of `H` tanh units it is\n\n    u_θ(x) = W2 tanh.(W1 x .+ b1) .+ b2\n\nwith `W1` of size `H × 1`, `b1` of length `H`, `W2` of size `1 × H` and a\nscalar `b2`: `3H + 1` numbers.\n\nIn Lux, `Chain(Dense(1 => 16, tanh), Dense(16 => 1))` is that family with\n`H = 16`. `Lux.setup(rng, model)` draws the initial parameters from the\ngenerator you pass (here a `StableRNG`, whose stream does not change\nbetween Julia versions) and returns them as a nested named tuple, plus a\nstate `st` (empty for these layers). `ComponentArray` from\nComponentArrays.jl flattens the named tuple into one vector that still\nanswers to `ps.layer_1.weight`; optimizers and ForwardDiff want a flat\nvector. Lux initializes in `Float32`, the deep-learning default that unit\n26 used for Flux (section \"Arrays as the data model: features by batch,\nFloat32\"); `ComponentArray{Float64}(ps)` converts to `Float64`, which a\nPINN needs: its loss contains second derivatives,\nand `Float32` keeps only about 7 digits.\n\nLux layers take a matrix with one column per input point (features ×\nbatch), and return one column per point.\n\nRepresenting the solution of a differential equation by a neural network\ntrained on the equation's residual goes back at least to Lagaris, Likas and\nFotiadis (1998). They built the boundary conditions into the trial function,\nso that only the equation had to be trained, and compared their results with\nfinite elements. The PINN of this unit puts the boundary conditions into the\nloss instead (section 4), as Raissi, Perdikaris and Karniadakis did.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "A Lux network with 16 tanh units, its 49 parameters in Float64, and its output against the formula written by hand.",
@@ -1814,10 +2175,16 @@
               "prompt": "Why does the unit convert the Lux parameters to `Float64` before building a PINN?"
             }
           ],
+          "refs": [
+            "lagaris-1998",
+            "raissi-2019"
+          ],
           "title": "A network as a trial function"
         },
         {
+          "analogies": [],
           "body": "The residual of `u'' = f` needs `u_θ''(x)`, the second derivative of the\nnetwork with respect to its **input**. Nested ForwardDiff gives it exactly\n(up to rounding): the inner `derivative` makes the input a dual number, the\nouter one differentiates the result again, and the tags of unit 23 keep the\ntwo perturbations apart. No finite-difference step is involved, so there is\nno truncation error to balance against round-off.\n\nThe network takes a matrix, so wrap it as a scalar function:\n`u(x) = first(model(fill(x, 1, 1), ps, st)[1])`. Lux evaluates the layer\nwith whatever number type arrives, dual numbers included.\n\nA finite-difference check is still worth one line. The central second\ndifference with `h = 1e-4` balances a truncation error of order `h^2`\n(unit 31, \"Order of accuracy, read from a log-log slope\") against the\nrounding error that cancellation exposes, of order `eps() |u| / h^2`\n(unit 30, \"Cancellation is exact, and exposes earlier errors\"); both are\na few times `1e-8` here, so agreement to `1e-6` confirms the AD result without\ntesting digits the difference cannot deliver.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "First and second derivative of the network at `x = 0.3` by nested ForwardDiff, checked against central differences.",
@@ -1851,10 +2218,25 @@
               "prompt": "Nested ForwardDiff on a polynomial. What does this print?"
             }
           ],
+          "refs": [],
           "title": "Derivatives of the network by nested AD"
         },
         {
+          "analogies": [
+            {
+              "breaks": "Nothing is checked between the pins: the cloth can fit at every pin and\nbulge between them, and unit 48 builds a function with zero loss and an\nerror of 0.5. A tailor also sees the whole suit at a glance, while the loss\nsees only the numbers at the pins, and the network has no notion of a body,\nonly of making those numbers small.",
+              "text": "A tailor cannot check every thread of a suit. She marks pins and checks the\nfit at each pin, and she fixes the hem at both ends to an exact length. The\ncollocation points are the pins: the residual term asks whether the cloth\nfollows the body there. The boundary term fixes the hems. Training adjusts\nthe cloth, the weights, until every pin and both hems are right.",
+              "title": "A tailor checking a suit at the pins"
+            }
+          ],
           "body": "Take the boundary-value problem\n\n    u''(x) = f(x) = -π² sin(πx)   on 0 < x < 1,    u(0) = u(1) = 0\n\nwith exact solution `sin(πx)`. Choose **collocation points** `x_1, ..., x_N`\ninside the interval (no solution data is needed, only where to test the\nequation) and define\n\n    L(θ) = (1/N) Σ (u_θ''(x_i) - f(x_i))^2  +  λ (u_θ(0)^2 + u_θ(1)^2)\n\nThe first term is the mean squared residual from unit 34, now computed\nexactly by AD instead of by differences; the second is the boundary\ncondition, with a weight `λ` (1 here). Both are needed: `u'' = f` alone is\nsatisfied by `sin(πx) + a + bx` for any `a, b`, and only the boundary term\npins down `a` and `b`.\n\nThe loss is a function of any trial function `u`, network or not, which is\na good way to test it: the exact solution must give a loss at rounding\nlevel, and a wrong function a large one, before any training happens.",
+          "diagrams": [
+            {
+              "alt": "Data-flow diagram of the PINN loss: 30 collocation points inside (0, 1) and 2 boundary points; the network u_theta(x) with 49 weights feeds nested ForwardDiff, which gives u_theta''(x); the residual term is the mean of (u_theta''(x_i) - f(x_i)) squared, the boundary term is lambda times (u_theta(0) squared + u_theta(1) squared); their sum L(theta) goes to BFGS, which changes the weights.",
+              "caption": "No solution data enter the loss: it tests the equation at the chosen points and the two boundary values, and BFGS changes the weights to make both small.",
+              "src": "assets/diagrams/47-pinns/pinn-loss.svg"
+            }
+          ],
           "examples": [
             {
               "caption": "The PINN loss on 30 equally spaced collocation points, for the exact solution, for the exact solution plus a line, and for the untrained network.",
@@ -1886,10 +2268,15 @@
               "prompt": "A PINN for `u'' = f` on (0, 1) is trained with the residual term only, no boundary term. What does training determine?"
             }
           ],
+          "refs": [
+            "raissi-2019"
+          ],
           "title": "The PINN loss: residual at collocation points plus boundary terms"
         },
         {
-          "body": "Training means minimizing `L(θ)` over the 49 parameters. Its gradient\ncomes from ForwardDiff again, now with respect to `θ`: ForwardDiff carries\nthe 49 partials in chunks (unit 23), and inside each evaluation the nested\ninput derivatives run on dual numbers of dual numbers. With 49 parameters\nforward mode is fine; for networks with many thousands of parameters,\nreverse mode (Zygote, unit 26) is the cheaper choice. The ODE adjoints of\nunit 44 do not apply: a PINN calls no solver, so there is no solve to\ndifferentiate backward. Cross-check a few gradient entries by central differences before\ntrusting it.\n\n`Optimization.jl` wraps the minimization: an `OptimizationFunction` with\nthe loss and its gradient, an `OptimizationProblem` with the starting\nparameters, and `solve` with an algorithm. The example passes the gradient\nexplicitly as `grad = (G, θ, p) -> ...`, so that BFGS calls the very\nfunction it has just checked against central differences.\n`OptimizationFunction(f, Optimization.AutoForwardDiff())`, as in unit 43,\nstates the same backend and lets Optimization call ForwardDiff itself. `BFGS()` from OptimizationOptimJL (a quasi-Newton method from\nOptim.jl) uses the gradient to build up curvature information, which\nsuits a smooth loss with a few dozen parameters.\n\nThe **classical baseline** for the same problem is the finite-difference\nsystem of unit 34: `A u = f` with the tridiagonal matrix, one linear solve\nin `O(N)` operations. Its error is about `dx^2 π^2 / 12`: the stencil's\ntruncation error is `dx^2 π^4 sin(πx) / 12` (unit 34), and the solution's\nerror `e` solves `A e = -(truncation error)`, which for this `sin(πx)`\nshape divides by about `-π^2`, the eigenvalue of `A` nearest zero.\n\nTraining results move between CPUs (rounding differs, and the optimizer\namplifies it), so the example prints checked facts with wide margins, not\nthe loss or the error digits; the timing example after it is recorded but\nnot checked.",
+          "analogies": [],
+          "body": "Training means minimizing `L(θ)` over the 49 parameters. Its gradient\ncomes from ForwardDiff again, now with respect to `θ`: ForwardDiff carries\nthe 49 partials in chunks (unit 23), and inside each evaluation the nested\ninput derivatives run on dual numbers of dual numbers. With 49 parameters\nforward mode is fine; for networks with many thousands of parameters,\nreverse mode (Zygote, unit 26) is the cheaper choice. The ODE adjoints of\nunit 44 do not apply: a PINN calls no solver, so there is no solve to\ndifferentiate backward. Cross-check a few gradient entries by central differences before\ntrusting it.\n\n`Optimization.jl` wraps the minimization: an `OptimizationFunction` with\nthe loss and its gradient, an `OptimizationProblem` with the starting\nparameters, and `solve` with an algorithm. The example passes the gradient\nexplicitly as `grad = (G, θ, p) -> ...`, so that BFGS calls the very\nfunction it has just checked against central differences.\n`OptimizationFunction(f, Optimization.AutoForwardDiff())`, as in unit 43,\nstates the same backend and lets Optimization call ForwardDiff itself. `BFGS()` from OptimizationOptimJL (a quasi-Newton method from\nOptim.jl) uses the gradient to build up curvature information, which\nsuits a smooth loss with a few dozen parameters.\n\nThe **classical baseline** for the same problem is the finite-difference\nsystem of unit 34: `A u = f` with the tridiagonal matrix, one linear solve\nin `O(N)` operations. Its error is about `dx^2 π^2 / 12`: the stencil's\ntruncation error is `dx^2 π^4 sin(πx) / 12` (unit 34), and the solution's\nerror `e` solves `A e = -(truncation error)`, which for this `sin(πx)`\nshape divides by about `-π^2`, the eigenvalue of `A` nearest zero.\n\nTraining results move between CPUs (rounding differs, and the optimizer\namplifies it), so the example prints checked facts with wide margins, not\nthe loss or the error digits; the timing example after it is recorded but\nnot checked.\n\n**What this is useful for.** Raissi, Perdikaris and Karniadakis introduced\nthe PINN for forward problems (solve the PDE) and for inverse problems (find\nunknown coefficients or fields from measurements, with the PDE as a\nconstraint). The uses below are inverse problems. For forward problems\n(solving the equation when every parameter is known), unit 48 gives the\npublished evidence that standard numerical methods do better.\n\nRaissi, Yazdani and Karniadakis inferred velocity and pressure fields from images of dye or\nsmoke carried by a flow, with blood flow in an aneurysm among the examples.\nThe review by Cai, Mao, Wang, Yin and Karniadakis shows PINNs on inverse\nproblems for three-dimensional wake flows, supersonic flows and biomedical\nflows, and argues that classical solvers make such problems costly, since\neach needs its own formulation and code. Measured data enter the same loss\nas one more squared term, and the collocation points need no mesh. For a\nforward problem like the one in this section, the measurement above is the\ncounterpoint: the finite-difference solve took microseconds against 62 s for\nthe PINN in the recorded run, most of it compilation (a warm run in unit 48\ntook 1.8 s), and unit 48 shows where PINNs fail and what a fair comparison\nneeds.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "The gradient checked against central differences, then BFGS on the PINN loss, then the finite-difference solve with 99 interior points; errors are measured on 1001 points against `sin(πx)`.",
@@ -1948,10 +2335,23 @@
               "prompt": "The PINN's gradient with respect to its 49 parameters is computed with ForwardDiff. When would you switch to reverse mode?"
             }
           ],
+          "refs": [
+            "raissi-2019",
+            "raissi-2020",
+            "cai-2021"
+          ],
           "title": "Training, beside a classical solve"
         },
         {
+          "analogies": [
+            {
+              "breaks": "Painting the whole strip at once gives no guarantee that the early frames\nare right before the late ones, and the optimizer can fit late frames\nagainst a wrong start (unit 48, section on causality). The network also has\nno frames: it is one continuous function of `x` and `t`, checked only at its\ncollocation points.",
+              "text": "A time-stepping solver films a scene frame by frame, each frame computed\nfrom the one before. A space-time PINN paints the whole film strip at once\nand then checks every frame it samples against the rules of motion, here the\nheat equation, the first frame and the two edges.",
+              "title": "Painting the whole film strip at once"
+            }
+          ],
           "body": "For the heat equation `∂u/∂t = κ ∂²u/∂x²`, the network takes two inputs,\n`Dense(2 => 16, tanh)`, and represents `u(x, t)` on the whole space-time\ndomain at once: there is no time stepping. The residual at a point needs\n`∂u/∂t` and `∂²u/∂x²`; with `v = [x, t]`, `ForwardDiff.gradient` of\n`v -> u(v[1], v[2])` gives both first derivatives, and\n`ForwardDiff.hessian` gives the second ones (its `[1, 1]` entry is\n`∂²u/∂x²`).\n\nThe loss now has three terms, each a mean of squares over its own points:\n\n* the residual `u_t - κ u_xx` at collocation points inside the domain;\n* the initial condition `u(x, 0) - u0(x)` at points on `t = 0`;\n* the boundary conditions `u(0, t)` and `u(1, t)` at points on the ends.\n\nTraining it works as before, at a higher cost: more collocation points\n(they fill a 2D domain) and a Hessian per point. The method-of-lines solve\nof unit 34 remains the baseline. For production PINN work, SciML's\n[NeuralPDE.jl](https://docs.sciml.ai/NeuralPDE/stable/) generates these\nlosses from a symbolic description of the PDE; it is not installed in this\nenvironment.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "The three loss terms of the heat equation (κ = 1, `u0 = sin(πx)`) for the exact solution and for an untrained two-input network, on fixed points.",
@@ -1983,6 +2383,7 @@
               "prompt": "How does a PINN for the heat equation produce `u` at `t = 0.2`?"
             }
           ],
+          "refs": [],
           "title": "Time-dependent problems: the network takes (x, t)"
         }
       ],
@@ -2141,15 +2542,79 @@
           "title": "Read an error/time table: the Pareto front"
         }
       ],
+      "references": [
+        {
+          "authors": "Krishnapriyan, A. S.; Gholami, A.; Zhe, S.; Kirby, R. M.; Mahoney, M. W.",
+          "id": "krishnapriyan-2021",
+          "note": "Shows PINNs failing on convection, reaction and diffusion problems because the loss is hard to optimize, not for lack of network capacity (section 3), with curriculum and sequence-to-sequence remedies (sections 4 and 5).",
+          "title": "Characterizing possible failure modes in physics-informed neural networks",
+          "url": "https://arxiv.org/abs/2109.01050",
+          "venue": "Advances in Neural Information Processing Systems 34 (NeurIPS 2021)",
+          "year": 2021
+        },
+        {
+          "authors": "Wang, S.; Teng, Y.; Perdikaris, P.",
+          "id": "wang-teng-2021",
+          "note": "The gradient imbalance and the learning-rate annealing weight of section 3 (the body cites the arXiv version, arXiv:2001.04536).",
+          "title": "Understanding and Mitigating Gradient Flow Pathologies in Physics-Informed Neural Networks",
+          "url": "https://arxiv.org/abs/2001.04536",
+          "venue": "SIAM Journal on Scientific Computing 43(5), A3055-A3081 (arXiv title: Understanding and mitigating gradient pathologies in physics-informed neural networks)",
+          "year": 2021
+        },
+        {
+          "authors": "Wang, S.; Sankaran, S.; Perdikaris, P.",
+          "id": "wang-sankaran-2022",
+          "note": "The causal weights of section 4 and the chaotic and turbulent test cases cited in section 5.",
+          "title": "Respecting causality is all you need for training physics-informed neural networks",
+          "url": "https://arxiv.org/abs/2203.07404",
+          "venue": "arXiv:2203.07404",
+          "year": 2022
+        },
+        {
+          "authors": "McGreivy, N.; Hakim, A.",
+          "id": "mcgreivy-2024",
+          "note": "The two rules for fair comparisons and the count of 60 of 76 articles with weak baselines in section 5.",
+          "title": "Weak baselines and reporting biases lead to overoptimism in machine learning for fluid-related partial differential equations",
+          "url": "https://arxiv.org/abs/2407.07218",
+          "venue": "Nature Machine Intelligence 6",
+          "year": 2024
+        },
+        {
+          "authors": "Grossmann, T. G.; Komorowska, U. J.; Latz, J.; Schönlieb, C.-B.",
+          "id": "grossmann-2023",
+          "note": "The PINN versus finite element comparison of section 5: no win in solution time or accuracy, faster evaluation in some experiments.",
+          "title": "Can Physics-Informed Neural Networks beat the Finite Element Method?",
+          "url": "https://arxiv.org/abs/2302.04107",
+          "venue": "arXiv:2302.04107; IMA Journal of Applied Mathematics 89 (2024)",
+          "year": 2023
+        }
+      ],
       "sections": [
         {
+          "analogies": [],
           "body": "This unit takes the PINN of unit 47 apart. It relies on:\n\n* **The PINN loss**: mean squared residual at collocation points plus a\n  weighted boundary term, `L = Lr + λ Lb`, both computed with nested\n  ForwardDiff (unit 47, section \"The PINN loss: residual at collocation\n  points plus boundary terms\").\n* **Training with Optimization.jl** and the gradient with respect to the\n  parameters by ForwardDiff, cross-checked by differences (unit 47, section\n  \"Training, beside a classical solve\"); training outputs are printed as\n  checked facts because their digits move between CPUs.\n* **The classical baseline**: the finite-difference solve `A u = f`, whose\n  error can be estimated before you run it (unit 34, sections\n  \"Second derivatives on a grid\" and \"The discrete Laplacian is a matrix\").",
+          "diagrams": [],
           "examples": [],
           "questions": [],
+          "refs": [],
           "title": "What you need from earlier units"
         },
         {
+          "analogies": [
+            {
+              "breaks": "In both cases the trouble is only in the sampling, but a trained network is\nnot a wheel turning at a chosen speed: it does not set out to hide between\nthe points, it is just never told what happens there. Checking at new\npoints, such as the midpoints, plays the part of filming at a different\nrate, and exposes the error at once.",
+              "text": "In old films a turning wagon wheel can seem to stand still. The camera takes\n24 pictures a second, and if a spoke moves exactly to the next spoke's place\nbetween pictures, every frame looks the same. The collocation points are the\nframes. The added term `0.5 sin(8πx)` and its second derivative are both\nzero exactly at the points `i/8`, so at every frame the wrong function looks\nlike the right one.",
+              "title": "A wagon wheel that seems to stand still on film"
+            }
+          ],
           "body": "The PINN loss only sees the residual **at the collocation points**. A small\nloss says the equation holds there, and says nothing about the points in\nbetween. With few points and a flexible network, the optimizer can make the\nresidual vanish at every collocation point while the function between them\nis wrong.\n\nThis can be shown without any training. For `u'' = -π² sin(πx)` on `(0, 1)`\nwith `u(0) = u(1) = 0`, take `m` equally spaced collocation points\n`x_i = i / m` and add to the exact solution `A sin(mπx)`. Its second\nderivative, `-A (mπ)^2 sin(mπx)`, is zero at every `x_i`, and it vanishes at\nboth ends, so the PINN loss is unchanged (zero, up to rounding), while the\nerror is `A` wherever `sin(mπx) = ±1`. The collocation points cannot tell\nthe two functions apart: the same aliasing that limits any method sampling\nat a fixed set of points.\n\nThe finite-difference solve on the same few points has a large error too,\nbut its error estimate warns you in advance; the PINN\nloss does not. The check that works for both is to evaluate the residual,\nor the error against a reference, at points the method did not use.",
+          "diagrams": [
+            {
+              "alt": "Plot on 0 to 1 of sin(pi x) in blue and sin(pi x) + 0.5 sin(8 pi x) in red; the red curve wiggles above and below the blue one but crosses it exactly at the seven collocation points x = i/8, marked with circles, and both curves are zero at the boundary squares x = 0 and x = 1.",
+              "caption": "At every collocation point the two functions take the same value and both residuals are zero, so the loss cannot tell them apart, though the red one is off by 0.5 between the points.",
+              "src": "assets/diagrams/48-pinn-limits/collocation-aliasing.svg"
+            }
+          ],
           "examples": [
             {
               "caption": "The exact solution plus `0.5 sin(8πx)`, against the PINN loss on the 7 interior points `i/8` (the ends x = 0 and x = 1 enter through the boundary term), then on 7 points shifted half a spacing to the left.",
@@ -2208,10 +2673,19 @@
               "prompt": "A PINN fails to resolve a sharp front. A colleague proposes doubling the width of every layer. What does the literature on PINN failures suggest?"
             }
           ],
+          "refs": [],
           "title": "Small loss, large error: what happens between the collocation points"
         },
         {
-          "body": "The two loss terms can differ in size by orders of magnitude. For\n`u'' = -(kπ)^2 sin(kπx)` the forcing grows like `k^2`, so at initialization\nthe residual term is of order `(kπ)^4` while the boundary term is of order\n1, and their gradients differ too, if by less. The optimizer follows the sum, so it spends\nits steps reducing the residual. Since the residual cannot see an added\nline `a + bx` (unit 47), the boundary values are left to a term whose pull\nis relatively weak.\n\nWang, Teng and Perdikaris (arXiv:2001.04536) traced PINN failures to this:\nunbalanced back-propagated gradients between the terms. Their\n**learning-rate annealing** rule measures the imbalance from the gradients\nthemselves and sets the boundary weight to\n\n    λ̂ = max |∇θ Lr| / mean |∇θ Lb|        (their Eq. 40)\n    λ ← (1 - α) λ + α λ̂                    (their Eq. 41, with α = 0.9)\n\nrecomputed during training. On their Helmholtz example the relative L²\nerror fell from `1.81e-1` to `1.27e-2`. The ratio `λ̂` itself is a cheap\ndiagnostic: compute it at initialization and see how far apart the terms\nare before you train.",
+          "analogies": [
+            {
+              "breaks": "A rope moves along one line; the weights move in 61 directions at once, and\nthe two terms can pull along different directions instead of against each\nother. `λ̂` compares the largest entry of one gradient with the mean entry\nof the other: a heuristic ratio of sizes, not a balance of forces that sums\nto zero.",
+              "text": "The two loss terms pull on the same rope, the weights. At initialization the\nresidual team is hundreds of times stronger (the measured `λ̂` is 260 at\n`k = 4`), so the rope goes where the residual wants, and the boundary team's\ngoal, the right end values, is reached late or not at all. The annealing\nweight `λ` adds members to the weak team until the pulls are comparable.",
+              "title": "A tug of war with mismatched teams"
+            }
+          ],
+          "body": "The two loss terms can differ in size by orders of magnitude. For\n`u'' = -(kπ)^2 sin(kπx)` the forcing grows like `k^2`, so at initialization\nthe residual term is of order `(kπ)^4` while the boundary term is of order\n1, and their gradients differ too, if by less. The optimizer follows the sum, so it spends\nits steps reducing the residual. Since the residual cannot see an added\nline `a + bx` (unit 47), the boundary values are left to a term whose pull\nis relatively weak.\n\nWang, Teng and Perdikaris (arXiv:2001.04536) traced PINN failures to this:\nunbalanced back-propagated gradients between the terms. Their\n**learning-rate annealing** rule measures the imbalance from the gradients\nthemselves and sets the boundary weight to\n\n    λ̂ = max |∇θ Lr| / mean |∇θ Lb|        (their Eq. 40)\n    λ ← (1 - α) λ + α λ̂                    (their Eq. 41, with α = 0.9)\n\nrecomputed during training. On their Helmholtz example the relative L²\nerror fell from `1.81e-1` to `1.27e-2`. The ratio `λ̂` itself is a cheap\ndiagnostic: compute it at initialization and see how far apart the terms\nare before you train.\n\nMore published evidence for this difficulty: Wang, Teng and Perdikaris\n(journal version in the SIAM Journal on Scientific Computing, 2021) relate\nthe imbalance to stiffness in the gradient dynamics, and report that their\nannealing rule together with a modified network architecture improved\naccuracy 50 to 100 times on their test problems. Krishnapriyan, Gholami,\nZhe, Kirby and Mahoney showed PINNs failing on convection, reaction and\ndiffusion problems only slightly harder than textbook cases. They argue that\nthe PDE term in the loss makes the optimization problem more ill-conditioned\n(small changes of the weights in some directions change the loss far more\nthan in others), not that the network is too small to represent the\nsolution.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "The gradient ratio `max |∇Lr| / mean |∇Lb|` at initialization for the untrained network of unit 47 (20 tanh units), for forcings `sin(kπx)` of growing frequency `k` (rounded to 2 digits).",
@@ -2243,10 +2717,22 @@
               "prompt": "At initialization `max |∇Lr| / mean |∇Lb|` is about 500. With the annealing rule and `α = 0.9`, starting from `λ = 1`, what is the boundary weight after one update?"
             }
           ],
+          "refs": [
+            "wang-teng-2021",
+            "krishnapriyan-2021"
+          ],
           "title": "Loss imbalance: residual and boundary terms pull with different strength"
         },
         {
+          "analogies": [
+            {
+              "breaks": "The weights never switch a slice off completely: `exp(-ε s)` is small but\npositive, and `ε` sets how strict the order is, while a log entry is either\nwritten or not. Unlike a time-stepping solver, the network still\nrepresents all times at once, so a change made to fix early times also\nchanges late ones.",
+              "text": "A ship's log is written day by day from a known harbour: each day's position\nfollows from the day before. Now draw the whole route at once and check only\nthat each day's leg obeys the sailing rules. You can get a route that is\nperfectly sailable and starts from the wrong harbour. A PINN can do the same:\nlate time slices with small residuals, built on a wrong start. Causal weights\nmake the PINN work in order: a later time slice counts only once the earlier\nslices have small residuals.",
+              "title": "A route drawn from the wrong harbour"
+            }
+          ],
           "body": "A time-dependent PINN fits all of space-time at once (unit 47). The true\nsolution at time `t` is determined by the solution at earlier times, but\nthe loss sums the residual over every `t` with equal weight, so the\noptimizer is free to reduce the residual at late times first, against a\nwrong early solution. Wang, Sankaran and Perdikaris (arXiv:2203.07404)\nreport that continuous-time PINNs are biased towards approximating the\nsolution at later times first, and propose **causal weights**. Split the\ntime interval into `N_t` slices with residual losses `L_1, ..., L_{N_t}`\n(in time order) and use\n\n    w_1 = 1,    w_i = exp(-ε Σ_{k<i} L_k)        (their Eq. 3.2)\n    L_r = (1/N_t) Σ_i w_i L_i                    (their Eq. 3.1)\n\nA slice gets weight only once all earlier slices have small residuals, so\ntraining proceeds forward in time, like a time-stepping solver. The\ncausality parameter `ε` sets how strict that is. The weights are computed\nfrom the current losses and treated as constants for the gradient step.",
+          "diagrams": [],
           "examples": [
             {
               "caption": "Causal weights for five time slices whose residual losses are small at early times and large later, for three values of ε (rounded to 3 digits).",
@@ -2280,10 +2766,28 @@
               "prompt": "Causal weights for three slices with `ε = 1`. What does this print?"
             }
           ],
+          "refs": [
+            "wang-sankaran-2022",
+            "krishnapriyan-2021"
+          ],
           "title": "Causality: a PINN may fit late times before early ones"
         },
         {
-          "body": "Any claim that a method is better needs a comparison, and the comparison\ncan be tilted without a single wrong number. McGreivy and Hakim\n(arXiv:2407.07218) reviewed machine-learning papers that claim to beat\nstandard numerical methods for fluid-related PDEs and propose two rules:\n\n1. **Compare at equal accuracy or at equal runtime**: for example, reduce\n   the classical solver's resolution until it is as accurate as the ML\n   method, then compare times.\n2. **Compare to an efficient numerical method**, the state of the art for\n   that PDE, not a deliberately simple one.\n\nOf the 76 articles in their sample that claimed to outperform a standard\nmethod, 60 (79%) broke rule 1, rule 2 or both, which the authors call\ncomparing to a weak baseline. They left PINNs out of that count, on the\ngrounds that standard methods are known to outperform PINNs for forward\nproblems; in a random sample of PINN articles, each of the 8 they set\naside for claiming otherwise compares to a weak baseline or, more often,\nleaves out the PINN's optimization time.\n\nGrossmann, Komorowska, Latz and Schönlieb (arXiv:2302.04107) compared PINNs\nwith the finite element method on Poisson (1D to 3D), Allen-Cahn and\nSchrödinger problems. In their study PINNs did not beat FEM in solution\ntime or accuracy; for 1D Poisson, PINNs that reached errors similar to some\nFEM meshes needed 2 to 3 orders of magnitude more training time than FEM's\nsolve. In some experiments PINNs were faster at evaluating the trained\nsolution, though the authors' conclusion says they could show this only\nin the 3D Poisson test; they suggest it matters when a solution must be\nevaluated on a very fine grid.\n\nWhen neither method is better at both error and time, there is no single\nwinner; the methods worth considering are the **Pareto front**: those no\nother method beats in both.",
+          "analogies": [
+            {
+              "breaks": "A car's price and fuel use are fixed facts; a method's time and error change\nwith the machine, the settings and the problem, and the microsecond timings\nhere vary from run to run. The front is a statement about this problem on\nthis machine, not about PINNs in general, and a method off the front for one\ntask (solving once) can be on it for another (evaluating a stored solution\nmany times).",
+              "text": "When you choose a car on price and fuel use, a car that is both dearer and\nthirstier than another is out, whatever else is said about it. The cars\nleft, where paying less means burning more, form the Pareto front. In the\nmeasured table the `n = 1000` finite-difference row is faster and more\naccurate than the PINN, so for this problem the PINN is out.",
+              "title": "Choosing a car on price and fuel use"
+            }
+          ],
+          "body": "Any claim that a method is better needs a comparison, and the comparison\ncan be tilted without a single wrong number. McGreivy and Hakim\n(arXiv:2407.07218) reviewed machine-learning papers that claim to beat\nstandard numerical methods for fluid-related PDEs and propose two rules:\n\n1. **Compare at equal accuracy or at equal runtime**: for example, reduce\n   the classical solver's resolution until it is as accurate as the ML\n   method, then compare times.\n2. **Compare to an efficient numerical method**, the state of the art for\n   that PDE, not a deliberately simple one.\n\nOf the 76 articles in their sample that claimed to outperform a standard\nmethod, 60 (79%) broke rule 1, rule 2 or both, which the authors call\ncomparing to a weak baseline. They left PINNs out of that count, on the\ngrounds that standard methods are known to outperform PINNs for forward\nproblems; in a random sample of PINN articles, each of the 8 they set\naside for claiming otherwise compares to a weak baseline or, more often,\nleaves out the PINN's optimization time.\n\nGrossmann, Komorowska, Latz and Schönlieb (arXiv:2302.04107) compared PINNs\nwith the finite element method on Poisson (1D to 3D), Allen-Cahn and\nSchrödinger problems. In their study PINNs did not beat FEM in solution\ntime or accuracy; for 1D Poisson, PINNs that reached errors similar to some\nFEM meshes needed 2 to 3 orders of magnitude more training time than FEM's\nsolve. In some experiments PINNs were faster at evaluating the trained\nsolution, though the authors' conclusion says they could show this only\nin the 3D Poisson test; they suggest it matters when a solution must be\nevaluated on a very fine grid.\n\nWhen neither method is better at both error and time, there is no single\nwinner; the methods worth considering are the **Pareto front**: those no\nother method beats in both.\n\n**What this is useful for, and where.** The evidence above does not say\nPINNs are useless; it says where they are not the tool. Grossmann et al.\nfound PINNs faster than FEM at evaluating the trained solution in some\nexperiments, and suggest this matters when a solution must be evaluated on a\nvery fine grid. McGreivy and Hakim left PINNs out of their count because\nstandard methods are known to beat them on forward problems; the published\nuses cited in unit 47 are mostly inverse problems, where measurements and an\nequation have to be combined. The fixes in this unit reported large gains\nover an ordinary PINN on their test problems: 50 to 100 times for the\ngradient-based weights with a modified architecture, 1 to 2 orders of\nmagnitude for the curriculum and sequence-to-sequence training of\nKrishnapriyan et al. (start from an easy PDE, or learn one time window after\nanother), and causal weights let PINNs succeed on the chaotic Lorenz system,\nthe chaotic Kuramoto-Sivashinsky equation and turbulent Navier-Stokes tests\nwhere ordinary PINNs failed. Those gains are measured against an ordinary\nPINN, not against a classical solver at equal accuracy. Before choosing a\nPINN, apply rule 1 against a strong baseline, and count the training time.",
+          "diagrams": [
+            {
+              "alt": "Log-log scatter of maximum error against time from this unit's last recorded example: the PINN at error 2.2e-5 and 1.8 s, finite differences with n = 10 at 6.6e-3 and 4.4e-5 s, n = 100 at 7.8e-5 and 2.4e-5 s, n = 1000 at 4.1e-7 and 5.1e-5 s. The n = 100 and n = 1000 points are marked as the Pareto front with a dashed staircase; the PINN and n = 10 are marked dominated.",
+              "caption": "In this run the n = 1000 grid is both more accurate and more than 10000 times faster than the PINN, so the PINN is dominated and not on the Pareto front.",
+              "src": "assets/diagrams/48-pinn-limits/error-time-pareto.svg"
+            }
+          ],
           "examples": [
             {
               "caption": "Rule 1 applied to the PINN of unit 47: the finite-difference error for `u'' = -π² sin(πx)` at several grid sizes, against its estimate `dx^2 π^2 / 12` (unit 47), to find the grid that matches a given error (rounded to 2 digits).",
@@ -2341,6 +2845,13 @@
               ],
               "prompt": "In Grossmann et al.'s study, in what respect were PINNs ever faster than the finite element method?"
             }
+          ],
+          "refs": [
+            "mcgreivy-2024",
+            "grossmann-2023",
+            "wang-teng-2021",
+            "krishnapriyan-2021",
+            "wang-sankaran-2022"
           ],
           "title": "Fair comparisons: equal accuracy or equal time, against a strong baseline"
         }

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 354" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Index reduction ladder for the pendulum</title>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker>
+<marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker>
+</defs>
+<rect width="720" height="354" fill="#ffffff"/>
+<text x="20.0" y="26.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">Differentiating the rod constraint until λ can be computed: index 3</text>
+<rect x="30.0" y="56.0" width="330.0" height="52.0" rx="6" fill="none" stroke="#c0392b" stroke-width="1.5"/>
+<text x="195.0" y="80.0" font-size="14" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0 = x² + y² - 1</text>
+<text x="195.0" y="99.0" font-size="13" fill="#776f82" text-anchor="middle">no λ</text>
+<text x="390.0" y="76.0" font-size="13" fill="#776f82" text-anchor="start">index 3 row</text>
+<text x="390.0" y="94.0" font-size="13" fill="#c0392b" text-anchor="start">Rodas5P: 2 accepted, 28 rejected,</text>
+<text x="390.0" y="110.0" font-size="13" fill="#c0392b" text-anchor="start">stopped at t = 2.1e-5</text>
+<line x1="195.0" y1="110.0" x2="195.0" y2="138.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="205.0" y="129.0" font-size="13" fill="#776f82" text-anchor="start">d/dt, substitute x' = u, ...</text>
+<rect x="30.0" y="142.0" width="330.0" height="52.0" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<text x="195.0" y="166.0" font-size="14" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0 = x u + y v</text>
+<text x="195.0" y="185.0" font-size="13" fill="#776f82" text-anchor="middle">no λ</text>
+<text x="390.0" y="162.0" font-size="13" fill="#776f82" text-anchor="start">index 2 row</text>
+<text x="390.0" y="180.0" font-size="13" fill="#2b2733" text-anchor="start">Rodas5P: reached t = 10,</text>
+<text x="390.0" y="196.0" font-size="13" fill="#2b2733" text-anchor="start">263,393 accepted steps</text>
+<line x1="195.0" y1="196.0" x2="195.0" y2="224.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="205.0" y="215.0" font-size="13" fill="#776f82" text-anchor="start">d/dt, substitute x' = u, ...</text>
+<rect x="30.0" y="228.0" width="330.0" height="52.0" rx="6" fill="none" stroke="#2f8a4c" stroke-width="1.5"/>
+<text x="195.0" y="252.0" font-size="14" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0 = u² + v² - λ(x² + y²) - g y</text>
+<text x="195.0" y="271.0" font-size="13" fill="#776f82" text-anchor="middle">λ appears</text>
+<text x="390.0" y="248.0" font-size="13" fill="#776f82" text-anchor="start">index 1 row</text>
+<text x="390.0" y="266.0" font-size="13" fill="#2f8a4c" text-anchor="start">Rodas5P: reached t = 10,</text>
+<text x="390.0" y="282.0" font-size="13" fill="#2f8a4c" text-anchor="start">1,295 accepted steps</text>
+<text x="30.0" y="318.0" font-size="13" fill="#776f82" text-anchor="start">One more d/dt would give λ' : three differentiations in all, so the original system has index 3.</text>
+<text x="30.0" y="338.0" font-size="13" fill="#776f82" text-anchor="start">Recorded run in this unit (abstol = reltol = 1e-8, start horizontal at rest); counts vary by machine.</text>
+</svg>

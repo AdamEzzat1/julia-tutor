@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 375" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14">
+<title>LP relaxation bounds of five formulations of facility location</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker><marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker></defs>
+<rect width="720" height="375" fill="white"/>
+<text x="60.0" y="30.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">Lower bounds on the cost, against the integer optimum 81.15</text>
+<line x1="60.0" y1="320.0" x2="680.0" y2="320.0" stroke="#776f82" stroke-width="1.5"/>
+<line x1="107.7" y1="320.0" x2="107.7" y2="325.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="107.7" y="341.0" font-size="14" fill="#2b2733" text-anchor="middle">60</text>
+<line x1="226.9" y1="320.0" x2="226.9" y2="325.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="226.9" y="341.0" font-size="14" fill="#2b2733" text-anchor="middle">65</text>
+<line x1="346.2" y1="320.0" x2="346.2" y2="325.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="346.2" y="341.0" font-size="14" fill="#2b2733" text-anchor="middle">70</text>
+<line x1="465.4" y1="320.0" x2="465.4" y2="325.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="465.4" y="341.0" font-size="14" fill="#2b2733" text-anchor="middle">75</text>
+<line x1="584.6" y1="320.0" x2="584.6" y2="325.0" stroke="#776f82" stroke-width="1.5"/>
+<text x="584.6" y="341.0" font-size="14" fill="#2b2733" text-anchor="middle">80</text>
+<text x="680.0" y="362.0" font-size="14" fill="#776f82" text-anchor="end">objective value (cost)</text>
+<line x1="612.1" y1="50.0" x2="612.1" y2="320.0" stroke="#2f8a4c" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="606.1" y="66.0" font-size="13" fill="#2f8a4c" text-anchor="end">integer optimum 81.15</text>
+<line x1="60.0" y1="106.0" x2="147.1" y2="106.0" stroke="#d6d2dc" stroke-width="1.5" stroke-dasharray="2 3"/>
+<circle cx="147.1" cy="106.0" r="6" fill="#776f82" stroke="none"/>
+<text x="159.1" y="111.0" font-size="13" fill="#2b2733" text-anchor="start">no fixed costs at all (reference): 61.65</text>
+<line x1="60.0" y1="148.0" x2="147.1" y2="148.0" stroke="#d6d2dc" stroke-width="1.5" stroke-dasharray="2 3"/>
+<circle cx="147.1" cy="148.0" r="6" fill="#2b2733" stroke="none"/>
+<text x="159.1" y="153.0" font-size="13" fill="#2b2733" text-anchor="start">big-M, M = 1e6: 61.65</text>
+<line x1="60.0" y1="190.0" x2="152.9" y2="190.0" stroke="#d6d2dc" stroke-width="1.5" stroke-dasharray="2 3"/>
+<circle cx="152.9" cy="190.0" r="6" fill="#2b2733" stroke="none"/>
+<text x="164.9" y="195.0" font-size="13" fill="#2b2733" text-anchor="start">big-M, M = 100: 61.90</text>
+<line x1="60.0" y1="232.0" x2="228.1" y2="232.0" stroke="#d6d2dc" stroke-width="1.5" stroke-dasharray="2 3"/>
+<circle cx="228.1" cy="232.0" r="6" fill="#2b2733" stroke="none"/>
+<text x="240.1" y="237.0" font-size="13" fill="#2b2733" text-anchor="start">aggregated: Σ x ≤ 30 y: 65.05</text>
+<line x1="60.0" y1="274.0" x2="612.1" y2="274.0" stroke="#d6d2dc" stroke-width="1.5" stroke-dasharray="2 3"/>
+<circle cx="612.1" cy="274.0" r="6" fill="#3657c8" stroke="none"/>
+<text x="600.1" y="279.0" font-size="13" fill="#3657c8" text-anchor="end">disaggregated (M = 1): x ≤ y: 81.15</text>
+<text x="60.0" y="310.0" font-size="13" fill="#776f82" text-anchor="start">The gap between a dot and 81.15 is what branch and bound must close. Axis starts at 58.</text>
+</svg>

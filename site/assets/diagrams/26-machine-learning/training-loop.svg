@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>The training loop of a Flux model</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker><marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker></defs>
+<rect x="0" y="0" width="720" height="400" fill="#ffffff"/>
+<text x="360.0" y="24.0" font-size="15" text-anchor="middle" fill="#2b2733" >One training step in Flux</text>
+<rect x="20" y="60" width="180" height="70" rx="6" fill="#ffffff" stroke="#3657c8" stroke-width="1.5"/>
+<text x="110.0" y="88.0" font-size="14" text-anchor="middle" fill="#2b2733" >model</text>
+<text x="110.0" y="110.0" font-size="13" text-anchor="middle" fill="#776f82" >(weights W, bias b)</text>
+<rect x="270" y="60" width="180" height="70" rx="6" fill="#ffffff" stroke="#776f82" stroke-width="1.5"/>
+<text x="360.0" y="88.0" font-size="14" text-anchor="middle" fill="#2b2733" >forward pass</text>
+<text x="360.0" y="110.0" font-size="14" text-anchor="middle" fill="#2b2733" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ŷ = model(x)</text>
+<rect x="520" y="60" width="180" height="70" rx="6" fill="#ffffff" stroke="#776f82" stroke-width="1.5"/>
+<text x="610.0" y="88.0" font-size="14" text-anchor="middle" fill="#2b2733" >loss</text>
+<text x="610.0" y="110.0" font-size="13" text-anchor="middle" fill="#776f82" >mse(ŷ, y), a number</text>
+<rect x="520" y="210" width="180" height="80" rx="6" fill="#ffffff" stroke="#776f82" stroke-width="1.5"/>
+<text x="610.0" y="236.0" font-size="14" text-anchor="middle" fill="#2b2733" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Flux.gradient</text>
+<text x="610.0" y="256.0" font-size="13" text-anchor="middle" fill="#776f82" >reverse pass (Zygote)</text>
+<text x="610.0" y="276.0" font-size="13" text-anchor="middle" fill="#776f82" >one entry per weight</text>
+<rect x="240" y="210" width="220" height="80" rx="6" fill="#ffffff" stroke="#776f82" stroke-width="1.5"/>
+<text x="350.0" y="236.0" font-size="14" text-anchor="middle" fill="#2b2733" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Flux.update!</text>
+<text x="350.0" y="256.0" font-size="13" text-anchor="middle" fill="#776f82" >rule + state (Adam:</text>
+<text x="350.0" y="276.0" font-size="13" text-anchor="middle" fill="#776f82" >running averages)</text>
+<rect x="20" y="300" width="180" height="60" rx="6" fill="#ffffff" stroke="#776f82" stroke-width="1.5"/>
+<text x="110.0" y="326.0" font-size="14" text-anchor="middle" fill="#2b2733" >data (x, y)</text>
+<text x="110.0" y="346.0" font-size="13" text-anchor="middle" fill="#776f82" >one column per sample</text>
+<line x1="200.0" y1="95.0" x2="268.0" y2="95.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="450.0" y1="95.0" x2="518.0" y2="95.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="610.0" y1="130.0" x2="610.0" y2="208.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="520.0" y1="250.0" x2="462.0" y2="250.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 240 250 L 110 250 L 110 132" fill="none" stroke="#3657c8" stroke-width="2" marker-end="url(#arrowb)"/>
+<path d="M 200 315 L 222 315 L 222 170 L 300 170 L 300 132" fill="none" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)" stroke-dasharray="4 3"/>
+<text x="102.0" y="192.0" font-size="13" text-anchor="end" fill="#3657c8" >updates W, b</text>
+<text x="102.0" y="210.0" font-size="13" text-anchor="end" fill="#3657c8" >in place</text>
+<text x="360.0" y="385.0" font-size="13" text-anchor="middle" fill="#776f82" >Repeat for many steps (epochs); the state lives outside the model.</text>
+</svg>

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 330" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>SINDy: derivatives equal a library of candidate terms times a sparse coefficient matrix</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker><marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker></defs>
+<rect x="0" y="0" width="720" height="330" fill="#ffffff"/>
+<text x="20" y="28" font-size="15" text-anchor="start" fill="#2b2733" font-weight="600">Ẋ = Θ(X) Ξ for the Lotka-Volterra data (121 times, 6 candidate terms)</text>
+<rect x="30" y="70" width="80" height="200" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<text x="70" y="60" font-size="13" text-anchor="middle" fill="#2b2733">Ẋ  (121 × 2)</text>
+<text x="50" y="170.0" font-size="15" text-anchor="middle" fill="#2b2733">ẋ</text>
+<text x="90" y="170.0" font-size="15" text-anchor="middle" fill="#2b2733">ẏ</text>
+<line x1="70" y1="70" x2="70" y2="270" stroke="#776f82" stroke-width="1"/>
+<text x="130" y="176.0" font-size="22" text-anchor="middle" fill="#2b2733">=</text>
+<rect x="155" y="70" width="312" height="200" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<text x="311" y="60" font-size="13" text-anchor="middle" fill="#2b2733">Θ(X)  (121 × 6): one column per candidate term</text>
+<text x="181.0" y="175.0" font-size="15" text-anchor="middle" fill="#2b2733">1</text>
+<line x1="207" y1="70" x2="207" y2="270" stroke="#776f82" stroke-width="1"/>
+<text x="233.0" y="175.0" font-size="15" text-anchor="middle" fill="#2b2733">x</text>
+<line x1="259" y1="70" x2="259" y2="270" stroke="#776f82" stroke-width="1"/>
+<text x="285.0" y="175.0" font-size="15" text-anchor="middle" fill="#2b2733">y</text>
+<line x1="311" y1="70" x2="311" y2="270" stroke="#776f82" stroke-width="1"/>
+<text x="337.0" y="175.0" font-size="15" text-anchor="middle" fill="#2b2733">x²</text>
+<line x1="363" y1="70" x2="363" y2="270" stroke="#776f82" stroke-width="1"/>
+<text x="389.0" y="175.0" font-size="15" text-anchor="middle" fill="#2b2733">x y</text>
+<line x1="415" y1="70" x2="415" y2="270" stroke="#776f82" stroke-width="1"/>
+<text x="441.0" y="175.0" font-size="15" text-anchor="middle" fill="#2b2733">y²</text>
+<text x="489" y="176.0" font-size="20" text-anchor="middle" fill="#2b2733">×</text>
+<text x="582" y="60" font-size="13" text-anchor="middle" fill="#2b2733">Ξ  (6 × 2)</text>
+<rect x="512" y="70.0" width="70" height="33.333333333333336" fill="none" stroke="#776f82" stroke-width="1"/>
+<text x="547.0" y="91.66666666666667" font-size="14" text-anchor="middle" fill="#776f82">0</text>
+<rect x="582" y="70.0" width="70" height="33.333333333333336" fill="none" stroke="#776f82" stroke-width="1"/>
+<text x="617.0" y="91.66666666666667" font-size="14" text-anchor="middle" fill="#776f82">0</text>
+<text x="662" y="91.66666666666667" font-size="13" text-anchor="start" fill="#776f82">1</text>
+<rect x="512" y="103.33333333333334" width="70" height="33.333333333333336" fill="#eef1fb" stroke="#3657c8" stroke-width="2"/>
+<text x="547.0" y="125.00000000000001" font-size="14" text-anchor="middle" fill="#3657c8">1.3</text>
+<rect x="582" y="103.33333333333334" width="70" height="33.333333333333336" fill="none" stroke="#776f82" stroke-width="1"/>
+<text x="617.0" y="125.00000000000001" font-size="14" text-anchor="middle" fill="#776f82">0</text>
+<text x="662" y="125.00000000000001" font-size="13" text-anchor="start" fill="#776f82">x</text>
+<rect x="512" y="136.66666666666669" width="70" height="33.333333333333336" fill="none" stroke="#776f82" stroke-width="1"/>
+<text x="547.0" y="158.33333333333334" font-size="14" text-anchor="middle" fill="#776f82">0</text>
+<rect x="582" y="136.66666666666669" width="70" height="33.333333333333336" fill="#eef1fb" stroke="#3657c8" stroke-width="2"/>
+<text x="617.0" y="158.33333333333334" font-size="14" text-anchor="middle" fill="#3657c8">−1.8</text>
+<text x="662" y="158.33333333333334" font-size="13" text-anchor="start" fill="#776f82">y</text>
+<rect x="512" y="170.0" width="70" height="33.333333333333336" fill="none" stroke="#776f82" stroke-width="1"/>
+<text x="547.0" y="191.66666666666666" font-size="14" text-anchor="middle" fill="#776f82">0</text>
+<rect x="582" y="170.0" width="70" height="33.333333333333336" fill="none" stroke="#776f82" stroke-width="1"/>
+<text x="617.0" y="191.66666666666666" font-size="14" text-anchor="middle" fill="#776f82">0</text>
+<text x="662" y="191.66666666666666" font-size="13" text-anchor="start" fill="#776f82">x²</text>
+<rect x="512" y="203.33333333333334" width="70" height="33.333333333333336" fill="#eef1fb" stroke="#3657c8" stroke-width="2"/>
+<text x="547.0" y="225.0" font-size="14" text-anchor="middle" fill="#3657c8">−0.9</text>
+<rect x="582" y="203.33333333333334" width="70" height="33.333333333333336" fill="#eef1fb" stroke="#3657c8" stroke-width="2"/>
+<text x="617.0" y="225.0" font-size="14" text-anchor="middle" fill="#3657c8">0.8</text>
+<text x="662" y="225.0" font-size="13" text-anchor="start" fill="#776f82">x y</text>
+<rect x="512" y="236.66666666666669" width="70" height="33.333333333333336" fill="none" stroke="#776f82" stroke-width="1"/>
+<text x="547.0" y="258.33333333333337" font-size="14" text-anchor="middle" fill="#776f82">0</text>
+<rect x="582" y="236.66666666666669" width="70" height="33.333333333333336" fill="none" stroke="#776f82" stroke-width="1"/>
+<text x="617.0" y="258.33333333333337" font-size="14" text-anchor="middle" fill="#776f82">0</text>
+<text x="662" y="258.33333333333337" font-size="13" text-anchor="start" fill="#776f82">y²</text>
+<text x="547.0" y="288" font-size="13" text-anchor="middle" fill="#776f82">dx/dt</text>
+<text x="617.0" y="288" font-size="13" text-anchor="middle" fill="#776f82">dy/dt</text>
+<text x="20" y="312" font-size="13" text-anchor="start" fill="#776f82">Each column of Ξ is one equation; the true model has two nonzeros per column (blue). STLSQ looks for them.</text>
+</svg>
