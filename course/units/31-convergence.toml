@@ -118,6 +118,52 @@ println("100 steps:     error ", round(e100; sigdigits = 2))
 println("100000 steps:  error more than 1000 times the h^4 prediction: ", e100k > 1000 * predicted)
 '''
 
+  [[section.example]]
+  caption = "The three methods again, as a grid: the error at `t = 2` for six step sizes from `0.4` to `0.0125`, each halving the last. The smallest step stops where RK4's error is still far above the rounding floor, so every printed digit is the same on any CPU."
+  notice = "Notice that on log-log axes the three lines straighten as `h` shrinks, with slopes near 1, 2 and 4, and that RK4's slope at the coarse end is far from 4 on both sides (the `C h^p` model holds for small `h`)."
+  code = '''
+f(t, u) = -u + sin(t)
+exact(t) = 1.5exp(-t) + (sin(t) - cos(t)) / 2
+euler(f, t, u, h) = u + h * f(t, u)
+heun(f, t, u, h) = (k1 = f(t, u); k2 = f(t + h, u + h * k1); u + h / 2 * (k1 + k2))
+function rk4(f, t, u, h)
+    k1 = f(t, u); k2 = f(t + h / 2, u + h / 2 * k1)
+    k3 = f(t + h / 2, u + h / 2 * k2); k4 = f(t + h, u + h * k3)
+    return u + h / 6 * (k1 + 2k2 + 2k3 + k4)
+end
+function integrate(step, n; T = 2.0)
+    h = T / n; u = 1.0
+    for i in 0:n-1
+        u = step(f, i * h, u, h)
+    end
+    return u
+end
+for (name, step) in (("Euler", euler), ("Heun", heun), ("RK4", rk4)), n in (5, 10, 20, 40, 80, 160)
+    err = abs(integrate(step, n) - exact(2.0))
+    println(rpad(name, 6), "h = ", rpad(2.0 / n, 7), "error = ", round(err; sigdigits = 2))
+end
+'''
+
+    [section.example.explore]
+    kc = "convergence-order"
+    prompt = "Pick a method and move `h`. Each step halves `h`: by what factor does each method's error shrink? Read the slope shown with each point, and find the step sizes where RK4's slope is furthest from 4."
+    row = '(?<method>\S+) +h = (?<h>\S+) +error = (?<err>\S+)'
+    measure = "err"
+    label = "error at t = 2"
+    log = true
+    x = "h"
+    series = "method"
+    explain = "Halving `h` divides the error by about `2^p`: 2 for Euler, 4 for Heun, 16 for RK4, which is the slope `p` on log-log axes. RK4's slope is about 7.3 between `h = 0.4` and `h = 0.2`, then 2.8 between `0.2` and `0.1`, and only then settles: 3.3, 3.7, 3.9. At coarse steps the higher terms of its error are not small, and they can add to the leading term or cancel it, so one coarse pair can read above or below the true order. An order is read from the small-`h` end of the plot."
+
+      [[section.example.explore.axis]]
+      group = "method"
+      label = "method"
+
+      [[section.example.explore.axis]]
+      group = "h"
+      label = "step size h"
+      log = true
+
   [[section.question]]
   kind = "output"
   prompt = "Halving the step divided the error from `1.6e-3` to `1.0e-4`. What does this print?"
@@ -952,6 +998,119 @@ function rk4_solve(f, y0, T, n)
         k4 = f(t + h, y + h * k3)
         y += h * (k1 + 2k2 + 2k3 + k4) / 6
         t += h
+    end
+    return y
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "conv-midpoint-parsons"
+title = "Parsons: the explicit midpoint method, in order"
+difficulty = "warm-up"
+kcs = ["convergence-order"]
+entry = "midpoint_solve"
+packages = ["StableRNGs"]   # nothing needed; [] would load the whole scicomp env
+prompt = '''
+`midpoint_solve(f, y0, T, n)` advances `y' = f(t, y)` from `y(0) = y0` to
+`t = T` in `n` steps of the explicit midpoint method, a second-order
+Runge-Kutta method: take a half Euler step to the middle of the step, and use
+the slope there for the whole step.
+
+Put the lines in an order that works. The signature, `h = T / n` and the last
+two lines are fixed. Each line keeps its indentation, and the indentation
+must match the blocks your order creates. Two of the lines on offer are
+wrong: leave them out. More than one order works; the feedback tells you
+when yours is one of them.
+
+```julia
+midpoint_solve((t, y) -> -y + cos(t), 1.0, 1.0, 10)   # 0.87465; the exact y(1) is 0.87483
+```
+
+Every order that works was found by running all of them on the cases. Results
+are compared with `rtol = 1e-12`.
+'''
+reference = '''
+function midpoint_solve(f, y0, T, n)
+    h = T / n
+    t = 0.0
+    y = float(y0)
+    for k in 1:n
+        k1 = f(t, y)
+        k2 = f(t + h / 2, y + h / 2 * k1)
+        y += h * k2
+        t += h
+    end
+    return y
+end
+'''
+cases = [
+  "(t, y) -> -y, 1.0, 1.0, 10",
+  "(t, y) -> -y + cos(t), 1.0, 1.0, 10",
+  "(t, y) -> t * y, 1.0, 2.0, 40",
+]
+compare = "isapprox"
+# rtol: every working order performs the same operations on the same values, so results agree to the
+# last bit; 1e-12 leaves room for a hand-written solution that groups `h / 2 * k1` differently (a few eps
+# per step over 40 steps). A wrong order or a distractor changes y(T) by more than 1e-4 on these cases.
+rtol = 1e-12
+hints = [
+  "Within one step, which slope needs which? And which update must wait until both slopes of the step are known?",
+  "`k2` uses `k1`, and both use the time and state at the start of the step, so both updates (`y += ...` and `t += h`) come after them. Do those two updates depend on each other?",
+]
+
+  [problem.parsons]
+  kc = "convergence-order"
+  head = 2
+  tail = 2
+
+  [[problem.parsons.distractor]]
+  line = "        y += h * k1"
+  replaces = 6
+  misconception = '''
+This is the Euler step: it uses the slope at the start, and `k2` is computed
+but never used. The method drops to first order. The belief it models: the
+midpoint stage is a check on the step, while the step itself still uses the
+first slope.
+'''
+
+  [[problem.parsons.distractor]]
+  line = "        k2 = f(t + h / 2, y + h * k1)"
+  replaces = 5
+  misconception = '''
+The state passed to `f` is a full Euler step, `y + h k1`, while the time is
+the middle of the step. A slope must be evaluated at one point: time and
+state from the same place. A full-step state belongs with `t + h` (that is
+Heun's predictor); with `t + h / 2` the method loses its second order.
+'''
+
+  [[problem.variant]]
+  label = "time advanced before the second slope"
+  code = '''
+function midpoint_solve(f, y0, T, n)
+    h = T / n
+    t = 0.0
+    y = float(y0)
+    for k in 1:n
+        k1 = f(t, y)
+        t += h
+        k2 = f(t + h / 2, y + h / 2 * k1)
+        y += h * k2
+    end
+    return y
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "time from the step index, half step as 0.5h"
+  code = '''
+function midpoint_solve(f, y0, T, n)
+    h = T / n
+    y = float(y0)
+    for k in 0:n-1
+        t = k * h
+        y += h * f(t + 0.5h, y + 0.5h * f(t, y))
     end
     return y
 end

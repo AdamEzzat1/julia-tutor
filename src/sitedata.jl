@@ -189,6 +189,18 @@ function course_data()
                                          "rows" => Any[Dict("p" => p, "m" => repr(m), "failed" => f)
                                                        for (p, m, f) in zip(sc.ps, sc.ms, sc.failed)])
                 end
+                x = e.explore
+                g = x === nothing || r === nothing ? nothing : Course.explorer_grid(x, r["output"])
+                if g !== nothing && !(g isa String)    # only a grid verify would accept is exported
+                    ed["explore"] = Dict("kc" => x.kc, "prompt" => strip(x.prompt), "x" => x.x, "series" => x.series,
+                                         "label" => x.label, "log" => x.log, "explain" => strip(x.explain),
+                                         # per axis: values as printed (and as numbers, for the plot)
+                                         "axes" => Any[Dict("group" => a.group, "label" => a.label, "log" => a.log,
+                                                            "numeric" => a.numeric, "texts" => a.texts, "nums" => a.nums)
+                                                       for a in g.axes],
+                                         # the measure as printed, row-major over the axes (last fastest)
+                                         "values" => g.values)
+                end
                 push!(examples, ed)
             end
             questions = Any[Dict("kind" => q.kind, "prompt" => strip(q.prompt), "code" => rstrip(q.code),
@@ -205,7 +217,9 @@ function course_data()
                             "perf" => p.perf === nothing ? nothing :
                                 Dict("sizes" => p.perf.sizes, "mutates" => p.perf.mutates),
                             # only find-the-bug problems carry the key
-                            (p.bug === nothing ? Pair{String,Any}[] : ["bug" => bug_data(p)])...)
+                            (p.bug === nothing ? Pair{String,Any}[] : ["bug" => bug_data(p)])...,
+                            (p.parsons === nothing ? Pair{String,Any}[] :
+                                ["parsons" => parsons_data(p, get(get(rec, "parsons", Dict()), p.id, String[]))])...)
                        for p in u.problems]
         # prerequisites as unit ids (unique across courses); each unit says its course
         push!(out, Dict("id" => u.id, "title" => u.title, "track" => u.track, "env" => u.env,
@@ -218,6 +232,23 @@ function course_data()
     return Dict("julia" => string(VERSION), "generated_by" => "tutor site-data (do not edit; regenerate)",
                 "tracks" => Course.TRACKS, "track_requires" => Course.TRACK_REQUIRES, "units" => out,
                 "envs" => Dict(e => env_packages(e) for e in envs))
+end
+
+"""
+A Parsons problem for the site: the fixed lines, the pool (movable lines in
+working order, then the distractors; the site shuffles it), each distractor's
+misconception, and the measured accepted orderings (pool indices, 1-based,
+canonical for repeated texts). The site checks an arrangement against that
+set, so it needs no server. The working order is no secret (the repository is
+public, and it is in the accepted set); the site never displays it unshuffled.
+"""
+function parsons_data(p, accepted)
+    l = Course.parsons_lines(p)
+    n = length(l.items)
+    return Dict("kc" => p.parsons.kc, "head" => l.head, "tail" => l.tail, "pool" => Course.parsons_pool(p), "n" => n,
+                "distractors" => Any[Dict("index" => n + k, "replaces" => d.replaces, "misconception" => strip(d.misconception))
+                                     for (k, d) in enumerate(p.parsons.distractors)],
+                "accepted" => Any[parse.(Int, split(a)) for a in accepted])
 end
 
 """

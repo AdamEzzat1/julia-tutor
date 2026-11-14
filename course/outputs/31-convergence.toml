@@ -17,6 +17,10 @@ output = """100 steps:     error 6.2e-11\n100000 steps:  error more than 1000 ti
 ok = true
 output = """error falls as reltol falls: true\nt = 200: error > reltol at every tolerance: true\nt = 200 error > t = 20 error at every tolerance: true\n"""
 
+[examples.9083ea1c101b3c3f]
+ok = true
+output = """Euler h = 0.4    error = 0.028\nEuler h = 0.2    error = 0.014\nEuler h = 0.1    error = 0.0066\nEuler h = 0.05   error = 0.0033\nEuler h = 0.025  error = 0.0016\nEuler h = 0.0125 error = 0.00082\nHeun  h = 0.4    error = 0.0041\nHeun  h = 0.2    error = 0.0014\nHeun  h = 0.1    error = 0.00037\nHeun  h = 0.05   error = 9.6e-5\nHeun  h = 0.025  error = 2.4e-5\nHeun  h = 0.0125 error = 6.1e-6\nRK4   h = 0.4    error = 2.0e-5\nRK4   h = 0.2    error = 1.3e-7\nRK4   h = 0.1    error = 1.9e-8\nRK4   h = 0.05   error = 2.0e-9\nRK4   h = 0.025  error = 1.5e-10\nRK4   h = 0.0125 error = 9.9e-12\n"""
+
 [examples.9a3d4095fc5c972d]
 ok = true
 output = """h = 0.1    local error 0.0097    global error 0.0066\nh = 0.05   local error 0.0025    global error 0.0033\nh = 0.025  local error 0.00062   global error 0.0016\n"""
@@ -41,6 +45,9 @@ output = """t = 20.0, Tsit5\n   reltol 0.0001  error 0.00056   error/reltol 5.6 
 ok = true
 output = """0.4\n"""
 
+[parsons]
+conv-midpoint-parsons = ["1 2 3 4 5 6 7 8", "1 2 3 4 5 7 6 8", "2 1 3 4 5 6 7 8", "2 1 3 4 5 7 6 8"]
+
 [[samples.conv-heun-euler-step]]
 call = "heun_euler_step((t, u) -> -u, 0.0, [1.0], 0.1, 1e-6, 1e-3)"
 result = "(false, [1.0], 0.040269343178154754)"
@@ -56,6 +63,16 @@ result = "(false, [0.001, 2.0], 0.0002)"
 [[samples.conv-heun-euler-step]]
 call = "heun_euler_step((t, u) -> zero(u), 0.0, [3.0, 4.0], 0.1, 1e-6, 1e-6)"
 result = "(true, [3.0, 4.0], 0.5)"
+
+[[samples.conv-midpoint-parsons]]
+call = "midpoint_solve((t, y) -> -y, 1.0, 1.0, 10)"
+result = "0.36854098483355185"
+[[samples.conv-midpoint-parsons]]
+call = "midpoint_solve((t, y) -> -y + cos(t), 1.0, 1.0, 10)"
+result = "0.8746461070522393"
+[[samples.conv-midpoint-parsons]]
+call = "midpoint_solve((t, y) -> t * y, 1.0, 2.0, 40)"
+result = "7.368842682642525"
 
 [[samples.conv-observed-order]]
 call = "observed_order([0.1, 0.05, 0.025], [1e-2, 2.5e-3, 6.25e-4])"

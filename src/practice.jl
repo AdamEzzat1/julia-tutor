@@ -183,6 +183,7 @@ function grade(p::Course.Problem, code::AbstractString; env::AbstractString = "b
     rm(dir; recursive = true, force = true)
     log = out_of_memory(rc, to) ? oom_message(env) * "\n" * log : log
     r = assess(p, raw; timed_out = to, log = clip(log, 4000), findings = static_findings(code))
+    r["ladder"] = ladder(p, r)
     r["seconds"] = round(time() - t; digits = 1)
     return r
 end
@@ -381,6 +382,77 @@ function assess(p::Course.Problem, raw; timed_out::Bool = false, log::AbstractSt
     return out
 end
 
+# ---- the performance ladder ---------------------------------------------------------------
+
+# Rung 2's line: the learner's time over the reference's, at the largest size,
+# from the same interleaved samples as the speed verdict.
+const LADDER_RATIO = 2.0
+# Within this factor of the line, a rerun may land on the other side.
+const LADDER_NEAR = 0.1
+
+rung(id, title, state, detail) = Dict{String,Any}("id" => id, "title" => title, "state" => state, "detail" => detail)
+
+"""
+    ladder(p, r) -> Dict
+
+The performance ladder for a grade result `r` of problem `p` (pure). Three
+rungs, climbed in order: `correct`, `within-2x` (time ratio to the reference at
+the largest perf size at most `LADDER_RATIO`), `allocation-free` (zero bytes
+per call at every perf size). Each rung's `state` is `reached`, `not-reached`,
+`not-measured` (performance is only measured on a correct answer, and can fail
+to measure) or `not-offered`: a problem without a perf section offers rung 1
+only, and allocation-free is offered only when the reference itself allocates
+nothing at every size. A reference that allocates (often its answer is a new
+array) is not proof that nothing better exists, so the rung is not offered
+rather than declared impossible: the ladder asks only for what the reference does. `climbed` counts the reached rungs from the bottom up to the first
+that is not; `offered` counts the rungs that exist.
+"""
+function ladder(p::Course.Problem, r)
+    rungs = Any[]
+    ok = r["status"] == "passed"
+    c = r["correctness"]
+    push!(rungs, rung("correct", "Correct", ok ? "reached" : "not-reached",
+                      c === nothing ? "The tests did not run." : "$(c["passed"]) of $(c["total"]) cases pass."))
+    t2, ta = "Within $(round(Int, LADDER_RATIO))× of the reference's time", "Allocation-free"
+    perf = r["performance"]
+    if p.perf === nothing
+        none = "This problem has no performance measurement."
+        push!(rungs, rung("within-2x", t2, "not-offered", none), rung("allocation-free", ta, "not-offered", none))
+    elseif !ok
+        later = "Measured once every case passes."
+        push!(rungs, rung("within-2x", t2, "not-measured", later), rung("allocation-free", ta, "not-measured", later))
+    elseif !(perf isa AbstractDict) || !haskey(perf, "sizes")
+        timed_out = perf isa AbstractDict && get(perf, "timed_out", false)
+        push!(rungs, timed_out ?
+            rung("within-2x", t2, "not-reached", "The measurement timed out: far slower than the reference.") :
+            rung("within-2x", t2, "not-measured", "The performance inputs could not be measured (see above)."))
+        push!(rungs, rung("allocation-free", ta, "not-measured", "Not measured."))
+    else
+        sizes = perf["sizes"]; s2 = sizes[end]
+        ratio = perf["ratio"]
+        near = abs(ratio / LADDER_RATIO - 1) <= LADDER_NEAR ?
+            " Close to the line: timing varies between runs, so a rerun may land on the other side." : ""
+        push!(rungs, rung("within-2x", t2, ratio <= LADDER_RATIO ? "reached" : "not-reached",
+                          "$(ratio < 10 ? string(round(ratio; digits = 2), "×") : uppercasefirst(fmt_ratio(ratio))) the reference's time at n = $(s2["n"])." * near))
+        at = join(["n = $(s["n"])" for s in sizes], " and ")
+        refbytes = [s for s in sizes if s["ref_bytes"] != 0]
+        if !isempty(refbytes)
+            s = last(refbytes)
+            push!(rungs, rung("allocation-free", ta, "not-offered",
+                              "The reference itself allocates $(fmt_bytes(s["ref_bytes"])) per call at n = $(s["n"]), so this rung " *
+                              "is not offered: the ladder asks only for what the reference does."))
+        else
+            bad = [s for s in sizes if s["sub_bytes"] != 0]
+            push!(rungs, rung("allocation-free", ta, isempty(bad) ? "reached" : "not-reached",
+                              isempty(bad) ? "0 bytes per call at $at." :
+                              "$(fmt_bytes(last(bad)["sub_bytes"])) per call at n = $(last(bad)["n"]); the reference allocates nothing."))
+        end
+    end
+    offered = count(x -> x["state"] != "not-offered", rungs)
+    climbed = something(findfirst(x -> x["state"] != "reached", rungs), length(rungs) + 1) - 1
+    return Dict{String,Any}("rungs" => rungs, "climbed" => min(climbed, offered), "offered" => offered)
+end
+
 """Plain-text rendering of a grade result for the terminal."""
 function format_grade(r)
     io = IOBuffer()
@@ -393,6 +465,15 @@ function format_grade(r)
     end
     for f in r["findings"]
         println(io, "· checker ", f["rule"], " line ", f["line"], ": ", f["message"])
+    end
+    lad = get(r, "ladder", nothing)
+    if lad isa AbstractDict
+        println(io, "Performance ladder: ", lad["climbed"], " of ", lad["offered"], " rungs")
+        sym = Dict("reached" => "✓", "not-reached" => "✗", "not-measured" => "·", "not-offered" => "–")
+        for (i, x) in enumerate(lad["rungs"])
+            println(io, "  ", sym[x["state"]], " ", i, ". ", x["title"],
+                    x["state"] == "not-offered" ? " (not offered)" : "", ": ", x["detail"])
+        end
     end
     return String(take!(io))
 end
@@ -443,7 +524,57 @@ function record_unit(u::Course.Unit; ntasks::Int = default_ntasks(), figures::Un
         foreach(i -> write(joinpath(figures, k * "-" * i.name), i.data), r.images)
     end
     sm = Dict{String,Any}(p.id => samples(p, u.env) for p in u.problems)
-    return Dict("verified_on" => string(VERSION), "examples" => ex, "samples" => sm)
+    d = Dict{String,Any}("verified_on" => string(VERSION), "examples" => ex, "samples" => sm)
+    # Only units with Parsons problems get the key, so every other outputs file is unchanged.
+    pz = Dict{String,Any}(p.id => parsons_accepted(p, u) for p in u.problems if p.parsons !== nothing)
+    isempty(pz) || (d["parsons"] = pz)
+    return d
+end
+
+"""
+Every working arrangement of a Parsons problem's lines, measured: the
+enumeration (`Course.parsons_script`) runs in one fresh process in the unit's
+env, as an example would. Returns the accepted orderings as strings of pool
+indices, sorted.
+"""
+function parsons_accepted(p::Course.Problem, u::Course.Unit)
+    bad = Course.parsons_problems(p, u.kcs)
+    isempty(bad) || error("$(p.id): fix the Parsons problem before recording:\n" * join(bad, "\n"))
+    usings = String["Random"; isempty(p.packages) ? env_deps(u.env) : p.packages]
+    r = run_code(Course.parsons_script(p, usings); env = u.env, mode = "file", timeout = 600)
+    acc = Course.parse_parsons_output(r.output)
+    acc === nothing && error("$(p.id): the Parsons enumeration did not finish:\n$(r.output)")
+    return acc
+end
+
+"""
+Problems with the measured orderings of a unit's Parsons problems: the
+reference's own order must be accepted, no ordering that uses a distractor may
+be (it would not be a mistake), and the set must equal the recorded one.
+"""
+function parsons_record_problems(u::Course.Unit, stored, now)
+    out = String[]
+    now = something(now, Dict{String,Any}())
+    stored = something(stored, Dict{String,Any}())
+    for p in u.problems
+        p.parsons === nothing && continue
+        acc = get(now, p.id, nothing)
+        acc === nothing && (push!(out, "$(p.id): no measured Parsons orderings (re-record)"); continue)
+        n = length(Course.parsons_lines(p).items)
+        join(1:n, " ") in acc || push!(out, "$(p.id): the reference's own order is not an accepted Parsons ordering")
+        for (k, d) in enumerate(p.parsons.distractors)
+            hit = findfirst(a -> string(n + k) in split(a), acc)
+            hit === nothing ||
+                push!(out, "$(p.id): distractor $k (\"$(strip(d.line))\") is part of a working ordering ($(acc[hit])), so it is not a mistake")
+        end
+        old = get(stored, p.id, nothing)
+        old == acc || push!(out, "$(p.id): accepted Parsons orderings changed (re-record and review)\n--- recorded\n" *
+                                 join(something(old, String[]), "\n") * "\n--- now\n" * join(acc, "\n"))
+    end
+    for k in keys(stored)
+        any(p -> p.id == k && p.parsons !== nothing, u.problems) || push!(out, "$(u.id): stale Parsons orderings for $k (re-record)")
+    end
+    return out
 end
 
 function outputs_text(d)
@@ -624,10 +755,12 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
             push!(problems, "$(u.id): recorded outputs have stale entries (re-record)")
         get(stored, "verified_on", "") == string(VERSION) || push!(problems, "$(u.id): outputs were recorded on another Julia")
     end
+    append!(problems, parsons_record_problems(u, get(Course.load_outputs(u), "parsons", nothing), get(rec, "parsons", nothing)))
     append!(problems, question_key_problems(u, rec))
     append!(problems, Course.prediction_key_problems(u, rec))
     append!(problems, Course.checkpoint_key_problems(u, rec))   # on the fresh run: checked even for check = false
     append!(problems, Course.breakit_key_problems(u, rec))
+    append!(problems, Course.explorer_key_problems(u, rec))
     append!(problems, breakit_probe_problems(u, rec; log))
     grade_variants || return problems
     append!(problems, bug_problems(u; log))

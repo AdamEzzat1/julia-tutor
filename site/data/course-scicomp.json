@@ -172,6 +172,101 @@
           ],
           "starter": "using LinearAlgebra\n\nfunction forward_error_bound(A, b, xhat)\n    return norm(b - A * xhat) / norm(b)\nend\n",
           "title": "How many digits can you trust?"
+        },
+        {
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "warm-up",
+          "entry": "kahan_sum",
+          "hints": [
+            "The variable `c` holds what the last addition lost. Which lines must see the old running sum `s`, and which the new one?",
+            "`c = (t - s) - y` measures the rounding of `t = s + y`, so it needs `t` and the old `s` together: it goes after `t` is computed and before `s` is overwritten."
+          ],
+          "id": "fp-kahan-parsons",
+          "kcs": [
+            "floating-point-rounding"
+          ],
+          "parsons": {
+            "accepted": [
+              [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ],
+              [
+                2,
+                1,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ]
+            ],
+            "distractors": [
+              {
+                "index": 9,
+                "misconception": "`t - (s + y)` and `(t - s) - y` are equal in exact arithmetic, and the first\nreads as \"what was lost\". In floating point `s + y` is rounded to exactly the\nvalue `t` already holds, so the difference is always `0.0` and the loop\nbecomes a plain sum. The belief it models: rearranging an expression does not\nchange its value. The compensation works only because `t - s` is computed\nexactly (Sterbenz) and then compared with `y`.",
+                "replaces": 6
+              },
+              {
+                "index": 10,
+                "misconception": "`c` is the lost part with its sign: `(t - s)` is what was really added, so\n`(t - s) - y` is the excess, usually negative when low digits were dropped.\nAdding it back doubles the error instead of cancelling it. The belief it\nmodels: a correction term is always added.",
+                "replaces": 4
+              }
+            ],
+            "head": [
+              "function kahan_sum(x)"
+            ],
+            "kc": "floating-point-rounding",
+            "n": 8,
+            "pool": [
+              "    s = 0.0",
+              "    c = 0.0",
+              "    for v in x",
+              "        y = v - c",
+              "        t = s + y",
+              "        c = (t - s) - y",
+              "        s = t",
+              "    end",
+              "        c = t - (s + y)",
+              "        y = v + c"
+            ],
+            "tail": [
+              "    return s",
+              "end"
+            ]
+          },
+          "perf": null,
+          "prompt": "Put the lines of `kahan_sum(x)`, the compensated sum from this unit's first\nsection, in an order that works. The signature and the last two lines are\nfixed. Each line keeps its indentation, and the indentation must match the\nblocks your order creates. Two of the lines on offer are wrong: leave them\nout.\n\n```julia\nkahan_sum([1.0; fill(1e-16, 10_000)])   # 1.000000000001; a plain loop returns 1.0\nkahan_sum(fill(0.1, 10))                # 1.0; a plain loop returns 0.9999999999999999\n```\n\nEvery order that works was found by running all of them: the site checks\nyour order against that measured set. Results are compared with `isequal`,\nsince a correct order performs the same roundings.",
+          "random_cases": false,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "kahan_sum([1.0; fill(1e-16, 10_000)])",
+              "result": "1.000000000001"
+            },
+            {
+              "call": "kahan_sum(fill(0.1, 10))",
+              "result": "1.0"
+            },
+            {
+              "call": "kahan_sum([1e16, 1.0, 1.0])",
+              "result": "1.0000000000000002e16"
+            },
+            {
+              "call": "kahan_sum([3.0, 1e-17, -2.0, 1e-17])",
+              "result": "1.0"
+            }
+          ],
+          "starter": "function kahan_sum(x)\n    # put the lines here, in order\n    return s\nend\n",
+          "title": "Parsons: the lines of Kahan's loop, in order"
         }
       ],
       "sections": [
@@ -203,6 +298,116 @@
               "notice": "Notice that the plain loop returns exactly 1.0: each `1e-16` is below half the spacing of floats near 1 and is rounded away, ten thousand times. Pairwise `sum` (with its `@simd` blocks) loses less, and the compensated loop gets the exact sum to the last digit.",
               "ok": true,
               "output": "exact sum:  1.000000000001\nloop returns 1.0:        true\nloop error > sum error:  true\nsum error > Kahan error: true\nKahan error:             0.0\n"
+            },
+            {
+              "caption": "How the error grows with `n`: `n` copies of `0.1` summed by the plain loop, by pairwise summation written out (halves down to 8 terms, no `@simd`, so its digits are the same on every CPU), and by Kahan's loop. The exact sum of `n` copies of the stored `0.1` is computed in `BigFloat`.",
+              "check": true,
+              "code": "function loop_sum(x)\n    s = 0.0\n    for v in x\n        s += v\n    end\n    return s\nend\nfunction pairwise_sum(x, lo = 1, hi = length(x))\n    hi - lo < 8 && return loop_sum(view(x, lo:hi))\n    mid = (lo + hi) ÷ 2\n    return pairwise_sum(x, lo, mid) + pairwise_sum(x, mid + 1, hi)\nend\nfunction kahan_sum(x)\n    s = 0.0; c = 0.0\n    for v in x\n        y = v - c; t = s + y\n        c = (t - s) - y; s = t\n    end\n    return s\nend\nfor (name, total) in ((\"loop\", loop_sum), (\"pairwise\", pairwise_sum), (\"Kahan\", kahan_sum)),\n        n in (10, 30, 100, 300, 1000, 3000, 10^4, 30_000, 10^5, 300_000, 10^6, 3_000_000, 10^7)\n    x = fill(0.1, n)\n    exact = n * big(0.1)              # the exact sum of n copies of the Float64 nearest 0.1\n    err = Float64(abs(total(x) - exact) / exact)\n    println(rpad(name, 9), \"n = \", rpad(n, 9), \"relative error = \", round(err; sigdigits = 2))\nend",
+              "explore": {
+                "axes": [
+                  {
+                    "group": "method",
+                    "label": "summation",
+                    "log": false,
+                    "numeric": false,
+                    "nums": [],
+                    "texts": [
+                      "loop",
+                      "pairwise",
+                      "Kahan"
+                    ]
+                  },
+                  {
+                    "group": "n",
+                    "label": "terms n",
+                    "log": true,
+                    "numeric": true,
+                    "nums": [
+                      10.0,
+                      30.0,
+                      100.0,
+                      300.0,
+                      1000.0,
+                      3000.0,
+                      10000.0,
+                      30000.0,
+                      100000.0,
+                      300000.0,
+                      1.0e6,
+                      3.0e6,
+                      1.0e7
+                    ],
+                    "texts": [
+                      "10",
+                      "30",
+                      "100",
+                      "300",
+                      "1000",
+                      "3000",
+                      "10000",
+                      "30000",
+                      "100000",
+                      "300000",
+                      "1000000",
+                      "3000000",
+                      "10000000"
+                    ]
+                  }
+                ],
+                "explain": "Each of the loop's `n - 1` additions can lose up to `u` of the partial sum, and the losses carry forward, so the bound is about `n u`: at `n = 10^7` the error is `1.6e-10`, more than a million `u`. Pairwise summation adds numbers of similar size along a tree of depth `log2(n / 8)`, so at `n = 10^7` each term passes through about 20 levels of additions (plus at most 7 in its 8-term loop), and the bound is about `u log2 n`: the measured errors stay below `4.4e-16`, four `u`. Kahan's loop carries what each addition lost into the next one; its result here is the exact sum correctly rounded, which is the integer `n / 10` (every `n` is a multiple of 10), so the error left is the stored `0.1`'s own relative error, `5.6e-17` at every `n`.",
+                "kc": "floating-point-rounding",
+                "label": "relative error of the sum",
+                "log": true,
+                "prompt": "Move `n` up with the plain loop and watch the error against `u = 1.1e-16`. Then switch to pairwise and to Kahan at the largest `n`. Which grows like `n`, which barely grows, and which does not grow at all?",
+                "series": "method",
+                "values": [
+                  "1.7e-16",
+                  "3.9e-16",
+                  "2.0e-15",
+                  "5.2e-15",
+                  "1.4e-14",
+                  "1.0e-15",
+                  "1.6e-13",
+                  "5.4e-13",
+                  "1.9e-12",
+                  "5.2e-12",
+                  "1.3e-11",
+                  "6.5e-12",
+                  "1.6e-10",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "2.0e-16",
+                  "2.4e-16",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "6.6e-17",
+                  "5.6e-17",
+                  "4.4e-16",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17",
+                  "5.6e-17"
+                ],
+                "x": "n"
+              },
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the loop's error grows roughly in proportion to `n`, but not smoothly (some `n` happen to round favourably), pairwise stays within a few `u`, and Kahan's error is the same at every `n`.",
+              "ok": true,
+              "output": "loop     n = 10       relative error = 1.7e-16\nloop     n = 30       relative error = 3.9e-16\nloop     n = 100      relative error = 2.0e-15\nloop     n = 300      relative error = 5.2e-15\nloop     n = 1000     relative error = 1.4e-14\nloop     n = 3000     relative error = 1.0e-15\nloop     n = 10000    relative error = 1.6e-13\nloop     n = 30000    relative error = 5.4e-13\nloop     n = 100000   relative error = 1.9e-12\nloop     n = 300000   relative error = 5.2e-12\nloop     n = 1000000  relative error = 1.3e-11\nloop     n = 3000000  relative error = 6.5e-12\nloop     n = 10000000 relative error = 1.6e-10\npairwise n = 10       relative error = 5.6e-17\npairwise n = 30       relative error = 5.6e-17\npairwise n = 100      relative error = 5.6e-17\npairwise n = 300      relative error = 5.6e-17\npairwise n = 1000     relative error = 2.0e-16\npairwise n = 3000     relative error = 2.4e-16\npairwise n = 10000    relative error = 5.6e-17\npairwise n = 30000    relative error = 5.6e-17\npairwise n = 100000   relative error = 5.6e-17\npairwise n = 300000   relative error = 6.6e-17\npairwise n = 1000000  relative error = 5.6e-17\npairwise n = 3000000  relative error = 4.4e-16\npairwise n = 10000000 relative error = 5.6e-17\nKahan    n = 10       relative error = 5.6e-17\nKahan    n = 30       relative error = 5.6e-17\nKahan    n = 100      relative error = 5.6e-17\nKahan    n = 300      relative error = 5.6e-17\nKahan    n = 1000     relative error = 5.6e-17\nKahan    n = 3000     relative error = 5.6e-17\nKahan    n = 10000    relative error = 5.6e-17\nKahan    n = 30000    relative error = 5.6e-17\nKahan    n = 100000   relative error = 5.6e-17\nKahan    n = 300000   relative error = 5.6e-17\nKahan    n = 1000000  relative error = 5.6e-17\nKahan    n = 3000000  relative error = 5.6e-17\nKahan    n = 10000000 relative error = 5.6e-17\n"
             }
           ],
           "questions": [
@@ -684,6 +889,118 @@
           ],
           "starter": "function rk4_solve(f, y0, T, n)\n    h = T / n\n    y = float(y0)\n    for k in 0:n-1\n        t = k * h\n        k1 = f(t, y)\n        k2 = f(t, y + h / 2 * k1)\n        k3 = f(t + h / 2, y + h / 2 * k2)\n        k4 = f(t + h, y + h * k3)\n        y += h / 6 * (k1 + 2k2 + 2k3 + k4)\n    end\n    return y\nend\n",
           "title": "Find the bug: a fourth-order method that is not"
+        },
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "warm-up",
+          "entry": "midpoint_solve",
+          "hints": [
+            "Within one step, which slope needs which? And which update must wait until both slopes of the step are known?",
+            "`k2` uses `k1`, and both use the time and state at the start of the step, so both updates (`y += ...` and `t += h`) come after them. Do those two updates depend on each other?"
+          ],
+          "id": "conv-midpoint-parsons",
+          "kcs": [
+            "convergence-order"
+          ],
+          "parsons": {
+            "accepted": [
+              [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ],
+              [
+                1,
+                2,
+                3,
+                4,
+                5,
+                7,
+                6,
+                8
+              ],
+              [
+                2,
+                1,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ],
+              [
+                2,
+                1,
+                3,
+                4,
+                5,
+                7,
+                6,
+                8
+              ]
+            ],
+            "distractors": [
+              {
+                "index": 9,
+                "misconception": "This is the Euler step: it uses the slope at the start, and `k2` is computed\nbut never used. The method drops to first order. The belief it models: the\nmidpoint stage is a check on the step, while the step itself still uses the\nfirst slope.",
+                "replaces": 6
+              },
+              {
+                "index": 10,
+                "misconception": "The state passed to `f` is a full Euler step, `y + h k1`, while the time is\nthe middle of the step. A slope must be evaluated at one point: time and\nstate from the same place. A full-step state belongs with `t + h` (that is\nHeun's predictor); with `t + h / 2` the method loses its second order.",
+                "replaces": 5
+              }
+            ],
+            "head": [
+              "function midpoint_solve(f, y0, T, n)",
+              "    h = T / n"
+            ],
+            "kc": "convergence-order",
+            "n": 8,
+            "pool": [
+              "    t = 0.0",
+              "    y = float(y0)",
+              "    for k in 1:n",
+              "        k1 = f(t, y)",
+              "        k2 = f(t + h / 2, y + h / 2 * k1)",
+              "        y += h * k2",
+              "        t += h",
+              "    end",
+              "        y += h * k1",
+              "        k2 = f(t + h / 2, y + h * k1)"
+            ],
+            "tail": [
+              "    return y",
+              "end"
+            ]
+          },
+          "perf": null,
+          "prompt": "`midpoint_solve(f, y0, T, n)` advances `y' = f(t, y)` from `y(0) = y0` to\n`t = T` in `n` steps of the explicit midpoint method, a second-order\nRunge-Kutta method: take a half Euler step to the middle of the step, and use\nthe slope there for the whole step.\n\nPut the lines in an order that works. The signature, `h = T / n` and the last\ntwo lines are fixed. Each line keeps its indentation, and the indentation\nmust match the blocks your order creates. Two of the lines on offer are\nwrong: leave them out. More than one order works; the feedback tells you\nwhen yours is one of them.\n\n```julia\nmidpoint_solve((t, y) -> -y + cos(t), 1.0, 1.0, 10)   # 0.87465; the exact y(1) is 0.87483\n```\n\nEvery order that works was found by running all of them on the cases. Results\nare compared with `rtol = 1e-12`.",
+          "random_cases": false,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "midpoint_solve((t, y) -> -y, 1.0, 1.0, 10)",
+              "result": "0.36854098483355185"
+            },
+            {
+              "call": "midpoint_solve((t, y) -> -y + cos(t), 1.0, 1.0, 10)",
+              "result": "0.8746461070522393"
+            },
+            {
+              "call": "midpoint_solve((t, y) -> t * y, 1.0, 2.0, 40)",
+              "result": "7.368842682642525"
+            }
+          ],
+          "starter": "function midpoint_solve(f, y0, T, n)\n    h = T / n\n    # put the lines here, in order\n    return y\nend\n",
+          "title": "Parsons: the explicit midpoint method, in order"
         }
       ],
       "sections": [
@@ -727,6 +1044,81 @@
               "notice": "Notice that `h^4` predicts an error near `6e-23` at 100,000 steps, far below the rounding of a single operation, and the measured error is more than 1000 times the prediction: each step adds rounding at the level of `u`, so once the truncation error falls below that, more steps only add rounding.",
               "ok": true,
               "output": "100 steps:     error 6.2e-11\n100000 steps:  error more than 1000 times the h^4 prediction: true\n"
+            },
+            {
+              "caption": "The three methods again, as a grid: the error at `t = 2` for six step sizes from `0.4` to `0.0125`, each halving the last. The smallest step stops where RK4's error is still far above the rounding floor, so every printed digit is the same on any CPU.",
+              "check": true,
+              "code": "f(t, u) = -u + sin(t)\nexact(t) = 1.5exp(-t) + (sin(t) - cos(t)) / 2\neuler(f, t, u, h) = u + h * f(t, u)\nheun(f, t, u, h) = (k1 = f(t, u); k2 = f(t + h, u + h * k1); u + h / 2 * (k1 + k2))\nfunction rk4(f, t, u, h)\n    k1 = f(t, u); k2 = f(t + h / 2, u + h / 2 * k1)\n    k3 = f(t + h / 2, u + h / 2 * k2); k4 = f(t + h, u + h * k3)\n    return u + h / 6 * (k1 + 2k2 + 2k3 + k4)\nend\nfunction integrate(step, n; T = 2.0)\n    h = T / n; u = 1.0\n    for i in 0:n-1\n        u = step(f, i * h, u, h)\n    end\n    return u\nend\nfor (name, step) in ((\"Euler\", euler), (\"Heun\", heun), (\"RK4\", rk4)), n in (5, 10, 20, 40, 80, 160)\n    err = abs(integrate(step, n) - exact(2.0))\n    println(rpad(name, 6), \"h = \", rpad(2.0 / n, 7), \"error = \", round(err; sigdigits = 2))\nend",
+              "explore": {
+                "axes": [
+                  {
+                    "group": "method",
+                    "label": "method",
+                    "log": false,
+                    "numeric": false,
+                    "nums": [],
+                    "texts": [
+                      "Euler",
+                      "Heun",
+                      "RK4"
+                    ]
+                  },
+                  {
+                    "group": "h",
+                    "label": "step size h",
+                    "log": true,
+                    "numeric": true,
+                    "nums": [
+                      0.0125,
+                      0.025,
+                      0.05,
+                      0.1,
+                      0.2,
+                      0.4
+                    ],
+                    "texts": [
+                      "0.0125",
+                      "0.025",
+                      "0.05",
+                      "0.1",
+                      "0.2",
+                      "0.4"
+                    ]
+                  }
+                ],
+                "explain": "Halving `h` divides the error by about `2^p`: 2 for Euler, 4 for Heun, 16 for RK4, which is the slope `p` on log-log axes. RK4's slope is about 7.3 between `h = 0.4` and `h = 0.2`, then 2.8 between `0.2` and `0.1`, and only then settles: 3.3, 3.7, 3.9. At coarse steps the higher terms of its error are not small, and they can add to the leading term or cancel it, so one coarse pair can read above or below the true order. An order is read from the small-`h` end of the plot.",
+                "kc": "convergence-order",
+                "label": "error at t = 2",
+                "log": true,
+                "prompt": "Pick a method and move `h`. Each step halves `h`: by what factor does each method's error shrink? Read the slope shown with each point, and find the step sizes where RK4's slope is furthest from 4.",
+                "series": "method",
+                "values": [
+                  "0.00082",
+                  "0.0016",
+                  "0.0033",
+                  "0.0066",
+                  "0.014",
+                  "0.028",
+                  "6.1e-6",
+                  "2.4e-5",
+                  "9.6e-5",
+                  "0.00037",
+                  "0.0014",
+                  "0.0041",
+                  "9.9e-12",
+                  "1.5e-10",
+                  "2.0e-9",
+                  "1.9e-8",
+                  "1.3e-7",
+                  "2.0e-5"
+                ],
+                "x": "h"
+              },
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that on log-log axes the three lines straighten as `h` shrinks, with slopes near 1, 2 and 4, and that RK4's slope at the coarse end is far from 4 on both sides (the `C h^p` model holds for small `h`).",
+              "ok": true,
+              "output": "Euler h = 0.4    error = 0.028\nEuler h = 0.2    error = 0.014\nEuler h = 0.1    error = 0.0066\nEuler h = 0.05   error = 0.0033\nEuler h = 0.025  error = 0.0016\nEuler h = 0.0125 error = 0.00082\nHeun  h = 0.4    error = 0.0041\nHeun  h = 0.2    error = 0.0014\nHeun  h = 0.1    error = 0.00037\nHeun  h = 0.05   error = 9.6e-5\nHeun  h = 0.025  error = 2.4e-5\nHeun  h = 0.0125 error = 6.1e-6\nRK4   h = 0.4    error = 2.0e-5\nRK4   h = 0.2    error = 1.3e-7\nRK4   h = 0.1    error = 1.9e-8\nRK4   h = 0.05   error = 2.0e-9\nRK4   h = 0.025  error = 1.5e-10\nRK4   h = 0.0125 error = 9.9e-12\n"
             }
           ],
           "questions": [
@@ -1124,6 +1516,92 @@
           ],
           "starter": "using LinearAlgebra\n\nfunction numerical_rank(A, rtol)\n    return rank(A)\nend\n",
           "title": "Numerical rank from the singular values"
+        },
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "warm-up",
+          "entry": "forward_sub",
+          "hints": [
+            "Row `i` needs every `x[j]` with `j < i` before it can compute `x[i]`. Which loop runs over rows, and which over the earlier unknowns?",
+            "Start the row's sum at the right-hand side, subtract the known terms inside the inner loop, and divide by the diagonal once that loop has ended."
+          ],
+          "id": "dla-forward-sub-parsons",
+          "kcs": [
+            "matrix-factorization"
+          ],
+          "parsons": {
+            "accepted": [
+              [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ]
+            ],
+            "distractors": [
+              {
+                "index": 9,
+                "misconception": "Starting an accumulator at zero is the habit from computing a sum, but this\nrow's equation is `L[i, 1:i-1] x[1:i-1] + L[i, i] x[i] = b[i]`: what is left\nfor `x[i]` is `b[i]` minus the known terms. Starting at `0.0` solves `L x = 0`\nup to sign, so the result is wrong for every nonzero `b`.",
+                "replaces": 3
+              },
+              {
+                "index": 10,
+                "misconception": "`i+1:n` is the range of back substitution, where the unknowns after `i` are\nknown first. Here they are still zero when row `i` is solved, so this loop\nsubtracts nothing and the result is `b ./ diag(L)`. The belief it models: a\ntriangular solve runs over \"the other part\" of the row, whichever triangle\nit is.",
+                "replaces": 4
+              }
+            ],
+            "head": [
+              "function forward_sub(L, b)",
+              "    n = length(b)"
+            ],
+            "kc": "matrix-factorization",
+            "n": 8,
+            "pool": [
+              "    x = zeros(n)",
+              "    for i in 1:n",
+              "        s = b[i]",
+              "        for j in 1:i-1",
+              "            s -= L[i, j] * x[j]",
+              "        end",
+              "        x[i] = s / L[i, i]",
+              "    end",
+              "        s = 0.0",
+              "        for j in i+1:n"
+            ],
+            "tail": [
+              "    return x",
+              "end"
+            ]
+          },
+          "perf": null,
+          "prompt": "`forward_sub(L, b)` solves `L x = b` for a lower-triangular `L` with a\nnonzero diagonal: this is the triangular solve that `lu(A) \\ b` performs\nafter the factorization. Row `i` gives\n`x[i] = (b[i] - sum(L[i, j] * x[j] for j < i)) / L[i, i]`.\n\nPut the lines in an order that works. The signature, `n = length(b)` and the\nlast two lines are fixed. Each line keeps its indentation, and the\nindentation must match the blocks your order creates. Two of the lines on\noffer are wrong: leave them out.\n\n```julia\nforward_sub([2.0 0 0; 1 3 0; -1 2 4], [2.0, 7, 9])   # [1.0, 2.0, 1.5]\n```\n\nEvery order that works was found by running all of them on the cases. Results\nare compared with `rtol = 1e-12`.",
+          "random_cases": false,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "forward_sub([2.0 0 0; 1 3 0; -1 2 4], [2.0, 7, 9])",
+              "result": "3-element Vector{Float64}:\n 1.0\n 2.0\n 1.5"
+            },
+            {
+              "call": "forward_sub(fill(5.0, 1, 1), [10.0])",
+              "result": "1-element Vector{Float64}:\n 2.0"
+            },
+            {
+              "call": "forward_sub([1.0 0 0 0; 2 1 0 0; 0 -1 2 0; 3 0 1 4], [1.0, 4, 3, 13])",
+              "result": "4-element Vector{Float64}:\n 1.0\n 2.0\n 2.5\n 1.875"
+            },
+            {
+              "call": "forward_sub([4.0 0 0; 2 -1 0; 1 1 2], [8.0, 3, 0])",
+              "result": "3-element Vector{Float64}:\n  2.0\n  1.0\n -1.5"
+            }
+          ],
+          "starter": "function forward_sub(L, b)\n    n = length(b)\n    # put the lines here, in order\n    return x\nend\n",
+          "title": "Parsons: forward substitution, line by line"
         }
       ],
       "sections": [
@@ -2156,6 +2634,146 @@
               "notice": "Notice the extreme eigenvalues: `-9.87` is close to `-π² ≈ -9.8696`, and `-9990` close to `-4 / dx^2 = -10000`. The ratio of the two is about 1000 at this modest grid.",
               "ok": true,
               "output": "A * u equals the loop: true\neigenvalues match the formula: true\nnearest zero: -9.87   most negative: -9990.0\nratio: 1010.0\n"
+            },
+            {
+              "caption": "That cost, measured: 100 steps of forward and backward Euler on the heat equation (`κ = 1`), with time step `dt = r dx^2`, for three grids and ten values of `r`. The start `u = 1` at every interior point (0 at the ends) contains every grid mode, the zig-zag one included. `max |u|` is printed to 3 digits.",
+              "check": true,
+              "code": "using LinearAlgebra, Printf\nfunction after_steps(scheme, n, r; steps = 100)\n    u = ones(n)                       # u(x, 0) = 1 inside, 0 at both ends: every grid mode is present\n    if scheme == \"forward\"            # u + dt * κ A u, with dt = r dx^2\n        for _ in 1:steps\n            u = [u[i] + r * ((i > 1 ? u[i-1] : 0.0) - 2u[i] + (i < n ? u[i+1] : 0.0)) for i in 1:n]\n        end\n    else                              # solve (I - dt * κ A) u_new = u\n        F = lu(Tridiagonal(fill(-r, n - 1), fill(1 + 2r, n), fill(-r, n - 1)))\n        for _ in 1:steps\n            u = F \\ u\n        end\n    end\n    return maximum(abs, u)\nend\nfor scheme in (\"forward\", \"backward\"), n in (19, 39, 79), r in (0.3, 0.4, 0.45, 0.48, 0.5, 0.52, 0.55, 0.6, 0.7, 1.0)\n    @printf(\"%-9s n = %-3d r = %-5s max |u| after 100 steps = %.3g\\n\", scheme, n, r, after_steps(scheme, n, r))\nend",
+              "explore": {
+                "axes": [
+                  {
+                    "group": "scheme",
+                    "label": "time stepping",
+                    "log": false,
+                    "numeric": false,
+                    "nums": [],
+                    "texts": [
+                      "forward",
+                      "backward"
+                    ]
+                  },
+                  {
+                    "group": "n",
+                    "label": "interior points n",
+                    "log": false,
+                    "numeric": true,
+                    "nums": [
+                      19.0,
+                      39.0,
+                      79.0
+                    ],
+                    "texts": [
+                      "19",
+                      "39",
+                      "79"
+                    ]
+                  },
+                  {
+                    "group": "r",
+                    "label": "r = dt / dx²",
+                    "log": false,
+                    "numeric": true,
+                    "nums": [
+                      0.3,
+                      0.4,
+                      0.45,
+                      0.48,
+                      0.5,
+                      0.52,
+                      0.55,
+                      0.6,
+                      0.7,
+                      1.0
+                    ],
+                    "texts": [
+                      "0.3",
+                      "0.4",
+                      "0.45",
+                      "0.48",
+                      "0.5",
+                      "0.52",
+                      "0.55",
+                      "0.6",
+                      "0.7",
+                      "1.0"
+                    ]
+                  }
+                ],
+                "explain": "Forward Euler multiplies grid mode `k` by `1 + dt λ_k = 1 - 4r sin^2(k π dx / 2)` at every step. The zig-zag mode has `sin^2` close to 1, so its factor is about `1 - 4r`, which leaves `[-1, 1]` once `r` passes 1/2 (`0.503` for 19 points, closer to 1/2 on finer grids). That is why the jump sits at the same `r` on every grid. But `r = dt / dx^2`, so the step that is stable shrinks four times when `dx` halves: 79 points need a `dt` 16 times smaller than 19 points. Backward Euler's factor `1 / (1 + 4r sin^2(...))` is below 1 for every `r`, so it never grows; its step is limited by accuracy only (unit 35).",
+                "kc": "method-of-lines",
+                "label": "max |u| after 100 steps (it starts at 1)",
+                "log": true,
+                "prompt": "With forward Euler, move `r = dt / dx^2` up from 0.3 and find where `max |u|` jumps. Then change the grid: does the jump move? Switch to backward Euler at the same `r`.",
+                "series": "scheme",
+                "values": [
+                  "0.605",
+                  "0.472",
+                  "0.417",
+                  "0.387",
+                  "0.366",
+                  "5.53",
+                  "2.09e+05",
+                  "1.12e+12",
+                  "1.01e+23",
+                  "1.77e+45",
+                  "0.98",
+                  "0.949",
+                  "0.93",
+                  "0.918",
+                  "0.908",
+                  "3.6",
+                  "1.13e+05",
+                  "5.9e+11",
+                  "5.29e+22",
+                  "9.36e+44",
+                  "1",
+                  "1",
+                  "1",
+                  "1",
+                  "1",
+                  "3.44",
+                  "1.09e+05",
+                  "5.77e+11",
+                  "5.22e+22",
+                  "9.34e+44",
+                  "0.608",
+                  "0.477",
+                  "0.422",
+                  "0.392",
+                  "0.374",
+                  "0.356",
+                  "0.331",
+                  "0.293",
+                  "0.23",
+                  "0.112",
+                  "0.979",
+                  "0.948",
+                  "0.929",
+                  "0.916",
+                  "0.908",
+                  "0.899",
+                  "0.886",
+                  "0.864",
+                  "0.818",
+                  "0.686",
+                  "1",
+                  "1",
+                  "1",
+                  "1",
+                  "1",
+                  "1",
+                  "1",
+                  "0.999",
+                  "0.998",
+                  "0.99"
+                ],
+                "x": "r"
+              },
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice the jump in forward Euler between `r = 0.5` and `r = 0.52`, at every grid: below it `max |u|` never exceeds the starting 1, above it the zig-zag mode grows by orders of magnitude. Backward Euler never grows.",
+              "ok": true,
+              "output": "forward   n = 19  r = 0.3   max |u| after 100 steps = 0.605\nforward   n = 19  r = 0.4   max |u| after 100 steps = 0.472\nforward   n = 19  r = 0.45  max |u| after 100 steps = 0.417\nforward   n = 19  r = 0.48  max |u| after 100 steps = 0.387\nforward   n = 19  r = 0.5   max |u| after 100 steps = 0.366\nforward   n = 19  r = 0.52  max |u| after 100 steps = 5.53\nforward   n = 19  r = 0.55  max |u| after 100 steps = 2.09e+05\nforward   n = 19  r = 0.6   max |u| after 100 steps = 1.12e+12\nforward   n = 19  r = 0.7   max |u| after 100 steps = 1.01e+23\nforward   n = 19  r = 1.0   max |u| after 100 steps = 1.77e+45\nforward   n = 39  r = 0.3   max |u| after 100 steps = 0.98\nforward   n = 39  r = 0.4   max |u| after 100 steps = 0.949\nforward   n = 39  r = 0.45  max |u| after 100 steps = 0.93\nforward   n = 39  r = 0.48  max |u| after 100 steps = 0.918\nforward   n = 39  r = 0.5   max |u| after 100 steps = 0.908\nforward   n = 39  r = 0.52  max |u| after 100 steps = 3.6\nforward   n = 39  r = 0.55  max |u| after 100 steps = 1.13e+05\nforward   n = 39  r = 0.6   max |u| after 100 steps = 5.9e+11\nforward   n = 39  r = 0.7   max |u| after 100 steps = 5.29e+22\nforward   n = 39  r = 1.0   max |u| after 100 steps = 9.36e+44\nforward   n = 79  r = 0.3   max |u| after 100 steps = 1\nforward   n = 79  r = 0.4   max |u| after 100 steps = 1\nforward   n = 79  r = 0.45  max |u| after 100 steps = 1\nforward   n = 79  r = 0.48  max |u| after 100 steps = 1\nforward   n = 79  r = 0.5   max |u| after 100 steps = 1\nforward   n = 79  r = 0.52  max |u| after 100 steps = 3.44\nforward   n = 79  r = 0.55  max |u| after 100 steps = 1.09e+05\nforward   n = 79  r = 0.6   max |u| after 100 steps = 5.77e+11\nforward   n = 79  r = 0.7   max |u| after 100 steps = 5.22e+22\nforward   n = 79  r = 1.0   max |u| after 100 steps = 9.34e+44\nbackward  n = 19  r = 0.3   max |u| after 100 steps = 0.608\nbackward  n = 19  r = 0.4   max |u| after 100 steps = 0.477\nbackward  n = 19  r = 0.45  max |u| after 100 steps = 0.422\nbackward  n = 19  r = 0.48  max |u| after 100 steps = 0.392\nbackward  n = 19  r = 0.5   max |u| after 100 steps = 0.374\nbackward  n = 19  r = 0.52  max |u| after 100 steps = 0.356\nbackward  n = 19  r = 0.55  max |u| after 100 steps = 0.331\nbackward  n = 19  r = 0.6   max |u| after 100 steps = 0.293\nbackward  n = 19  r = 0.7   max |u| after 100 steps = 0.23\nbackward  n = 19  r = 1.0   max |u| after 100 steps = 0.112\nbackward  n = 39  r = 0.3   max |u| after 100 steps = 0.979\nbackward  n = 39  r = 0.4   max |u| after 100 steps = 0.948\nbackward  n = 39  r = 0.45  max |u| after 100 steps = 0.929\nbackward  n = 39  r = 0.48  max |u| after 100 steps = 0.916\nbackward  n = 39  r = 0.5   max |u| after 100 steps = 0.908\nbackward  n = 39  r = 0.52  max |u| after 100 steps = 0.899\nbackward  n = 39  r = 0.55  max |u| after 100 steps = 0.886\nbackward  n = 39  r = 0.6   max |u| after 100 steps = 0.864\nbackward  n = 39  r = 0.7   max |u| after 100 steps = 0.818\nbackward  n = 39  r = 1.0   max |u| after 100 steps = 0.686\nbackward  n = 79  r = 0.3   max |u| after 100 steps = 1\nbackward  n = 79  r = 0.4   max |u| after 100 steps = 1\nbackward  n = 79  r = 0.45  max |u| after 100 steps = 1\nbackward  n = 79  r = 0.48  max |u| after 100 steps = 1\nbackward  n = 79  r = 0.5   max |u| after 100 steps = 1\nbackward  n = 79  r = 0.52  max |u| after 100 steps = 1\nbackward  n = 79  r = 0.55  max |u| after 100 steps = 1\nbackward  n = 79  r = 0.6   max |u| after 100 steps = 0.999\nbackward  n = 79  r = 0.7   max |u| after 100 steps = 0.998\nbackward  n = 79  r = 1.0   max |u| after 100 steps = 0.99\n"
             }
           ],
           "questions": [

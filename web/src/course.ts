@@ -20,6 +20,28 @@ export interface Example {
   predict?: Prediction; // commit a prediction before the output is shown (see predict.ts); absent for most examples
   choose?: Checkpoint; // pick a method and give a reason before the output is shown (see choose.ts)
   breakit?: BreakIt; // find where the method fails before the sweep is shown (see breakit.ts)
+  explore?: Explorer; // sliders over the grid the output recorded (see explore.ts)
+}
+
+/**
+ * A precomputed explorer. The grid was read from the recorded output by
+ * `tutor site-data`, only when it is a full grid (every combination of the
+ * axes' values printed exactly once): nothing here is typed by an author.
+ * `values` holds the measure as printed, row-major over `axes` (the last axis
+ * varies fastest).
+ */
+export interface Explorer {
+  kc: string;
+  prompt: string;
+  /** the axis on the plot's horizontal */
+  x: string;
+  /** the axis drawn as one line per value; "" = none */
+  series: string;
+  label: string;
+  log: boolean;
+  explain: string;
+  axes: { group: string; label: string; log: boolean; numeric: boolean; texts: string[]; nums: number[] }[];
+  values: string[];
 }
 
 /**
@@ -130,6 +152,23 @@ export interface Problem {
   perf: { sizes: number[]; mutates: boolean } | null;
   /** find the bug: the starter is the reference with one planted error (findbug.ts) */
   bug?: Bug;
+  /** Parsons: put the reference's lines in order (parsons.ts) */
+  parsons?: Parsons;
+}
+
+export interface Parsons {
+  kc: string;
+  /** the fixed lines before and after the movable ones */
+  head: string[];
+  tail: string[];
+  /** the movable lines in a working order, then the distractors (the site shuffles them) */
+  pool: string[];
+  /** how many lines a working order uses (pool[0..n-1]) */
+  n: number;
+  /** pool index (1-based) of each distractor, the line it can replace, and the belief it models */
+  distractors: { index: number; replaces: number; misconception: string }[];
+  /** every working order, measured by running all of them (1-based pool indices, canonical for repeated text) */
+  accepted: number[][];
 }
 
 /** A convergence test: Julia appended to the learner's code, printing one line that `row` reads. */

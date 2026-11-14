@@ -261,6 +261,53 @@ println("nearest zero: ", round(maximum(λ); digits = 2), "   most negative: ", 
 println("ratio: ", round(minimum(λ) / maximum(λ); sigdigits = 3))
 '''
 
+  [[section.example]]
+  caption = "That cost, measured: 100 steps of forward and backward Euler on the heat equation (`κ = 1`), with time step `dt = r dx^2`, for three grids and ten values of `r`. The start `u = 1` at every interior point (0 at the ends) contains every grid mode, the zig-zag one included. `max |u|` is printed to 3 digits."
+  notice = "Notice the jump in forward Euler between `r = 0.5` and `r = 0.52`, at every grid: below it `max |u|` never exceeds the starting 1, above it the zig-zag mode grows by orders of magnitude. Backward Euler never grows."
+  code = '''
+using LinearAlgebra, Printf
+function after_steps(scheme, n, r; steps = 100)
+    u = ones(n)                       # u(x, 0) = 1 inside, 0 at both ends: every grid mode is present
+    if scheme == "forward"            # u + dt * κ A u, with dt = r dx^2
+        for _ in 1:steps
+            u = [u[i] + r * ((i > 1 ? u[i-1] : 0.0) - 2u[i] + (i < n ? u[i+1] : 0.0)) for i in 1:n]
+        end
+    else                              # solve (I - dt * κ A) u_new = u
+        F = lu(Tridiagonal(fill(-r, n - 1), fill(1 + 2r, n), fill(-r, n - 1)))
+        for _ in 1:steps
+            u = F \ u
+        end
+    end
+    return maximum(abs, u)
+end
+for scheme in ("forward", "backward"), n in (19, 39, 79), r in (0.3, 0.4, 0.45, 0.48, 0.5, 0.52, 0.55, 0.6, 0.7, 1.0)
+    @printf("%-9s n = %-3d r = %-5s max |u| after 100 steps = %.3g\n", scheme, n, r, after_steps(scheme, n, r))
+end
+'''
+
+    [section.example.explore]
+    kc = "method-of-lines"
+    prompt = "With forward Euler, move `r = dt / dx^2` up from 0.3 and find where `max |u|` jumps. Then change the grid: does the jump move? Switch to backward Euler at the same `r`."
+    row = '(?<scheme>\S+) +n = (?<n>\d+) +r = (?<r>\S+) +max \|u\| after 100 steps = (?<u>\S+)'
+    measure = "u"
+    label = "max |u| after 100 steps (it starts at 1)"
+    log = true
+    x = "r"
+    series = "scheme"
+    explain = "Forward Euler multiplies grid mode `k` by `1 + dt λ_k = 1 - 4r sin^2(k π dx / 2)` at every step. The zig-zag mode has `sin^2` close to 1, so its factor is about `1 - 4r`, which leaves `[-1, 1]` once `r` passes 1/2 (`0.503` for 19 points, closer to 1/2 on finer grids). That is why the jump sits at the same `r` on every grid. But `r = dt / dx^2`, so the step that is stable shrinks four times when `dx` halves: 79 points need a `dt` 16 times smaller than 19 points. Backward Euler's factor `1 / (1 + 4r sin^2(...))` is below 1 for every `r`, so it never grows; its step is limited by accuracy only (unit 35)."
+
+      [[section.example.explore.axis]]
+      group = "scheme"
+      label = "time stepping"
+
+      [[section.example.explore.axis]]
+      group = "n"
+      label = "interior points n"
+
+      [[section.example.explore.axis]]
+      group = "r"
+      label = "r = dt / dx²"
+
   [[section.question]]
   kind = "choice"
   prompt = "You refine the grid from `dx = 0.02` to `dx = 0.01`. What happens to the most negative eigenvalue of the discrete Laplacian?"

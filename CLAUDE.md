@@ -364,6 +364,11 @@ every role above has had the chance to object (recorded in the PR).
   in each of two runs (2026-11-10), each passing locally. A verdict that only
   appears on a retry is near its threshold; `allocates` and `unstable` are
   counted, not timed, and are never retried.
+* The performance ladder's 2× rung is timed too: near the line a rerun can
+  land on either side (the rung's text says so), and the site keeps the best
+  climb, so one lucky run counts. Its allocation-free rung is offered only
+  when the reference allocates nothing; a reference that allocates says
+  nothing about whether an allocation-free solution exists.
 * The `mtk` env holds ModelingToolkitBase (MIT) only: full ModelingToolkit's
   index reduction and tearing are AGPL since v11, a licensing decision for the
   project owner. Unit 36 teaches index reduction by hand.

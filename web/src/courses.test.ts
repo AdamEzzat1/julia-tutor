@@ -19,7 +19,7 @@ describe("course site data", () => {
       const n = course.units.filter((u) => u.course === c.id).reduce((s, u) => s + u.problems.length, 0);
       expect(c.problems).toBe(n);
     }
-    expect(course.courses.reduce((s, c) => s + c.problems, 0)).toBe(144);
+    expect(course.courses.reduce((s, c) => s + c.problems, 0)).toBe(147);
   });
   it("resolves cross-course prerequisites to unit ids that exist", () => {
     const ids = new Set(course.units.map((u) => u.id));
@@ -41,13 +41,14 @@ describe("progress saved before the split", () => {
   it("maps every stored key to a course, with nothing renamed", () => {
     const { byCourse, unmapped } = progressByCourse(saved as unknown as Progress, course.courses, course.units);
     expect(unmapped).toEqual([]);
-    expect(byCourse.core).toEqual({ solved: 1, opened: 1, questions: 1, predictions: 0, choices: 0, breaks: 0, bugs: 0 });
-    expect(byCourse.science).toEqual({ solved: 0, opened: 1, questions: 0, predictions: 0, choices: 0, breaks: 0, bugs: 0 });
-    expect(byCourse.scicomp).toEqual({ solved: 1, opened: 1, questions: 1, predictions: 0, choices: 0, breaks: 0, bugs: 0 });
-    expect(byCourse.sciml).toEqual({ solved: 1, opened: 1, questions: 0, predictions: 0, choices: 0, breaks: 0, bugs: 0 });
+    expect(byCourse.core).toEqual({ solved: 1, opened: 1, questions: 1, predictions: 0, choices: 0, breaks: 0, bugs: 0, parsons: 0, ladder: 0 });
+    expect(byCourse.science).toEqual({ solved: 0, opened: 1, questions: 0, predictions: 0, choices: 0, breaks: 0, bugs: 0, parsons: 0, ladder: 0 });
+    expect(byCourse.scicomp).toEqual({ solved: 1, opened: 1, questions: 1, predictions: 0, choices: 0, breaks: 0, bugs: 0, parsons: 0, ladder: 0 });
+    expect(byCourse.sciml).toEqual({ solved: 1, opened: 1, questions: 0, predictions: 0, choices: 0, breaks: 0, bugs: 0, parsons: 0, ladder: 0 });
   });
   it("reports keys no course has instead of dropping them", () => {
-    const p: Progress = { solved: { "gone-problem": "good" }, opened: {}, questions: { "99-x/0/0": "later" }, predictions: {}, choices: {}, breaks: {}, bugs: {} };
-    expect(progressByCourse(p, course.courses, course.units).unmapped).toEqual(["questions/99-x/0/0", "solved/gone-problem"]);
+    const p: Progress = { solved: { "gone-problem": "good" }, opened: {}, questions: { "99-x/0/0": "later" }, predictions: {}, choices: {}, breaks: {}, bugs: {}, parsons: {},
+                       ladder: { "gone-problem": { climbed: 2, offered: 3 } } };
+    expect(progressByCourse(p, course.courses, course.units).unmapped).toEqual(["ladder/gone-problem", "questions/99-x/0/0", "solved/gone-problem"]);
   });
 });
