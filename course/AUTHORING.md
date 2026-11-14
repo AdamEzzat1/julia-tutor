@@ -124,6 +124,64 @@ figures small (`size = (600, 350)` in Makie, `size = (600, 350)` in Plots):
 they are committed. Plain data (arrays, strings, numbers) is never drawn.
 
 
+
+## Analogies, diagrams and references
+
+Three optional additions that make a unit easier to follow without loosening
+it. All are checked by `Course.enrichment_problems` (part of
+`tutor course validate`) and shown on the site beside the section's prose.
+
+```toml
+[[section]]
+title = "..."
+body = '''
+...
+'''
+refs = ["raissi-2019"]          # right after `body`: ids from the unit's [[reference]] list
+
+  [[section.diagram]]
+  file = "pinn-loss.svg"        # course/diagrams/<unit-id>/pinn-loss.svg
+  alt = "What the picture shows, in words (40+ characters)."
+  caption = "One sentence: what to notice."
+
+  [[section.analogy]]
+  title = "A tailor fitting a suit"
+  text = '''Markdown.'''
+  breaks = '''Where the analogy stops matching the mathematics (required).'''
+
+[[reference]]                   # at the end of the file
+id = "raissi-2019"              # lowercase kebab-case, unique in the unit
+authors = "Raissi, M.; Perdikaris, P.; Karniadakis, G. E."
+title = "..."
+venue = "Journal of Computational Physics 378"
+year = 2019
+url = "https://doi.org/10.1016/j.jcp.2018.10.045"
+note = "What in this unit it supports."
+```
+
+* **Analogies** sit beside a definition, never in place of one. `breaks` is
+  required: a sentence or more on where the picture stops being true. An
+  analogy must not imply something false (a network "understanding"
+  physics, a method "always" being faster).
+* **Diagrams** are hand-written SVG shown with `<img>` on a white card in
+  both themes. `svg_problems` refuses scripts, event handlers, links other
+  than `#local` ids, `<image>`, `<foreignObject>`, `@import` and external
+  `url(...)`, and needs a `viewBox` and a `<title>`. A bare `<` or `&` in
+  text is refused too (write `&lt;`, `&amp;`): the browser shows nothing for
+  an SVG that is not well-formed XML. Files must be used by a
+  section, and stay under 64 kB. Every number in a diagram comes from the
+  unit's recorded outputs or the mathematics; schematic curves say so.
+  `tutor site-data` copies `course/diagrams` to `site/assets/diagrams`.
+* **References** are public (https; an arXiv copy when the journal is
+  paywalled) and were fetched and checked when added: title, authors and
+  year against Crossref (`https://api.crossref.org/works/<doi>`) or the
+  arXiv abstract page. Every reference is cited by a section, and its
+  `note` says what it supports. CI does not fetch links (no network in the
+  checks); the check is at authoring time and in review.
+* Add, do not rewrite: progress on the site is keyed by section and example
+  position, so a new idea goes at the end of a section's body or in these
+  tables, never as a new section in the middle.
+
 ## Concept questions
 
 Each section can end with questions that check understanding of what the
