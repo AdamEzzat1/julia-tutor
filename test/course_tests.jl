@@ -356,6 +356,82 @@ end
     @test all(isempty, Course.question_balance_problems.(Course.load_course()))
 end
 
+@testset "find the bug: one planted line, measured by the convergence tests" begin
+    ref = "function f(h)\n    a = h / 2\n    return a + 1\nend\n"
+    T(; name = "order", row = raw"^order: (?<m>\S+)$", expect = (1.8, 2.2), explain = "what the slope measures") =
+        Course.BugTest(name, "println(\"order: \", f(1.0))", row, expect, explain)
+    Bg(; kc = "k", find = "a = h / 2", replace = "a = h", tests = [T()], mis = "the belief", tokens = ["h / 2"]) =
+        Course.Bug(kc, find, replace, tests, mis, tokens)
+    Pb(b; hints = ["look at the scale"], starter = something(Course.plant(ref, b), "")) =
+        Course.Problem("p", "t", "core", ["k"], "", "f", starter, ref, ["1.0"], "", "isequal", "", 1e-8, true, false,
+                       hints, nothing, Course.Variant[], 1, 1, String[], b)
+    probs(b; kw...) = Course.bug_problems(Pb(b; kw...), ["k"])
+
+    # the starter is generated: the reference with exactly one line changed
+    @test Course.plant(ref, Bg()) == replace(ref, "a = h / 2" => "a = h")
+    @test Course.plant(ref, Bg(find = "nowhere")) === nothing
+    @test Course.plant(ref, Bg(find = "h")) === nothing                       # occurs more than once
+    @test Course.changed_lines(ref, Course.plant(ref, Bg())) == [2]
+    @test isempty(probs(Bg()))
+    @test any(contains("exactly once"), probs(Bg(find = "nowhere")))
+    @test any(contains("exactly one line"), probs(Bg(find = "a = h / 2\n    return a + 1", replace = "a = h\n    return a")))
+    @test any(contains("nothing is planted"), probs(Bg(replace = "a = h / 2")))
+    @test any(contains("remove `starter`"), probs(Bg(); starter = Course.BUG_STARTER_GIVEN))
+    @test any(contains("not one of the unit's KCs"), probs(Bg(kc = "other")))
+    @test any(contains("no misconception"), probs(Bg(mis = "")))
+    @test any(contains("no hints"), probs(Bg(); hints = String[]))
+    @test any(contains("no convergence tests"), probs(Bg(tests = Course.BugTest[])))
+
+    # answer tokens: part of the fix, absent from the planted line and from the level-1 feedback
+    @test any(contains("not part of the fix"), probs(Bg(tokens = ["h * 2"])))
+    @test any(contains("also appears in the planted line"), probs(Bg(tokens = ["a = h"])))
+    @test any(contains("first hint contains"), probs(Bg(); hints = ["try h / 2"]))
+    @test any(contains("explain contains"), probs(Bg(tests = [T(explain = "compare with h / 2")])))
+    @test any(contains("name contains"), probs(Bg(tests = [T(name = "h / 2 test")])))
+    @test isempty(probs(Bg(); hints = ["scale first", "then h / 2"]))          # later hints may be specific
+
+    # the tests themselves
+    @test any(contains("named group `m`"), probs(Bg(tests = [T(row = raw"order: (\S+)")])))
+    @test any(contains("not a valid regex"), probs(Bg(tests = [T(row = "order: (")])))
+    @test any(contains("two finite numbers"), probs(Bg(tests = [T(expect = (2.2, 1.8))])))
+    @test any(contains("two finite numbers"), probs(Bg(tests = [T(expect = (NaN, NaN))])))
+    @test any(contains("duplicate name"), probs(Bg(tests = [T(), T()])))
+
+    # reading a test's one line, and its verdict
+    t = T()
+    @test Course.bug_test_value(t, "f (generic function with 1 method)\norder: 2.01\n") == 2.01
+    @test Course.bug_test_value(t, "order: 2.0\norder: 2.1\n") === nothing        # two lines: no reading
+    @test Course.bug_test_value(t, "ERROR: UndefVarError\n") === nothing
+    @test isinf(Course.bug_test_value(t, "order: Inf"))
+    @test Course.bug_test_passes(t, 2.01) && Course.bug_test_passes(t, 1.8)
+    @test !Course.bug_test_passes(t, 1.0) && !Course.bug_test_passes(t, nothing) && !Course.bug_test_passes(t, NaN)
+    @test Course.bug_test_code("f(h) = h\n\n", t) == "f(h) = h\n\nprintln(\"order: \", f(1.0))"
+
+    # loading: a hand-written starter is refused, a generated one is the planted reference
+    d = Dict("id" => "p", "title" => "t", "difficulty" => "core", "prompt" => "", "entry" => "f", "reference" => ref,
+             "bug" => Dict("kc" => "k", "find" => "a = h / 2", "replace" => "a = h", "misconception" => "m",
+                           "answer_tokens" => ["h / 2"],
+                           "test" => [Dict("name" => "n", "code" => "c", "row" => "(?<m>x)", "expect" => [1, 2], "explain" => "e")]))
+    p = Course.load_problem(d)
+    @test p.starter == Course.plant(ref, p.bug) && p.bug.tests[1].expect == (1.0, 2.0)
+    @test Course.load_problem(merge(d, Dict("starter" => "f(h) = h"))).starter == Course.BUG_STARTER_GIVEN
+    @test Course.load_problem(merge(d, Dict("bug" => merge(d["bug"], Dict("test" => [Dict("expect" => [1])]))))).bug.tests[1].expect |>
+          x -> all(isnan, x)
+
+    # the course's find-the-bug problems are valid, and the site carries them only on those problems
+    units = Course.load_course()
+    bugs = [p for u in units for p in u.problems if p.bug !== nothing]
+    @test length(bugs) >= 3
+    for u in units, p in u.problems
+        p.bug === nothing || @test isempty(Course.bug_problems(p, u.kcs))
+    end
+    site = [p for u in SiteData.course_data()["units"] for p in u["problems"]]
+    @test count(p -> haskey(p, "bug"), site) == length(bugs)
+    for p in filter(p -> haskey(p, "bug"), site)
+        @test occursin(p["bug"]["planted"], p["starter"]) && !occursin(p["bug"]["fixed"], p["starter"])
+    end
+end
+
 # A problem shell for assess(): only the fields assess reads matter.
 const P = Course.Problem("p", "t", "core", String[], "", "f", "", "", ["1"], "", "isequal", "", 1e-8, true,
                          false, String[], Course.Perf("n", [1000, 16000], false), Course.Variant[], 1, 1, String[])

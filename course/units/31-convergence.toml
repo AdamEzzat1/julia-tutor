@@ -800,3 +800,160 @@ function heun_euler_step(f, t, u, h, abstol, reltol)
 end
 '''
   expect = ["correct", "allocates"]
+
+[[problem]]
+id = "conv-rk4-find-the-bug"
+title = "Find the bug: a fourth-order method that is not"
+difficulty = "core"
+kcs = ["convergence-order", "local-global-error"]
+entry = "rk4_solve"
+packages = ["StableRNGs"]   # nothing needed; [] would load the whole scicomp env
+prompt = '''
+`rk4_solve(f, y0, T, n)` should advance the scalar equation `y' = f(t, y)`
+from `y(0) = y0` to `t = T` in `n` steps of the classical fourth-order
+Runge-Kutta method, and return `y(T)` as a `Float64`. The code in the editor
+runs without an error, reads like the textbook, and on some problems it gives
+the right answer. One line is wrong.
+
+Find it and fix it; change nothing else. The convergence tests run your code
+on two problems and fit the observed order from five step counts: a correct
+fourth-order method measures about 4 on both. Run them, read what they
+measure, and use the difference between the two problems.
+
+```julia
+rk4_solve((t, y) -> -y, 1.0, 1.0, 10)            # close to exp(-1) = 0.36788
+rk4_solve((t, y) -> -y + cos(t), 1.0, 1.0, 10)   # close to 0.87483
+```
+
+Results are compared with `rtol = 1e-10`.
+'''
+reference = '''
+function rk4_solve(f, y0, T, n)
+    h = T / n
+    y = float(y0)
+    for k in 0:n-1
+        t = k * h
+        k1 = f(t, y)
+        k2 = f(t + h / 2, y + h / 2 * k1)
+        k3 = f(t + h / 2, y + h / 2 * k2)
+        k4 = f(t + h, y + h * k3)
+        y += h / 6 * (k1 + 2k2 + 2k3 + k4)
+    end
+    return y
+end
+'''
+cases = [
+  "(t, y) -> -y, 1.0, 1.0, 10",
+  "(t, y) -> -y + cos(t), 1.0, 1.0, 10",
+  "(t, y) -> t * y, 1.0, 2.0, 40",
+  "(t, y) -> sin(t) - y^2, 0.5, 3.0, 25",
+]
+compare = "isapprox"
+# rtol: the reference and a correct fix differ only in the order of floating-point operations;
+# over at most 40 steps of y = O(1) that is a few hundred eps (about 1e-14 relative). 1e-10 leaves a
+# wide margin. The planted error changes the answer on the non-autonomous cases by more than 1e-4.
+rtol = 1e-10
+hints = [
+  "The order is right on one problem and wrong on the other. What does the second problem's right-hand side use that the first one ignores? Look for where that quantity enters each stage.",
+  "Each stage is the slope at a point inside the step, and both coordinates of that point matter. Check the second stage: at what time is it evaluated, and at what time does its `y` argument sit?",
+]
+
+  [problem.bug]
+  kc = "convergence-order"
+  find = "k2 = f(t + h / 2, y + h / 2 * k1)"
+  replace = "k2 = f(t, y + h / 2 * k1)"
+  answer_tokens = ["t + h / 2"]
+  misconception = '''
+The planted line evaluates the second stage at the start of the step, `t`,
+while its state is the Euler prediction at the midpoint. The belief it models:
+a stage is defined by its `y` argument, and the time argument is bookkeeping.
+For `y' = f(y)` that is true, which is why the first test measured order 4
+and why tests on autonomous problems alone cannot see this error. As soon as
+`f` depends on `t`, each stage must pair the time and the state of the same
+point inside the step, and a mismatch costs the method its order: here it fell
+from 4 to about 1.
+'''
+
+  [[problem.bug.test]]
+  name = "observed order on y' = -y (f ignores t)"
+  # expect: classical RK4 has global error C h^4 + O(h^5); on n = 10 ... 160 the fit gives 4.03, and the
+  # smallest error (4.7e-12) is far above rounding (about 160 eps). A method of order 2 or less measures
+  # at most 2.1, so 3.7 to 4.3 separates them with room for the h^5 term's pull on the fit.
+  code = '''
+let ns = [10, 20, 40, 80, 160]
+    errs = [abs(rk4_solve((t, y) -> -y, 1.0, 1.0, n) - exp(-1.0)) for n in ns]
+    x = log.(1 ./ ns); z = log.(errs)
+    p = sum((x .- sum(x) / 5) .* (z .- sum(z) / 5)) / sum((x .- sum(x) / 5) .^ 2)
+    println("observed order: ", round(p; digits = 2))
+end
+'''
+  row = '^observed order: (?<m>\S+)$'
+  expect = [3.7, 4.3]
+  explain = '''
+The slope of log(error) against log(h) on a problem whose right-hand side does
+not depend on `t`. Below 3.7 the method is not fourth order even when time
+plays no part, so the error is in how the stages combine the slopes.
+'''
+
+  [[problem.bug.test]]
+  name = "observed order on y' = -y + cos t (f depends on t)"
+  # expect: the same derivation as the first test; here the fit gives 4.01 (smallest error 3.7e-12).
+  # Exact solution: y(1) = (cos 1 + sin 1)/2 + exp(-1)/2 for y(0) = 1.
+  code = '''
+let ns = [10, 20, 40, 80, 160]
+    exact = (cos(1.0) + sin(1.0)) / 2 + exp(-1.0) / 2
+    errs = [abs(rk4_solve((t, y) -> -y + cos(t), 1.0, 1.0, n) - exact) for n in ns]
+    x = log.(1 ./ ns); z = log.(errs)
+    p = sum((x .- sum(x) / 5) .* (z .- sum(z) / 5)) / sum((x .- sum(x) / 5) .^ 2)
+    println("observed order: ", round(p; digits = 2))
+end
+'''
+  row = '^observed order: (?<m>\S+)$'
+  expect = [3.7, 4.3]
+  explain = '''
+The same fit on a problem whose right-hand side depends on `t`. If this order
+is low while the first test's is about 4, the slopes are combined correctly,
+and the error is in something only a time-dependent `f` notices.
+'''
+
+  [problem.perf]
+  args = "(t, y) -> -y + cos(t), 1.0, 1.0, n"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "weights 1, 2, 1, 2: order 1 on every problem"
+  code = '''
+function rk4_solve(f, y0, T, n)
+    h = T / n
+    y = float(y0)
+    for k in 0:n-1
+        t = k * h
+        k1 = f(t, y)
+        k2 = f(t + h / 2, y + h / 2 * k1)
+        k3 = f(t + h / 2, y + h / 2 * k2)
+        k4 = f(t + h, y + h * k3)
+        y += h / 6 * (k1 + 2k2 + k3 + 2k4)
+    end
+    return y
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "time accumulated with t += h, half-steps written as 0.5h"
+  code = '''
+function rk4_solve(f, y0, T, n)
+    h = T / n
+    t, y = 0.0, float(y0)
+    for _ in 1:n
+        k1 = f(t, y)
+        k2 = f(t + 0.5h, y + 0.5h * k1)
+        k3 = f(t + 0.5h, y + 0.5h * k2)
+        k4 = f(t + h, y + h * k3)
+        y += h * (k1 + 2k2 + 2k3 + k4) / 6
+        t += h
+    end
+    return y
+end
+'''
+  expect = ["correct"]

@@ -539,6 +539,59 @@ function breakit_probe_problems(u::Course.Unit, rec; log = stdout)
     return out
 end
 
+"""
+Run the convergence tests of a find-the-bug problem on `code`, each in a fresh
+process, as the site runs them through `tutor serve`. One entry per test:
+`(name, value, passed, output)`; `value` is `nothing` when the run printed no
+reading (an error, a crash), which counts as a fail.
+"""
+function run_bug_tests(p::Course.Problem, code::AbstractString; env::AbstractString = "base", timeout::Real = 120)
+    b = p.bug
+    out = NamedTuple{(:name, :value, :passed, :output),Tuple{String,Union{Nothing,Float64},Bool,String}}[]
+    for t in b.tests
+        r = run_code(Course.bug_test_code(code, t); env, timeout)
+        v = Course.bug_test_value(t, r.output)
+        push!(out, (name = t.name, value = v, passed = Course.bug_test_passes(t, v), output = r.output))
+    end
+    return out
+end
+
+"""Plain-text table of convergence-test results, with each failing test's explanation."""
+function format_bug_tests(p::Course.Problem, results)
+    io = IOBuffer()
+    println(io, "Convergence tests:")
+    for (t, r) in zip(p.bug.tests, results)
+        got = r.value === nothing ? "no reading" : string(r.value)
+        println(io, r.passed ? "✓ " : "✗ ", t.name, ": measured ", got, ", expected ", t.expect[1], " to ", t.expect[2])
+        r.passed || println(io, "    ", replace(strip(t.explain), "\n" => "\n    "))
+    end
+    return String(take!(io))
+end
+
+"""
+The measured checks of each find-the-bug problem: every convergence test
+passes on the reference, and at least one fails on the planted starter (the
+tests can see the planted error).
+"""
+function bug_problems(u::Course.Unit; log = stdout)
+    out = String[]
+    for p in u.problems
+        p.bug === nothing && continue
+        isempty(Course.bug_problems(p, u.kcs)) || continue   # structural problems are reported by validate
+        ref = run_bug_tests(p, p.reference; env = u.env)
+        bad = run_bug_tests(p, p.starter; env = u.env)
+        for (t, r, s) in zip(p.bug.tests, ref, bad)
+            println(log, "  ", rpad(p.id * " test '" * t.name * "'", 70), "  reference ", something(r.value, "none"),
+                    "  planted ", something(s.value, "none"))
+            r.passed || push!(out, "$(p.id): convergence test '$(t.name)' fails on the reference " *
+                                   "(measured $(something(r.value, "no reading")), expected $(t.expect[1]) to $(t.expect[2]))" *
+                                   (r.value === nothing ? ":\n" * r.output : ""))
+        end
+        all(s -> s.passed, bad) && push!(out, "$(p.id): every convergence test passes on the planted starter (the tests cannot see the bug)")
+    end
+    return out
+end
+
 # Verdicts that come from timing (allocations and type stability are counted,
 # not timed, so they are deterministic and never re-measured).
 const PERF_VERDICTS = ("slow", "fast", "scaling")
@@ -577,6 +630,7 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
     append!(problems, Course.breakit_key_problems(u, rec))
     append!(problems, breakit_probe_problems(u, rec; log))
     grade_variants || return problems
+    append!(problems, bug_problems(u; log))
     for p in u.problems
         # "fast" only exists when there is a performance section to measure.
         ref_expect = p.perf === nothing ? ["correct"] : ["correct", "fast"]

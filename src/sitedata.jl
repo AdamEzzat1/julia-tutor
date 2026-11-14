@@ -203,7 +203,9 @@ function course_data()
                             "compare" => p.compare, "rtol" => p.rtol, "check_type" => p.check_type,
                             "random_cases" => !isempty(p.gen),
                             "perf" => p.perf === nothing ? nothing :
-                                Dict("sizes" => p.perf.sizes, "mutates" => p.perf.mutates))
+                                Dict("sizes" => p.perf.sizes, "mutates" => p.perf.mutates),
+                            # only find-the-bug problems carry the key
+                            (p.bug === nothing ? Pair{String,Any}[] : ["bug" => bug_data(p)])...)
                        for p in u.problems]
         # prerequisites as unit ids (unique across courses); each unit says its course
         push!(out, Dict("id" => u.id, "title" => u.title, "track" => u.track, "env" => u.env,
@@ -217,6 +219,17 @@ function course_data()
                 "tracks" => Course.TRACKS, "track_requires" => Course.TRACK_REQUIRES, "units" => out,
                 "envs" => Dict(e => env_packages(e) for e in envs))
 end
+
+"""
+A find-the-bug problem for the site: its convergence tests (run through
+`tutor serve` on the learner's code), and, for after the fix, the planted and
+the reference line with the misconception. The repository is public, so the
+fix is no secret; the site shows it only once the learner's code passes.
+"""
+bug_data(p) = Dict("kc" => p.bug.kc, "misconception" => strip(p.bug.misconception),
+                   "planted" => strip(p.bug.replace), "fixed" => strip(p.bug.find),
+                   "tests" => Any[Dict("name" => t.name, "code" => rstrip(t.code), "row" => t.row,
+                                       "expect" => [t.expect...], "explain" => strip(t.explain)) for t in p.bug.tests])
 
 """
 The course site data as files: `courses.json` (every course's manifest, the

@@ -416,10 +416,28 @@ function cmd_practice(args)
         println("\nWrite your solution to a file, then: tutor practice $(p.id) <file.jl>")
         return 0
     end
-    r = Practice.grade(p, read(pos[2], String); env = u.env)
+    code = read(pos[2], String)
+    r = Practice.grade(p, code; env = u.env)
     print(Practice.format_grade(r))
-    r["status"] == "passed" || isempty(p.hints) || println("\nHint: ", p.hints[1])
-    return r["status"] == "passed" ? 0 : 1
+    passed = r["status"] == "passed"
+    if p.bug === nothing
+        passed || isempty(p.hints) || println("\nHint: ", p.hints[1])
+        return passed ? 0 : 1
+    end
+    # Find the bug: the measured tests come first; hints fade in with --hints=N.
+    tests = Practice.run_bug_tests(p, code; env = u.env)
+    print("\n", Practice.format_bug_tests(p, tests))
+    nh = min(parse(Int, flag(args, "hints", "0")), length(p.hints))
+    for i in 1:nh
+        println("\nHint $i: ", p.hints[i])
+    end
+    if passed && all(t -> t.passed, tests)
+        println("\nFixed. The planted line was\n    ", strip(p.bug.replace), "\nand the reference has\n    ",
+                strip(p.bug.find), "\n\n", strip(p.bug.misconception))
+    elseif nh < length(p.hints)
+        println("\nMore help: tutor practice $(p.id) $(pos[2]) --hints=$(nh + 1)")
+    end
+    return passed && all(t -> t.passed, tests) ? 0 : 1
 end
 
 function cmd_serve(args)

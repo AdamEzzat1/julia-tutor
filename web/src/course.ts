@@ -128,6 +128,30 @@ export interface Problem {
   check_type: boolean;
   random_cases: boolean;
   perf: { sizes: number[]; mutates: boolean } | null;
+  /** find the bug: the starter is the reference with one planted error (findbug.ts) */
+  bug?: Bug;
+}
+
+/** A convergence test: Julia appended to the learner's code, printing one line that `row` reads. */
+export interface BugTest {
+  name: string;
+  code: string;
+  /** regex with a named group `m`, the measured number */
+  row: string;
+  /** inclusive range a correct solver measures */
+  expect: [number, number];
+  /** what the measurement means; shown when the test fails */
+  explain: string;
+}
+
+export interface Bug {
+  kc: string;
+  /** shown once fixed: what belief the planted line models */
+  misconception: string;
+  /** the planted line, and the reference's line (shown once fixed) */
+  planted: string;
+  fixed: string;
+  tests: BugTest[];
 }
 
 export type Track = "foundations" | "core" | "advanced" | "ecosystem" | "scicomp" | "sciml";

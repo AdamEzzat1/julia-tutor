@@ -828,3 +828,169 @@ function node_rhs(u, ps)
 end
 '''
   expect = ["correct"]
+
+[[problem]]
+id = "adj-find-the-bug"
+title = "Find the bug: an adjoint gradient that points the wrong way"
+difficulty = "core"
+kcs = ["adjoint-method", "reverse-mode"]
+entry = "euler_loss_gradient"
+packages = ["ForwardDiff"]
+prompt = '''
+`euler_loss_gradient(θ, u0, h, N, target)` should return `dL/dθ` for
+
+    L(θ) = (u_N - target)^2 / 2,    u_{k+1} = u_k - h θ u_k^2,
+
+`N` forward-Euler steps of `u' = -θ u^2` from `u_0 = u0`, computed with the
+discrete adjoint: a forward pass that stores the states, then a backward pass
+that carries `λ_k = dL/du_k` from `λ_N = u_N - target` down to `λ_0` and
+collects `λ_{k+1} ∂u_{k+1}/∂θ` on the way. The code in the editor runs and
+returns a number of a plausible size. One line is wrong.
+
+Find it and fix it; change nothing else. The convergence tests measure the
+gradient two ways that need no adjoint: a Taylor test (how fast
+`L(θ + ε) - L(θ) - ε g` shrinks as `ε` does) and a comparison with a central
+difference.
+
+```julia
+euler_loss_gradient(1.3, 1.0, 0.05, 40, 0.1)   # about -0.02653
+```
+
+Results are compared with `rtol = 1e-10`.
+'''
+reference = '''
+function euler_loss_gradient(θ, u0, h, N, target)
+    us = Vector{Float64}(undef, N + 1)
+    us[1] = u0
+    for k in 1:N
+        us[k+1] = us[k] - h * θ * us[k]^2
+    end
+    λ = us[N+1] - target          # dL/du_N
+    g = 0.0
+    for k in N:-1:1
+        u = us[k]
+        g += λ * (-h * u^2)       # λ_{k+1} ∂u_{k+1}/∂θ
+        λ *= 1 - 2h * θ * u       # λ_k = λ_{k+1} ∂u_{k+1}/∂u_k
+    end
+    return g
+end
+'''
+cases = [
+  "1.3, 1.0, 0.05, 40, 0.1",
+  "0.5, 2.0, 0.01, 200, 1.0",
+  "2.0, 0.5, 0.1, 5, 0.0",
+  "1.0, 1.0, 0.2, 1, 0.3",
+]
+compare = "isapprox"
+# rtol: a correct adjoint and a forward sensitivity (or a different summation order) agree to a few
+# hundred eps over at most 200 steps, about 1e-13 relative. 1e-10 leaves a wide margin; the planted
+# error changes the gradient by a factor (about 19 on the first case).
+rtol = 1e-10
+hints = [
+  "The Taylor remainder shrinks like ε, not ε², so the gradient is wrong, not just imprecise; the forward pass, which the loss also uses, is not where to look. In the backward pass, which update could change the result's sign or size this much?",
+  "Differentiate one forward step, `u_{k+1} = u_k - h θ u_k^2`, with respect to `u_k`. Compare that derivative with the factor `λ` is multiplied by.",
+]
+
+  [problem.bug]
+  kc = "adjoint-method"
+  find = "λ *= 1 - 2h * θ * u"
+  replace = "λ *= 1 + 2h * θ * u"
+  answer_tokens = ["1 - 2h"]
+  misconception = '''
+The planted line multiplies `λ` by `1 + 2hθu`, the derivative of a step of
+`u' = +θ u^2`, while the forward pass takes steps of `u' = -θ u^2`. The
+belief it models: the adjoint runs "the dynamics backward", so the sign in
+front of the right-hand side can be flipped when going back. What the backward
+pass needs is the transpose of the forward step's Jacobian, `∂u_{k+1}/∂u_k =
+1 - 2hθu_k`, with its sign exactly as in the forward step. With the wrong
+factor, `λ` grows where it should decay, and the gradient is off by a factor
+of about 19 here. The Taylor test exposes it without knowing the right
+answer: with a correct gradient the remainder falls like `ε^2`, with any
+wrong one like `ε`.
+'''
+
+  [[problem.bug.test]]
+  name = "Taylor test: order of the remainder L(θ + ε) - L(θ) - ε g"
+  # expect: with g = L'(θ), the remainder is L''(θ) ε^2 / 2 + O(ε^3), order 2; over ε = 0.1 / 2^k,
+  # k = 0..4, the fit gives 1.98 on this problem (smallest remainder 1e-6, far above rounding at
+  # eps L / ε). Any other g leaves a term (L'(θ) - g) ε of order 1 (measured 1.00), so 1.8 to 2.2.
+  code = '''
+let θ = 1.3, u0 = 1.0, h = 0.05, N = 40, target = 0.1
+    loss(th) = (u = u0; for _ in 1:N; u -= h * th * u^2; end; (u - target)^2 / 2)
+    g = euler_loss_gradient(θ, u0, h, N, target)
+    εs = [0.1 / 2^k for k in 0:4]
+    rs = [abs(loss(θ + ε) - loss(θ) - ε * g) for ε in εs]
+    x = log.(εs); z = log.(rs)
+    p = sum((x .- sum(x) / 5) .* (z .- sum(z) / 5)) / sum((x .- sum(x) / 5) .^ 2)
+    println("remainder order: ", round(p; digits = 2))
+end
+'''
+  row = '^remainder order: (?<m>\S+)$'
+  expect = [1.8, 2.2]
+  explain = '''
+If `g` is the true derivative, the remainder `L(θ + ε) - L(θ) - ε g` is the
+second-order term of the Taylor series and falls like `ε^2` (order 2). An
+order near 1 means a first-order term is left over: `g` is not the
+derivative of this loss. The loss here is computed by the test itself, with
+the same forward steps.
+'''
+
+  [[problem.bug.test]]
+  name = "relative difference from a central difference"
+  # expect: the central difference with ε = 1e-6 has truncation error ε^2 L''' / 6 (about 1e-13) and
+  # rounding about eps L / ε (1e-11 absolute), so relative to |g| = 0.027 it agrees to about 1e-9.
+  # 1e-6 leaves a wide margin; a wrong gradient is off by order 1.
+  code = '''
+let θ = 1.3, u0 = 1.0, h = 0.05, N = 40, target = 0.1, ε = 1e-6
+    loss(th) = (u = u0; for _ in 1:N; u -= h * th * u^2; end; (u - target)^2 / 2)
+    g = euler_loss_gradient(θ, u0, h, N, target)
+    fd = (loss(θ + ε) - loss(θ - ε)) / (2ε)
+    println("relative difference: ", abs(g - fd) / abs(fd))
+end
+'''
+  row = '^relative difference: (?<m>\S+)$'
+  expect = [0.0, 1e-6]
+  explain = '''
+`|g - fd| / |fd|`, where `fd` is the central difference of the same loss with
+`ε = 1e-6`. A correct gradient agrees to about 1e-9 here; a difference of
+order 1 means the gradient is wrong, by more than rounding or truncation
+could explain.
+'''
+
+  [problem.perf]
+  args = "1.3, 1.0, 1 / n, n, 0.1"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "the parameter term with the state after the step, us[k+1]"
+  code = '''
+function euler_loss_gradient(θ, u0, h, N, target)
+    us = Vector{Float64}(undef, N + 1)
+    us[1] = u0
+    for k in 1:N
+        us[k+1] = us[k] - h * θ * us[k]^2
+    end
+    λ = us[N+1] - target
+    g = 0.0
+    for k in N:-1:1
+        g += λ * (-h * us[k+1]^2)
+        λ *= 1 - 2h * θ * us[k]
+    end
+    return g
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a forward sensitivity: s = du/dθ carried along, no stored states"
+  code = '''
+function euler_loss_gradient(θ, u0, h, N, target)
+    u, s = float(u0), 0.0
+    for _ in 1:N
+        s = s * (1 - 2h * θ * u) - h * u^2
+        u -= h * θ * u^2
+    end
+    return (u - target) * s
+end
+'''
+  expect = ["correct"]

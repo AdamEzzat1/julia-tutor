@@ -442,6 +442,65 @@ be `correct` against itself (and `fast`, when there is a `perf` section),
 and the starter must not pass. Every problem should have a `perf` section:
 without one the learner gets no performance feedback at all.
 
+### Find the bug
+
+**Learning purpose.** Reading and debugging numerical code is a different skill
+from writing it: the learner gets a plausible solver with one planted error
+(a wrong stage time, an off-by-one grid spacing, a sign in an adjoint) and has
+to localize it from *measurements*, the way a working scientist does, rather
+than by comparing with a known answer. The convergence tests are the evidence;
+the hints fade in only after the learner has read what the tests measure.
+
+A find-the-bug problem is an ordinary practice problem with a `[problem.bug]`
+table and **no `starter`**: the starter is generated from the reference.
+
+```toml
+  [problem.bug]
+  kc = "convergence-order"                       # one of the unit's KCs
+  find = "k2 = f(t + h / 2, y + h / 2 * k1)"     # occurs exactly once in the reference
+  replace = "k2 = f(t, y + h / 2 * k1)"          # the planted error: changes exactly one line
+  answer_tokens = ["t + h / 2"]                  # pieces of the fix (in `find`, not in `replace`)
+  misconception = '''What belief the planted line models; shown once fixed.'''
+
+  [[problem.bug.test]]
+  name = "observed order on y' = -y + cos t (f depends on t)"
+  # expect: derive the range here (error model, measured fit, rounding floor, what a wrong method measures)
+  code = '''Julia that calls the entry and prints one line'''
+  row = '^observed order: (?<m>\S+)$'            # a named group `m`: the measured number
+  expect = [3.7, 4.3]                            # inclusive
+  explain = '''What the measurement means when it fails; never where the error is.'''
+```
+
+Rules, checked by `Course.validate_course` (structure; the test suite runs it)
+and `tutor course verify` (measurements):
+
+* `find` occurs exactly once in the reference, and replacing it changes
+  exactly one line: one error, one line to fix. A hand-written `starter` is
+  refused, so the planted code can never drift from the reference.
+* Every test passes on the reference and **at least one fails on the planted
+  starter** (verify runs them, each in a fresh process). Prefer a set where
+  one test passes on the bug and another fails: the contrast is the hint
+  (unit 31: order 4 on `y' = -y`, order 1 on `y' = -y + cos t`, so the error
+  is where `t` enters).
+* Level-1 feedback is the tests' names and explanations, then `hints[1]`:
+  none of them may contain an `answer_tokens` entry. Later hints may be more
+  specific. The tests' code is visible to the learner (it is the
+  specification), so it may show the correct formula; that is fine, as long
+  as the prose does not point at the line.
+* Derive each `expect` range in a comment next to it (invariant 9), and pick
+  problem sizes whose smallest error stays well above rounding, or the fitted
+  order bends.
+* The usual problem rules hold: cases, `rtol` derived, at least one
+  `incorrect` variant (a *different* wrong solver, not the planted one: the
+  starter is already graded), and a correct variant in another style.
+
+The site runs the tests through `tutor serve` (a learner without it gets the
+hints at once, since there is nothing to measure). A problem counts as fixed
+when the grader and every test pass on the same code; then the planted line,
+the reference's line and the misconception are shown. On the command line,
+`tutor practice <id> file.jl` prints the test table, and `--hints=N` shows the
+first N hints.
+
 ## Style
 
 * Teach one idea per section; show it, then say what to notice in the output.
