@@ -243,6 +243,20 @@ body.quarto-dark {
 .jt-callout.ok .tag { color: var(--jt-green); }
 .jt-callout.reveal { border-color: color-mix(in srgb, var(--jt-purple) 30%, transparent); background: var(--jt-purple-soft); }
 .jt-callout.reveal .tag { color: var(--jt-purple); }
+/* Analogies are neutral (no status colour): a picture to think with, not a verdict. */
+.jt-callout.analogy .tag { color: var(--jt-muted); }
+.jt-callout.analogy .jt-md p:first-child { margin-top: 0.25rem; }
+.jt-analogy-breaks { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px dashed var(--jt-rule); }
+.jt-analogy-breaks .jt-md p { margin: 0.2rem 0 0; }
+/* Diagrams: hand-drawn SVG on a light card in both themes (an <img> cannot follow the theme). */
+.jt-diagram { margin: 0.8rem 0; }
+.jt-diagram img { display: block; width: 100%; max-width: 720px; height: auto; border: 1px solid var(--jt-rule);
+  border-radius: 8px; background: #fff; }
+.jt-diagram figcaption { margin-top: 0.35rem; }
+.jt-sources { margin: 0.4rem 0 0.2rem; }
+.jt-refs { padding-left: 1.4rem; }
+.jt-refs li { margin: 0.5rem 0; overflow-wrap: anywhere; }
+.jt-refs li:target { outline: 2px solid var(--jt-blue); outline-offset: 3px; border-radius: 4px; }
 
 .jt-stepper { display: flex; gap: 6px; align-items: center; }
 .jt-stepper span { width: 22px; height: 6px; border-radius: 3px; background: var(--jt-rule-strong); }

@@ -3,6 +3,7 @@ import { Code } from "../components/Code";
 import { Editor } from "../components/Editor";
 import { Feedback } from "../components/Feedback";
 import { Markdown, md } from "../components/Markdown";
+import { AnalogyView, DiagramView, ReferenceList, SectionSources } from "../components/Enrich";
 import { ConnectPanel, Output, RunBox, ServerPill, useDraft } from "../components/Runner";
 import {
   course, courseById, estimateText, landingHref, questionState, statusNote, TRACK_BLURB, TRACK_LABEL, trackRequirement, unitNumber,
@@ -304,6 +305,9 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
             <div className="jt-eyebrow">{unitNumber(unit.id)}.{i + 1}</div>
             <h3 style={{ marginTop: "0.2rem" }}>{s.title}</h3>
             <Markdown text={s.body} />
+            {(s.diagrams ?? []).map((d) => <DiagramView key={d.src} d={d} />)}
+            {(s.analogies ?? []).map((a, j) => <AnalogyView key={j} a={a} />)}
+            <SectionSources refs={s.refs ?? []} all={unit.references ?? []} unitId={unit.id} />
             {s.examples.map((e, j) => {
               const key = predictionKey(unit.id, i, j);
               return <ExampleBlock key={j} ex={e} env={unit.env} id={key}
@@ -318,6 +322,8 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
           </section>
         ))
       )}
+
+      {unit.status !== "planned" && <ReferenceList refs={unit.references ?? []} unitId={unit.id} />}
 
       {unit.problems.length > 0 && (
         <section className="jt-panel jt-pad" ref={practice} aria-labelledby="jt-practice">
