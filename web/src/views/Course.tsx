@@ -229,7 +229,7 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
         <p style={{ maxWidth: "48rem" }}>{md(unit.summary)}</p>
         <div className="jt-chips">
           {unit.kcs.map((k) => <span key={k} className="jt-chip kc">{k}</span>)}
-          <span className="jt-chip info" title="Where this unit's code runs">
+          <span className="jt-chip info wrap" title="Where this unit's code runs">
             env: {unit.env}{unit.env !== "base" && course.envs[unit.env] ? ` · ${course.envs[unit.env].map((p) => `${p.name} ${p.version}`).join(", ")}` : ""}
           </span>
           {unit.prerequisites.map((p) => (
