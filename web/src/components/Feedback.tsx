@@ -1,5 +1,6 @@
 import type { GradeResult } from "../server";
 import { md } from "./Markdown";
+import { RUNG_MARK, type Ladder, type LadderRecord, type Rung } from "../ladder";
 
 // Renders the grader's result. Every sentence comes from Practice.assess in
 // Julia (the same text `tutor practice` prints); this only lays it out.
@@ -31,7 +32,7 @@ const HEADLINE: Record<GradeResult["status"], string> = {
 
 const OVERALL = { excellent: "Performance: excellent", good: "Performance: good", "needs-work": "Performance: needs work" } as const;
 
-export function Feedback({ r }: { r: GradeResult }) {
+export function Feedback({ r, best }: { r: GradeResult; best?: LadderRecord | null }) {
   const perf = r.performance;
   return (
     <section className={`jt-feedback ${r.status === "passed" ? "ok" : "bad"}`} aria-live="polite" aria-label="Grading result">
@@ -86,6 +87,7 @@ export function Feedback({ r }: { r: GradeResult }) {
           </tbody>
         </table>
       )}
+      {r.ladder && <LadderView l={r.ladder} best={best ?? null} />}
       {r.findings.length > 0 && (
         <div style={{ marginTop: "0.7rem" }}>
           <div className="jt-eyebrow">Static checker</div>
@@ -106,5 +108,39 @@ export function Feedback({ r }: { r: GradeResult }) {
         </p>
       )}
     </section>
+  );
+}
+
+// Not reached on rung 1 is a wrong answer (red); above it, a direction to work in (amber).
+const rungClass = (x: Rung, i: number) =>
+  x.state === "reached" ? "pass" : x.state === "not-reached" ? (i === 0 ? "fail" : "warn") : "info";
+
+function LadderView({ l, best }: { l: Ladder; best: LadderRecord | null }) {
+  const better = best !== null && best.climbed > l.climbed;
+  return (
+    <div className="jt-perfladder" style={{ marginTop: "0.8rem" }}>
+      <div className="jt-eyebrow">
+        Performance ladder · {l.climbed} of {l.offered} rung{l.offered === 1 ? "" : "s"}
+        {better ? ` · best in this browser: ${best.climbed} of ${best.offered}` : ""}
+      </div>
+      <ul className="jt-fb-list" aria-label="Performance ladder rungs">
+        {l.rungs.map((x, i) => (
+          <li key={x.id} className={`${rungClass(x, i)}${x.state === "not-offered" ? " off" : ""}`}>
+            <span className="mark" aria-hidden="true">{RUNG_MARK[x.state]}</span>
+            <div>
+              <div className="t">
+                {i + 1}. {x.title}
+                <span className="jt-sr"> ({x.state.replace("-", " ")})</span>
+                {x.state === "not-offered" ? <span className="jt-muted"> · not offered</span> : null}
+              </div>
+              <div className="d">{md(x.detail)}</div>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="jt-small jt-muted" style={{ margin: "0.5rem 0 0" }}>
+        Rungs are climbed in order. The best climb is kept in this browser only: nothing is sent, and there is no ranking.
+      </p>
+    </div>
   );
 }
