@@ -411,8 +411,11 @@ xrosen(x) = sum(100 * (x[i+1] - x[i]^2)^2 + (1 - x[i])^2 for i in 1:length(x)-1)
 x0 = fill(-1.0, 10)
 nm = optimize(xrosen, x0, NelderMead())
 lb = optimize(xrosen, x0, LBFGS(); autodiff = ad)
+# LBFGS's exact count moves by one or two with the CPU's floating-point paths,
+# so it is printed as a bound; Nelder-Mead stops at the budget.
+iters(n) = n >= 1000 ? "1000 (the budget)" : n < 100 ? "fewer than 100" : string(n)
 for (name, res) in [("Nelder-Mead", nm), ("LBFGS", lb)]
-    println(rpad(name, 12), "converged = ", Optim.converged(res), ", iterations = ", Optim.iterations(res),
+    println(rpad(name, 12), "converged = ", Optim.converged(res), ", iterations = ", iters(Optim.iterations(res)),
             ", f(x) = ", round(Optim.minimum(res); digits = 2))
 end
 '''
