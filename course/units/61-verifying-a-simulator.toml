@@ -1,0 +1,17 @@
+id = "61-verifying-a-simulator"
+title = "How you know a result is not wrong"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "Five layers of evidence: redundant implementations, theory checks, an independent reference, controls that must fail, and mutation testing, with three real bugs as case studies."
+kcs = ["verification", "mutation-testing"]
+prerequisites = ["60-variational"]
+outline = [
+  "The question: every test passes; how do you know the simulator is right?",
+  "Layer 1, redundant implementations; layer 2, closed-form theory checks",
+  "Layer 3, an independent reference (Qiskit), compared amplitude by amplitude",
+  "Layer 4, controls that must fail; layer 5, mutation testing with 22 injected bugs",
+  "Case study: a CHSH sign pattern that gave S = 0",
+  "Case study: Qiskit's undocumented bit reversal in phase_estimation",
+  "Case study: a measure! flip that survived until a lopsided test was added",
+]

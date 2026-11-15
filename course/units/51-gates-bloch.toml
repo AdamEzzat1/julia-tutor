@@ -1,0 +1,16 @@
+id = "51-gates-bloch"
+title = "Gates and the Bloch sphere"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "Single-qubit gates as 2x2 unitaries, rotations with their half angles, the Bloch vector, and sampling measurement outcomes."
+kcs = ["unitary-gates", "bloch-sphere", "born-rule"]
+prerequisites = ["50-qubit-order"]
+outline = [
+  "The question: what does a gate do to the point that represents a qubit?",
+  "Pauli, Hadamard, S, T and sqrt(X) matrices; checking U'U = I",
+  "Rotations R_a(theta) = exp(-i theta a/2): the half angle, and why 2 pi gives -I",
+  "Diagram: the Bloch sphere with the six cardinal states",
+  "bloch_vector from the density matrix; global phase is unobservable",
+  "Born-rule sampling, checked against exact probabilities within 5 sigma",
+]

@@ -1,0 +1,14 @@
+id = "56-grover"
+title = "Grover search"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "Amplitude amplification as a rotation in a plane, with the success probability checked against sin^2((2k+1) theta) for every iteration count."
+kcs = ["amplitude-amplification"]
+prerequisites = ["55-oracles"]
+outline = [
+  "The question: how many oracle calls find one marked item among N?",
+  "Oracle and diffuser as two reflections; diagram of the 2-D rotation picture",
+  "P(success) = sin^2((2k+1) theta) exactly, n = 2 to 8, M = 1 to 3 marked items",
+  "Overshooting: what happens past the optimal number of iterations",
+]

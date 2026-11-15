@@ -1,0 +1,15 @@
+id = "59-noise-density-matrices"
+title = "Noise and density matrices"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "Mixed states, Kraus channels, T1 and T2, and quantum trajectories, with the depolarising level where CHSH stops beating classical."
+kcs = ["density-matrix", "kraus-channels", "decoherence"]
+prerequisites = ["58-phase-estimation"]
+outline = [
+  "The question: how much noise destroys a quantum advantage?",
+  "Density matrices and Kraus channels; K dagger, not K transpose",
+  "Bloch-vector formulas for depolarising, amplitude damping (T1) and dephasing (T2)",
+  "CHSH under depolarising noise: the threshold p = 1 - 1/sqrt 2",
+  "Monte Carlo trajectories agree with the density-matrix result within 5 sigma",
+]

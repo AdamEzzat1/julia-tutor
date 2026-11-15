@@ -40,6 +40,12 @@ the edit-test loop unusable.
 
 ### qsim: scope and honest limits
 
+*Update 2026-11-15:* qsim now anchors its own course, Quantum computing
+(`course/courses/quantum.toml`, units 49-61), built from the owner's verified
+simulator. Qiskit joins Yao as a second author-side reference (a pinned CI
+job); learners need neither. The plan below still holds for the holes and the
+Yao environment.
+
 * **Student package: LinearAlgebra only.** Holes: a single-qubit gate on qubit
   `k` as a strided pair loop (no `kron`), controlled gates via bit masks,
   measurement with collapse and renormalisation, the QFT as a circuit, and the

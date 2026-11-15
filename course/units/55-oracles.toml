@@ -1,0 +1,14 @@
+id = "55-oracles"
+title = "Oracles: Deutsch-Jozsa and Bernstein-Vazirani"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "Phase oracles and the first algorithms that beat classical query counts, checked on every function and every hidden string."
+kcs = ["oracles", "phase-kickback"]
+prerequisites = ["54-measurement-teleportation"]
+outline = [
+  "The question: how do you tell a constant function from a balanced one with a single query?",
+  "Phase oracles and phase kickback; diagram of the circuit",
+  "Deutsch-Jozsa on all 72 constant or balanced functions on 3 qubits",
+  "Bernstein-Vazirani: every hidden string up to n = 5 in one query",
+]

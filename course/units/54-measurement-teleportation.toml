@@ -1,0 +1,16 @@
+id = "54-measurement-teleportation"
+title = "Measurement and teleportation"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "Measurement with collapse, teleporting an unknown state with two classical bits, and the deferred-measurement principle."
+kcs = ["measurement", "teleportation"]
+prerequisites = ["53-entanglement-chsh"]
+outline = [
+  "The question: can you move a qubit's state without moving the qubit?",
+  "measure! with collapse and renormalisation; outcome frequencies follow the Born rule",
+  "Teleportation circuit (diagram) and its corrections",
+  "Fidelity 1 over random messages; outcomes 1/4 each",
+  "Control: without the corrections the fidelity drops (measured), so the check can fail",
+  "Deferred measurement: the same circuit with controlled gates instead",
+]

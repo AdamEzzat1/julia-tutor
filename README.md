@@ -6,7 +6,7 @@ static checker flags novice misconceptions, and an `explain` step joins test
 failures, findings, measurements and a measured test-to-hole map to say where to
 start.
 
-Four courses (`./tutor courses`; `course/courses/*.toml`):
+Five courses (`./tutor courses`; `course/courses/*.toml`):
 
 | Course | Role | Status |
 |---|---|---|
@@ -14,6 +14,7 @@ Four courses (`./tutor courses`; `course/courses/*.toml`):
 | Julia for science | the packages in between | ready |
 | Scientific computing | destination | ready |
 | Scientific ML | destination | **in progress** |
+| Quantum computing | destination | **in progress** |
 
 "Ready" means every unit is published with recorded outputs and graders that
 pass their own tests; it says nothing yet about how well the courses teach. No

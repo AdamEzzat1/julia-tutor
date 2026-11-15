@@ -1,0 +1,16 @@
+id = "50-qubit-order"
+title = "Which bit is which qubit"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "Little-endian qubit order, as in Qiskit: qubit 0 is the least significant bit and the rightmost character of a bitstring. The source of most simulator bugs."
+kcs = ["qubit-ordering"]
+prerequisites = ["49-quantum-states"]
+outline = [
+  "The question: which index holds the amplitude of |10>, and which qubit is 1?",
+  "Bit q of the basis index is qubit q; the rightmost character is qubit 0",
+  "Diagram: the bit layout of a 3-qubit index, and kron(op_{n-1}, ..., op_0)",
+  "Why this order fits Julia's column-major arrays (reshape gives dimension 1 = qubit 0)",
+  "Textbooks (Nielsen and Chuang) use the opposite order: translating between them",
+  "Check: bitstrings and indices agree with Qiskit's on every basis state of 3 qubits",
+]

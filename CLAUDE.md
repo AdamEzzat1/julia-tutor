@@ -263,6 +263,16 @@ every role above has had the chance to object (recorded in the PR).
   `projects/qsim/crosscheck/` environment (Yao 0.9.3) agreeing on seeded random
   circuits with the qubit-order mapping stated; a benchmark *report* (not a
   test); a lesson on qubit endianness.
+  *Scope since 2026-11-15:* qsim is the project of the **Quantum computing**
+  course (`course/courses/quantum.toml`, units 49-61, base env only, so it
+  runs offline and with `--sandbox=none`). It is adapted from the owner's
+  verified simulator (9 self-checking lessons, 1,919 tests, 22 mutants all
+  killed, measured on 1.10.13). Two independent references, both author-side
+  only, never loaded by learners: Qiskit (a pinned CI job running the
+  differential test) and the Yao env above. The 22 mutants are ported to
+  Julia as the holes' mutants and reused to grade the capstone (the
+  learner's own tests must kill them); the capstone's reference stays
+  unpublished until Phase 7's reveal-after-submission exists.
 * **M10 Fourth project: ude (universal differential equation, SciML).**
   Requires M4 (the student's odeint) and M7 (latency). *DoD:* every package
   justified in the PR (OrdinaryDiffEq, SciMLSensitivity, one AD backend, Lux,

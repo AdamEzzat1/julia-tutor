@@ -24,10 +24,17 @@ describe("course landing pages", () => {
   });
 
   it("estimates are ranges from counts and always labelled as estimates", () => {
+    const published = new Set(course.units.filter((u) => u.status === "ready").map((u) => u.id));
     for (const c of course.courses) {
+      expect(c.estimate.basis).toMatch(/not measured$/);
+      if (!c.units.some((id) => published.has(id))) {
+        // nothing to count yet: no number at all, rather than "0–0 hours"
+        expect(c.estimate.high_hours, c.id).toBe(0);
+        expect(estimateText(c)).toBe("no time estimate yet (no unit is published)");
+        continue;
+      }
       expect(c.estimate.low_hours).toBeGreaterThan(0);
       expect(c.estimate.high_hours).toBeGreaterThan(c.estimate.low_hours);
-      expect(c.estimate.basis).toMatch(/not measured$/);
       expect(estimateText(c)).toMatch(/\(estimate\)$/);
     }
   });

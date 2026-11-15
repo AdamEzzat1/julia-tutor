@@ -7,7 +7,7 @@ import saved from "./fixtures/progress_v1.json";
 
 describe("course site data", () => {
   it("has every course, each unit once, in syllabus order", () => {
-    expect(course.courses.map((c) => c.id)).toEqual(["core", "science", "scicomp", "sciml"]);
+    expect(course.courses.map((c) => c.id)).toEqual(["core", "science", "scicomp", "sciml", "quantum"]);
     const ids = course.units.map((u) => u.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual([...ids].sort());

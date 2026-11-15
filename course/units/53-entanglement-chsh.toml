@@ -1,0 +1,15 @@
+id = "53-entanglement-chsh"
+title = "Entanglement and the CHSH game"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "Bell and GHZ states, reduced density matrices and entanglement entropy, and the CHSH value: 2 for every classical strategy, 2 sqrt 2 for quantum."
+kcs = ["entanglement", "partial-trace", "chsh"]
+prerequisites = ["52-applying-gates"]
+outline = [
+  "The question: can two players who cannot talk win a game more often by sharing qubits?",
+  "Bell and GHZ states from H and CNOT; diagram of the circuit",
+  "reduced_density by partial trace, and entropy of one qubit of a Bell pair = 1 bit",
+  "CHSH: brute force over all 16 deterministic classical strategies gives 2",
+  "Quantum S = 2 sqrt 2 exactly and from shots; the sign pattern must match the angles",
+]

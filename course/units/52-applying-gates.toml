@@ -1,0 +1,15 @@
+id = "52-applying-gates"
+title = "Applying gates without the big matrix"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "Three implementations of the same operation: bit manipulation in place, the element-by-element definition, and Kronecker products, with tests that they agree."
+kcs = ["gate-application", "property-testing"]
+prerequisites = ["51-gates-bloch"]
+outline = [
+  "The question: a 20-qubit full operator has 2^40 entries; how do you apply a gate without it?",
+  "apply! by strided pairs of amplitudes and bit masks, in place",
+  "full_operator from the definition, and full_operator_kron from textbook Kronecker products",
+  "Property tests: the three agree on random unitaries, qubit subsets and states",
+  "Measured: allocations and time of apply! against the dense product",
+]

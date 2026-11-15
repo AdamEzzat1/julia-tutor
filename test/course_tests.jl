@@ -42,7 +42,8 @@ end
     units = Course.load_course()
     courses = Course.load_courses()
     @test Course.validate_courses(courses, units) == String[]
-    @test [c.id for c in courses] == ["core", "science", "scicomp", "sciml"]
+    @test [c.id for c in courses] == ["core", "science", "scicomp", "sciml", "quantum"]
+    @test Course.course_of(courses, "50-qubit-order") == "quantum"
     # every unit in exactly one course; the split keeps the syllabus order
     @test sort!(vcat([c.units for c in courses]...)) == sort!([u.id for u in units])
     @test vcat([c.units for c in courses]...) == [u.id for u in units]

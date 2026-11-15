@@ -1,0 +1,15 @@
+id = "49-quantum-states"
+title = "States as vectors"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "A qubit state is a vector of complex amplitudes; n qubits need 2^n of them. Build the zero state and basis states, and read probabilities with the Born rule."
+kcs = ["state-vector", "born-rule"]
+prerequisites = ["core/06-collections", "core/20-stdlib-tour"]
+outline = [
+  "The question: how much memory does a 30-qubit state need, and why?",
+  "Amplitudes, normalisation and the Born rule: probabilities are squared magnitudes",
+  "zero_state and basis_state as plain Vector{ComplexF64}, and why no wrapper struct",
+  "Julia is 1-based: the amplitude of |k> lives at psi[k+1]",
+  "Check: every state you build has norm 1 to a stated tolerance",
+]

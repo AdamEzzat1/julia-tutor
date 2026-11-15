@@ -1,0 +1,15 @@
+id = "57-qft"
+title = "The quantum Fourier transform"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "The QFT as a circuit of Hadamards, controlled phases and swaps, checked against the DFT matrix and against an FFT you write from scratch."
+kcs = ["qft", "fourier-transform"]
+prerequisites = ["56-grover"]
+outline = [
+  "The question: how can n qubits hold a Fourier transform of 2^n numbers?",
+  "The QFT circuit (diagram): Hadamards, controlled phases, the final swaps",
+  "Check: the circuit's unitary equals the DFT matrix for n up to 7",
+  "A radix-2 FFT from scratch as a second, independent reference",
+  "The inverse QFT negates the phases; periodic input gives peaks at multiples of N/r",
+]

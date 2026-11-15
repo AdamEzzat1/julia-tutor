@@ -1,0 +1,15 @@
+id = "60-variational"
+title = "Variational algorithms"
+track = "quantum"
+env = "base"
+status = "planned"
+summary = "Parameter-shift gradients and a small VQE, checked against finite differences and the exact ground-state energy."
+kcs = ["parameter-shift", "vqe"]
+prerequisites = ["59-noise-density-matrices"]
+outline = [
+  "The question: how do you compute the gradient of a circuit you can only run?",
+  "Expectation values of Pauli strings without forming their matrix",
+  "Parameter shift: exact gradients from two shifted runs, against finite differences",
+  "VQE reaches E0 = -sqrt 2 on the test Hamiltonian",
+  "Control: a product-state ansatz without entanglement stays at -1.25",
+]

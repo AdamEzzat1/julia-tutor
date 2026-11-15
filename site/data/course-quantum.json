@@ -1,0 +1,362 @@
+{
+  "course": "quantum",
+  "generated_by": "tutor site-data (do not edit; regenerate)",
+  "julia": "1.10.13",
+  "units": [
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "49-quantum-states",
+      "kcs": [
+        "state-vector",
+        "born-rule"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: how much memory does a 30-qubit state need, and why?",
+        "Amplitudes, normalisation and the Born rule: probabilities are squared magnitudes",
+        "zero_state and basis_state as plain Vector{ComplexF64}, and why no wrapper struct",
+        "Julia is 1-based: the amplitude of |k> lives at psi[k+1]",
+        "Check: every state you build has norm 1 to a stated tolerance"
+      ],
+      "prerequisites": [
+        "06-collections",
+        "20-stdlib-tour"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "A qubit state is a vector of complex amplitudes; n qubits need 2^n of them. Build the zero state and basis states, and read probabilities with the Born rule.",
+      "title": "States as vectors",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "50-qubit-order",
+      "kcs": [
+        "qubit-ordering"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: which index holds the amplitude of |10>, and which qubit is 1?",
+        "Bit q of the basis index is qubit q; the rightmost character is qubit 0",
+        "Diagram: the bit layout of a 3-qubit index, and kron(op_{n-1}, ..., op_0)",
+        "Why this order fits Julia's column-major arrays (reshape gives dimension 1 = qubit 0)",
+        "Textbooks (Nielsen and Chuang) use the opposite order: translating between them",
+        "Check: bitstrings and indices agree with Qiskit's on every basis state of 3 qubits"
+      ],
+      "prerequisites": [
+        "49-quantum-states"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "Little-endian qubit order, as in Qiskit: qubit 0 is the least significant bit and the rightmost character of a bitstring. The source of most simulator bugs.",
+      "title": "Which bit is which qubit",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "51-gates-bloch",
+      "kcs": [
+        "unitary-gates",
+        "bloch-sphere",
+        "born-rule"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: what does a gate do to the point that represents a qubit?",
+        "Pauli, Hadamard, S, T and sqrt(X) matrices; checking U'U = I",
+        "Rotations R_a(theta) = exp(-i theta a/2): the half angle, and why 2 pi gives -I",
+        "Diagram: the Bloch sphere with the six cardinal states",
+        "bloch_vector from the density matrix; global phase is unobservable",
+        "Born-rule sampling, checked against exact probabilities within 5 sigma"
+      ],
+      "prerequisites": [
+        "50-qubit-order"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "Single-qubit gates as 2x2 unitaries, rotations with their half angles, the Bloch vector, and sampling measurement outcomes.",
+      "title": "Gates and the Bloch sphere",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "52-applying-gates",
+      "kcs": [
+        "gate-application",
+        "property-testing"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: a 20-qubit full operator has 2^40 entries; how do you apply a gate without it?",
+        "apply! by strided pairs of amplitudes and bit masks, in place",
+        "full_operator from the definition, and full_operator_kron from textbook Kronecker products",
+        "Property tests: the three agree on random unitaries, qubit subsets and states",
+        "Measured: allocations and time of apply! against the dense product"
+      ],
+      "prerequisites": [
+        "51-gates-bloch"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "Three implementations of the same operation: bit manipulation in place, the element-by-element definition, and Kronecker products, with tests that they agree.",
+      "title": "Applying gates without the big matrix",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "53-entanglement-chsh",
+      "kcs": [
+        "entanglement",
+        "partial-trace",
+        "chsh"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: can two players who cannot talk win a game more often by sharing qubits?",
+        "Bell and GHZ states from H and CNOT; diagram of the circuit",
+        "reduced_density by partial trace, and entropy of one qubit of a Bell pair = 1 bit",
+        "CHSH: brute force over all 16 deterministic classical strategies gives 2",
+        "Quantum S = 2 sqrt 2 exactly and from shots; the sign pattern must match the angles"
+      ],
+      "prerequisites": [
+        "52-applying-gates"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "Bell and GHZ states, reduced density matrices and entanglement entropy, and the CHSH value: 2 for every classical strategy, 2 sqrt 2 for quantum.",
+      "title": "Entanglement and the CHSH game",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "54-measurement-teleportation",
+      "kcs": [
+        "measurement",
+        "teleportation"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: can you move a qubit's state without moving the qubit?",
+        "measure! with collapse and renormalisation; outcome frequencies follow the Born rule",
+        "Teleportation circuit (diagram) and its corrections",
+        "Fidelity 1 over random messages; outcomes 1/4 each",
+        "Control: without the corrections the fidelity drops (measured), so the check can fail",
+        "Deferred measurement: the same circuit with controlled gates instead"
+      ],
+      "prerequisites": [
+        "53-entanglement-chsh"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "Measurement with collapse, teleporting an unknown state with two classical bits, and the deferred-measurement principle.",
+      "title": "Measurement and teleportation",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "55-oracles",
+      "kcs": [
+        "oracles",
+        "phase-kickback"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: how do you tell a constant function from a balanced one with a single query?",
+        "Phase oracles and phase kickback; diagram of the circuit",
+        "Deutsch-Jozsa on all 72 constant or balanced functions on 3 qubits",
+        "Bernstein-Vazirani: every hidden string up to n = 5 in one query"
+      ],
+      "prerequisites": [
+        "54-measurement-teleportation"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "Phase oracles and the first algorithms that beat classical query counts, checked on every function and every hidden string.",
+      "title": "Oracles: Deutsch-Jozsa and Bernstein-Vazirani",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "56-grover",
+      "kcs": [
+        "amplitude-amplification"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: how many oracle calls find one marked item among N?",
+        "Oracle and diffuser as two reflections; diagram of the 2-D rotation picture",
+        "P(success) = sin^2((2k+1) theta) exactly, n = 2 to 8, M = 1 to 3 marked items",
+        "Overshooting: what happens past the optimal number of iterations"
+      ],
+      "prerequisites": [
+        "55-oracles"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "Amplitude amplification as a rotation in a plane, with the success probability checked against sin^2((2k+1) theta) for every iteration count.",
+      "title": "Grover search",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "57-qft",
+      "kcs": [
+        "qft",
+        "fourier-transform"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: how can n qubits hold a Fourier transform of 2^n numbers?",
+        "The QFT circuit (diagram): Hadamards, controlled phases, the final swaps",
+        "Check: the circuit's unitary equals the DFT matrix for n up to 7",
+        "A radix-2 FFT from scratch as a second, independent reference",
+        "The inverse QFT negates the phases; periodic input gives peaks at multiples of N/r"
+      ],
+      "prerequisites": [
+        "56-grover"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "The QFT as a circuit of Hadamards, controlled phases and swaps, checked against the DFT matrix and against an FFT you write from scratch.",
+      "title": "The quantum Fourier transform",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "58-phase-estimation",
+      "kcs": [
+        "phase-estimation"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: how do you read off an eigenvalue of a unitary you can only apply?",
+        "Controlled U^(2^j) and the inverse QFT; diagram of the circuit",
+        "Exact result for dyadic phases; the closed-form distribution otherwise",
+        "The best estimate has probability at least 4/pi^2 (checked)",
+        "A worked catch: Qiskit's phase_estimation bit-reverses its output register"
+      ],
+      "prerequisites": [
+        "57-qft"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "Reading an eigenphase into a register with controlled powers of U and an inverse QFT, checked against the closed-form outcome distribution.",
+      "title": "Phase estimation",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "59-noise-density-matrices",
+      "kcs": [
+        "density-matrix",
+        "kraus-channels",
+        "decoherence"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: how much noise destroys a quantum advantage?",
+        "Density matrices and Kraus channels; K dagger, not K transpose",
+        "Bloch-vector formulas for depolarising, amplitude damping (T1) and dephasing (T2)",
+        "CHSH under depolarising noise: the threshold p = 1 - 1/sqrt 2",
+        "Monte Carlo trajectories agree with the density-matrix result within 5 sigma"
+      ],
+      "prerequisites": [
+        "58-phase-estimation"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "Mixed states, Kraus channels, T1 and T2, and quantum trajectories, with the depolarising level where CHSH stops beating classical.",
+      "title": "Noise and density matrices",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "60-variational",
+      "kcs": [
+        "parameter-shift",
+        "vqe"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: how do you compute the gradient of a circuit you can only run?",
+        "Expectation values of Pauli strings without forming their matrix",
+        "Parameter shift: exact gradients from two shifted runs, against finite differences",
+        "VQE reaches E0 = -sqrt 2 on the test Hamiltonian",
+        "Control: a product-state ansatz without entanglement stays at -1.25"
+      ],
+      "prerequisites": [
+        "59-noise-density-matrices"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "Parameter-shift gradients and a small VQE, checked against finite differences and the exact ground-state energy.",
+      "title": "Variational algorithms",
+      "track": "quantum"
+    },
+    {
+      "course": "quantum",
+      "env": "base",
+      "id": "61-verifying-a-simulator",
+      "kcs": [
+        "verification",
+        "mutation-testing"
+      ],
+      "lessons": [],
+      "outline": [
+        "The question: every test passes; how do you know the simulator is right?",
+        "Layer 1, redundant implementations; layer 2, closed-form theory checks",
+        "Layer 3, an independent reference (Qiskit), compared amplitude by amplitude",
+        "Layer 4, controls that must fail; layer 5, mutation testing with 22 injected bugs",
+        "Case study: a CHSH sign pattern that gave S = 0",
+        "Case study: Qiskit's undocumented bit reversal in phase_estimation",
+        "Case study: a measure! flip that survived until a lopsided test was added"
+      ],
+      "prerequisites": [
+        "60-variational"
+      ],
+      "problems": [],
+      "references": [],
+      "sections": [],
+      "status": "planned",
+      "summary": "Five layers of evidence: redundant implementations, theory checks, an independent reference, controls that must fail, and mutation testing, with three real bugs as case studies.",
+      "title": "How you know a result is not wrong",
+      "track": "quantum"
+    }
+  ]
+}

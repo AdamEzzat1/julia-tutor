@@ -1,0 +1,53 @@
+# Quantum computing from scratch, in plain Julia (standard library only).
+# The learner writes a state-vector simulator (projects/qsim, milestone M9)
+# and checks every algorithm against the theory it implements. Units only
+# need the base env, so the course runs offline in the base image, or as
+# plain processes with `tutor serve --sandbox=none`.
+id = "quantum"
+title = "Quantum computing"
+order = 5
+status = "in-progress"
+status_note = "Its units are being written in batches, then the simulator project and the capstone. The capstone's solution is held back until the site can show it after you submit."
+summary = "Build a quantum simulator from an empty file using only Julia's standard library: states and gates, entanglement, measurement, Deutsch-Jozsa, Grover, the QFT, phase estimation, noise and variational algorithms, each checked against the closed-form result it should reproduce."
+requires = ["core"]
+envs = ["base"]
+units = ["49-quantum-states", "50-qubit-order", "51-gates-bloch", "52-applying-gates", "53-entanglement-chsh",
+         "54-measurement-teleportation", "55-oracles", "56-grover", "57-qft", "58-phase-estimation",
+         "59-noise-density-matrices", "60-variational", "61-verifying-a-simulator"]
+projects = []
+guided = []
+
+[[outcome]]
+text = "Represent n-qubit states and gates as vectors and matrices, and state which bit of an index is which qubit."
+assessed_by = ["49-quantum-states", "50-qubit-order", "51-gates-bloch"]
+
+[[outcome]]
+text = "Apply a gate to a state without forming the full 2^n matrix, and show by test that it agrees with the Kronecker product."
+assessed_by = ["52-applying-gates"]
+planned = ["the qsim simulator project"]
+
+[[outcome]]
+text = "Measure entanglement and show by measurement where quantum correlations exceed every classical strategy."
+assessed_by = ["53-entanglement-chsh", "54-measurement-teleportation"]
+
+[[outcome]]
+text = "Implement Deutsch-Jozsa, Bernstein-Vazirani, Grover, the QFT and phase estimation, each checked against its closed-form result."
+assessed_by = ["55-oracles", "56-grover", "57-qft", "58-phase-estimation"]
+
+[[outcome]]
+text = "Model noise with Kraus channels and density matrices, and find the noise level where a quantum advantage disappears."
+assessed_by = ["59-noise-density-matrices"]
+
+[[outcome]]
+text = "Compute exact gradients of a parameterised circuit and minimise an energy with them."
+assessed_by = ["60-variational"]
+
+[[outcome]]
+text = "Show that a numerical result is not wrong: redundant implementations, theory checks, an independent reference, controls that must fail, and mutation testing."
+assessed_by = ["61-verifying-a-simulator"]
+planned = ["capstone: your own verified simulator, graded by the mutants it kills"]
+
+# The course needs only the base image, the same one Core Julia uses.
+[setup]
+download = "0.20 GiB (the base image, shared with Core Julia); nothing without Docker"
+measured = "compressed image layers, CI run 43035350960 (2026-11-11); docs/SANDBOX_IMAGES.md"
