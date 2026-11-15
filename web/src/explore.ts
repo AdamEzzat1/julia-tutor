@@ -99,7 +99,10 @@ export function ticks(lo: number, hi: number, log: boolean, values: number[]): n
     return u.filter((_, i) => i % step === 0);
   }
   const out: number[] = [];
-  for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) out.push(10 ** e);
+  // Parse "1e<e>" rather than compute 10 ** e: parsing a decimal is correctly
+  // rounded by the spec, but ** is not, and some V8 versions (Node 22) give
+  // 10 ** -4 === 0.00009999999999999999, one bit below 1e-4.
+  for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) out.push(Number(`1e${e}`));
   const step = Math.ceil(out.length / 6);
   return out.filter((_, i) => i % step === 0);
 }
