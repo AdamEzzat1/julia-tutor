@@ -1,0 +1,254 @@
+# Explain fixtures for qsim: realistic buggy student versions, one bug each.
+#
+# Each fixture is the reference with exactly one hole replaced by `body`, at
+# starter `stage`. `tutor fixtures qsim` runs explain on each and writes
+# fixtures/<name>.golden.txt; `--check` re-runs and diffs (verify_all.sh).
+# expect_start: the hole explain's "Start here" must name.
+#
+# Each bug differs from its hole's trivial bodies in holes.toml, so the
+# fixtures cover misconceptions the mutation test does not already name.
+# Avoided on purpose: bugs no test can see, such as swapping Grover's oracle
+# and diffuser (D|s> = ±|s>, so the two orders give the same probabilities)
+# or an inverse QFT that negates the phases without reversing the gates
+# (correct: holes.toml explains why).
+
+[[fixture]]
+name = "basis_state-inclusive-range"
+hole = "basis_state"
+stage = 1
+expect_start = "basis_state"
+misconception = "index-range-off-by-one"
+description = "checks 0 <= k <= 2^n, so k = 2^n reaches the array and throws a BoundsError instead of the documented ArgumentError"
+body = """
+0 ≤ k ≤ 2^n || throw(ArgumentError("basis index $k out of range for $n qubits"))
+ψ = zeros(C64, 2^n)
+ψ[k+1] = 1
+return ψ
+"""
+
+[[fixture]]
+name = "bitstring-unpadded"
+hole = "bitstring"
+stage = 1
+expect_start = "bitstring"
+misconception = "leading-zeros-dropped"
+description = "writes only the significant bits, so |001> on 3 qubits prints as \"1\" and every shorter key is a different Dict key"
+body = """
+return join(((k >> q) & 1 for q in ndigits(k; base = 2)-1:-1:0))
+"""
+
+[[fixture]]
+name = "kron_operator-big-endian-slots"
+hole = "kron_operator"
+stage = 1
+expect_start = "kron_operator"
+misconception = "big-endian-kron"
+description = "I(2^q) ⊗ U ⊗ I(2^(n-1-q)): the textbook big-endian layout, which puts U on qubit n-1-q"
+body = """
+size(U) == (2, 2) || throw(ArgumentError("kron path is for single-qubit gates"))
+return kron(Matrix{C64}(I, 2^q, 2^q), U, Matrix{C64}(I, 2^(n-1-q), 2^(n-1-q)))
+"""
+
+[[fixture]]
+name = "ry-copied-from-rx"
+hole = "ry"
+stage = 1
+expect_start = "ry"
+misconception = "rotation-axis-confusion"
+description = "RY written with RX's -i·sin entries: still unitary, but a rotation about x"
+body = """
+c, s = cos(θ / 2), sin(θ / 2)
+return C64[c -im*s; -im*s c]
+"""
+
+[[fixture]]
+name = "apply_gate-local-order-reversed"
+hole = "apply_gate"
+stage = 1
+expect_start = "apply_gate"
+misconception = "gate-local-bit-order"
+description = "treats qubits[1] as the gate's MOST significant bit: every 1-qubit gate is right, every 2-qubit gate acts with its qubits swapped"
+body = """
+n = nqubits(ψ)
+k = length(qubits)
+size(U) == (2^k, 2^k) || throw(DimensionMismatch("gate is $(size(U)), expected $(2^k)×$(2^k)"))
+allunique(qubits)     || throw(ArgumentError("repeated qubit in $qubits"))
+all(q -> 0 ≤ q < n, qubits) || throw(ArgumentError("qubit out of range in $qubits for n=$n"))
+offsets = zeros(Int, 2^k)
+for j in 0:2^k-1, (pos, q) in enumerate(qubits)
+    if (j >> (k - pos)) & 1 == 1
+        offsets[j+1] |= 1 << q
+    end
+end
+mask = sum(1 << q for q in qubits)
+buf = similar(ψ, 2^k)
+for base in 0:2^n-1
+    base & mask == 0 || continue
+    for j in 1:2^k
+        buf[j] = ψ[base + offsets[j] + 1]
+    end
+    out = U * buf
+    for j in 1:2^k
+        ψ[base + offsets[j] + 1] = out[j]
+    end
+end
+return ψ
+"""
+
+[[fixture]]
+name = "apply_controlled-first-control-only"
+hole = "apply_controlled"
+stage = 2
+expect_start = "apply_controlled"
+misconception = "one-control-is-enough"
+description = "places U where the FIRST control is 1: right for one control, wrong for a Toffoli"
+body = """
+k_t, k_c = length(targets), length(controls)
+d = 2^(k_t + k_c)
+CU = Matrix{C64}(I, d, d)
+lo = 2^k_t
+CU[lo+1:lo+2^k_t, lo+1:lo+2^k_t] = U
+return apply!(ψ, CU, vcat(targets, controls))
+"""
+
+[[fixture]]
+name = "partial_trace-wrong-side"
+hole = "partial_trace"
+stage = 2
+expect_start = "partial_trace"
+misconception = "trace-over-the-wrong-factor"
+description = "M' * M instead of M * M': the reduced state of the qubits that should have been traced out"
+body = """
+n = nqubits(ψ)
+rest = [q for q in 0:n-1 if q ∉ keep]
+A = reshape(ψ, ntuple(_ -> 2, n))
+A = permutedims(A, vcat(keep, rest) .+ 1)
+M = reshape(A, 2^length(keep), :)::Matrix{eltype(ψ)}
+return M' * M
+"""
+
+[[fixture]]
+name = "bloch-zero-at-south-pole"
+hole = "bloch"
+stage = 2
+expect_start = "bloch"
+misconception = "bloch-z-sign"
+description = "negates z, putting |0> at the south pole: x and y are right, so only z-checks fail"
+body = """
+return real.([tr(ρ * X), tr(ρ * Y), -tr(ρ * Z)])
+"""
+
+[[fixture]]
+name = "sample_counts-one-based-outcome"
+hole = "sample_counts"
+stage = 2
+expect_start = "sample_counts"
+misconception = "one-based-indexing"
+description = "forgets the -1 after searchsortedfirst, so every outcome k is reported as k+1"
+body = """
+n = nqubits(ψ)
+cdf = cumsum(probabilities(ψ))
+cdf ./= cdf[end]
+counts = Dict{String,Int}()
+for _ in 1:shots
+    k = searchsortedfirst(cdf, rand(rng))
+    key = bitstring_of(k, n)
+    counts[key] = get(counts, key, 0) + 1
+end
+return counts
+"""
+
+[[fixture]]
+name = "measure_qubit-no-collapse"
+hole = "measure_qubit"
+stage = 2
+expect_start = "measure_qubit"
+misconception = "measurement-does-not-disturb"
+description = "draws the outcome with the right probability but leaves ψ unchanged"
+body = """
+p1 = sum(abs2(ψ[k+1]) for k in 0:length(ψ)-1 if (k >> q) & 1 == 1; init=0.0)
+return rand(rng) < p1 ? 1 : 0
+"""
+
+[[fixture]]
+name = "kraus-first-operator-only"
+hole = "kraus"
+stage = 3
+expect_start = "kraus"
+misconception = "a-channel-is-one-operator"
+description = "applies only the first Kraus operator, so the channel loses trace"
+body = """
+n = nqubits(view(ρ, :, 1))
+isapprox(sum(K' * K for K in kraus), I2, atol=1e-12) ||
+    throw(ArgumentError("Kraus operators are not trace preserving"))
+Kf = full_operator(kraus[1], [q], n)
+return Kf * ρ * Kf'
+"""
+
+[[fixture]]
+name = "grover-no-superposition"
+hole = "grover"
+stage = 3
+expect_start = "grover"
+misconception = "oracle-makes-the-superposition"
+description = "starts the iterations from |0...0> instead of the uniform superposition"
+body = """
+c = Circuit(n)
+for _ in 1:k
+    for w in marked; _flip_basis_state!(c, w); end
+    for q in 0:n-1; add!(c, :h, q); end
+    _flip_basis_state!(c, 0)
+    for q in 0:n-1; add!(c, :h, q); end
+end
+return c
+"""
+
+[[fixture]]
+name = "qft-phases-before-hadamard"
+hole = "qft"
+stage = 3
+expect_start = "qft"
+misconception = "gate-order-within-a-qubit"
+description = "applies each qubit's controlled phases before its Hadamard instead of after"
+body = """
+m = length(qubits)
+for j in m:-1:1
+    for k in j-1:-1:1
+        add!(c, :cp, qubits[k], qubits[j]; λ = π / 2^(j - k))
+    end
+    add!(c, :h, qubits[j])
+end
+for i in 1:m÷2
+    add!(c, :swap, qubits[i], qubits[m+1-i])
+end
+return c
+"""
+
+[[fixture]]
+name = "iqft-reversed-qubits"
+hole = "iqft"
+stage = 3
+expect_start = "iqft"
+misconception = "reversing-qubits-inverts"
+description = "the QFT on the qubits in reverse order: that conjugates the QFT by a bit reversal, it does not invert it"
+body = """
+return qft!(c, reverse(qubits))
+"""
+
+[[fixture]]
+name = "qpe-forward-qft"
+hole = "qpe"
+stage = 3
+expect_start = "qpe"
+misconception = "readout-uses-the-qft"
+description = "reads out with the QFT instead of its inverse, so φ·2^t comes out as -φ·2^t mod 2^t"
+body = """
+c = Circuit(t + 1)
+add!(c, :x, t)
+for j in 0:t-1
+    add!(c, :h, j)
+    add!(c, :cp, j, t; λ = 2π * φ * 2^j)
+end
+qft!(c, collect(0:t-1))
+return c
+"""

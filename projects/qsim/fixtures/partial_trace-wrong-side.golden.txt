@@ -1,0 +1,58 @@
+== tutor explain: qsim, stage 2 ==
+
+Start here: hole `partial_trace` at src/QSim.jl:488
+  why: 11 of the 11 failing testsets depend on it (Ochiai 0.96); 1 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: partial-trace.
+
+Tests: 35/46 testsets pass
+  FAIL QSim/partial trace and Bloch vectors  [250 failed, 0 errored; depends on: bloch, partial_trace]
+       test/runtests.jl:289 FAIL reduced_density(ψ, 0) ≈ a * a'  evaluated: ComplexF64[0.70525503 + 0.0im 0.38871221 + 0.23827124312512027im; 0.38871221 - 0.23827124312512027im 0.29474497 + 0.0im] ≈ ComplexF64[0.62138439 + 0.0im -0.019078987 - 0.48466671197563854im; -0.019078987 + 0.48466671197563854im 0.37861561…
+       test/runtests.jl:290 FAIL reduced_density(ψ, 1) ≈ b * b'  evaluated: ComplexF64[0.62138439 + 0.0im -0.019078987 + 0.4846667119756387im; -0.019078987 - 0.4846667119756387im 0.37861561 + 0.0im] ≈ ComplexF64[0.70525503 + 0.0im 0.38871221 - 0.23827124312512016im; 0.38871221 + 0.23827124312512016im 0.29474497…
+  FAIL QSim/measurement: sampler is statistically correct (chi-square)  [0 failed, 100 errored; depends on: apply_gate, bitstring, bloch, measure_qubit, partial_trace, ry, sample_counts]
+       test/runtests.jl:336 ERROR DimensionMismatch("A has dimensions (4,4) but B has dimensions (2,2)")
+       test/runtests.jl:336 ERROR DimensionMismatch("A has dimensions (4,4) but B has dimensions (2,2)")
+  FAIL QSim/lesson 1: one qubit, gates, the Bloch sphere/Bloch vectors of the six cardinal states  [0 failed, 6 errored; depends on: apply_gate, bloch, partial_trace]
+       test/runtests.jl:387 ERROR DimensionMismatch("A has dimensions (1,1) but B has dimensions (2,2)")
+       test/runtests.jl:387 ERROR DimensionMismatch("A has dimensions (1,1) but B has dimensions (2,2)")
+  FAIL QSim/lesson 1: one qubit, gates, the Bloch sphere/rotations rotate the Bloch vector by the stated angle  [0 failed, 5 errored; depends on: apply_gate, bloch, partial_trace, ry]
+       test/runtests.jl:398 ERROR DimensionMismatch("A has dimensions (1,1) but B has dimensions (2,2)")
+       test/runtests.jl:398 ERROR DimensionMismatch("A has dimensions (1,1) but B has dimensions (2,2)")
+  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/GHZ states on 3-6 qubits  [0 failed, 4 errored; depends on: apply_gate, bloch, partial_trace]
+       test/runtests.jl:461 ERROR DimensionMismatch("A has dimensions (4,4) but B has dimensions (2,2)")
+       test/runtests.jl:461 ERROR DimensionMismatch("A has dimensions (8,8) but B has dimensions (2,2)")
+  FAIL QSim/lesson 3: teleportation/with mid-circuit measurement  [0 failed, 1 errored; depends on: apply_gate, measure_qubit, partial_trace]
+       test/runtests.jl:467 ERROR DimensionMismatch("second dimension of A, 4, does not match length of x, 2")
+  FAIL QSim/lesson 3: teleportation/control: skipping Bob's corrections must fail  [0 failed, 1 errored; depends on: apply_gate, measure_qubit, partial_trace]
+       test/runtests.jl:485 ERROR DimensionMismatch("second dimension of A, 4, does not match length of x, 2")
+  FAIL QSim/lesson 3: teleportation/deferred-measurement version  [0 failed, 1 errored; depends on: apply_gate, partial_trace]
+       test/runtests.jl:497 ERROR DimensionMismatch("dimensions must match: a has dims (Base.OneTo(4), Base.OneTo(4)), b has dims (Base.OneTo(2), Base.OneTo(2)), mismatch at 1")
+  FAIL QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty  [5 failed, 0 errored; depends on: apply_gate, partial_trace]
+       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))
+       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))
+  FAIL QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form  [0 failed, 9 errored; depends on: apply_gate, partial_trace]
+       test/runtests.jl:604 ERROR DimensionMismatch("dimensions must match: a has dims (Base.OneTo(2),), b has dims (Base.OneTo(8),), mismatch at 1")
+       test/runtests.jl:604 ERROR DimensionMismatch("dimensions must match: a has dims (Base.OneTo(2),), b has dims (Base.OneTo(8),), mismatch at 1")
+  FAIL QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate  [1 failed, 0 errored; depends on: apply_gate, partial_trace]
+       test/runtests.jl:610 FAIL all((errs[i] ≤ 1 / 2 ^ (i + 2) + 1.0e-12 for i = eachindex(errs)))
+
+Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
+  1. partial_trace      0.96  implemented  failing-deps=11 passing-deps=1  src/QSim.jl:488
+  2. bloch              0.57  implemented  failing-deps=5 passing-deps=2  src/QSim.jl:507
+  3. measure_qubit      0.52  implemented  failing-deps=3 passing-deps=0  src/QSim.jl:458
+  4. apply_gate         0.51  implemented  failing-deps=10 passing-deps=25  src/QSim.jl:182
+  5. ry                 0.19  implemented  failing-deps=2 passing-deps=8  src/QSim.jl:129
+  6. sample_counts      0.15  implemented  failing-deps=1 passing-deps=3  src/QSim.jl:436
+  7. bitstring          0.13  implemented  failing-deps=1 passing-deps=4  src/QSim.jl:423
+  8. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86
+  9. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253
+  10. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)
+  allocations apply!(H, qubit 3 of 10): 517  (reference 517)
+  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)
+  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)
+  JET: not used by this project's measurements

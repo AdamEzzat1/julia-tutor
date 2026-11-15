@@ -1,0 +1,31 @@
+== tutor explain: qsim, stage 1 ==
+
+Start here: hole `bitstring` at src/QSim.jl:423
+  why: 3 of the 3 failing testsets depend on it (Ochiai 0.77); 2 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: little-endian-order.
+
+Tests: 43/46 testsets pass
+  FAIL QSim/basics/bit strings  [2 failed, 0 errored; depends on: bitstring]
+       test/runtests.jl:202 FAIL bitstring_of(1, 4) == "0001"  evaluated: "1" == "0001"
+       test/runtests.jl:203 FAIL bitstring_of(0, 3) == "000"  evaluated: "0" == "000"
+  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/half of a Bell pair is maximally mixed  [1 failed, 0 errored; depends on: apply_gate, bitstring]
+       test/runtests.jl:432 FAIL Set(keys(counts)) ⊆ Set(["00", "11"])  evaluated: Set(["0", "11"]) ⊆ Set(["00", "11"])
+  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/CHSH: classical bound 2 vs quantum 2√2  [1 failed, 0 errored; depends on: apply_gate, bitstring, ry]
+       test/runtests.jl:452 FAIL abs(S_sampled - 2 * √2) < 5σS && S_sampled > 2 + 5σS
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. bitstring          0.77  implemented  failing-deps=3 passing-deps=2  src/QSim.jl:423
+  2. apply_gate         0.2   implemented  failing-deps=2 passing-deps=33  src/QSim.jl:182
+  3. ry                 0.18  implemented  failing-deps=1 passing-deps=9  src/QSim.jl:129
+  4. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86
+  5. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)
+  allocations apply!(H, qubit 3 of 10): 517  (reference 517)
+  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)
+  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)
+  JET: not used by this project's measurements

@@ -429,7 +429,7 @@
         "base"
       ],
       "estimate": {
-        "basis": "30–60 min per ready unit (0), 10–25 min per practice problem (0), 2–4 h per guided project (0), 4–8 h per hole project (0); guessed rates, not measured",
+        "basis": "no estimate until a unit is published; it will count 30–60 min per ready unit (0), 10–25 min per practice problem (0), 2–4 h per guided project (0), 4–8 h per hole project (1); guessed rates, not measured",
         "high_hours": 0,
         "low_hours": 0
       },
@@ -448,11 +448,10 @@
         },
         {
           "assessed_by": [
-            "52-applying-gates"
+            "52-applying-gates",
+            "project:qsim"
           ],
-          "planned": [
-            "the qsim simulator project"
-          ],
+          "planned": [],
           "text": "Apply a gate to a state without forming the full 2^n matrix, and show by test that it agrees with the Kronecker product."
         },
         {
@@ -468,14 +467,16 @@
             "55-oracles",
             "56-grover",
             "57-qft",
-            "58-phase-estimation"
+            "58-phase-estimation",
+            "project:qsim"
           ],
           "planned": [],
           "text": "Implement Deutsch-Jozsa, Bernstein-Vazirani, Grover, the QFT and phase estimation, each checked against its closed-form result."
         },
         {
           "assessed_by": [
-            "59-noise-density-matrices"
+            "59-noise-density-matrices",
+            "project:qsim"
           ],
           "planned": [],
           "text": "Model noise with Kraus channels and density matrices, and find the noise level where a quantum advantage disappears."
@@ -498,7 +499,9 @@
         }
       ],
       "problems": 0,
-      "projects": [],
+      "projects": [
+        "qsim"
+      ],
       "requires": [
         "core"
       ],
@@ -507,7 +510,7 @@
         "measured": "compressed image layers, CI run 43035350960 (2026-11-11); docs/SANDBOX_IMAGES.md"
       },
       "status": "in-progress",
-      "status_note": "Its units are being written in batches, then the simulator project and the capstone. The capstone's solution is held back until the site can show it after you submit.",
+      "status_note": "Its units are being written in batches; the simulator project is built, the capstone comes last. The capstone's solution is held back until the site can show it after you submit.",
       "summary": "Build a quantum simulator from an empty file using only Julia's standard library: states and gates, entanglement, measurement, Deutsch-Jozsa, Grover, the QFT, phase estimation, noise and variational algorithms, each checked against the closed-form result it should reproduce.",
       "title": "Quantum computing",
       "units": [

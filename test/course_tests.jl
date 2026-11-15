@@ -135,6 +135,10 @@ end
     _, um = Course.state_by_course(Dict("holes" => Dict("no-such-project/apply_gate" => Dict())), Dict(),
                                    Course.load_courses(), Course.load_course())
     @test um == ["holes/no-such-project/apply_gate"]
+    # qsim's hole attempts belong to the quantum course
+    byq, umq = Course.state_by_course(Dict("holes" => Dict("qsim/apply_gate" => Dict())), Dict(),
+                                      Course.load_courses(), Course.load_course())
+    @test umq == String[] && byq["quantum"] == ["holes/qsim/apply_gate"]
 end
 
 P_with(; compare = "isequal", checker = "", packages = String[]) =

@@ -1,0 +1,54 @@
+== tutor explain: qsim, stage 3 ==
+
+Start here: hole `qft` at src/Algorithms.jl:42
+  why: 7 of the 7 failing testsets depend on it (Ochiai 0.94); 1 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: qft-circuit.
+
+Tests: 39/46 testsets pass
+  FAIL QSim/algorithms (structural)  [5 failed, 0 errored; depends on: apply_gate, basis_state, qft]
+       test/runtests.jl:355 FAIL circuit_unitary(qft_circuit(n)) ≈ [cis(((2π) * x * y) / N) for y = 0:N - 1, x = 0:N - 1] / √N  evaluated: ComplexF64[0.5 + 0.0im 0.5 + 0.0im 0.5 + 0.0im 3.061617e-17 + 0.4999999999999999im; 0.5 + 0.0im 0.5 + 0.0im -0.5 + 0.0im -3.061617e-17 - 0.4999999999999999im; 0.5 + 0.0im -0.4…
+       test/runtests.jl:355 FAIL circuit_unitary(qft_circuit(n)) ≈ [cis(((2π) * x * y) / N) for y = 0:N - 1, x = 0:N - 1] / √N  evaluated: ComplexF64[0.35355339 + 0.0im 0.35355339 + 0.0im … 2.1648901e-17 + 0.3535533905932737im -0.25 - 0.2499999999999999im; 0.35355339 + 0.0im 0.35355339 + 0.0im … -2.1648901e-17 - 0.3535533905932737im 0.25 + 0.25…
+  FAIL QSim/lesson 6: the quantum Fourier transform/the circuit's unitary is exactly the DFT matrix  [6 failed, 0 errored; depends on: apply_gate, basis_state, qft]
+       test/runtests.jl:565 FAIL maximum(abs.(circuit_unitary(qft_circuit(n)) - dft_matrix(2 ^ n))) < 1.0e-12  evaluated: 0.70710678 < 1.0e-12
+       test/runtests.jl:565 FAIL maximum(abs.(circuit_unitary(qft_circuit(n)) - dft_matrix(2 ^ n))) < 1.0e-12  evaluated: 0.65328148 < 1.0e-12
+  FAIL QSim/lesson 6: the quantum Fourier transform/agreement with an independent classical FFT  [2 failed, 0 errored; depends on: apply_gate, qft]
+       test/runtests.jl:578 FAIL isapprox(run_circuit(qft_circuit(n), v), fft_plus(v), atol = 1.0e-12)  evaluated: isapprox(ComplexF64[0.23792122 + 0.04642141587971458im, -0.038929883 + 0.22486930394121524im, -0.027438684 - 0.10048869215609775im, 0.018195814 + 0.049609840462098764im, -0.010469149 + 0.08732901201838264im, 0.46188796 - 0.035838162083052516im, 0.2…
+       test/runtests.jl:578 FAIL isapprox(run_circuit(qft_circuit(n), v), fft_plus(v), atol = 1.0e-12)  evaluated: isapprox(ComplexF64[-0.0093233707 - 0.02532459006458445im, 0.065982333 - 0.012133517041414098im, -0.13754944 - 0.011892169790483773im, 0.031297033 - 0.032604687516955im, -0.1066349 - 0.022542374825091718im, 0.035657694 + 0.023925508966690226im, 0.00…
+  FAIL QSim/lesson 6: the quantum Fourier transform/periodic input gives peaks at multiples of N/r  [2 failed, 0 errored; depends on: apply_gate, qft]
+       test/runtests.jl:587 FAIL peaks == collect(0:N ÷ r:N - 1)  evaluated: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9  …  54, 55, 56, 57, 58, 59, 60, 61, 62, 63] == [0, 8, 16, 24, 32, 40, 48, 56]
+       test/runtests.jl:588 FAIL all((isapprox(p[y + 1], 1 / r, atol = 1.0e-12) for y = peaks))
+  FAIL QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty  [5 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]
+       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))
+       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))
+  FAIL QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form  [9 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]
+       test/runtests.jl:604 FAIL maximum(abs.(d - qpe_formula(t, φ))) < 1.0e-12 && d[ybest + 1] ≥ 4 / π ^ 2 - 1.0e-12
+       test/runtests.jl:604 FAIL maximum(abs.(d - qpe_formula(t, φ))) < 1.0e-12 && d[ybest + 1] ≥ 4 / π ^ 2 - 1.0e-12
+  FAIL QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate  [1 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]
+       test/runtests.jl:610 FAIL all((errs[i] ≤ 1 / 2 ^ (i + 2) + 1.0e-12 for i = eachindex(errs)))
+
+Holes at stage 3 (ranked by Ochiai over the measured test-to-hole map):
+  1. qft                0.94  implemented  failing-deps=7 passing-deps=1  src/Algorithms.jl:42
+  2. qpe                0.65  implemented  failing-deps=3 passing-deps=0  src/Algorithms.jl:142
+  3. iqft               0.57  implemented  failing-deps=3 passing-deps=1  src/Algorithms.jl:63
+  4. apply_gate         0.45  implemented  failing-deps=7 passing-deps=28  src/QSim.jl:182
+  5. partial_trace      0.33  implemented  failing-deps=3 passing-deps=9  src/QSim.jl:488
+  6. basis_state        0.31  implemented  failing-deps=2 passing-deps=4  src/QSim.jl:86
+  7. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:423
+  8. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253
+  9. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129
+  10. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224
+  11. bloch              0.0   implemented  failing-deps=0 passing-deps=7  src/QSim.jl:511
+  12. sample_counts      0.0   implemented  failing-deps=0 passing-deps=4  src/QSim.jl:436
+  13. measure_qubit      0.0   implemented  failing-deps=0 passing-deps=3  src/QSim.jl:458
+  14. kraus              0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:527
+  15. grover             0.0   implemented  failing-deps=0 passing-deps=3  src/Algorithms.jl:101
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)
+  allocations apply!(H, qubit 3 of 10): 517  (reference 517)
+  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)
+  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)
+  JET: not used by this project's measurements

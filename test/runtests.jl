@@ -309,6 +309,28 @@ end
     end
 end
 
+@testset "holemap: seeded mutants (mutants.toml)" begin
+    @test HoleMap.load_seeded(SYMDIFF) == HoleMap.Seeded[]            # optional file
+    qsim = Scaffold.load_project(joinpath(ROOT, "projects", "qsim"))
+    ms = HoleMap.load_seeded(qsim)
+    @test length(ms) == 22
+    @test allunique(m.id for m in ms)
+    # every anchor occurs exactly once, and applying it really changes the file
+    for m in ms
+        dir = HoleMap.materialize_seeded(qsim, m)
+        src = read(joinpath(dir, "src", m.file), String)
+        rm(dir; recursive = true)
+        @test occursin(m.replace, src)
+        @test m.find != m.replace
+    end
+    missing_anchor = HoleMap.Seeded("x", "", "QSim.jl", "no such text anywhere", "y")
+    @test_throws ErrorException HoleMap.materialize_seeded(qsim, missing_anchor)
+    twice = HoleMap.Seeded("x", "", "QSim.jl", "function ", "y")      # occurs many times
+    err = try HoleMap.materialize_seeded(qsim, twice); "" catch e; sprint(showerror, e) end
+    @test occursin("must be once", err)
+    @test_throws ErrorException HoleMap.materialize_seeded(qsim, HoleMap.Seeded("x", "", "Nope.jl", "a", "b"))
+end
+
 @testset "holemap: the stage fill check (pure)" begin
     hs = [Scaffold.HoleSpec("a", 1, "kc", "src/P.jl", "", ["0"]),
           Scaffold.HoleSpec("b", 2, "kc", "src/P.jl", "", ["0"])]
