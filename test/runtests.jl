@@ -309,6 +309,27 @@ end
     end
 end
 
+@testset "holemap: the stage fill check (pure)" begin
+    hs = [Scaffold.HoleSpec("a", 1, "kc", "src/P.jl", "", ["0"]),
+          Scaffold.HoleSpec("b", 2, "kc", "src/P.jl", "", ["0"])]
+    p = Scaffold.ProjectSpec("p", "", "P", [1, 2], hs)
+    deps = Dict{String,Any}("a" => ["P/t1"], "b" => ["P/t2"])
+    ts(name, holes; ok = false) = Runner.TestsetResult(name, ok ? 1 : 0, 0, ok ? 0 : 1, ok ? 0 : length(holes),
+                                                      ok ? String[] : ["boom"], holes)
+    rep(t...; crash = "") = Runner.TestReport(collect(t), crash, false, "")
+    # stage 1 opens only `a`: failing t1 at a is fine
+    @test HoleMap.stage_problems(p, 1, rep(ts("P/t1", ["a"]), ts("P/t2", String[]; ok = true)), deps) == String[]
+    # stage 1 reaching `b` (opened only at stage 2) is a problem
+    @test any(contains("does not open"), HoleMap.stage_problems(p, 1, rep(ts("P/t1", ["a", "b"])), deps))
+    # a failing testset that reaches no hole
+    @test any(contains("without reaching a hole"), HoleMap.stage_problems(p, 2, rep(ts("P/t1", String[])), deps))
+    # a failure the map does not predict (t2 depends only on b; stage 1 opens a)
+    @test any(contains("no opened hole's map predicts"), HoleMap.stage_problems(p, 1, rep(ts("P/t2", ["a"])), deps))
+    # stage 2 opens both: both failures predicted
+    @test HoleMap.stage_problems(p, 2, rep(ts("P/t1", ["a"]), ts("P/t2", ["b"])), deps) == String[]
+    @test any(contains("crashes"), HoleMap.stage_problems(p, 1, rep(; crash = "LoadError"), deps))
+end
+
 if !FAST
     @testset "lessons: answer keys verified on the pinned Julia" begin
         @test Lessons.verify_lessons(Lessons.load_lessons(); log = devnull) == String[]

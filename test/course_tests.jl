@@ -99,11 +99,14 @@ end
     @test hi == ceil(Int, nready * r.unit[2] + nprob * r.problem[2] + length(core.projects) * r.project[2])
     @test 0 < lo < hi
     @test occursin("($nready)", basis) && occursin("($nprob)", basis) && endswith(basis, "not measured")
-    # planned units count for nothing: a course of planned units only estimates 0
+    # planned units count for nothing: a course of planned units only estimates 0,
+    # even when it lists a project (a project alone would understate the course)
     planned_only = [Course.Unit(u.id, u.title, u.track, u.env, "planned", u.summary, u.kcs, u.prerequisites,
                                 u.outline, u.lessons, u.sections, u.problems) for u in units]
-    @test Course.time_estimate(C(core; guided = String[]), planned_only)[1:2] == (floor(Int, length(core.projects) * r.project[1]),
-                                                                                  ceil(Int, length(core.projects) * r.project[2]))
+    @test !isempty(core.projects)
+    lo0, hi0, basis0 = Course.time_estimate(C(core; guided = String[]), planned_only)
+    @test (lo0, hi0) == (0, 0)
+    @test startswith(basis0, "no estimate until a unit is published") && endswith(basis0, "not measured")
     # a prerequisite cycle, even one the file order would not show
     cyc = setpre("01-first-steps", ["03-strings"])
     @test Course.prereq_cycle(cyc) == ["01-first-steps", "03-strings", "01-first-steps"]
@@ -129,9 +132,9 @@ end
     @test by["science"] == ["guided/epidemic:C:/Users/learner/work/epidemic", "guided/tidy:/home/learner/tidy"]
     @test isempty(by["scicomp"]) && isempty(by["sciml"])
     # an entry for something no course has is reported, never dropped silently
-    _, um = Course.state_by_course(Dict("holes" => Dict("qsim/apply_gate" => Dict())), Dict(),
+    _, um = Course.state_by_course(Dict("holes" => Dict("no-such-project/apply_gate" => Dict())), Dict(),
                                    Course.load_courses(), Course.load_course())
-    @test um == ["holes/qsim/apply_gate"]
+    @test um == ["holes/no-such-project/apply_gate"]
 end
 
 P_with(; compare = "isequal", checker = "", packages = String[]) =

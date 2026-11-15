@@ -867,6 +867,7 @@ A course's time estimate from its counts: ready units, their practice
 problems, guided projects and hole projects, at `ESTIMATE_RATES`. Returns
 (low hours, high hours, basis), rounded out to whole hours; the basis says
 what was counted and at what rate, so the number can be checked by hand.
+A course with no ready unit estimates (0, 0), whatever projects it lists.
 """
 function time_estimate(c::CourseInfo, units::Vector{Unit})
     byid = Dict(u.id => u for u in units)
@@ -882,6 +883,9 @@ function time_estimate(c::CourseInfo, units::Vector{Unit})
             "$(Int(r.guided[1]))–$(Int(r.guided[2])) h per guided project ($(n.guided)), " *
             "$(Int(r.project[1]))–$(Int(r.project[2])) h per hole project ($(n.project)); " *
             "guessed rates, not measured"
+    # Before any unit is published there is no course to time: a project
+    # alone (a course's last part) would understate it, so no number at all.
+    isempty(ready) && return 0, 0, "no estimate until a unit is published; it will count " * basis
     return floor(Int, low), ceil(Int, high), basis
 end
 
