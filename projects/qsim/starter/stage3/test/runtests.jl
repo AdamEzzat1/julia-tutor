@@ -189,11 +189,19 @@ end
 @testset "basics" begin
     @test nqubits(zero_state(5)) == 5
     @test_throws ArgumentError nqubits(zeros(ComplexF64, 6))
-    @test basis_state(3, 0b110)[7] == 1
-    @test basis_state(2, 0) == ComplexF64[1, 0, 0, 0]
-    @test_throws ArgumentError basis_state(2, 4)
-    @test bitstring_of(6, 3) == "110"          # qubit 0 is the RIGHTMOST char
-    @test bitstring_of(1, 4) == "0001"
+    # Separate testsets so a failure names one hole: the test-to-hole map is
+    # per testset, and a shared one cannot tell basis_state from bitstring_of.
+    @testset "basis states" begin
+        @test basis_state(3, 0b110)[7] == 1
+        @test basis_state(2, 0) == ComplexF64[1, 0, 0, 0]
+        @test_throws ArgumentError basis_state(2, 4)
+        @test_throws ArgumentError basis_state(2, -1)
+    end
+    @testset "bit strings" begin
+        @test bitstring_of(6, 3) == "110"          # qubit 0 is the RIGHTMOST char
+        @test bitstring_of(1, 4) == "0001"
+        @test bitstring_of(0, 3) == "000"
+    end
 end
 
 @testset "all fixed and parametrised gates are unitary" begin
