@@ -728,6 +728,48 @@ end
 const PERF_VERDICTS = ("slow", "fast", "scaling")
 const PERF_RETRIES = 2
 
+# How far past its threshold a timed verdict may land in `verify` (only there:
+# learners are graded on the thresholds themselves). Each retry is a fresh
+# process, so random noise passes on a retry; what survives all of them is the
+# machine (CPU model, cache sizes, where the code lands in memory). On CI
+# (2026-11-14) the reference timed against an identical copy missed `fast` in
+# three runs in a row, and a strided loop measured 8.4-10.8x locally missed
+# `slow` (> 5x). The margin is calibrated, not derived: it keeps the direction
+# of every claim (faster than 2.6x of an identical copy, more than 3.3x slower)
+# while tolerating that machine spread.
+const VERIFY_MARGIN = 1.5
+
+"""
+    perf_near_miss(verdict, perf) -> Union{Nothing,String}
+
+For a timed `verdict` ("fast", "slow", "scaling") that `assess` did not give,
+a note when the measurement in `perf` (a graded result's "performance") is
+still on the right side of its threshold within `VERIFY_MARGIN`, else
+`nothing` (a real miss). Pure, so it is tested without running anything.
+"""
+function perf_near_miss(verdict::AbstractString, perf)
+    perf isa AbstractDict && haskey(perf, "ratio") || return nothing
+    r = perf["ratio"]
+    f(x) = string(round(x; digits = 2))
+    if verdict == "fast"
+        lim = PAR * VERIFY_MARGIN
+        r <= lim && return "'fast' needs a time ratio <= $(f(PAR)), measured $(f(r)) (within the verify margin, <= $(f(lim)))"
+    elseif verdict == "slow"
+        lim = SLOWER / VERIFY_MARGIN
+        r > lim && return "'slow' needs a time ratio > $(f(SLOWER)), measured $(f(r)) (within the verify margin, > $(f(lim)))"
+    elseif verdict == "scaling"
+        gap = perf["growth_sub"] - perf["growth_ref"]
+        glim = GROWTH_GAP / VERIFY_MARGIN; rlim = 2 / VERIFY_MARGIN
+        gap > glim && r > rlim &&
+            return "'scaling' needs a growth gap > $(f(GROWTH_GAP)) and a ratio > 2, measured $(f(gap)) and $(f(r)) " *
+                   "(within the verify margin, > $(f(glim)) and > $(f(rlim)))"
+    end
+    return nothing
+end
+
+ratio_note(r) = (perf = get(r, "performance", nothing);
+                 perf isa AbstractDict && haskey(perf, "ratio") ? "  ratio " * string(round(perf["ratio"]; digits = 2)) : "")
+
 """
 Check a unit against its recorded outputs and run the grader's own tests.
 Returns a list of problems (empty = verified).
@@ -774,7 +816,7 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
         # compete for the CPU. Each run is still self-relative (learner vs reference).
         for (label, code, expect) in jobs
             r = grade(p, code; env = u.env)
-            println(log, "  ", rpad(p.id * "/" * label, 46), "  ", r["status"], "  ", join(r["verdicts"], ","))
+            println(log, "  ", rpad(p.id * "/" * label, 46), "  ", r["status"], "  ", join(r["verdicts"], ","), ratio_note(r))
             # Speed verdicts are measurements; on a shared machine one can miss
             # its threshold by noise. Re-measure up to PERF_RETRIES times before
             # reporting; correctness verdicts are never retried.
@@ -784,13 +826,22 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
                 "correct" in r["verdicts"] || break   # wrong or crashed: nothing was timed
                 r = grade(p, code; env = u.env)
                 println(log, "  ", rpad(p.id * "/" * label, 46), "  ", r["status"], "  ", join(r["verdicts"], ","),
-                        "  (re-measured: '", join(missing_perf, "', '"), "' was missing)")
+                        ratio_note(r), "  (re-measured: '", join(missing_perf, "', '"), "' was missing)")
             end
             label == "starter" && r["status"] == "passed" &&
                 push!(problems, "$(p.id): the starter already passes (the problem is trivial)")
             r["status"] == "internal-error" && push!(problems, "$(p.id): $(r["feedback"][1]["detail"])")
             for x in expect
-                x in r["verdicts"] || push!(problems, "$(p.id)/$label: expected verdict '$x', got [$(join(r["verdicts"], ", "))]")
+                x in r["verdicts"] && continue
+                note = x in PERF_VERDICTS && "correct" in r["verdicts"] ? perf_near_miss(x, get(r, "performance", nothing)) : nothing
+                if note === nothing
+                    push!(problems, "$(p.id)/$label: expected verdict '$x', got [$(join(r["verdicts"], ", "))]")
+                else
+                    # Accepted, but never silently: logged, and a CI annotation on GitHub.
+                    msg = "$(p.id)/$label: near its threshold after $(PERF_RETRIES + 1) measurements: $note"
+                    println(log, "  NEAR: ", msg)
+                    get(ENV, "GITHUB_ACTIONS", "") == "true" && println(log, "::warning title=timed verdict near threshold::", msg)
+                end
             end
         end
     end
