@@ -141,6 +141,19 @@ function Setup({ c }: { c: CourseInfo }) {
       <p className="jt-muted" style={{ margin: "0.3rem 0" }}>On Windows, <code>.\tutor.ps1</code> instead of <code>./tutor</code>.</p>
       <p style={{ margin: "0.3rem 0 0" }}>Download: {c.setup.download}.</p>
       <p className="jt-muted" style={{ margin: "0 0 0.3rem" }}>Measured: {c.setup.measured}.</p>
+      {c.envs.length === 1 && c.envs[0] === "base" && (
+        <>
+          <p style={{ margin: "0.6rem 0 0.3rem" }}>
+            Without Docker: this course uses only Julia&apos;s standard library, so it also runs as plain processes,
+            with nothing to download beyond Julia itself:
+          </p>
+          <pre className="jt-code" aria-label="Shell command"><code style={{ all: "unset" }}>{`./tutor serve --course=${c.id} --sandbox=none`}</code></pre>
+          <p className="jt-muted" style={{ margin: "0.3rem 0" }}>
+            Your code then runs with your own account&apos;s access to files and the network, with no container around
+            it. That is fine for code you type yourself; don&apos;t paste code you haven&apos;t read.
+          </p>
+        </>
+      )}
       <p style={{ margin: "0.3rem 0 0" }}>
         {c.id === "core"
           ? <>From nothing, step by step: <a href={`${REPO}/blob/main/docs/START_CORE.md`}>Start Core Julia in 10 minutes</a> (timed on a fresh CI machine).</>

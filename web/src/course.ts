@@ -199,7 +199,7 @@ export interface Bug {
   tests: BugTest[];
 }
 
-export type Track = "foundations" | "core" | "advanced" | "ecosystem" | "scicomp" | "sciml";
+export type Track = "foundations" | "core" | "advanced" | "ecosystem" | "scicomp" | "sciml" | "quantum";
 
 export interface Unit {
   id: string;
@@ -308,9 +308,14 @@ export function statusNote(c: Pick<CourseInfo, "status">): string {
   return c.status === "in-progress" ? "in progress" : c.status === "planned" ? "planned" : "";
 }
 
-/** "about 22–50 hours (estimate)": always says it is an estimate. */
+/**
+ * "about 22–50 hours (estimate)": always says it is an estimate. A course
+ * with no published unit yet has nothing to count, so it gets no number.
+ */
 export const estimateText = (c: CourseInfo) =>
-  `about ${c.estimate.low_hours}–${c.estimate.high_hours} hours (estimate)`;
+  c.estimate.high_hours === 0
+    ? "no time estimate yet (no unit is published)"
+    : `about ${c.estimate.low_hours}–${c.estimate.high_hours} hours (estimate)`;
 
 /**
  * Units of other courses this course's units build on, grouped by course in
@@ -333,6 +338,7 @@ export const TRACK_LABEL: Record<Track, string> = {
   ecosystem: "Ecosystem",
   scicomp: "Scientific computing",
   sciml: "Scientific ML",
+  quantum: "Quantum computing",
 };
 
 export const TRACK_BLURB: Record<Track, string> = {
@@ -342,6 +348,7 @@ export const TRACK_BLURB: Record<Track, string> = {
   ecosystem: "The standard library and the packages Julia is used for, in pinned environments.",
   scicomp: "Numerical methods you can trust: conditioning, error control, linear solvers, DAEs, stochastic models, constrained optimization and parallel limits.",
   sciml: "Differential equations with learned parts: sensitivities, adjoints, neural and universal ODEs, SINDy and PINNs.",
+  quantum: "A state-vector simulator you write yourself in plain Julia, each algorithm checked against the theory it implements.",
 };
 
 /** "Assumes Foundations, Core language, Advanced and Ecosystem", or null. */

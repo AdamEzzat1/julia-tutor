@@ -25,11 +25,13 @@ export Unit, Section, Example, Question, Problem, Perf, Variant, load_course, va
        CourseInfo, Outcome, load_courses, validate_courses, course_of, prereq_unit, prereq_course
 
 const COURSE_DIR = normpath(joinpath(@__DIR__, "..", "course"))
-const TRACKS = ["foundations", "core", "advanced", "ecosystem", "scicomp", "sciml"]
+const TRACKS = ["foundations", "core", "advanced", "ecosystem", "scicomp", "sciml", "quantum"]
 # A track that assumes whole earlier tracks: every unit of those comes first in
 # the syllabus, and each of its units names the earlier units it builds on.
+# The quantum course needs only Core Julia, so its track assumes Core's tracks.
 const TRACK_REQUIRES = Dict("scicomp" => ["foundations", "core", "advanced", "ecosystem"],
-                            "sciml" => ["foundations", "core", "advanced", "ecosystem", "scicomp"])
+                            "sciml" => ["foundations", "core", "advanced", "ecosystem", "scicomp"],
+                            "quantum" => ["foundations", "core", "advanced"])
 const DIFFICULTIES = ["warm-up", "core", "stretch"]
 const VARIANT_EXPECT = ["correct", "incorrect", "load-error", "slow", "allocates", "unstable", "scaling", "fast"]
 
