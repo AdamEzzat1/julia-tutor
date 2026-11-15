@@ -284,10 +284,14 @@ every role above has had the chance to object (recorded in the PR).
   unit-52 `apply_1q!` kernel measures 0 bytes allocated). Units 53-56 are
   written and verified (entanglement and CHSH, measurement and teleportation,
   Deutsch-Jozsa and Bernstein-Vazirani on every function and hidden string up
-  to 5 bits, Grover against sin²((2k+1)θ); 12 more problems). Not met yet:
-  the zero-allocation kernels in projects/qsim (`apply!` allocates an offset
-  table and buffers, measured in `measure_baseline.toml`), the benchmark
-  report and units 57-61.
+  to 5 bits, Grover against sin²((2k+1)θ); 12 more problems). Units 57-61
+  are written and verified (QFT vs the DFT matrix for n = 1..7 and an FFT
+  from scratch, phase estimation against its closed form, Kraus channels and
+  density matrices with trajectories, parameter shift and VQE reaching -√2
+  with a product-state control at -1.25, and the five layers of evidence
+  with mutation testing; 15 more problems). Not met yet: the zero-allocation
+  kernels in projects/qsim (`apply!` allocates an offset table and buffers,
+  measured in `measure_baseline.toml`) and the benchmark report.
 * **M10 Fourth project: ude (universal differential equation, SciML).**
   Requires M4 (the student's odeint) and M7 (latency). *DoD:* every package
   justified in the PR (OrdinaryDiffEq, SciMLSensitivity, one AD backend, Lux,

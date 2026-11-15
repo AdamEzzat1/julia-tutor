@@ -2,14 +2,610 @@ id = "58-phase-estimation"
 title = "Phase estimation"
 track = "quantum"
 env = "base"
-status = "planned"
-summary = "Reading an eigenphase into a register with controlled powers of U and an inverse QFT, checked against the closed-form outcome distribution."
+status = "ready"
+summary = "A unitary U with eigenvector |u⟩ multiplies it by e^(2πiφ). Phase estimation writes φ into a register of t qubits: Hadamards, controlled U^(2^j) whose phases kick back onto the register, and the inverse QFT. The unit simulates the full circuit and matches the closed-form outcome distribution within 1e-12 for 140 random phases, reads phases j/2^t with certainty, derives and checks the guarantee that the nearest t-bit estimate has probability at least 4/π², shows the error halving with each extra qubit, and ends with the wrap-around at φ near 1 and a bit-order mismatch found when this course's simulator was compared with Qiskit."
 kcs = ["phase-estimation"]
 prerequisites = ["57-qft"]
-outline = [
-  "The question: how do you read off an eigenvalue of a unitary you can only apply?",
-  "Controlled U^(2^j) and the inverse QFT; diagram of the circuit",
-  "Exact result for dyadic phases; the closed-form distribution otherwise",
-  "The best estimate has probability at least 4/pi^2 (checked)",
-  "A worked catch: Qiskit's phase_estimation bit-reverses its output register",
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit uses the controlled phase `CP(λ)` and the QFT circuit of unit 57,
+and phase kickback from unit 55: a controlled gate whose target is an
+eigenvector puts the eigenvalue's phase on the **control**.
+
+**Eigenvectors of a unitary.** A unitary `U` has eigenvalues of modulus 1,
+so every eigenvalue can be written `e^(2πiφ)` with a **phase** `φ` in
+`[0, 1)`; a phase and the same phase plus 1 give the same eigenvalue. The
+example throughout is the phase gate
+
+```
+P(2πφ) = [1 0; 0 e^(2πiφ)],     P(2πφ) |1⟩ = e^(2πiφ) |1⟩
+```
+
+whose eigenvector `|1⟩` has phase `φ`. Its controlled version is
+`CP(2πφ)`, and its powers are `P(2πφ)^m = P(2πφ m)`.
+
+**The inverse QFT** is the QFT's gates in reverse order with every phase
+negated (unit 57). Here it acts on the first `t` qubits of a larger state.
+'''
+
+  [[section.example]]
+  caption = "Kickback with one control qubit: `H`, a controlled `P(2πφ)` onto `|1⟩`, `H` again, and the probability that the control reads 0."
+  notice = "Notice that one control qubit gives `P(0) = cos²(πφ)`: enough to tell `φ = 0` from `φ = 1/2`, not to read `φ` to several bits. The rest of the unit adds qubits."
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cp!(ψ, c, t, λ)
+    m = (1 << c) | (1 << t); z = cis(λ)
+    for k in 0:length(ψ)-1
+        k & m == m && (ψ[k + 1] *= z)
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+for φ in (0.0, 0.25, 0.5, 1/3)
+    ψ = ComplexF64[0, 0, 1, 0]                    # control q0 in |0⟩, eigen-qubit q1 in |1⟩
+    apply_1q!(ψ, H, 0); apply_cp!(ψ, 0, 1, 2π * φ); apply_1q!(ψ, H, 0)
+    p0 = abs2(ψ[1]) + abs2(ψ[3])
+    println("φ = ", rpad(round(φ; digits = 4), 6), "  P(control reads 0) = ", rpad(round(p0; digits = 4), 6), "  cos²(πφ) = ", round(cos(π * φ)^2; digits = 4))
+end
+'''
+
+[[section]]
+title = "The question: how do you read an eigenvalue of a unitary you can only apply?"
+body = '''
+A unitary `U` is available only as a gate (and as controlled powers of that
+gate), and one of its eigenvectors `|u⟩` can be prepared. The task is to
+find the phase `φ` of its eigenvalue to `t` bits.
+
+Measuring `|u⟩` directly reveals nothing: `U|u⟩ = e^(2πiφ)|u⟩` differs from
+`|u⟩` only by a global phase. The previous example recovers `φ` through a
+control qubit, but one qubit yields one probability `cos²(πφ)`, which
+would take many repetitions to estimate to `t` bits.
+
+**Phase estimation** uses `t` control qubits at once and gets the `t`-bit
+estimate from a single run with good probability. It goes back to Kitaev's
+procedure for measuring an eigenvalue of a unitary, which he applied to
+factoring and related problems; this unit uses the textbook form with the
+inverse QFT.
+'''
+refs = ["kitaev-1995", "nielsen-chuang-2010"]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In phase estimation, what happens to the eigenvector `|u⟩` on its own qubit?"
+  choices = [
+    "It is measured, and its outcome gives φ",
+    "It stays in |u⟩; its phase is kicked back onto the controls",
+    "It ends entangled with the counting register, which is why that register is measured",
+  ]
+  answer = 2
+  explain = "Each controlled `U^(2^j)` acts on an eigenvector, so the target only gains a phase, which belongs to the control's `|1⟩` branch. The eigen-qubit ends exactly as it started, unentangled, and could be reused."
+  misconceptions = [
+    "Measuring `|u⟩` gives an outcome that does not depend on `φ` at all; the phase is a factor on the whole state, invisible to a measurement of that qubit alone.",
+    "",
+    "Since `|u⟩` is an eigenvector, the state stays a product of the register and `|u⟩` throughout; the register is measured because that is where the phases went.",
+  ]
+
+[[section]]
+title = "The circuit: controlled powers and the inverse QFT"
+body = '''
+Use `t` counting qubits `0 … t-1`, all starting in `|0⟩`, and the
+eigenvector on qubit `t`.
+
+1. `H` on each counting qubit.
+2. For each `j`, a controlled `U^(2^j)` from counting qubit `j` to the
+   eigenvector. By kickback, qubit `j` becomes `(|0⟩ + e^(2πi 2^j φ)|1⟩)/√2`.
+3. The inverse QFT on the counting qubits, then measure them, giving an
+   integer `y` in `0 : 2^t - 1` and the estimate `y / 2^t`.
+
+**Why it works.** After step 2 the counting register is
+
+```
+2^(-t/2) Σ over x of e^(2πi φ x) |x⟩
+```
+
+(the product of the qubits' states, multiplied out: outcome `x` collects the
+phases `2^j φ` of the bits `j` set in `x`, which sum to `φ x`). If
+`φ = y/2^t` exactly, this is the QFT of `|y⟩` (unit 57's definition, column
+`y`), and the inverse QFT returns `|y⟩`: the estimate is exact with
+probability 1.
+
+For the phase gate the controlled power is `CP(2π φ 2^j)`, a single gate.
+For a general `U`, building `U^(2^j)` costs up to `2^j` applications of `U`;
+that cost, not the circuit size, is what limits `t` in practice.
+'''
+refs = ["nielsen-chuang-2010", "kitaev-1995"]
+
+  [[section.diagram]]
+  file = "qpe-circuit.svg"
+  alt = "The phase estimation circuit with three counting qubits q0, q1, q2 starting in |0⟩ and an eigen-qubit q3 in |u⟩. Each counting qubit gets an H, then controls a gate on q3: U on q0, U squared on q1, U to the fourth on q2. Then the inverse QFT acts on q0 to q2, which are measured, giving y. The eigen-qubit leaves unchanged, still |u⟩. A label shows each counting qubit's state after its controlled gate: |0⟩ plus e to the 2πi 2^j φ times |1⟩."
+  caption = "Phase estimation with `t = 3` counting qubits. The controlled powers leave `|u⟩` unchanged and put the phase `2^j φ` on counting qubit `j`; the inverse QFT turns those phases into the integer `y ≈ φ · 2^t`."
+
+  [[section.analogy]]
+  title = "A stroboscope on a spinning wheel"
+  text = '''
+To measure how fast a wheel turns, light it with flashes at a fixed rate and
+see how far a mark moves between flashes. Flashing every turn, every 2
+turns, every 4 turns and so on gives the speed's binary digits from the
+coarse to the fine. The controlled powers `U, U², U⁴, …` are those flash
+intervals, and the inverse QFT reads off the digits.
+'''
+  breaks = '''
+A stroboscope's readings can be taken one after another, and each is an
+ordinary measurement. Here all `t` "flashes" happen at once on qubits in
+superposition, and the reading is one sample that is right only with some
+probability (always at least `4/π²` for the nearest estimate, next section).
+A wheel's speed can also be any number; an estimate from `t` qubits is a
+multiple of `1/2^t`, and a phase is only defined up to adding 1.
+'''
+
+  [[section.example]]
+  caption = "The full circuit on `t + 1` qubits, simulated: the outcome distribution against the closed form for 140 random phases, and phases `j/2^t` read with certainty."
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cp!(ψ, c, t, λ)
+    m = (1 << c) | (1 << t); z = cis(λ)
+    for k in 0:length(ψ)-1
+        k & m == m && (ψ[k + 1] *= z)
+    end
+    return ψ
+end
+function apply_swap!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if (k >> a) & 1 == 1 && (k >> b) & 1 == 0
+            j = k ⊻ (1 << a) ⊻ (1 << b)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+function apply_iqft!(ψ, t)                         # unit 57's gates, reversed, phases negated
+    for i in t÷2-1:-1:0; apply_swap!(ψ, i, t - 1 - i); end
+    for j in 0:t-1
+        for k in 0:j-1; apply_cp!(ψ, k, j, -π / 2^(j - k)); end
+        apply_1q!(ψ, H, j)
+    end
+    return ψ
+end
+function qpe_distribution(t, φ)                    # P(y) for the counting register
+    ψ = zeros(ComplexF64, 2^(t + 1)); ψ[2^t + 1] = 1    # qubit t holds |1⟩, the eigenvector
+    for j in 0:t-1
+        apply_1q!(ψ, H, j)
+        apply_cp!(ψ, j, t, 2π * φ * 2^j)           # controlled U^(2^j) for U = P(2πφ)
+    end
+    apply_iqft!(ψ, t)
+    return [abs2(ψ[y + 1]) + abs2(ψ[y + 2^t + 1]) for y in 0:2^t-1]
+end
+formula(t, φ) = [abs2(sum(cis(2π * x * (φ - y / 2^t)) for x in 0:2^t-1) / 2^t) for y in 0:2^t-1]
+using Random
+rng = Xoshiro(58)
+worst = maximum(maximum(abs.(qpe_distribution(t, φ) - formula(t, φ))) for t in 1:7 for φ in rand(rng, 20))
+println("140 random phases, t = 1..7: largest |simulated - formula| below 1e-12: ", worst < 1e-12)
+println("every φ = j/2^t, t = 1..6, read with P ≥ 1 - 1e-12: ", all(qpe_distribution(t, j / 2^t)[j + 1] >= 1 - 1e-12 for t in 1:6 for j in 0:2^t-1))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does counting qubit `j` control `U^(2^j)` rather than `U` itself?"
+  choices = [
+    "Applying U more often averages out its errors",
+    "Qubit j has to pick up the phase 2^j · 2πφ",
+    "Because U^(2^j) is cheaper to build than U",
+  ]
+  answer = 2
+  explain = "The register must hold `Σ e^(2πiφx)|x⟩`, in which bit `j` of `x` contributes `2^j φ`. With `U` everywhere, every qubit would get the same phase `φ` and the register would carry one bit of information `t` times over."
+  misconceptions = [
+    "There is no averaging: the circuit is exact, and repeating `U` serves only to multiply the phase.",
+    "",
+    "It is the other way round: `U^(2^j)` can cost `2^j` applications of `U`, which is what limits `t` for a general unitary.",
+  ]
+
+[[section]]
+title = "The closed form and the 4/π² guarantee"
+body = '''
+Applying the inverse QFT to the register of the previous section gives,
+for each outcome `y`,
+
+```
+P(y) = | (1/2^t) Σ over x of e^(2πi x δ) |²,      δ = φ - y / 2^t
+     = sin²(π 2^t δ) / (4^t sin²(π δ))            (a geometric sum; P = 1 when δ = 0)
+```
+
+Let `y` be the outcome nearest to `φ 2^t` (taken mod `2^t`, next section),
+so `|δ| ≤ 1/2^(t+1)`, that is `|π 2^t δ| ≤ π/2`. Two inequalities bound
+`P(y)` from below: `sin(πδ) ≤ π|δ|` in the denominator, and
+`sin(z) ≥ 2z/π` for `0 ≤ z ≤ π/2` in the numerator. Together:
+
+```
+P(nearest y) ≥ (2 · 2^t |δ|)² / (4^t π² δ²) = 4/π² ≈ 0.405
+```
+
+for every `t` and every `φ`. The bound is approached when `φ 2^t` lies
+halfway between two integers, where the two nearest outcomes share the
+probability. In all other cases the nearest outcome is more likely, and
+for `φ = 1/3` it is about 0.68 at every `t`.
+
+**The error halves with each qubit.** The nearest estimate is within
+`1/2^(t+1)` of `φ`, so one more counting qubit halves the guaranteed
+error.
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.example]]
+  caption = "The probability of the nearest estimate for the 140 random phases, and the estimate of `φ = 1/3` for `t = 2` to 8."
+  code = '''
+formula(t, φ) = [abs2(sum(cis(2π * x * (φ - y / 2^t)) for x in 0:2^t-1) / 2^t) for y in 0:2^t-1]
+nearest(t, φ) = mod(round(Int, φ * 2^t), 2^t)
+using Random
+rng = Xoshiro(58)
+pmin = minimum(formula(t, φ)[nearest(t, φ) + 1] for t in 1:7 for φ in rand(rng, 20))
+println("smallest P(nearest) over 140 phases: ", round(pmin; digits = 4), "  (4/π² = ", round(4 / π^2; digits = 4), ")")
+for t in 2:8
+    p = formula(t, 1/3); y = argmax(p) - 1
+    println("t = ", t, ": most likely y = ", lpad(y, 3), ", estimate ", rpad(round(y / 2^t; digits = 6), 9), " error ", rpad(round(abs(y / 2^t - 1/3); digits = 6), 9), " P = ", round(p[y + 1]; digits = 4))
+end
+'''
+
+    [section.example.predict]
+    kc = "phase-estimation"
+    prompt = "`φ = 1/3 = 0.0101…` in binary never ends, so no `t`-bit estimate is exact. Before the output is shown: with `t = 3`, how likely is the most likely outcome (`y = 3`, estimate 0.375)?"
+    choices = ["About 0.41, just above 4/π²", "About 0.69", "1, because 3/8 is the nearest estimate"]
+    measure = 't = 3: most likely y =\s+3, estimate \S+\s+error \S+\s+P = ([0-9.]+)'
+    ranges = [[0.40, 0.45], [0.6, 0.8], [0.99, 1.01]]
+    answer = 2
+    explain = "With `δ = 1/3 - 3/8 = -1/24`, `P = sin²(π/3) / (64 sin²(π/24)) ≈ 0.688`. That is well above the guarantee `4/π² ≈ 0.405`, which is reached only when `φ 2^t` sits halfway between two integers (here `8/3 = 2.67` is a third of the way from 3). Being the nearest estimate makes an outcome the most likely one, not a certain one."
+
+[[section]]
+title = "Wrap-around, and a bit order that differed between two libraries"
+body = '''
+**Phases wrap around.** The phase is defined modulo 1, so the outcomes are
+arranged in a circle: `y = 2^t - 1` is next to `y = 0`. With `t = 3` and
+`φ = 0.97`, `φ 2^t = 7.76` is nearest to 8, which is outcome 0. A rounding
+of `φ 2^t` without `mod 2^t` returns 8, not a valid outcome.
+
+**A mismatch between two implementations.** This course's simulator project
+compares its phase estimation with Qiskit's (`projects/qsim/crosscheck/
+qiskit_diff.py`). Qiskit 2.x's library function `phase_estimation` gave the
+same probabilities at different outcomes: after its inverse QFT it appends
+a permutation that reverses the order of the counting qubits, so its
+outcome is the bit reversal of `y` (for `t = 3`, `y = 3 = 011` reads as
+`110 = 6`). Neither result is wrong; they disagree on which bit is which,
+the same issue as the qubit order of unit 50. The comparison now undoes the
+reversal explicitly, and it also checks that **without** undoing it the two
+distributions differ, so the convention gap is shown to be real rather
+than assumed. Unit 61 returns to this case.
+'''
+
+  [[section.example]]
+  caption = "`φ = 0.97` with `t = 3`: the distribution, the most likely outcome, and the rounding with and without `mod`."
+  code = '''
+formula(t, φ) = [abs2(sum(cis(2π * x * (φ - y / 2^t)) for x in 0:2^t-1) / 2^t) for y in 0:2^t-1]
+p = formula(3, 0.97)
+println("P(y) for y = 0..7: ", round.(p; digits = 3))
+println("most likely outcome: ", argmax(p) - 1)
+println("round(Int, 0.97 * 8) = ", round(Int, 0.97 * 8), ",  mod(round(Int, 0.97 * 8), 8) = ", mod(round(Int, 0.97 * 8), 8))
+bitreverse3(y) = sum(((y >> q) & 1) << (2 - q) for q in 0:2)
+println("y = 3 read with the qubit order reversed: ", bitreverse3(3))
+'''
+
+    [section.example.predict]
+    kc = "phase-estimation"
+    prompt = "`φ = 0.97` and `t = 3`, so `φ 2^t = 7.76`. Before the output is shown: which outcome is the most likely?"
+    choices = ["0", "7, the largest outcome", "8, the nearest integer"]
+    measure = 'most likely outcome: (\d+)'
+    ranges = [[0, 1], [7, 8], [8, 9]]
+    answer = 1
+    explain = "7.76 is 0.24 from 8 and 0.76 from 7, and 8 is outcome 0 on the circle of 8 outcomes: the estimate `0/8` stands for `φ = 1 ≡ 0`, which is 0.03 from 0.97. Outcome 7 (estimate 0.875) is farther away; 8 does not exist as a 3-bit outcome."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Your phase estimation with `t = 3` gives outcome 3 with probability 0.69; another library gives the same probability at outcome 6. What is the likely cause?"
+  choices = [
+    "The phase was estimated with a different number of counting qubits",
+    "One of the two reads the register's bits in reverse order",
+    "Rounding differs between the two libraries",
+  ]
+  answer = 2
+  explain = "`3 = 011` and `6 = 110` are bit reversals of each other, and the probabilities agree, so the two circuits agree on the physics and differ in which qubit holds which bit. Checking that the distributions match after a bit reversal, and differ without it, confirms it."
+  misconceptions = [
+    "With a different `t` the outcomes would range over a different set and the probabilities would change; here one probability moved intact to another outcome.",
+    "",
+    "Rounding errors are of order `1e-15`; they cannot move a probability of 0.69 from one outcome to another.",
+  ]
+
+[[problem]]
+id = "pe-register"
+title = "The counting register after the controlled powers"
+difficulty = "warm-up"
+kcs = ["phase-estimation"]
+entry = "qpe_register"
+packages = []
+prompt = '''
+Write `qpe_register(t, φ)` that returns the state of the `t` counting
+qubits after step 2 of phase estimation (the Hadamards and the controlled
+`U^(2^j)`, with `U|u⟩ = e^(2πiφ)|u⟩`), as a `Vector{ComplexF64}` of
+length `2^t` in this course's little-endian order:
+
+```
+amplitude of |x⟩ = e^(2πi φ x) / √(2^t)
+```
+
+```julia
+qpe_register(1, 0.5)       # [1, -1] / √2: the state |−⟩
+qpe_register(2, 0.25)      # [1, im, -1, -im] / 2
+```
+
+Results are compared with `isapprox` at `rtol = 1e-12`: each amplitude is
+one `cis` and one division.
+'''
+starter = '''
+function qpe_register(t, φ)
+    # your code here
+end
+'''
+reference = '''
+function qpe_register(t, φ)
+    return [cis(2π * φ * x) for x in 0:2^t-1] / sqrt(2^t)
+end
+'''
+cases = ["1, 0.5", "2, 0.25", "3, 1/3", "4, 0.0", "5, 0.97"]
+gen = "rng -> [(rand(rng, 1:10), rand(rng)) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "Outcome `x` collects the phase `2^j φ` from every bit `j` that is set in `x`. What do those phases add up to?",
+  "They add up to `φ x`, so the amplitude of `|x⟩` is `cis(2π φ x) / sqrt(2^t)`, for `x in 0:2^t-1`.",
 ]
+
+  [problem.perf]
+  args = "trailing_zeros(n), 0.3"
+  sizes = [4096]
+
+  [[problem.variant]]
+  label = "phases in textbook qubit order (bit-reversed x)"
+  code = '''
+function qpe_register(t, φ)
+    rev(x) = sum(((x >> q) & 1) << (t - 1 - q) for q in 0:t-1; init = 0)
+    return [cis(2π * φ * rev(x)) for x in 0:2^t-1] / sqrt(2^t)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "e^(-2πiφx): the conjugate phases"
+  code = '''
+function qpe_register(t, φ)
+    return [cis(-2π * φ * x) for x in 0:2^t-1] / sqrt(2^t)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "every qubit gets the phase φ (controlled U instead of U^(2^j))"
+  code = '''
+function qpe_register(t, φ)
+    return [cis(2π * φ * count_ones(x)) for x in 0:2^t-1] / sqrt(2^t)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "product of the qubits' states, built with kron"
+  code = '''
+function qpe_register(t, φ)
+    v = ComplexF64[1]
+    for j in 0:t-1
+        v = kron(ComplexF64[1, cis(2π * φ * 2^j)] / sqrt(2), v)   # qubit j is bit j: kron puts it on the left
+    end
+    return v
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "pe-distribution"
+title = "The outcome distribution"
+difficulty = "core"
+kcs = ["phase-estimation"]
+entry = "qpe_probabilities"
+packages = []
+prompt = '''
+Write `qpe_probabilities(t, φ)` that returns the probabilities of the
+outcomes `y = 0 … 2^t - 1` of phase estimation with `t` counting qubits, as
+a `Vector{Float64}`:
+
+```
+P(y) = | (1/2^t) Σ over x in 0:2^t-1 of e^(2πi x (φ - y/2^t)) |²
+```
+
+You may evaluate the sum, use the closed form `sin²(π 2^t δ) / (4^t sin²(π
+δ))` (careful at `δ = 0`), or simulate the circuit.
+
+```julia
+qpe_probabilities(2, 0.25)      # [0, 1, 0, 0]
+qpe_probabilities(1, 0.25)      # [0.5, 0.5]
+```
+
+Results are compared entry by entry with an absolute tolerance of `1e-12`:
+a sum of `2^t ≤ 256` unit-modulus terms has a rounding error of about
+`256 · eps ≈ 6e-14` relative to its size, and the circuit simulation of
+section 3 agreed with the formula to `1.6e-14`.
+'''
+starter = '''
+function qpe_probabilities(t, φ)
+    # your code here
+end
+'''
+reference = '''
+function qpe_probabilities(t, φ)
+    N = 2^t
+    return [abs2(sum(cis(2π * x * (φ - y / N)) for x in 0:N-1) / N) for y in 0:N-1]
+end
+'''
+cases = ["2, 0.25", "1, 0.25", "3, 1/3", "3, 0.97", "4, 0.0", "5, 0.5"]
+gen = "rng -> [(rand(rng, 1:8), rand(rng) < 0.25 ? rand(rng, 0:7) / 8 : rand(rng)) for _ in 1:30]"
+compare = "custom"
+checker = '''
+(got, expected) -> got isa Vector{Float64} && length(got) == length(expected) && maximum(abs.(got .- expected)) <= 1e-12
+'''
+check_type = true
+hints = [
+  "Each outcome `y` is a separate sum over `x`. The inner term depends only on the difference `δ = φ - y/2^t`.",
+  "`[abs2(sum(cis(2π * x * (φ - y / N)) for x in 0:N-1) / N) for y in 0:N-1]` with `N = 2^t`.",
+]
+
+  [problem.perf]
+  args = "trailing_zeros(n), 0.3"
+  sizes = [256]
+
+  [[problem.variant]]
+  label = "δ = φ + y/2^t: outcomes mirrored"
+  code = '''
+function qpe_probabilities(t, φ)
+    N = 2^t
+    return [abs2(sum(cis(2π * x * (φ + y / N)) for x in 0:N-1) / N) for y in 0:N-1]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "divides the sum by √N instead of N"
+  code = '''
+function qpe_probabilities(t, φ)
+    N = 2^t
+    return [abs2(sum(cis(2π * x * (φ - y / N)) for x in 0:N-1) / sqrt(N)) for y in 0:N-1]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the sin² closed form, unguarded: NaN when δ = 0"
+  code = '''
+function qpe_probabilities(t, φ)
+    N = 2^t
+    return [(δ = φ - y / N; sin(π * N * δ)^2 / (N^2 * sin(π * δ)^2)) for y in 0:N-1]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the sin² closed form, with P = 1 where sin(πδ) is 0"
+  code = '''
+function qpe_probabilities(t, φ)
+    N = 2^t
+    return [(δ = φ - y / N; s = sin(π * δ); abs(s) < 1e-14 ? 1.0 : sin(π * N * δ)^2 / (N^2 * s^2)) for y in 0:N-1]
+end
+'''
+  expect = ["correct", "fast"]
+
+[[problem]]
+id = "pe-nearest"
+title = "The nearest t-bit estimate"
+difficulty = "core"
+kcs = ["phase-estimation"]
+entry = "nearest_outcome"
+packages = []
+prompt = '''
+Write `nearest_outcome(t, φ)` that returns, as an `Int`, the outcome `y` in
+`0 : 2^t - 1` whose estimate `y / 2^t` is nearest to the phase `φ` (given in
+`[0, 1)`) on the circle of phases, where 1 and 0 are the same phase. It is
+the most likely outcome of phase estimation.
+
+```julia
+nearest_outcome(3, 1/3)      # 3: 3/8 = 0.375 is nearest to 0.333
+nearest_outcome(3, 0.97)     # 0: 0.97 is nearest to 1 ≡ 0
+```
+
+Results are compared with `isequal`. The tested phases are never exactly
+halfway between two estimates.
+'''
+starter = '''
+function nearest_outcome(t, φ)
+    # your code here
+end
+'''
+reference = '''
+function nearest_outcome(t, φ)
+    return mod(round(Int, φ * 2^t), 2^t)
+end
+'''
+cases = ["3, 1/3", "3, 0.97", "1, 0.2", "1, 0.8", "4, 0.0", "6, 0.999"]
+gen = "rng -> [(rand(rng, 1:8), rand(rng)) for _ in 1:40]"
+compare = "isequal"
+check_type = true
+hints = [
+  "Multiply the phase by `2^t` and take the nearest integer. One of the possible results is not a valid outcome.",
+  "`round(Int, φ * 2^t)` can be `2^t` when `φ` is close to 1; `mod(..., 2^t)` maps it to 0, the same phase.",
+]
+
+  [problem.perf]
+  args = "trailing_zeros(n), 0.3"
+  sizes = [256]
+
+  [[problem.variant]]
+  label = "round without mod: returns 2^t for φ near 1"
+  code = '''
+function nearest_outcome(t, φ)
+    return round(Int, φ * 2^t)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "floor instead of round"
+  code = '''
+function nearest_outcome(t, φ)
+    return floor(Int, φ * 2^t)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "argmax of the full distribution, O(4^t)"
+  code = '''
+function nearest_outcome(t, φ)
+    N = 2^t
+    p = [abs2(sum(cis(2π * x * (φ - y / N)) for x in 0:N-1) / N) for y in 0:N-1]
+    return argmax(p) - 1
+end
+'''
+  expect = ["correct", "slow"]
+
+[[reference]]
+id = "kitaev-1995"
+authors = "Kitaev, A. Yu."
+title = "Quantum measurements and the Abelian Stabilizer Problem"
+venue = "arXiv:quant-ph/9511026"
+year = 1995
+url = "https://arxiv.org/abs/quant-ph/9511026"
+note = "A procedure for measuring an eigenvalue of a unitary operator, used for factoring, discrete logarithms and the Abelian stabilizer problem (from the abstract): the origin of phase estimation. The circuit of this unit is the textbook form with the inverse QFT."
+
+[[reference]]
+id = "nielsen-chuang-2010"
+authors = "Nielsen, M. A.; Chuang, I. L."
+title = "Quantum Computation and Quantum Information"
+venue = "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)"
+year = 2012
+url = "https://doi.org/10.1017/CBO9780511976667"
+note = "The phase estimation circuit with Hadamards, controlled U^(2^j) and the inverse QFT, and its analysis for phases that are not multiples of 1/2^t (this unit's sections 3 and 4; the 4/π² bound is derived in the unit's own text)."

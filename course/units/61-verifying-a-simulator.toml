@@ -2,16 +2,753 @@ id = "61-verifying-a-simulator"
 title = "How you know a result is not wrong"
 track = "quantum"
 env = "base"
-status = "planned"
-summary = "Five layers of evidence: redundant implementations, theory checks, an independent reference, controls that must fail, and mutation testing, with three real bugs as case studies."
+status = "ready"
+summary = "Five layers of evidence for a simulator: redundant implementations, closed-form theory checks, an independent reference, controls that must fail, and mutation testing. Three case studies: a CHSH sign pattern that gives S = 0, the bit reversal in Qiskit's phase_estimation readout, and a flipped measure! that passes a frequency test on |+⟩ and fails one on a lopsided state. A chi-square test on sampled counts misses a biased sampler at 10 000 shots and catches it at 100 000."
 kcs = ["verification", "mutation-testing"]
 prerequisites = ["60-variational"]
-outline = [
-  "The question: every test passes; how do you know the simulator is right?",
-  "Layer 1, redundant implementations; layer 2, closed-form theory checks",
-  "Layer 3, an independent reference (Qiskit), compared amplitude by amplitude",
-  "Layer 4, controls that must fail; layer 5, mutation testing with 22 injected bugs",
-  "Case study: a CHSH sign pattern that gave S = 0",
-  "Case study: Qiskit's undocumented bit reversal in phase_estimation",
-  "Case study: a measure! flip that survived until a lopsided test was added",
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit looks back at the checks of units 49-60 and asks what each one
+can and cannot show. It uses `apply_1q!` (unit 52), the CHSH correlator
+`E(x, y) = cos(x - y)` for the Bell state (unit 53), `measure!` with
+collapse (unit 54), and the phase-estimation readout (unit 58).
+
+**Sampling error.** A frequency estimated from `N` independent shots of an
+event with probability `p` has standard deviation `σ = √(p(1 - p)/N)`. The
+checks in this course accept a sampled frequency when it lies within `5σ`
+of the prediction: a correct sampler fails such a check with probability
+below `6e-7`, so a failure points at a bug, not at bad luck.
+'''
+
+[[section]]
+title = "The question: every test passes; how do you know the simulator is right?"
+body = '''
+The qsim project has 2,103 tests and all of them pass. That shows that no
+bug those tests can see is present. Whether the tests can see the bugs that
+matter is a separate question, and this unit is about answering it with
+evidence instead of confidence.
+
+A test can be blind in three ways: it checks the code against **itself**
+(two copies of the same mistake agree), it checks a property the bug
+**preserves** (a flipped measurement outcome on a state with `P(1) = 1/2`),
+or it **cannot fail** (a comparison whose tolerance or sign pattern makes
+any answer pass). The five layers of the next sections each close some of
+these gaps and leave others open.
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "All 2,103 tests of a simulator pass. Which conclusion is justified?"
+  choices = [
+    "The simulator is correct",
+    "No bug the tests can see is present; others may be",
+    "The tests are complete enough to stop adding new ones",
+  ]
+  answer = 2
+  explain = "Passing tests rule out the bugs they can detect. Whether they detect a particular kind of bug is measured separately: by injecting that bug (mutation testing, section 5) and checking that some test fails."
+  misconceptions = [
+    "Tests can only refute; a passing suite is evidence against the bugs it can see. A flipped measurement outcome passed every frequency test on `|+⟩`, as section 6 shows.",
+    "",
+    "How many tests there are says little about which bugs they see. Completeness is measured by injected bugs that a suite fails to kill, not by its size.",
+  ]
+
+[[section]]
+title = "Layers 1 and 2: redundant implementations and theory checks"
+body = '''
+**Layer 1: redundant implementations.** Compute the same thing two
+independent ways and compare. The bit-indexed kernel `apply_1q!` and the
+dense matrix `kron(I, …, U, …, I)` share no code beyond the 2 × 2 gate
+matrix, so a wrong index, a wrong stride or the wrong qubit order shows up
+as a disagreement. The kernel and the FFT of unit 57 were both checked this
+way. What this layer cannot see is a mistake in what both copies use: a
+wrong gate matrix gives two identical wrong answers.
+
+**Layer 2: theory checks.** Compare with a closed form derived on paper:
+`P(0) = cos²(θ/2)` for `RY`, `S = 2√2` for CHSH, `sin²((2k + 1)θ)` for
+Grover, the outcome distribution of phase estimation, `S = 2√2 (1 - p)` under
+depolarising noise. A wrong gate matrix fails these. What this layer
+cannot see is anything without a closed form, such as a random circuit.
+
+Both layers need their tolerance derived, not tuned: a check that passes
+because its tolerance was widened until it did has stopped being a check.
+'''
+
+  [[section.diagram]]
+  file = "five-layers.svg"
+  alt = "Five stacked boxes, one per layer of evidence, each with what it catches and what it cannot see. 1, redundant implementations: catches the kernel disagreeing with the dense kron; cannot see a wrong gate matrix both use. 2, theory checks: catches deviations from cos squared, sin squared of 2k plus 1 theta, and 2 root 2; cannot see anything with no closed form. 3, independent reference: Qiskit catches 17 of 22 mutants; cannot see sampling, measurement and partial trace. 4, controls that must fail: classical S = 2 and the product-state energy -1.25; catches a check that cannot fail. 5, mutation testing: 22 seeded bugs, all killed; cannot see bugs unlike any mutant."
+  caption = "Each layer has a blind spot, and another layer covers it. The Qiskit numbers are from `projects/qsim/README.md` (measured with `mutant_layers.py`, 100 random circuits per layer)."
+
+  [[section.analogy]]
+  title = "Checking a sum by adding it twice, and by casting out nines"
+  text = '''
+An accountant adds a column twice, once top to bottom and once bottom to
+top (layer 1), and checks the digit sum against the total's digit sum
+(layer 2). The first catches a slip in one pass; the second catches a slip
+in both passes that changes the digit sum.
+'''
+  breaks = '''
+Both checks share the column of figures: a wrongly copied figure passes
+both, as a wrong gate matrix passes the kernel-vs-`kron` check. And casting
+out nines misses a swap of two digits, as a theory check misses a bug that
+keeps the closed-form quantity unchanged. In both cases the fix is a check
+that does not share the blind spot.
+'''
+
+  [[section.example]]
+  caption = "Layer 1: the bit-indexed kernel against the dense `kron` matrix on 200 random gates, states and qubits; then a mistake shared by both (a wrong `RY`), which this layer cannot see but a theory check does."
+  code = '''
+using Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+I2 = ComplexF64[1 0; 0 1]
+dense(U, q, n) = reduce(kron, [j == q ? U : I2 for j in n-1:-1:0])     # qubit 0 is the rightmost factor
+rng = Xoshiro(61)
+worst = 0.0
+for _ in 1:200
+    n = rand(rng, 1:5); q = rand(rng, 0:n-1)
+    U = randn(rng, ComplexF64, 2, 2); ψ = randn(rng, ComplexF64, 2^n)
+    worst = max(worst, maximum(abs.(apply_1q!(copy(ψ), U, q) - dense(U, q, n) * ψ)))
+end
+println("kernel vs dense, 200 cases, below 1e-13: ", worst < 1e-13)
+RYbad(θ) = ComplexF64[cos(θ) -sin(θ); sin(θ) cos(θ)]        # full angle: a mistake both copies would use
+ψ = ComplexF64[1, 0, 0, 0]
+same = maximum(abs.(apply_1q!(copy(ψ), RYbad(0.7), 1) - dense(RYbad(0.7), 1, 2) * ψ))
+println("with the wrong RY, kernel and dense still agree: ", same < 1e-15)
+p0 = abs2(apply_1q!(copy(ψ), RYbad(0.7), 1)[1])
+println("theory check P(0) = cos²(θ/2): ", round(p0; digits = 4), " vs ", round(cos(0.35)^2; digits = 4))
+'''
+
+[[section]]
+title = "Layer 3: an independent reference, and what it shares with you"
+body = '''
+**Layer 3** compares with a simulator written by other people:
+`projects/qsim/crosscheck/` runs 500 seeded random circuits through qsim,
+through Qiskit (Javadi-Abhari et al.) and through Yao, amplitude for
+amplitude up to a global phase, tolerance `1e-10`. Its measured record
+against the 22 seeded bugs of `mutants.toml` (in `projects/qsim/README.md`):
+
+* Qiskit caught 17, Yao 12. All 12 bugs in gates and gate application were
+  caught by both.
+* Yao's comparison caught **none** of the four QFT and phase-estimation
+  bugs (only a guard that notices a changed circuit flagged them). Those are
+  bugs in a circuit *builder*: qsim builds the wrong gate list, hands that
+  same list to Yao, and both simulate it correctly. They agree. Qiskit
+  caught them only because the diff compares against Qiskit's own library
+  QFT and phase estimation, an independent algorithm, not just an
+  independent simulator.
+* Neither caught the sampler, measurement, partial-trace or Bloch-vector
+  bugs, because neither diff looks at them. Only qsim's own tests did.
+
+An independent reference also has conventions of its own. Qiskit's
+`phase_estimation` returns its readout register with the bits in reversed
+order (measured in `qiskit_diff.py`, which undoes it explicitly and checks
+that skipping the undo fails). A diff that forgets the reversal reports a
+mismatch, and someone who then "fixes" qsim to match has added a bug.
+'''
+refs = ["javadi-abhari-2024"]
+
+  [[section.example]]
+  caption = "Reversing the bits of a `t`-bit readout: which outcomes are unchanged, so that a diff that forgets the reversal still agrees on them?"
+  code = '''
+rev(k, t) = foldl((acc, i) -> acc | (((k >> i) & 1) << (t - 1 - i)), 0:t-1; init = 0)
+println("t = 3: ", join(["$k→$(rev(k, 3))" for k in 0:7], "  "))
+for t in (1, 3, 6, 8)
+    same = count(k -> rev(k, t) == k, 0:2^t-1)
+    println("t = $t: outcomes unchanged by the reversal: $same of $(2^t)")
+end
+'''
+
+    [section.example.predict]
+    kc = "verification"
+    prompt = "A diff tests phase estimation with `t = 3` on all 8 exact phases `j/8` and forgets to undo the bit reversal. Before the output is shown: on how many of the 8 does it still agree?"
+    choices = ["None", "4 of 8", "7 of 8"]
+    measure = 't = 3: outcomes unchanged by the reversal: ([0-9]+) of 8'
+    ranges = [[0, 1], [4, 5], [7, 8]]
+    answer = 2
+    explain = "The unchanged outcomes are the bit palindromes: 000, 010, 101, 111. A diff tried only on `φ = 0`, `1/4`, `5/8` or `7/8` passes and hides the convention; with 6 or 8 bits, only 8 of 64 or 16 of 256 agree, so a larger test exposes it at once."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Yao and qsim agreed on every random circuit while qsim's QFT builder had a wrong angle. Why did the comparison not catch it?"
+  choices = [
+    "The tolerance of 1e-10 was too loose",
+    "Both simulated the same wrong gate list",
+    "Yao has no QFT gate in its block library at all",
+  ]
+  answer = 2
+  explain = "The builder is upstream of both simulators: the wrong circuit was simulated correctly by each, so they agreed. Comparing against an independently built QFT (Qiskit's `QFTGate`, or the DFT matrix of unit 57) catches it."
+  misconceptions = [
+    "A wrong controlled-phase angle changes amplitudes by far more than `1e-10`. The comparison did not see a difference because there was none: both ran the same circuit.",
+    "",
+    "Whether Yao has a library QFT does not matter here: the diff sends Yao qsim's gate list, so Yao never builds a QFT of its own.",
+  ]
+
+[[section]]
+title = "Layer 4: controls that must fail; the CHSH sign pattern"
+body = '''
+A **control** is a run where the check is expected to fail, or to give a
+known different answer. It shows that the check can fail at all. Units
+53 to 60 use several: the 16 classical CHSH strategies reach only 2;
+teleportation without Bob's corrections has mean fidelity 1/2; the
+variational circuit without its CNOT stops at -1.25.
+
+The CHSH combination is `S = E(a,b) + E(a,b') + E(a',b) - E(a',b')`, and
+which term carries the minus sign must match the angle choice. With
+`a = 0`, `a' = π/2`, `b = π/4`, `b' = -π/4`, the three terms with a plus
+are `cos(±π/4) = 1/√2` and the fourth is `cos(3π/4) = -1/√2`, so the minus
+turns it into a fourth `+1/√2`. Put the minus on any other term and the
+four contributions cancel.
+
+A check `S ≤ 2√2 + 1e-12` (Cirel'son's bound) passes either way, since
+`0 ≤ 2√2`. A check `S ≈ 2√2` fails on the wrong pattern, and the
+classical control `S_classical == 2` confirms the combination itself.
+'''
+refs = ["chsh-1969"]
+
+  [[section.example]]
+  caption = "The CHSH sum for the Bell state with the minus sign on each of the four terms in turn."
+  code = '''
+E(x, y) = cos(x - y)                  # the Bell-state correlator of unit 53
+a, a′, b, b′ = 0.0, π/2, π/4, -π/4
+terms = [E(a, b), E(a, b′), E(a′, b), E(a′, b′)]
+for m in 1:4
+    signs = [i == m ? -1 : 1 for i in 1:4]
+    S = sum(signs .* terms)
+    println("minus on term $m: S = ", round(S; digits = 4), ",  passes S ≤ 2√2: ", S <= 2sqrt(2) + 1e-12,
+            ",  passes S ≈ 2√2: ", abs(S - 2sqrt(2)) < 1e-12)
+end
+'''
+
+    [section.example.predict]
+    kc = "verification"
+    prompt = "The minus sign belongs on term 4. Before the output is shown: what is S with the minus on term 1 instead?"
+    choices = ["0.0", "About 1.41", "About -2.83"]
+    measure = 'minus on term 1: S = (-?[0-9.]+)'
+    ranges = [[-0.01, 0.01], [1.4, 1.43], [-2.84, -2.82]]
+    answer = 1
+    explain = "Three terms are `+1/√2` and term 4 is `-1/√2`. With the minus on term 1 and not on term 4, the sum is `(-1 + 1 + 1 - 1)/√2 = 0`. The bound check `S ≤ 2√2` passes anyway; only the equality check and the classical control catch it."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A CHSH test computes S = 0 because of a misplaced minus sign. What does the check `S ≤ 2√2 + 1e-12` tell you?"
+  choices = [
+    "Nothing: 0 passes it",
+    "It fails, flagging the misplaced sign",
+    "It passes, so the state is entangled, as the bound requires",
+  ]
+  answer = 1
+  explain = "An upper bound cannot catch an answer that is too small. A check needs a way to fail on the bug in question: here the equality `S ≈ 2√2`, and the classical control `S = 2` that confirms the combination."
+  misconceptions = [
+    "",
+    "`0 ≤ 2√2`, so the bound holds and the check passes; it can only fail when S is too large.",
+    "Satisfying Cirel'son's bound says nothing about entanglement: every classical strategy satisfies it too. Entanglement is shown by exceeding 2.",
+  ]
+
+[[section]]
+title = "Layer 5: mutation testing; the measurement flip"
+body = '''
+**Mutation testing** (DeMillo, Lipton and Sayward) measures a test suite
+instead of the program: inject one small bug (a **mutant**), run the
+suite, and count the mutant as **killed** if some test fails (or the code
+throws). The fraction killed is the **mutation score**. A surviving mutant
+is either a bug the suite cannot see, which needs a new test, or an
+**equivalent mutant** that does not change behaviour at all (unit 57's
+inverse QFT that negates the phases without reversing the order is one).
+qsim's suite kills all 22 seeded mutants of `mutants.toml`.
+
+One mutant drew outcome 1 with probability `1 - P(1)` instead of `P(1)`,
+and collapsed the state consistently with what it reported.
+Every test on `|+⟩` passed: with `P(1) = 1/2`, reporting `1 - outcome` has
+the same distribution. Teleportation (unit 54) measures only such qubits,
+so it passed too. A frequency test on a lopsided state, `P(1) = 0.9`,
+killed it.
+
+Random **property** tests (Claessen and Hughes) generate many inputs, but a
+property the bug preserves stays blind however many inputs it tries; the
+lopsided state is a choice of input that breaks the symmetry.
+'''
+refs = ["demillo-1978", "claessen-hughes-2000"]
+
+  [[section.example]]
+  caption = "Three mutants of `measure!` against two test suites: frequency on `|+⟩`, collapse (afterwards `P(1)` equals the outcome) and normalisation; then the same plus a frequency test with `P(1) = 0.9`. The reference must pass both."
+  code = '''
+using Random
+function measure!(ψ, q, rng; bug = :none)
+    s = 1 << q
+    p1 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & s != 0)
+    out = bug == :flip ? (rand(rng) < p1 ? 0 : 1) : (rand(rng) < p1 ? 1 : 0)   # the flip draws 1 with P = 1 - p1
+    if bug != :nocollapse
+        for k in 0:length(ψ)-1
+            ((k & s != 0) != (out == 1)) && (ψ[k + 1] = 0)
+        end
+        bug != :nonorm && (ψ ./= sqrt(sum(abs2, ψ)))
+    end
+    return out
+end
+ry(p) = (θ = 2asin(sqrt(p)); ComplexF64[cos(θ/2), sin(θ/2)])           # a qubit with P(1) = p
+function freq_test(bug, p)
+    rng = Xoshiro(61); N = 20_000
+    f = sum(measure!(ry(p), 0, rng; bug) for _ in 1:N) / N
+    return abs(f - p) < 5sqrt(p * (1 - p) / N)
+end
+collapse_test(bug) = (rng = Xoshiro(62); all(begin ψ = ry(0.5); m = measure!(ψ, 0, rng; bug); abs(abs2(ψ[2]) - m) < 1e-12 end for _ in 1:200))
+norm_test(bug) = (rng = Xoshiro(63); ψ = ry(0.5); measure!(ψ, 0, rng; bug); abs(sum(abs2, ψ) - 1) < 1e-12)
+symmetric(bug) = freq_test(bug, 0.5) && collapse_test(bug) && norm_test(bug)
+with_lopsided(bug) = symmetric(bug) && freq_test(bug, 0.9)
+println("reference passes: ", symmetric(:none), ", ", with_lopsided(:none))
+for (name, suite) in [("symmetric suite", symmetric), ("with the P(1) = 0.9 test", with_lopsided)]
+    survivors = [m for m in (:flip, :nocollapse, :nonorm) if suite(m)]
+    println(name, ": killed ", 3 - length(survivors), " of 3, survivors: ", isempty(survivors) ? "none" : join(survivors, ", "))
+end
+'''
+
+    [section.example.predict]
+    kc = "mutation-testing"
+    prompt = "Before the output is shown: how many of the three mutants does the symmetric suite (all tests on `P(1) = 1/2`) kill?"
+    choices = ["All 3", "2 of 3: the flip survives", "1 of 3: only the missing normalisation is caught"]
+    measure = 'symmetric suite: killed ([0-9]) of 3'
+    ranges = [[3, 4], [2, 3], [1, 2]]
+    answer = 2
+    explain = "Without collapse, `P(1)` stays 1/2 after the measurement; without normalisation the norm is 1/2. Both fail a symmetric test. The flip keeps every property of a `P = 1/2` state, so only the lopsided frequency test sees it: the flip reports 1 with probability 0.1 instead of 0.9, hundreds of σ away."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does a `measure!` that reports `1 - outcome` pass a 5σ frequency test on `|+⟩` with 20 000 shots?"
+  choices = [
+    "20 000 shots are too few to resolve it",
+    "5σ is too wide a tolerance for this test",
+    "With P(1) = 1/2, the flipped outcome has the same distribution",
+  ]
+  answer = 3
+  explain = "Flipping a fair coin's reports gives a fair coin. No number of shots or tolerance can separate them; the input has to change, to a state where `P(1) ≠ 1/2`."
+  misconceptions = [
+    "More shots would not help: the flipped sampler's frequency is exactly as close to 1/2 as the correct one's. At `P(1) = 0.9`, 20 000 shots separate them by hundreds of σ.",
+    "A tighter tolerance would make the correct sampler fail by chance more often, and still not separate the two, whose distributions are identical at `P = 1/2`.",
+    "",
+  ]
+
+[[section]]
+title = "How many shots does a sampled check need?"
+body = '''
+Sampled checks have a power: a bug that shifts probabilities by `δ` is
+seen only when `N` is large enough for `δ` to exceed a few `σ`. qsim's
+`sampler-bias` mutant draws `rand()^1.05` instead of `rand()`; on the
+distribution below that shifts the probabilities by +0.018, -0.003 and
+-0.015. Pearson's statistic
+
+```
+χ² = Σ over outcomes of (O - N p)² / (N p)
+```
+
+compares observed counts `O` with the expected `N p`. For a correct
+sampler with 3 outcomes it follows a chi-square distribution with 2
+degrees of freedom, whose tail is `P(χ² > x) = exp(-x/2)`, so the
+threshold `x = -2 ln(0.001) = 13.8` is exceeded by a correct sampler with
+probability 0.001.
+'''
+
+  [[section.example]]
+  caption = "χ² of a correct and a biased sampler on the distribution (0.36, 0.2304, 0.4096), for three shot counts, against the 0.001 threshold 13.8."
+  code = '''
+using Random
+p = [0.36, 0.2304, 0.4096]; cdf = cumsum(p)
+chi2(c, p) = sum((c .- sum(c) .* p) .^ 2 ./ (sum(c) .* p))
+for (name, draw) in [("correct", rng -> rand(rng)), ("biased ", rng -> rand(rng)^1.05)]
+    for N in (1_000, 10_000, 100_000)
+        rng = Xoshiro(61); c = zeros(Int, 3)
+        for _ in 1:N
+            c[min(searchsortedfirst(cdf, draw(rng)), 3)] += 1
+        end
+        x = chi2(c, p)
+        println(name, "  N = ", lpad(N, 6), ":  χ² = ", lpad(round(x; digits = 1), 6), x > -2log(0.001) ? "  rejected" : "  passes")
+    end
+end
+'''
+
+    [section.example.predict]
+    kc = "verification"
+    prompt = "The biased sampler shifts the probabilities by up to 0.018. Before the output is shown: at 10 000 shots, is it rejected?"
+    choices = ["Yes, χ² is above 100", "Yes, χ² is between 13.8 and 100", "No, χ² is below 13.8 and it passes"]
+    measure = 'biased   N =  10000:  χ² = +([0-9.]+)'
+    ranges = [[100, 1e6], [13.8, 100], [0, 13.8]]
+    answer = 3
+    explain = "At `N = 10 000`, `σ` of a frequency near 0.36 is about 0.005, so the shifts are a few σ at most, and χ² = 7.3 stays below 13.8. At 100 000 shots `σ` is 0.0015 and χ² = 181. A check that passes says only that bugs larger than its resolution are absent."
+
+[[problem]]
+id = "vs-global-phase"
+title = "Equal up to a global phase"
+difficulty = "warm-up"
+kcs = ["verification"]
+entry = "equal_up_to_phase"
+packages = []
+prompt = '''
+Two state vectors describe the same physical state when they differ by a
+global phase `c` with `|c| = 1`. Write `equal_up_to_phase(a, b)` for two
+normalised `Vector{ComplexF64}` of the same length that returns `true` if
+there is such a `c` with `maximum(abs.(a .- c .* b)) <= 1e-10`, and
+`false` otherwise.
+
+```julia
+equal_up_to_phase(ComplexF64[1, 1] / sqrt(2), ComplexF64[im, im] / sqrt(2))     # true
+equal_up_to_phase(ComplexF64[1, 1] / sqrt(2), ComplexF64[1, -1] / sqrt(2))      # false: a relative phase
+```
+
+The generated cases are a phase times `b` plus noise below `1e-14`, or
+that with one entry changed (a relative phase of 0.5 rad, or `1e-7` added
+and the vector renormalised), or another random state. Some cases have
+`b[1] = 0`.
+'''
+starter = '''
+function equal_up_to_phase(a, b)
+    # your code here
+end
+'''
+reference = '''
+function equal_up_to_phase(a, b)
+    k = argmax(abs.(b))                       # the largest entry fixes the phase
+    abs(a[k]) < 1e-10 && return false
+    c = a[k] / b[k]
+    c /= abs(c)
+    return maximum(abs.(a .- c .* b)) <= 1e-10
+end
+'''
+cases = [
+  "ComplexF64[1, 1] / sqrt(2), ComplexF64[im, im] / sqrt(2)",
+  "ComplexF64[1, 1] / sqrt(2), ComplexF64[1, -1] / sqrt(2)",
+  "ComplexF64[0, 1], ComplexF64[0, -1]",
+  "ComplexF64[0, 1], ComplexF64[1, 0]",
+  "ComplexF64[0.6, 0.8im], ComplexF64[0.6, 0.8]",
+  "ComplexF64[0.6, 0.8], ComplexF64[0.8, 0.6]",
 ]
+gen = '''
+rng -> [begin
+    n = rand(rng, 1:4); b = randn(rng, ComplexF64, 2^n)
+    rand(rng) < 0.3 && (b[1] = 0)
+    b ./= sqrt(sum(abs2, b))
+    a = cis(2pi * rand(rng)) .* b .+ 1e-15 .* randn(rng, ComplexF64, 2^n)
+    kind = rand(rng, 1:4)
+    j = rand(rng, findall(x -> abs(x) > 0.05, b))
+    kind == 2 && (a[j] *= cis(0.5))                                         # a relative phase
+    kind == 3 && (a[j] += 1e-7; a ./= sqrt(sum(abs2, a)))                    # a tiny real difference
+    kind == 4 && (a = randn(rng, ComplexF64, 2^n); a ./= sqrt(sum(abs2, a)))  # another state
+    (a, b)
+end for _ in 1:40]
+'''
+compare = "isequal"
+check_type = true
+hints = [
+  "A global phase multiplies every entry by the same `c`. If you knew `c`, the test is a single comparison; one entry of `a` and `b` is enough to find it, as long as that entry of `b` is not zero.",
+  "Take `k = argmax(abs.(b))`, set `c = a[k] / b[k]` and normalise `c /= abs(c)`; return `maximum(abs.(a .- c .* b)) <= 1e-10`. Return `false` first if `a[k]` is tiny.",
+]
+
+  [problem.perf]
+  args = "(b = randn(rng, ComplexF64, n); b ./= sqrt(sum(abs2, b)); cis(1.0) .* b), b"
+  sizes = [4096]
+
+  [[problem.variant]]
+  label = "compares only the probabilities |a| and |b|"
+  code = '''
+function equal_up_to_phase(a, b)
+    return maximum(abs.(abs.(a) .- abs.(b))) <= 1e-10
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "takes the phase from the first entry, which may be zero"
+  code = '''
+function equal_up_to_phase(a, b)
+    c = a[1] / b[1]
+    c /= abs(c)
+    return maximum(abs.(a .- c .* b)) <= 1e-10
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "fidelity |a'b| ≥ 1 - 1e-12, too loose in distance (√(2·1e-12) ≈ 1.4e-6)"
+  code = '''
+function equal_up_to_phase(a, b)
+    return abs(sum(conj.(a) .* b)) >= 1 - 1e-12
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the phase from the inner product a'b"
+  code = '''
+function equal_up_to_phase(a, b)
+    ip = sum(conj.(b) .* a)
+    abs(ip) < 1e-10 && return false
+    c = ip / abs(ip)
+    return maximum(abs.(a .- c .* b)) <= 1e-10
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "vs-mutation-score"
+title = "Counting killed mutants"
+difficulty = "core"
+kcs = ["mutation-testing"]
+entry = "mutation_score"
+packages = []
+prompt = '''
+Write `mutation_score(mutants, test)` that returns how many of the
+functions in the vector `mutants` are **killed** by `test`, as an `Int`.
+`test(f)` runs a check on the implementation `f` and returns `true` when
+it passes. A mutant is killed when `test` returns `false` or throws an
+exception (a crash counts as a detected bug).
+
+```julia
+test = f -> f(3) == 9
+mutation_score([x -> x^2, x -> 3x, x -> x + 6, x -> error("boom")], test)      # 1: only error("boom")
+mutation_score([x -> 2x, x -> x^3], f -> f(2) == 4)                             # 1: x -> x^3
+```
+
+(In the first example `x -> 3x` and `x -> x + 6` survive, since both give
+9 at 3: one test input is a weak suite.)
+'''
+starter = '''
+function mutation_score(mutants, test)
+    # your code here
+end
+'''
+reference = '''
+function mutation_score(mutants, test)
+    killed = 0
+    for m in mutants
+        passed = try
+            test(m) === true
+        catch
+            false
+        end
+        passed || (killed += 1)
+    end
+    return killed
+end
+'''
+cases = [
+  "[x -> x^2, x -> 3x, x -> x + 6, x -> error(\"boom\")], f -> f(3) == 9",
+  "[x -> 2x, x -> x^3], f -> f(2) == 4",
+  "Function[], f -> true",
+  "[x -> x, x -> -x, x -> abs(x)], f -> f(-2) == -2 && f(5) == 5",
+  "[x -> sqrt(x), x -> x / 0], f -> f(4) == 2.0",
+]
+gen = '''
+rng -> begin
+    pool = Function[x -> x^2, x -> 2x, x -> x + 2, x -> 4, x -> error("crash"), x -> x^2 + 0, x -> abs(x)^2, x -> x * x, x -> div(1, x - 2), x -> x^2 - 1]
+    tests = Function[f -> f(2) == 4, f -> f(3) == 9, f -> f(2) == 4 && f(-3) == 9, f -> all(f(x) == x^2 for x in -3:3)]
+    [(pool[rand(rng, 1:length(pool), rand(rng, 0:8))], rand(rng, tests)) for _ in 1:30]
+end
+'''
+compare = "isequal"
+check_type = true
+hints = [
+  "Run the test on each mutant and count the failures. A mutant that makes the test throw is detected too, so the call has to be protected.",
+  "Wrap `test(m)` in `try ... catch; false; end`, and count the mutants for which that is not `true`.",
+]
+
+  [problem.perf]
+  args = "Function[x -> x + i for i in 1:n], f -> f(0) == 0"
+  sizes = [1000]
+
+  [[problem.variant]]
+  label = "no try/catch: a crashing mutant crashes the count"
+  code = '''
+function mutation_score(mutants, test)
+    return count(m -> !test(m), mutants)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a crash counted as surviving"
+  code = '''
+function mutation_score(mutants, test)
+    killed = 0
+    for m in mutants
+        passed = try
+            test(m)
+        catch
+            true
+        end
+        passed || (killed += 1)
+    end
+    return killed
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "counts the survivors instead"
+  code = '''
+function mutation_score(mutants, test)
+    return count(mutants) do m
+        try
+            test(m)
+        catch
+            false
+        end
+    end
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "count with a do-block and try inside"
+  code = '''
+function mutation_score(mutants, test)
+    return count(mutants) do m
+        try
+            !test(m)
+        catch
+            true
+        end
+    end
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "vs-chi-square"
+title = "Pearson's chi-square statistic"
+difficulty = "core"
+kcs = ["verification"]
+entry = "chi_square"
+packages = []
+prompt = '''
+Write `chi_square(counts, p)` that returns Pearson's statistic
+
+```
+χ² = Σ over i of (counts[i] - N p[i])² / (N p[i]),      N = sum(counts)
+```
+
+as a `Float64`, for a `Vector{Int}` of observed counts and a
+`Vector{Float64}` of probabilities of the same length, all `p[i] > 0`,
+summing to 1.
+
+```julia
+chi_square([50, 50], [0.5, 0.5])            # 0.0
+chi_square([60, 40], [0.5, 0.5])            # 4.0
+chi_square([30, 30, 40], [0.25, 0.25, 0.5]) # 4.0
+```
+
+Results are compared with a relative tolerance of `1e-12`: the statistic is
+a sum of at most a few hundred positive terms, each computed with a few
+roundings.
+'''
+starter = '''
+function chi_square(counts, p)
+    # your code here
+end
+'''
+reference = '''
+function chi_square(counts, p)
+    N = sum(counts)
+    x = 0.0
+    for i in eachindex(counts, p)
+        e = N * p[i]
+        x += (counts[i] - e)^2 / e
+    end
+    return x
+end
+'''
+cases = ["[50, 50], [0.5, 0.5]", "[60, 40], [0.5, 0.5]", "[30, 30, 40], [0.25, 0.25, 0.5]", "[0, 10], [0.1, 0.9]", "[7], [1.0]"]
+gen = "rng -> [(k = rand(rng, 2:8); w = rand(rng, k) .+ 0.05; p = w ./ sum(w); (rand(rng, 0:500, k), p)) for _ in 1:30]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "First the expected counts `N p[i]` from the total `N`; then the sum of squared differences, each divided by its expected count.",
+  "`N = sum(counts)`; for each `i`, `e = N * p[i]`; add `(counts[i] - e)^2 / e`. Start the sum at `0.0` so the result is a `Float64`.",
+]
+
+  [problem.perf]
+  args = "rand(rng, 0:1000, n), (w = rand(rng, n) .+ 0.05; w ./ sum(w))"
+  sizes = [10000]
+
+  [[problem.variant]]
+  label = "divides by the observed count (Neyman's statistic)"
+  code = '''
+function chi_square(counts, p)
+    N = sum(counts)
+    return sum((counts[i] - N * p[i])^2 / max(counts[i], 1) for i in eachindex(counts))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "uses frequencies instead of counts (χ²/N)"
+  code = '''
+function chi_square(counts, p)
+    N = sum(counts)
+    return sum((counts[i] / N - p[i])^2 / p[i] for i in eachindex(counts))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "compares counts with probabilities (forgets N)"
+  code = '''
+function chi_square(counts, p)
+    return sum((counts[i] - p[i])^2 / p[i] for i in eachindex(counts))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "broadcast expression"
+  code = '''
+function chi_square(counts, p)
+    e = sum(counts) .* p
+    return sum((counts .- e) .^ 2 ./ e)
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[reference]]
+id = "demillo-1978"
+authors = "DeMillo, R. A.; Lipton, R. J.; Sayward, F. G."
+title = "Hints on test data selection: help for the practicing programmer"
+venue = "Computer 11(4), 34-41"
+year = 1978
+url = "https://doi.org/10.1109/C-M.1978.218136"
+note = "Mutation analysis: judge a set of tests by whether it distinguishes the program from slightly altered versions of it."
+
+[[reference]]
+id = "claessen-hughes-2000"
+authors = "Claessen, K.; Hughes, J."
+title = "QuickCheck: a lightweight tool for random testing of Haskell programs"
+venue = "Proceedings of the Fifth ACM SIGPLAN International Conference on Functional Programming (ICFP), 268-279"
+year = 2000
+url = "https://doi.org/10.1145/351240.351266"
+note = "Testing programs against stated properties on many random inputs, the style of qsim's randomised checks."
+
+[[reference]]
+id = "javadi-abhari-2024"
+authors = "Javadi-Abhari, A.; Treinish, M.; Krsulich, K.; Wood, C. J.; Lishman, J.; Gacon, J.; Martiel, S.; Nation, P. D.; Bishop, L. S.; Cross, A. W.; Johnson, B. R.; Gambetta, J. M."
+title = "Quantum computing with Qiskit"
+venue = "arXiv:2405.08810"
+year = 2024
+url = "https://arxiv.org/abs/2405.08810"
+note = "A description of the Qiskit software development kit, the independent reference used by qsim's cross-check."
+
+[[reference]]
+id = "chsh-1969"
+authors = "Clauser, J. F.; Horne, M. A.; Shimony, A.; Holt, R. A."
+title = "Proposed experiment to test local hidden-variable theories"
+venue = "Physical Review Letters 23, 880-884"
+year = 1969
+url = "https://doi.org/10.1103/PhysRevLett.23.880"
+note = "The CHSH inequality: the combination S of four correlations is at most 2 for local hidden-variable theories."
