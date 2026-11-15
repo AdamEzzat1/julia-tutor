@@ -1939,21 +1939,475 @@
         "chsh"
       ],
       "lessons": [],
-      "outline": [
-        "The question: can two players who cannot talk win a game more often by sharing qubits?",
-        "Bell and GHZ states from H and CNOT; diagram of the circuit",
-        "reduced_density by partial trace, and entropy of one qubit of a Bell pair = 1 bit",
-        "CHSH: brute force over all 16 deterministic classical strategies gives 2",
-        "Quantum S = 2 sqrt 2 exactly and from shots; the sign pattern must match the angles"
-      ],
+      "outline": [],
       "prerequisites": [
         "52-applying-gates"
       ],
-      "problems": [],
-      "references": [],
-      "sections": [],
-      "status": "planned",
-      "summary": "Bell and GHZ states, reduced density matrices and entanglement entropy, and the CHSH value: 2 for every classical strategy, 2 sqrt 2 for quantum.",
+      "problems": [
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "reduced_density",
+          "hints": [
+            "Only pairs of outcomes that agree on every other qubit contribute. Which two outcomes agree on everything except qubit `q`?",
+            "Loop over `k` with `k & (1 << q) == 0`; with `a0 = ψ[k + 1]` and `a1 = ψ[(k | (1 << q)) + 1]`, add `a0 * conj(a0)`, `a0 * conj(a1)`, `a1 * conj(a0)` and `a1 * conj(a1)` to the four entries."
+          ],
+          "id": "ec-reduced-density",
+          "kcs": [
+            "partial-trace"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              4096
+            ]
+          },
+          "prompt": "Write `reduced_density(ψ, q)` that returns the `2×2` reduced density matrix\n(a `Matrix{ComplexF64}`) of qubit `q` of the state `ψ`, little-endian as in\nunit 50: `ρ[a + 1, b + 1]` is the sum, over all settings of the other\nqubits, of `ψ[k_a + 1] * conj(ψ[k_b + 1])`, where `k_a` and `k_b` are the\noutcomes with qubit `q` equal to `a` and `b` and the other qubits equal.\n\n```julia\nreduced_density(ComplexF64[1, 0, 0, 1] / sqrt(2), 0)     # I/2: half a Bell pair\nreduced_density(ComplexF64[1, im, 0, 0] / sqrt(2), 0)    # [1 -im; im 1] / 2: |+i⟩ on qubit 0\n```\n\nResults are compared as whole matrices with `rtol = 1e-12`. Each entry is a\nsum of `2^(n-1)` products, so two correct summation orders differ by about\n`2^(n-1) · u` relative at most, below `1e-13` for the 7 qubits graded here;\na wrong pairing or a missing `conj` changes entries by order 1.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "reduced_density(ComplexF64[1, 0, 0, 1] / sqrt(2), 0)",
+              "result": "2×2 Matrix{ComplexF64}:\n 0.5+0.0im  0.0+0.0im\n 0.0+0.0im  0.5+0.0im"
+            },
+            {
+              "call": "reduced_density(ComplexF64[1, im, 0, 0] / sqrt(2), 0)",
+              "result": "2×2 Matrix{ComplexF64}:\n 0.5+0.0im  0.0-0.5im\n 0.0+0.5im  0.5+0.0im"
+            },
+            {
+              "call": "reduced_density(ComplexF64[1, im, 0, 0] / sqrt(2), 1)",
+              "result": "2×2 Matrix{ComplexF64}:\n 1.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im"
+            },
+            {
+              "call": "reduced_density(ComplexF64[0.6, 0, 0, 0, 0, 0, 0, 0.8im], 1)",
+              "result": "2×2 Matrix{ComplexF64}:\n 0.36+0.0im   0.0+0.0im\n  0.0+0.0im  0.64+0.0im"
+            },
+            {
+              "call": "reduced_density(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8] / sqrt(204), 2)",
+              "result": "2×2 Matrix{ComplexF64}:\n 0.147059+0.0im  0.343137+0.0im\n 0.343137+0.0im  0.852941+0.0im"
+            }
+          ],
+          "starter": "function reduced_density(ψ, q)\n    # your code here\nend\n",
+          "title": "The reduced density matrix of one qubit"
+        },
+        {
+          "check_type": true,
+          "compare": "custom",
+          "difficulty": "core",
+          "entry": "entanglement_entropy",
+          "hints": [
+            "First build the `2×2` reduced density matrix of qubit `q`, as in the previous problem; then the entropy needs its two eigenvalues.",
+            "`eigvals(Hermitian(ρ))` gives the eigenvalues as real numbers. Sum `-λ * log2(λ)` only over those above `1e-12`, starting from `0.0` (`init = 0.0`, in case none qualifies)."
+          ],
+          "id": "ec-entropy",
+          "kcs": [
+            "partial-trace",
+            "entanglement"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              1024
+            ]
+          },
+          "prompt": "Write `entanglement_entropy(ψ, q)` that returns the entropy, in bits, of the\nreduced density matrix of qubit `q` of the pure state `ψ` (little-endian):\n`S = -Σ λ log2(λ)` over its eigenvalues, with `0 · log2(0)` counted as 0.\nReturn a `Float64`.\n\n```julia\nentanglement_entropy(ComplexF64[1, 0, 0, 1] / sqrt(2), 0)    # 1.0: half a Bell pair\nentanglement_entropy(ComplexF64[1, 1, 0, 0] / sqrt(2), 0)    # 0.0: |0⟩ ⊗ |+⟩ is a product\n```\n\nYou may use `LinearAlgebra`. Results are compared with an absolute tolerance\nof `1e-10` bits. A computed eigenvalue that should be 0 can be about `±1e-16`\nand must not reach `log2` (it would throw, or give `NaN`); skipping\neigenvalues below `1e-12` changes `S` by at most `4e-11`, and an eigenvalue\nerror of a few `u` changes it by less than `1e-13` elsewhere.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "entanglement_entropy(ComplexF64[1, 0, 0, 1] / sqrt(2), 0)",
+              "result": "1.0"
+            },
+            {
+              "call": "entanglement_entropy(ComplexF64[1, 1, 0, 0] / sqrt(2), 0)",
+              "result": "3.2034265038149176e-16"
+            },
+            {
+              "call": "entanglement_entropy(ComplexF64[1, 0, 0, 0], 1)",
+              "result": "-0.0"
+            },
+            {
+              "call": "entanglement_entropy(ComplexF64[cos(0.4), 0, 0, sin(0.4)], 1)",
+              "result": "0.6139457408499391"
+            },
+            {
+              "call": "entanglement_entropy(ComplexF64[1, 0, 0, 0, 0, 0, 0, 1] / sqrt(2), 2)",
+              "result": "1.0"
+            }
+          ],
+          "starter": "using LinearAlgebra\n\nfunction entanglement_entropy(ψ, q)\n    # your code here\nend\n",
+          "title": "Entanglement entropy of one qubit"
+        },
+        {
+          "check_type": true,
+          "compare": "custom",
+          "difficulty": "core",
+          "entry": "chsh_value",
+          "hints": [
+            "Write the observable `A(θ)` and the correlator `E` first, as small functions; `S` is then one line. Which `kron` factor acts on qubit 0?",
+            "`kron(P, Q)` puts `P` on qubit 1 and `Q` on qubit 0 (unit 50), so Alice's `A(α)` goes second: `E(α, β) = real(ψ' * kron(A(β), A(α)) * ψ)`; the minus sign goes on `E(a2, b2)`."
+          ],
+          "id": "ec-chsh-value",
+          "kcs": [
+            "chsh"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              1
+            ]
+          },
+          "prompt": "Write `chsh_value(ψ, a, a2, b, b2)` for a two-qubit state `ψ` (4\namplitudes) where Alice holds qubit 0 and measures along angle `a` or `a2`,\nand Bob holds qubit 1 and measures along `b` or `b2`. With `A(θ) = cos(θ) Z +\nsin(θ) X` and the correlator `E(α, β) = real(ψ' * kron(A(β), A(α)) * ψ)`\n(Bob's factor first: he holds qubit 1), return the `Float64`\n\n```\nS = E(a, b) + E(a, b2) + E(a2, b) - E(a2, b2)\n```\n\n```julia\nchsh_value(ComplexF64[1, 0, 0, 1] / sqrt(2), 0.0, pi/2, pi/4, -pi/4)    # 2√2 ≈ 2.8284\nchsh_value(ComplexF64[1, 0, 0, 0], 0.0, pi/2, pi/4, -pi/4)              # √2: |00⟩ is a product state\n```\n\nThe graded states are random, so `|Φ+⟩`'s symmetry does not hide a wrong\nqubit order. Results are compared with an absolute tolerance of `1e-12`:\neach correlator sums 16 products of numbers at most 1 in size, with an\nerror of a few times `16u ≈ 4e-15`.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "chsh_value(ComplexF64[1, 0, 0, 1] / sqrt(2), 0.0, pi/2, pi/4, -pi/4)",
+              "result": "2.82842712474619"
+            },
+            {
+              "call": "chsh_value(ComplexF64[1, 0, 0, 0], 0.0, pi/2, pi/4, -pi/4)",
+              "result": "1.4142135623730951"
+            },
+            {
+              "call": "chsh_value(ComplexF64[0, 1, -1, 0] / sqrt(2), 0.0, pi/2, pi/4, -pi/4)",
+              "result": "-2.82842712474619"
+            },
+            {
+              "call": "chsh_value(ComplexF64[0.6, 0, 0.8im, 0], 0.3, 1.1, -0.4, 2.0)",
+              "result": "-0.30489625711187607"
+            },
+            {
+              "call": "chsh_value(ComplexF64[1, 2, 3im, 4] / sqrt(30), 0.0, pi/2, pi/4, -pi/4)",
+              "result": "0.5656854249492378"
+            }
+          ],
+          "starter": "using LinearAlgebra\n\nfunction chsh_value(ψ, a, a2, b, b2)\n    # your code here\nend\n",
+          "title": "The CHSH value of a two-qubit state"
+        }
+      ],
+      "references": [
+        {
+          "authors": "Bell, J. S.",
+          "id": "bell-1964",
+          "note": "Shows that no theory of local hidden variables, values fixed in advance, reproduces the quantum correlations of an entangled pair, by deriving an inequality they must obey: the idea behind the classical bound of this unit's section 2.",
+          "title": "On the Einstein Podolsky Rosen paradox",
+          "url": "https://doi.org/10.1103/PhysicsPhysiqueFizika.1.195",
+          "venue": "Physics Physique Fizika 1, 195-200",
+          "year": 1964
+        },
+        {
+          "authors": "Clauser, J. F.; Horne, M. A.; Shimony, A.; Holt, R. A.",
+          "id": "chsh-1969",
+          "note": "The CHSH inequality: four correlators of two settings per side, whose combination is at most 2 in absolute value for any local hidden-variable theory: the bound of this unit's sections 2 and 5.",
+          "title": "Proposed experiment to test local hidden-variable theories",
+          "url": "https://doi.org/10.1103/PhysRevLett.23.880",
+          "venue": "Physical Review Letters 23, 880-884",
+          "year": 1969
+        },
+        {
+          "authors": "Cirel'son, B. S.",
+          "id": "tsirelson-1980",
+          "note": "Proves that quantum correlations give at most 2√2 for the CHSH combination (Tsirelson's bound), the maximum reached in this unit's section 5.",
+          "title": "Quantum generalizations of Bell's inequality",
+          "url": "https://doi.org/10.1007/BF00417500",
+          "venue": "Letters in Mathematical Physics 4, 93-100",
+          "year": 1980
+        },
+        {
+          "authors": "Greenberger, D. M.; Horne, M. A.; Shimony, A.; Zeilinger, A.",
+          "id": "ghz-1990",
+          "note": "The entangled state of three or more particles now called the GHZ state, `(|0…0⟩ + |1…1⟩)/√2`, built in this unit's section 3.",
+          "title": "Bell's theorem without inequalities",
+          "url": "https://doi.org/10.1119/1.16243",
+          "venue": "American Journal of Physics 58, 1131-1143",
+          "year": 1990
+        },
+        {
+          "authors": "Nielsen, M. A.; Chuang, I. L.",
+          "id": "nielsen-chuang-2010",
+          "note": "The textbook treatment of Bell states and their circuit, and of the density operator and the reduced density operator obtained by the partial trace, used in this unit's sections 3 and 4.",
+          "title": "Quantum Computation and Quantum Information",
+          "url": "https://doi.org/10.1017/CBO9780511976667",
+          "venue": "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)",
+          "year": 2012
+        }
+      ],
+      "sections": [
+        {
+          "analogies": [],
+          "body": "This unit uses the in-place gates of unit 52, `apply_1q!(ψ, U, q)` and\n`apply_cx!(ψ, c, t)` (CNOT: flip qubit `t` where qubit `c` is 1), the\nlittle-endian order of unit 50 (outcome `k` has qubit `q` in bit `q`), and the\nPauli matrices `X` and `Z` of unit 51. Each example below defines the\nhelpers it needs, so it runs on its own.\n\nTwo new tools:\n\n* The **density matrix** of a state `ψ` is the matrix `ρ = ψ ψ'`, the outer\n  product of the column `ψ` with its conjugate row: `ρ[i, j] = ψ[i] ·\n  conj(ψ[j])`. Its diagonal holds the Born-rule probabilities (unit 49) and\n  its trace is 1. It is the description that still works when only part of a\n  system is looked at, which is what this unit needs.\n* `eigvals(Hermitian(ρ))` from `LinearAlgebra` returns the real eigenvalues\n  of a Hermitian matrix (one with `ρ == ρ'`), in increasing order. The\n  `Hermitian` wrapper tells Julia to use the symmetric algorithm, which\n  returns real numbers instead of complex ones with tiny imaginary parts.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "The density matrix of `|+⟩ = (|0⟩ + |1⟩)/√2`, its trace and its eigenvalues.",
+              "check": true,
+              "code": "using LinearAlgebra\nψ = ComplexF64[1, 1] / sqrt(2)\nρ = ψ * ψ'                                       # column times conjugate row: 2×2\nprintln(\"ρ = \", round.(real.(ρ); digits = 4), \",  tr ρ = \", round(real(tr(ρ)); digits = 12))\nprintln(\"eigenvalues: \", round.(eigvals(Hermitian(ρ)); digits = 12) .+ 0.0)",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the eigenvalues are 0 and 1, the signature of a pure state, a state that a single vector describes. The rest of this unit meets a one-qubit `ρ` whose eigenvalues are both 1/2.",
+              "ok": true,
+              "output": "ρ = [0.5 0.5; 0.5 0.5],  tr ρ = 1.0\neigenvalues: [0.0, 1.0]\n"
+            }
+          ],
+          "questions": [],
+          "refs": [],
+          "title": "What you need from earlier units"
+        },
+        {
+          "analogies": [],
+          "body": "The **CHSH game** has two players, Alice and Bob, in separate rooms. A\nreferee sends Alice a random bit `x` and Bob a random bit `y`. Without\ntalking, Alice answers a bit `a` and Bob a bit `b`. They win when\n\n```\na ⊻ b == x & y        (answers differ exactly when both questions are 1)\n```\n\nThey may agree on a strategy beforehand, and share any random numbers they\nlike, but they cannot communicate once the questions arrive.\n\nA **deterministic** strategy fixes Alice's answer for each of her two\nquestions and Bob's for each of his: `2^2 · 2^2 = 16` strategies, few enough\nto try them all. A strategy that uses shared randomness picks one of the 16\nat random, so its winning probability is an average of theirs and cannot\nexceed the best of them. Whatever the 16 give is therefore the best any\nclassical strategy can do, an instance of Bell's theorem: correlations\nexplained by values fixed in advance obey a bound.\n\nThe rest of this unit shows that two players who each hold one qubit of an\nentangled pair, and measure it in a direction chosen by their question,\nwin more often than that bound allows. No message is sent; the qubits were\nprepared together before the game.",
+          "diagrams": [
+            {
+              "alt": "The CHSH game. A referee in the middle sends a random bit x to Alice on the left and a random bit y to Bob on the right. Each answers one bit, a and b, without communicating. They win when a XOR b equals x AND y. Optionally they share a Bell pair prepared before the game, one qubit each.",
+              "caption": "The CHSH game: random questions x and y, answers a and b, no communication. The shared Bell pair is the only quantum ingredient; it carries no message.",
+              "src": "assets/diagrams/53-entanglement-chsh/chsh-game.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "Every deterministic strategy for the CHSH game, and the best winning probability among them (each of the four question pairs has probability 1/4).",
+              "check": true,
+              "code": "best, nbest = 0.0, 0\nfor a0 in 0:1, a1 in 0:1, b0 in 0:1, b1 in 0:1          # Alice answers a_x, Bob answers b_y\n    a, b = (a0, a1), (b0, b1)\n    p = sum((a[x + 1] ⊻ b[y + 1]) == (x & y) for x in 0:1, y in 0:1) / 4\n    if p > best\n        global best, nbest = p, 1\n    elseif p == best\n        global nbest += 1\n    end\nend\nprintln(\"16 strategies, best winning probability: \", best, \" (reached by \", nbest, \" of them)\")",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "16 strategies, best winning probability: 0.75 (reached by 8 of them)\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "1.0, always winning",
+                  "0.75",
+                  "0.5, no better than guessing"
+                ],
+                "explain": "Answering `a = b = 0` always wins three of the four question pairs and loses only `x = y = 1`. No deterministic strategy wins all four: the four winning conditions add up (mod 2) to `0 = 1`, a contradiction, so at least one pair is always lost. Eight of the 16 strategies reach 3/4.",
+                "kc": "chsh",
+                "measured": "0.75",
+                "prompt": "There are 16 deterministic strategies. Before the output is shown: what is the best winning probability among them?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "Shared randomness is against the rules of the game",
+                "Its win rate is an average over deterministic strategies",
+                "Random answers are uncorrelated, so they win only half the time"
+              ],
+              "code": "",
+              "explain": "With shared randomness they pick one deterministic strategy at random, and the winning probability is the average of the chosen strategies' probabilities, weighted by how often each is chosen. An average never exceeds its largest term, 3/4.",
+              "kind": "choice",
+              "misconceptions": [
+                "The rules allow any agreement made before the game, including a list of shared random numbers; only communication after the questions is forbidden.",
+                "",
+                "Shared random numbers make the answers correlated, as much as the players want; the reason they do not help is that every such strategy is a mixture of the 16 deterministic ones."
+              ],
+              "prompt": "Alice and Bob may share random numbers. Why can that not beat the best deterministic strategy?"
+            }
+          ],
+          "refs": [
+            "bell-1964",
+            "chsh-1969"
+          ],
+          "title": "The question: can two players who cannot talk win more often by sharing qubits?"
+        },
+        {
+          "analogies": [
+            {
+              "breaks": "The gloves were left and right all along; opening a box only reveals it.\nThat is exactly the kind of explanation, values fixed in advance, that the\nCHSH game rules out: with such values the players could reproduce the\ncorrelations with a deterministic strategy, and the 16-strategy bound would\nhold. The Bell pair beats it, so its correlations are not gloves in boxes.\nNor can the pair send a message: each qubit on its own gives a fair coin\nflip whatever is done to the other.",
+              "text": "Put a pair of gloves into two boxes, one glove each, and send the boxes to\ntwo cities. Opening one box tells you at once which glove is in the other,\nhowever far away it is. Measuring one qubit of `|Φ+⟩` is like that: it\ngives 0 or 1 at random, and the other qubit, measured in the same basis,\nalways gives the same.",
+              "title": "A pair of gloves in two boxes"
+            }
+          ],
+          "body": "A two-qubit state is a **product state** when it can be written as\n`kron(ψ1, ψ0)`, one state per qubit (unit 50's order: qubit 1 on the left).\nOtherwise it is **entangled**: no description of the qubits one at a time\nreproduces it.\n\nThe simplest entangled state is the **Bell state**\n\n```\n|Φ+⟩ = (|00⟩ + |11⟩) / √2\n```\n\nmade from `|00⟩` by `H` on qubit 0 and then CNOT from qubit 0 to qubit 1:\n`H` gives `(|00⟩ + |01⟩)/√2`, and CNOT flips qubit 1 in the second term.\nMeasuring it gives `00` or `11`, each with probability 1/2, never `01` or\n`10`: the two qubits always agree.\n\nA further CNOT from qubit 1 to qubit 2, and so on, gives the **GHZ state**\n`(|0…0⟩ + |1…1⟩)/√2` on `n` qubits, named after Greenberger, Horne and\nZeilinger.\n\n**A test for two qubits.** Write the four amplitudes as a `2×2` matrix `M`\nwith `M[i, j]` the amplitude of qubit 0 = `i - 1` and qubit 1 = `j - 1`.\nThat is exactly `reshape(ψ, 2, 2)` (column-major, unit 50). A product state\ngives `M = ψ0 · transpose(ψ1)`, a matrix of rank 1, so `det(M) = 0`. A\nnonzero determinant therefore proves entanglement. For `|Φ+⟩`, `det(M) =\n1/2`, the largest possible value.",
+          "diagrams": [
+            {
+              "alt": "A quantum circuit on three qubit lines, labelled q0 at the top to q2 at the bottom, each starting in |0⟩. An H gate on q0, then a CNOT with control q0 and target q1, then a CNOT with control q1 and target q2. The first two gates alone make the Bell state on q0 and q1; all three make the GHZ state (|000⟩ + |111⟩)/√2.",
+              "caption": "The circuit for the Bell pair (first two gates) and the 3-qubit GHZ state (all three). Each CNOT copies the bit of its control into its target, term by term of the superposition.",
+              "src": "assets/diagrams/53-entanglement-chsh/ghz-circuit.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "The Bell state and the GHZ state on 3 qubits, built gate by gate, and the determinant test for two qubits.",
+              "check": true,
+              "code": "using LinearAlgebra\nfunction apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nfunction apply_cx!(ψ, c, t)\n    for k in 0:length(ψ)-1\n        if k & (1 << c) != 0 && k & (1 << t) == 0\n            j = k | (1 << t)\n            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]\n        end\n    end\n    return ψ\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nfunction ghz(n)\n    ψ = zeros(ComplexF64, 2^n); ψ[1] = 1\n    apply_1q!(ψ, H, 0)\n    for q in 1:n-1\n        apply_cx!(ψ, q - 1, q)\n    end\n    return ψ\nend\nbell = ghz(2)\nprintln(\"Bell amplitudes: \", round.(real.(bell); digits = 4))\nprintln(\"GHZ(3) nonzero outcomes: \", [k for k in 0:7 if abs(ghz(3)[k + 1]) > 1e-12])\nproduct = kron(ComplexF64[1, 1] / sqrt(2), ComplexF64[0.6, 0.8])       # qubit 1 ⊗ qubit 0\nprintln(\"det test: Bell \", round(real(det(reshape(bell, 2, 2))); digits = 12), \",  product \", round(abs(det(reshape(product, 2, 2))); digits = 12))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "Bell amplitudes: [0.7071, 0.0, 0.0, 0.7071]\nGHZ(3) nonzero outcomes: [0, 7]\ndet test: Bell 0.5,  product 0.0\n",
+              "predict": {
+                "answer": 1,
+                "choices": [
+                  "0 and 7",
+                  "0 and 1",
+                  "All eight"
+                ],
+                "explain": "`H` makes `(|000⟩ + |001⟩)/√2`. CNOT 0→1 flips qubit 1 in the second term, `|011⟩`, and CNOT 1→2 flips qubit 2 there, `|111⟩`: outcomes `000` = 0 and `111` = 7. Without the CNOTs only `H` acts, giving 0 and 1; all eight would need an `H` on every qubit.",
+                "kc": "entanglement",
+                "measured": "[0, 7]",
+                "prompt": "The GHZ circuit on 3 qubits is `H` on qubit 0, then CNOT 0→1 and CNOT 1→2. Before the output is shown: which outcomes have a nonzero amplitude?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "`(|00⟩ + |01⟩) / √2`",
+                "`(|00⟩ + |11⟩) / √2`",
+                "`(|00⟩ + |01⟩ + |10⟩ + |11⟩) / 2`"
+              ],
+              "code": "",
+              "explain": "Its matrix `M = [1 0; 0 1]/√2` has determinant 1/2, not 0. The first is `|0⟩ ⊗ (|0⟩ + |1⟩)/√2` (`M` has one zero column), and the third is `|+⟩ ⊗ |+⟩` (all four entries equal, determinant 0).",
+              "kind": "choice",
+              "misconceptions": [
+                "Qubit 1 is 0 in both terms, so the state is `|0⟩ ⊗ |+⟩`, a product: `M = [1 0; 1 0]/√2` has determinant 0.",
+                "",
+                "A superposition of all four outcomes can be a product: this one is `|+⟩ ⊗ |+⟩`, since every entry of `M` is 1/2 and its determinant is 0."
+              ],
+              "prompt": "Which of these two-qubit states is entangled?"
+            }
+          ],
+          "refs": [
+            "ghz-1990",
+            "nielsen-chuang-2010"
+          ],
+          "title": "Bell and GHZ states from H and CNOT"
+        },
+        {
+          "analogies": [],
+          "body": "What does qubit 0 of `|Φ+⟩` look like *on its own*, to someone who never\nsees qubit 1? No vector describes it: every one-qubit vector predicts a\ndirection where measuring it always gives the same outcome (its Bloch\nvector, unit 51), and qubit 0 of a Bell pair has no such direction. The\n**reduced density matrix** does describe it. It is the density matrix with\nthe other qubits summed out, the **partial trace**:\n\n```\nρ_q[a + 1, b + 1] = Σ over the other bits r of   ψ[k(r, a)] · conj(ψ[k(r, b)])\n```\n\nwhere `k(r, a)` is the outcome with qubit `q` equal to `a` and the other\nqubits equal to `r`. In the bit language of unit 52: for each `k` with bit\n`q` clear, `k` and `k | (1 << q)` are the two outcomes, and the four entries\ncollect the products of their amplitudes.\n\nFor a product state, `ρ_q` is the pure `φ φ'` of that qubit's own vector `φ`,\nwith eigenvalues 0 and 1. For half a Bell pair it is `I/2`: eigenvalues\n1/2 and 1/2, a fair coin in every direction.\n\nThe **entanglement entropy** turns this into one number. With `λ` the\neigenvalues of `ρ_q`,\n\n```\nS = -Σ λ log2(λ)       (in bits; 0 · log2(0) counts as 0)\n```\n\n`S = 0` for a qubit of a product state and `S = 1` bit, the maximum, for\nhalf a Bell pair. For a pure state of all the qubits, `S > 0` means the\nqubit is entangled with the rest.\n\n**The term `0 · log2(0)`.** Computed eigenvalues of a pure `ρ` are 0 only up\nto rounding, and can come out as `-1e-17`, where `log2` throws a\n`DomainError`. So eigenvalues below `1e-12` are skipped. The error that\ncauses is at most `λ log2(1/λ) ≤ 1e-12 · 40 = 4e-11` bits, far below\nanything this unit measures.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "The reduced density matrix of qubit 0 for a Bell pair and for a product state, their entropies, and one qubit of a 5-qubit GHZ state.",
+              "check": true,
+              "code": "using LinearAlgebra\nfunction reduced_density(ψ, q)\n    ρ = zeros(ComplexF64, 2, 2)\n    m = 1 << q\n    for k in 0:length(ψ)-1\n        if k & m == 0\n            a0, a1 = ψ[k + 1], ψ[(k | m) + 1]           # qubit q = 0 and = 1, other bits equal\n            ρ[1, 1] += abs2(a0);           ρ[1, 2] += a0 * conj(a1)\n            ρ[2, 1] += a1 * conj(a0);      ρ[2, 2] += abs2(a1)\n        end\n    end\n    return ρ\nend\nentropy(ρ) = -sum((λ * log2(λ) for λ in eigvals(Hermitian(ρ)) if λ > 1e-12); init = 0.0)\nbell = ComplexF64[1, 0, 0, 1] / sqrt(2)\nproduct = kron(ComplexF64[1, 1] / sqrt(2), ComplexF64[0.6, 0.8])\nghz5 = zeros(ComplexF64, 32); ghz5[1] = ghz5[32] = 1 / sqrt(2)\nprintln(\"Bell, qubit 0: ρ = \", round.(real.(reduced_density(bell, 0)); digits = 4), \",  S = \", round(entropy(reduced_density(bell, 0)); digits = 12))\nprintln(\"product, qubit 0: ρ = \", round.(real.(reduced_density(product, 0)); digits = 4), \",  S = \", round(entropy(reduced_density(product, 0)); digits = 12) + 0.0)\nprintln(\"GHZ(5), qubit 2: S = \", round(entropy(reduced_density(ghz5, 2)); digits = 12))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "Bell, qubit 0: ρ = [0.5 0.0; 0.0 0.5],  S = 1.0\nproduct, qubit 0: ρ = [0.36 0.48; 0.48 0.64],  S = 0.0\nGHZ(5), qubit 2: S = 1.0\n",
+              "predict": {
+                "answer": 1,
+                "choices": [
+                  "1 bit",
+                  "0 bits",
+                  "More than 1 bit, since five qubits are entangled"
+                ],
+                "explain": "Summing out the other four qubits leaves `ρ = I/2`: the outcome `00000` contributes `|0⟩⟨0|/2`, `11111` contributes `|1⟩⟨1|/2`, and the cross terms vanish because the two outcomes differ in the other qubits too. Its entropy is 1 bit. One qubit has only two eigenvalues, so its entropy can never exceed `log2(2) = 1` bit, however many qubits it is entangled with.",
+                "kc": "partial-trace",
+                "measured": "1.0",
+                "prompt": "The last line computes the entropy of qubit 2 of the 5-qubit GHZ state `(|00000⟩ + |11111⟩)/√2`. Before the output is shown: about what is it?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "At the north pole, `|0⟩`, its first term",
+                "At the centre, Bloch vector 0",
+                "On the equator"
+              ],
+              "code": "",
+              "explain": "Its reduced density matrix is `I/2`, and `ρ = (I + r_x X + r_y Y + r_z Z)/2` gives `r = 0`. A point inside the sphere is a **mixed** state; the centre is the maximally mixed one, the same fair coin in every direction.",
+              "kind": "choice",
+              "misconceptions": [
+                "Both terms count equally: qubit 0 is 0 in `|00⟩` and 1 in `|11⟩`, each with probability 1/2, so `⟨Z⟩ = 0`, not 1.",
+                "",
+                "A point on the equator, such as `|+⟩`, is a pure state with a definite outcome in some direction (`X` for `|+⟩`). Half a Bell pair has none: `⟨X⟩ = ⟨Y⟩ = ⟨Z⟩ = 0`."
+              ],
+              "prompt": "Where on the Bloch sphere (unit 51) is qubit 0 of the Bell state `|Φ+⟩`?"
+            }
+          ],
+          "refs": [
+            "nielsen-chuang-2010"
+          ],
+          "title": "Half of a Bell pair: the reduced density matrix and its entropy"
+        },
+        {
+          "analogies": [],
+          "body": "Write each answer as a sign, `A = (-1)^a`, so that `+1` means 0 and `-1`\nmeans 1. For questions `x`, `y` the **correlator** `E_xy` is the expected\nproduct `A·B`: `+1` when the answers always agree, `-1` when they always\ndiffer. Winning means agreeing on three question pairs and differing on\n`x = y = 1`, so the winning probability is\n\n```\nP(win) = 1/2 + S/8,      S = E_00 + E_01 + E_10 - E_11\n```\n\nThe classical 3/4 is `S = 2`: the **CHSH inequality** `|S| ≤ 2` of Clauser,\nHorne, Shimony and Holt.\n\n**The quantum strategy.** Alice and Bob share `|Φ+⟩` (Alice qubit 0, Bob\nqubit 1). Each measures their qubit along an angle `θ` in the x-z plane of\nthe Bloch sphere, chosen by their question: the observable\n\n```\nA(θ) = cos(θ) Z + sin(θ) X        (eigenvalues +1 and -1)\n```\n\nThe correlator of Alice at `a` and Bob at `b` is `E(a, b) = ψ' * kron(A(b),\nA(a)) * ψ`, with Bob's factor on the left because he holds qubit 1 (unit 50).\nFor `|Φ+⟩` it works out to `cos(a - b)`. With Alice's angles `0` and `π/2`\nand Bob's `π/4` and `-π/4`, three correlators are `cos(π/4) = 1/√2` and the\nfourth, `E(π/2, -π/4) = cos(3π/4) = -1/√2`, carries the minus sign:\n\n```\nS = 4/√2 = 2√2 ≈ 2.828,      P(win) = 1/2 + √2/4 ≈ 0.854\n```\n\nTsirelson proved that no quantum strategy does better: `2√2` is the quantum\nmaximum.\n\n**Which term carries the minus sign** has to match the angles: with the same\nfour correlators and the minus on another term, the sum is 0. A check that\nonly compares `abs(S)` with 2 would not notice that mistake.\n\n**From shots.** An experiment never sees `E` directly, only outcomes. To\nmeasure along `θ`, rotate the qubit by `RY(-θ)`, which takes the `θ`\ndirection to `z`, and measure as usual; `E = P(same) - P(different)`. Each\ncorrelator estimated from `N` shots has a standard deviation of at most\n`1/√N`, so `S` from four of them has at most `2/√N`: `0.0063` for `N =\n100 000`. A sampled `S` within `5σ` of `2√2` and more than `5σ` above 2\nshows the violation with no doubt left to sampling.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "The four correlators of `|Φ+⟩` at the optimal angles, the exact `S`, and the check that `E(a, b) = cos(a - b)` on a grid of angles.",
+              "check": true,
+              "code": "using LinearAlgebra\nX = ComplexF64[0 1; 1 0];  Z = ComplexF64[1 0; 0 -1]\nA(θ) = cos(θ) * Z + sin(θ) * X\nE(ψ, a, b) = real(ψ' * kron(A(b), A(a)) * ψ)           # Bob holds qubit 1: his factor is on the left\nbell = ComplexF64[1, 0, 0, 1] / sqrt(2)\na, a2, b, b2 = 0.0, pi / 2, pi / 4, -pi / 4\nS = E(bell, a, b) + E(bell, a, b2) + E(bell, a2, b) - E(bell, a2, b2)\nprintln(\"correlators: \", round.([E(bell, a, b), E(bell, a, b2), E(bell, a2, b), E(bell, a2, b2)]; digits = 6))\nprintln(\"S = \", round(S; digits = 10), \",  2√2 = \", round(2sqrt(2); digits = 10), \",  P(win) = \", round(1/2 + S/8; digits = 6))\nprintln(\"E(a, b) == cos(a - b) within 1e-12 on a 7×7 grid: \", all(abs(E(bell, x, y) - cos(x - y)) < 1e-12 for x in 0:0.5:3, y in 0:0.5:3))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "correlators: [0.707107, 0.707107, 0.707107, -0.707107]\nS = 2.8284271247,  2√2 = 2.8284271247,  P(win) = 0.853553\nE(a, b) == cos(a - b) within 1e-12 on a 7×7 grid: true\n"
+            },
+            {
+              "caption": "The same four correlators, with the minus sign on the first term instead of the last.",
+              "check": true,
+              "code": "using LinearAlgebra\nX = ComplexF64[0 1; 1 0];  Z = ComplexF64[1 0; 0 -1]\nA(θ) = cos(θ) * Z + sin(θ) * X\nE(ψ, a, b) = real(ψ' * kron(A(b), A(a)) * ψ)\nbell = ComplexF64[1, 0, 0, 1] / sqrt(2)\na, a2, b, b2 = 0.0, pi / 2, pi / 4, -pi / 4\nS_wrong = -E(bell, a, b) + E(bell, a, b2) + E(bell, a2, b) + E(bell, a2, b2)\nprintln(\"S with the minus on E(a, b): \", round(S_wrong; digits = 10) + 0.0)",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "S with the minus on E(a, b): 0.0\n",
+              "predict": {
+                "answer": 1,
+                "choices": [
+                  "0",
+                  "√2",
+                  "-2√2"
+                ],
+                "explain": "`-1/√2 + 1/√2 + 1/√2 - 1/√2 = 0`. The CHSH combination is only maximal when the minus sign sits on the one correlator that is negative; with these angles that is `E(a2, b2)`. Choosing angles and signs together is part of the strategy.",
+                "kc": "chsh",
+                "measured": "0.0",
+                "prompt": "At these angles the correlators are `1/√2, 1/√2, 1/√2, -1/√2`. Before the output is shown: what is `S` when the minus sign is put on the first one instead of the last?"
+              }
+            },
+            {
+              "caption": "S estimated from 100 000 simulated shots per correlator: rotate each qubit by `RY(-θ)`, sample outcomes with the Born rule, and count agreements.",
+              "check": true,
+              "code": "using Random\nfunction apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nRY(θ) = ComplexF64[cos(θ/2) -sin(θ/2); sin(θ/2) cos(θ/2)]\nfunction sampled_E(a, b, shots, rng)\n    ψ = ComplexF64[1, 0, 0, 1] / sqrt(2)\n    apply_1q!(ψ, RY(-a), 0); apply_1q!(ψ, RY(-b), 1)   # the a and b directions become z\n    c = cumsum(abs2.(ψ))\n    same = 0\n    for _ in 1:shots\n        k = min(searchsortedfirst(c, rand(rng)), 4) - 1  # inverse CDF (unit 51)\n        same += (k == 0 || k == 3)                        # outcomes 00 and 11 agree\n    end\n    return (2same - shots) / shots                        # P(same) - P(different)\nend\nrng = Xoshiro(2026)\nN = 100_000\na, a2, b, b2 = 0.0, pi / 2, pi / 4, -pi / 4\nS = sampled_E(a, b, N, rng) + sampled_E(a, b2, N, rng) + sampled_E(a2, b, N, rng) - sampled_E(a2, b2, N, rng)\nσ = 2 / sqrt(N)\nprintln(\"sampled S = \", round(S; digits = 4), \",  σ ≤ \", round(σ; digits = 4))\nprintln(\"within 5σ of 2√2: \", abs(S - 2sqrt(2)) < 5σ, \",  above 2 + 5σ: \", S > 2 + 5σ)\nprintln(\"(S - 2√2)/σ = \", round((S - 2sqrt(2)) / σ; digits = 1), \",  (S - 2)/σ = \", round((S - 2) / σ; digits = 0))",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the sampled `S` differs from `2√2` by about one standard deviation, as it should, and that it exceeds the classical bound 2 by more than a hundred of them.",
+              "ok": true,
+              "output": "sampled S = 2.8339,  σ ≤ 0.0063\nwithin 5σ of 2√2: true,  above 2 + 5σ: true\n(S - 2√2)/σ = 0.9,  (S - 2)/σ = 132.0\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "It does not: `kron` is commutative for two `2×2` matrices",
+                "`|Φ+⟩` is unchanged when the two qubits are swapped",
+                "Only the eigenvalues of the operator enter the expectation value"
+              ],
+              "code": "",
+              "explain": "Swapping the two `kron` factors is the same as swapping the qubits. `|Φ+⟩ = (|00⟩ + |11⟩)/√2` does not change under that swap, so this state cannot tell the orders apart. A random two-qubit state can, which is why the practice problem tests `chsh_value` on random states.",
+              "kind": "choice",
+              "misconceptions": [
+                "`kron(P, Q)` and `kron(Q, P)` are different matrices in general (their entries are arranged differently); they are related by swapping the two qubits.",
+                "",
+                "`kron(A(a), A(b))` and `kron(A(b), A(a))` have the same eigenvalues but different eigenvectors, and `ψ' O ψ` depends on both."
+              ],
+              "prompt": "For `|Φ+⟩`, `E(a, b)` comes out the same whether it is computed with `kron(A(b), A(a))` or with `kron(A(a), A(b))`. Why does the order still matter?"
+            }
+          ],
+          "refs": [
+            "chsh-1969",
+            "tsirelson-1980",
+            "bell-1964"
+          ],
+          "title": "CHSH: the quantum value 2√2, exactly and from shots"
+        }
+      ],
+      "status": "ready",
+      "summary": "Two players who cannot talk win the CHSH game at most 75% of the time with any classical strategy, which a brute force over all 16 deterministic strategies confirms; with a shared Bell pair they win about 85%. The unit builds Bell and GHZ states from H and CNOT, tests entanglement with the reduced density matrix and its entropy (exactly 1 bit for half a Bell pair), and computes the CHSH value 2√2 exactly and from simulated shots, against the classical bound 2.",
       "title": "Entanglement and the CHSH game",
       "track": "quantum"
     },
@@ -1966,22 +2420,430 @@
         "teleportation"
       ],
       "lessons": [],
-      "outline": [
-        "The question: can you move a qubit's state without moving the qubit?",
-        "measure! with collapse and renormalisation; outcome frequencies follow the Born rule",
-        "Teleportation circuit (diagram) and its corrections",
-        "Fidelity 1 over random messages; outcomes 1/4 each",
-        "Control: without the corrections the fidelity drops (measured), so the check can fail",
-        "Deferred measurement: the same circuit with controlled gates instead"
-      ],
+      "outline": [],
       "prerequisites": [
         "53-entanglement-chsh"
       ],
-      "problems": [],
-      "references": [],
-      "sections": [],
-      "status": "planned",
-      "summary": "Measurement with collapse, teleporting an unknown state with two classical bits, and the deferred-measurement principle.",
+      "problems": [
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "measure!",
+          "hints": [
+            "First the probability `p0` of outcome 0: which amplitudes belong to qubit `q` being 0? Then the outcome from `r`, and only then the collapse.",
+            "Sum `abs2(ψ[k + 1])` over `k` with `k & (1 << q) == 0`; the outcome is `r < p0 ? 0 : 1`. Then loop again: keep and divide by `sqrt(p)` the amplitudes whose bit `q` equals the outcome, and set the rest to 0."
+          ],
+          "id": "mt-measure",
+          "kcs": [
+            "measurement"
+          ],
+          "perf": {
+            "mutates": true,
+            "sizes": [
+              65536
+            ]
+          },
+          "prompt": "Write `measure!(ψ, q, r)` that measures qubit `q` of the state `ψ`\n(little-endian) using the uniform random number `r` in `[0, 1)`, changes\n`ψ` in place to the collapsed state, and returns the outcome `0` or `1` (an\n`Int`). Use the inverse CDF of unit 51: the outcome is 0 when `r < p0`,\nwhere `p0` is the total probability of the outcomes with bit `q` clear, and\n1 otherwise. Collapse: set the amplitudes inconsistent with the outcome to\n0 and divide the others by `√p` of the outcome.\n\n```julia\nψ = ComplexF64[1, 0, 0, 1] / sqrt(2)\nmeasure!(ψ, 0, 0.3)      # 0, and ψ becomes [1, 0, 0, 0]\nmeasure!(ψ, 1, 0.9)      # 0 again: qubit 1 now agrees with qubit 0\n```\n\nPassing `r` in, instead of drawing it, makes the function deterministic and\ntestable. The outcome is compared exactly and the collapsed `ψ` as a whole\nvector with `rtol = 1e-12`: two correct versions sum `p0` in a different\norder and divide by `√p` differing in the last bits, a relative difference\nof a few `u`.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "measure!(ComplexF64[1, 0, 0, 1] / sqrt(2), 0, 0.3)",
+              "result": "0"
+            },
+            {
+              "call": "measure!(ComplexF64[1, 0, 0, 1] / sqrt(2), 1, 0.7)",
+              "result": "1"
+            },
+            {
+              "call": "measure!(ComplexF64[0.6, 0.8im], 0, 0.35)",
+              "result": "0"
+            },
+            {
+              "call": "measure!(ComplexF64[0.6, 0.8im], 0, 0.37)",
+              "result": "1"
+            },
+            {
+              "call": "measure!(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8] / sqrt(204), 2, 0.5)",
+              "result": "1"
+            }
+          ],
+          "starter": "function measure!(ψ, q, r)\n    # your code here\nend\n",
+          "title": "Measure one qubit, with collapse"
+        },
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "teleport_state",
+          "hints": [
+            "Put `φ` in the first two amplitudes (qubit 0), then apply the four gates in order with the in-place functions of unit 52. Which gates make the Bell pair, and on which qubits?",
+            "`H` on qubit 1 and CNOT with control 1, target 2 make the pair; then CNOT with control 0, target 1, and `H` on qubit 0. Check: for `φ = |0⟩` the result is 1/2 on outcomes 0, 1, 6 and 7."
+          ],
+          "id": "mt-teleport-state",
+          "kcs": [
+            "teleportation"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              1
+            ]
+          },
+          "prompt": "Write `teleport_state(φ)` that takes a one-qubit message `φ` (two\namplitudes) and returns the 3-qubit state, a `Vector{ComplexF64}` of 8\namplitudes, just before Alice measures: `φ` on qubit 0 and `|0⟩` on qubits 1\nand 2, then `H` on 1, CNOT 1→2 (the Bell pair), CNOT 0→1 and `H` on 0. The\norder is little-endian: amplitude `k + 1` is the outcome with qubit 0 = bit\n0 of `k`, and so on.\n\n```julia\nteleport_state(ComplexF64[1, 0])     # [1, 1, 0, 0, 0, 0, 1, 1] / 2: outcomes 0, 1, 6 and 7\n```\n\nA check of your result, from section 3: the four amplitudes with Alice's\nbits `(m0, m1)` are, up to a factor `1/2`, Bob's qubit `X^m1 Z^m0 φ`.\nResults are compared as whole vectors with `rtol = 1e-12`.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "teleport_state(ComplexF64[1, 0])",
+              "result": "8-element Vector{ComplexF64}:\n 0.4999999999999999 + 0.0im\n 0.4999999999999999 + 0.0im\n                0.0 + 0.0im\n                0.0 + 0.0im\n                0.0 + 0.0im\n                0.0 + 0.0im\n 0.4999999999999999 + 0.0im\n 0.4999999999999999 + 0.0im"
+            },
+            {
+              "call": "teleport_state(ComplexF64[0, 1])",
+              "result": "8-element Vector{ComplexF64}:\n                 0.0 + 0.0im\n                 0.0 + 0.0im\n  0.4999999999999999 + 0.0im\n -0.4999999999999999 + 0.0im\n  0.4999999999999999 + 0.0im\n -0.4999999999999999 + 0.0im\n                 0.0 + 0.0im\n                 0.0 + 0.0im"
+            },
+            {
+              "call": "teleport_state(ComplexF64[1, 1] / sqrt(2))",
+              "result": "8-element Vector{ComplexF64}:\n  0.3535533905932737 + 0.0im\n  0.3535533905932737 + 0.0im\n  0.3535533905932737 + 0.0im\n -0.3535533905932737 + 0.0im\n  0.3535533905932737 + 0.0im\n -0.3535533905932737 + 0.0im\n  0.3535533905932737 + 0.0im\n  0.3535533905932737 + 0.0im"
+            },
+            {
+              "call": "teleport_state(ComplexF64[0.6, 0.8im])",
+              "result": "8-element Vector{ComplexF64}:\n 0.29999999999999993 + 0.0im\n 0.29999999999999993 + 0.0im\n                 0.0 + 0.39999999999999997im\n                 0.0 - 0.39999999999999997im\n                 0.0 + 0.39999999999999997im\n                 0.0 - 0.39999999999999997im\n 0.29999999999999993 + 0.0im\n 0.29999999999999993 + 0.0im"
+            },
+            {
+              "call": "teleport_state(ComplexF64[cos(0.7), cis(2.1) * sin(0.7)])",
+              "result": "8-element Vector{ComplexF64}:\n   0.3824210936422442 + 0.0im\n   0.3824210936422442 + 0.0im\n -0.16261539495813881 + 0.2780473708922247im\n  0.16261539495813881 - 0.2780473708922247im\n -0.16261539495813881 + 0.2780473708922247im\n  0.16261539495813881 - 0.2780473708922247im\n   0.3824210936422442 + 0.0im\n   0.3824210936422442 + 0.0im"
+            }
+          ],
+          "starter": "function teleport_state(φ)\n    # your code here\nend\n",
+          "title": "The teleportation state before Alice measures"
+        },
+        {
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "warm-up",
+          "entry": "apply_cz!",
+          "hints": [
+            "Which outcomes does the gate change? Only those where two particular bits are both 1.",
+            "Make a mask with both bits, `(1 << a) | (1 << b)`, and negate `ψ[k + 1]` where `k & mask == mask`."
+          ],
+          "id": "mt-apply-cz",
+          "kcs": [
+            "teleportation"
+          ],
+          "perf": {
+            "mutates": true,
+            "sizes": [
+              65536
+            ]
+          },
+          "prompt": "Write `apply_cz!(ψ, a, b)` that applies the controlled-Z gate on qubits `a`\nand `b` (`a ≠ b`) to `ψ` in place and returns `ψ`: every amplitude whose\noutcome has **both** bit `a` and bit `b` set is multiplied by `-1`, and the\nrest are unchanged. It is the gate that replaces Bob's `Z^m0` in the\ndeferred circuit.\n\n```julia\napply_cz!(ComplexF64[1, 1, 1, 1] / 2, 0, 1)     # [1, 1, 1, -1] / 2\n```\n\nNegating a number is exact, so results are compared with `isequal`.\nSpeed and allocations are graded against the reference, which allocates\nnothing.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "apply_cz!(ComplexF64[1, 1, 1, 1] / 2, 0, 1)",
+              "result": "4-element Vector{ComplexF64}:\n  0.5 + 0.0im\n  0.5 + 0.0im\n  0.5 + 0.0im\n -0.5 - 0.0im"
+            },
+            {
+              "call": "apply_cz!(ComplexF64[1, 1, 1, 1] / 2, 1, 0)",
+              "result": "4-element Vector{ComplexF64}:\n  0.5 + 0.0im\n  0.5 + 0.0im\n  0.5 + 0.0im\n -0.5 - 0.0im"
+            },
+            {
+              "call": "apply_cz!(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 0, 2)",
+              "result": "8-element Vector{ComplexF64}:\n  1.0 + 0.0im\n  2.0 + 0.0im\n  3.0 + 0.0im\n  4.0 + 0.0im\n  5.0 + 0.0im\n -6.0 - 0.0im\n  7.0 + 0.0im\n -8.0 - 0.0im"
+            },
+            {
+              "call": "apply_cz!(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 2, 1)",
+              "result": "8-element Vector{ComplexF64}:\n  1.0 + 0.0im\n  2.0 + 0.0im\n  3.0 + 0.0im\n  4.0 + 0.0im\n  5.0 + 0.0im\n  6.0 + 0.0im\n -7.0 - 0.0im\n -8.0 - 0.0im"
+            }
+          ],
+          "starter": "function apply_cz!(ψ, a, b)\n    # your code here\nend\n",
+          "title": "CZ in place"
+        }
+      ],
+      "references": [
+        {
+          "authors": "Bennett, C. H.; Brassard, G.; Crépeau, C.; Jozsa, R.; Peres, A.; Wootters, W. K.",
+          "id": "bennett-1993",
+          "note": "The teleportation protocol: a shared entangled pair, a joint measurement by the sender, two classical bits, and one of four unitary corrections by the receiver, the protocol of this unit's sections 3 to 5.",
+          "title": "Teleporting an unknown quantum state via dual classical and Einstein-Podolsky-Rosen channels",
+          "url": "https://doi.org/10.1103/PhysRevLett.70.1895",
+          "venue": "Physical Review Letters 70, 1895-1899",
+          "year": 1993
+        },
+        {
+          "authors": "Nielsen, M. A.; Chuang, I. L.",
+          "id": "nielsen-chuang-2010",
+          "note": "The textbook teleportation circuit with its corrections `X^M2` and `Z^M1` (this unit's section 3), and the principle of deferred measurement (section 6).",
+          "title": "Quantum Computation and Quantum Information",
+          "url": "https://doi.org/10.1017/CBO9780511976667",
+          "venue": "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)",
+          "year": 2012
+        }
+      ],
+      "sections": [
+        {
+          "analogies": [],
+          "body": "This unit uses the in-place gates of unit 52 (`apply_1q!`, `apply_cx!`),\nthe Bell pair of unit 53, and inverse-CDF sampling from unit 51: draw `r`\nuniform in `[0, 1)` and pick the first outcome whose cumulative probability\nexceeds `r`.\n\nOne new number: the **fidelity** of a pure state `φ` with a state `χ` is\n`|φ' χ|²`, the probability that `χ`, measured in a basis that contains `φ`,\nis found to be `φ`. It is 1 when `χ` is `φ` up to a global phase (a factor\n`cis(α)`, which no measurement can see) and 0 when they are orthogonal.\nComparing states by fidelity, not entry by entry, is how this unit ignores\nthe global phase.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Fidelities of `|0⟩` with itself, with `-|0⟩`, with `|+⟩` and with `|1⟩`.",
+              "check": true,
+              "code": "fidelity(φ, χ) = abs2(sum(conj.(φ) .* χ))         # |φ' χ|²\nzero_, one_, plus = ComplexF64[1, 0], ComplexF64[0, 1], ComplexF64[1, 1] / sqrt(2)\nprintln(\"F(|0⟩, |0⟩) = \", fidelity(zero_, zero_), \",  F(|0⟩, -|0⟩) = \", fidelity(zero_, -zero_))\nprintln(\"F(|0⟩, |+⟩) = \", round(fidelity(zero_, plus); digits = 12), \",  F(|0⟩, |1⟩) = \", fidelity(zero_, one_))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "F(|0⟩, |0⟩) = 1.0,  F(|0⟩, -|0⟩) = 1.0\nF(|0⟩, |+⟩) = 0.5,  F(|0⟩, |1⟩) = 0.0\n"
+            }
+          ],
+          "questions": [],
+          "refs": [],
+          "title": "What you need from earlier units"
+        },
+        {
+          "analogies": [],
+          "body": "Alice holds a qubit in a state `φ = α|0⟩ + β|1⟩` that she does not know.\nShe wants Bob, far away, to end up with a qubit in the same state, but she\ncan only send him ordinary bits.\n\nMeasuring her qubit does not help: it gives one bit, 0 or 1 with\nprobabilities `|α|²` and `|β|²`, and leaves the qubit in `|0⟩` or `|1⟩`. The\ncomplex numbers `α` and `β` are gone. Estimating them would need many copies\nof the state, and she has one.\n\n**Measurement with collapse.** Measuring qubit `q` of a many-qubit state\ngives 0 with probability `p0`, the sum of `|ψ[k + 1]|²` over the outcomes\n`k` with bit `q` clear, and 1 with probability `p1 = 1 - p0`. Afterwards\nthe state is what is consistent with the result: the amplitudes of the other\nhalf are set to 0, and the rest are divided by `√p` (`p` the probability of\nthe result) so that the state is normalised again. The other qubits keep\nwhatever correlation they had with qubit `q`: measuring qubit 0 of a Bell\npair leaves qubit 1 with the same value.\n\nThe answer to the question turns out to be yes, with one Bell pair shared in\nadvance and two classical bits: **teleportation**, by Bennett, Brassard,\nCrépeau, Jozsa, Peres and Wootters.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "`measure!` with collapse, applied to qubit 0 and then qubit 1 of a fresh Bell pair, 10 000 times.",
+              "check": true,
+              "code": "using Random\nfunction measure!(ψ, q, r)                     # r uniform in [0, 1): the inverse CDF of unit 51\n    m = 1 << q\n    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)\n    outcome = r < p0 ? 0 : 1\n    scale = 1 / sqrt(outcome == 0 ? p0 : 1 - p0)\n    for k in 0:length(ψ)-1\n        keep = ((k & m) != 0) == (outcome == 1)\n        ψ[k + 1] = keep ? ψ[k + 1] * scale : zero(eltype(ψ))\n    end\n    return outcome\nend\nrng = Xoshiro(54)\nones0, disagree = 0, 0\nfor _ in 1:10_000\n    ψ = ComplexF64[1, 0, 0, 1] / sqrt(2)\n    m0 = measure!(ψ, 0, rand(rng))\n    m1 = measure!(ψ, 1, rand(rng))\n    global ones0 += m0\n    global disagree += (m0 != m1)\nend\nprintln(\"qubit 0 gave 1 in \", ones0, \" of 10000 runs\")\nprintln(\"qubit 1 disagreed with qubit 0 in \", disagree, \" of 10000 runs\")",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "qubit 0 gave 1 in 5081 of 10000 runs\nqubit 1 disagreed with qubit 0 in 0 of 10000 runs\n",
+              "predict": {
+                "answer": 1,
+                "choices": [
+                  "0",
+                  "About 2500",
+                  "About 5000"
+                ],
+                "explain": "After qubit 0 gives 0, only the amplitude of `|00⟩` is left, so qubit 1 is 0 with certainty; after a 1, only `|11⟩` is left. The first measurement is a fair coin (about 5000 ones), but the second is then determined. About 5000 disagreements is what two independent fair coins give, for example the product state `|+⟩ ⊗ |+⟩`.",
+                "kc": "measurement",
+                "measured": "0",
+                "prompt": "Each run makes a fresh `|Φ+⟩ = (|00⟩ + |11⟩)/√2`, measures qubit 0, then measures qubit 1. Before the output is shown: in how many of the 10 000 runs does qubit 1 disagree with qubit 0?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "To keep the state normalised for later measurements",
+                "To undo the rounding errors of the measurement",
+                "Because measuring changes the relative phases of the outcomes"
+              ],
+              "code": "",
+              "explain": "The kept amplitudes have `Σ|ψ|² = p1`. Dividing each by `√p1` makes their squares sum to 1 again and keeps their ratios, so the relative probabilities and phases of the remaining outcomes are unchanged.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "The division is exact bookkeeping, not an error correction: without it the state has total probability `p1 < 1`, and every later probability is too small.",
+                "Dividing by the positive real `√p1` multiplies every kept amplitude by the same real factor, which changes no phase at all."
+              ],
+              "prompt": "After a measurement of qubit `q` gives 1, the amplitudes with bit `q` clear are set to 0. Why are the others divided by `√p1`?"
+            }
+          ],
+          "refs": [
+            "bennett-1993"
+          ],
+          "title": "The question: can you move a qubit's state without moving the qubit?"
+        },
+        {
+          "analogies": [
+            {
+              "breaks": "A fax sends the content of the page down the line. The two bits of\nteleportation carry no information about `φ` at all (they are uniformly\nrandom, whatever `φ` is); the state reaches Bob through the Bell pair the two\nof them shared before, and the bits only say which of four known\ncorrections to apply. Two bits could never describe the two complex numbers\n`α` and `β` anyway. And nothing is shredded: Alice's qubit is\nmeasured, and ends in `|m0⟩`.",
+              "text": "Teleportation behaves like a fax machine that destroys the page it sends: at\nthe end Bob has the state and Alice's qubit no longer does. And, like a fax,\nBob cannot read the message before the transmission (here, the two bits)\narrives.",
+              "title": "A fax that shreds the original"
+            }
+          ],
+          "body": "Qubit 0 holds Alice's message `φ`. Qubits 1 (Alice's) and 2 (Bob's) are a\nBell pair made beforehand: `H` on 1, then CNOT 1→2. The protocol:\n\n1. Alice applies CNOT 0→1, then `H` on qubit 0.\n2. Alice measures qubits 0 and 1, getting bits `m0` and `m1`, and sends them\n   to Bob.\n3. Bob applies `X` to his qubit if `m1 = 1`, then `Z` if `m0 = 1`.\n\n**Why it works.** Write `φ = α|0⟩ + β|1⟩` and follow the terms through step\n1 by hand. The eight amplitudes can then be grouped by Alice's two bits:\n\n```\n½ Σ over m0, m1 of   |m1 m0⟩ on Alice's qubits  ⊗  X^m1 Z^m0 φ  on Bob's\n```\n\nFor example, with `m0 = m1 = 1` Bob holds `α|1⟩ - β|0⟩ = X Z φ`. Two\nconsequences:\n\n* Each of the four results has probability `1/4`, **whatever `φ` is**. The\n  two bits say nothing about the message.\n* Bob's qubit is the message with a known Pauli applied. Applying `X^m1` and\n  then `Z^m0` gives `Z^m0 X^m1 X^m1 Z^m0 φ = φ`, since `X X = Z Z = I`.\n\nThe message was not copied: Alice's qubit 0 ends in `|m0⟩`, and only Bob's\nqubit is in the state `φ`. Nor does anything travel faster than light:\nuntil the bits arrive, Bob's qubit is each of the four Paulis applied to\n`φ` with probability 1/4, which averages to `I/2`, a fair coin.",
+          "diagrams": [
+            {
+              "alt": "The teleportation circuit on three qubit lines. Qubit 0 starts in the message phi; qubits 1 and 2 start in |0⟩ and become a Bell pair by H on qubit 1 and a CNOT from 1 to 2. Alice then applies a CNOT from 0 to 1 and H on 0, and measures qubits 0 and 1. Double lines carry the bits m1 and m0 down to Bob's qubit 2, where they control an X gate and then a Z gate. Bob's qubit ends in phi.",
+              "caption": "Teleportation. Single lines are qubits, double lines classical bits. Bob's X and Z are applied only when the bit that reaches them is 1.",
+              "src": "assets/diagrams/54-measurement-teleportation/teleport-circuit.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "One teleportation of a random message: Alice's two bits, Bob's qubit before and after the corrections, and its fidelity with the message.",
+              "check": true,
+              "code": "using Random\nfunction apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nfunction apply_cx!(ψ, c, t)\n    for k in 0:length(ψ)-1\n        if k & (1 << c) != 0 && k & (1 << t) == 0\n            j = k | (1 << t)\n            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]\n        end\n    end\n    return ψ\nend\nfunction measure!(ψ, q, r)\n    m = 1 << q\n    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)\n    outcome = r < p0 ? 0 : 1\n    scale = 1 / sqrt(outcome == 0 ? p0 : 1 - p0)\n    for k in 0:length(ψ)-1\n        ψ[k + 1] = (((k & m) != 0) == (outcome == 1)) ? ψ[k + 1] * scale : zero(eltype(ψ))\n    end\n    return outcome\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2);  X = ComplexF64[0 1; 1 0];  Z = ComplexF64[1 0; 0 -1]\nfidelity(φ, χ) = abs2(sum(conj.(φ) .* χ))\nrng = Xoshiro(3)\nφ = randn(rng, ComplexF64, 2); φ ./= sqrt(sum(abs2, φ))          # the unknown message\nψ = zeros(ComplexF64, 8); ψ[1] = φ[1]; ψ[2] = φ[2]                # φ on qubit 0, |00⟩ on qubits 1, 2\napply_1q!(ψ, H, 1); apply_cx!(ψ, 1, 2)                            # the shared Bell pair\napply_cx!(ψ, 0, 1); apply_1q!(ψ, H, 0)                            # step 1\nm0 = measure!(ψ, 0, rand(rng)); m1 = measure!(ψ, 1, rand(rng))    # step 2\nbob = ψ[[m0 + 2m1 + 1, m0 + 2m1 + 5]]                            # Bob's amplitudes: qubit 2 = 0 and 1\nprintln(\"Alice's bits: m0 = \", m0, \", m1 = \", m1)\nprintln(\"fidelity before the corrections: \", round(fidelity(φ, bob); digits = 6))\nm1 == 1 && (bob = X * bob);  m0 == 1 && (bob = Z * bob)          # step 3\nprintln(\"fidelity after the corrections:  \", round(fidelity(φ, bob); digits = 12))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "Alice's bits: m0 = 1, m1 = 1\nfidelity before the corrections: 0.761359\nfidelity after the corrections:  1.0\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "`Z φ`",
+                "`X φ`",
+                "`φ` itself, since `m1 = 0`"
+              ],
+              "code": "",
+              "explain": "Bob holds `X^m1 Z^m0 φ`, which for `m0 = 1`, `m1 = 0` is `Z φ = α|0⟩ - β|1⟩`; the bit `m0` comes from Alice's qubit 0, which she put through `H`, and it controls the phase. Bob applies `Z` to undo it.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "`X` is the correction for `m1`, the bit of Alice's half of the Bell pair. Here `m1 = 0`, so no `X` is needed.",
+                "Both bits matter: `m0 = 1` alone means a `Z` has been applied, and `Z φ` differs from `φ` unless `α` or `β` is 0."
+              ],
+              "prompt": "Alice measures `m0 = 1` and `m1 = 0`. Which state does Bob hold before he corrects anything?"
+            }
+          ],
+          "refs": [
+            "bennett-1993",
+            "nielsen-chuang-2010"
+          ],
+          "title": "The teleportation circuit and its corrections"
+        },
+        {
+          "analogies": [],
+          "body": "One run shows that the protocol can work; the claim is that it works for\n*every* message and every outcome. The test below teleports 2000 random\nmessages, each with its own random measurement outcomes, and checks two\nthings:\n\n* **Fidelity.** Bob's corrected qubit has fidelity 1 with the message,\n  up to rounding: the test asks for more than `1 - 1e-12`. A run takes some\n  20 complex multiply-adds per amplitude, so its rounding errors are a few\n  `u ≈ 1.1e-16`; `1e-12` leaves a factor of a thousand, and any wrong\n  correction lowers the fidelity by far more for a random message.\n* **Outcomes.** Each of the four `(m0, m1)` should have frequency `1/4`.\n  With `N = 2000` runs a frequency has standard deviation `√(p(1 - p)/N) =\n  √(0.25 · 0.75 / 2000) ≈ 0.0097`, so the test accepts `|f - 1/4| < 5σ`,\n  which a correct simulator fails with probability below `1e-5` per outcome.\n\nA second example fixes the message at `|0⟩`, where the regrouping says that\nthe outcomes are still `1/4` each, although measuring `|0⟩` directly would\nalways give 0.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "2000 teleportations of random messages: the smallest fidelity, and the frequency of each pair of bits.",
+              "check": true,
+              "code": "using Random\nfunction apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nfunction apply_cx!(ψ, c, t)\n    for k in 0:length(ψ)-1\n        if k & (1 << c) != 0 && k & (1 << t) == 0\n            j = k | (1 << t)\n            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]\n        end\n    end\n    return ψ\nend\nfunction measure!(ψ, q, r)\n    m = 1 << q\n    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)\n    outcome = r < p0 ? 0 : 1\n    scale = 1 / sqrt(outcome == 0 ? p0 : 1 - p0)\n    for k in 0:length(ψ)-1\n        ψ[k + 1] = (((k & m) != 0) == (outcome == 1)) ? ψ[k + 1] * scale : zero(eltype(ψ))\n    end\n    return outcome\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2);  X = ComplexF64[0 1; 1 0];  Z = ComplexF64[1 0; 0 -1]\nfidelity(φ, χ) = abs2(sum(conj.(φ) .* χ))\nfunction teleport(φ, rng; correct = true)\n    ψ = zeros(ComplexF64, 8); ψ[1] = φ[1]; ψ[2] = φ[2]\n    apply_1q!(ψ, H, 1); apply_cx!(ψ, 1, 2); apply_cx!(ψ, 0, 1); apply_1q!(ψ, H, 0)\n    m0 = measure!(ψ, 0, rand(rng)); m1 = measure!(ψ, 1, rand(rng))\n    bob = ψ[[m0 + 2m1 + 1, m0 + 2m1 + 5]]\n    if correct\n        m1 == 1 && (bob = X * bob);  m0 == 1 && (bob = Z * bob)\n    end\n    return bob, (m0, m1)\nend\nrng = Xoshiro(11)\nN = 2000\ncounts = Dict((0, 0) => 0, (0, 1) => 0, (1, 0) => 0, (1, 1) => 0)\nworst = 1.0\nfor _ in 1:N\n    φ = randn(rng, ComplexF64, 2); φ ./= sqrt(sum(abs2, φ))\n    bob, m = teleport(φ, rng)\n    global worst = min(worst, fidelity(φ, bob))\n    counts[m] += 1\nend\nσ = sqrt(0.25 * 0.75 / N)\nprintln(\"smallest fidelity over \", N, \" messages: \", round(worst; digits = 12), \",  above 1 - 1e-12: \", worst > 1 - 1e-12)\nprintln(\"frequencies (m0, m1): \", join([\"$m => $(counts[m] / N)\" for m in sort(collect(keys(counts)))], \", \"))\nprintln(\"all within 5σ = \", round(5σ; digits = 3), \" of 1/4: \", all(abs(c / N - 0.25) < 5σ for c in values(counts)))",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the worst fidelity is 1 to about 15 digits, and that every frequency is within 5σ = 0.048 of 1/4.",
+              "ok": true,
+              "output": "smallest fidelity over 2000 messages: 1.0,  above 1 - 1e-12: true\nfrequencies (m0, m1): (0, 0) => 0.256, (0, 1) => 0.248, (1, 0) => 0.2395, (1, 1) => 0.2565\nall within 5σ = 0.048 of 1/4: true\n"
+            },
+            {
+              "caption": "The same protocol with the message fixed at `|0⟩`: the frequency of each pair of bits over 2000 runs.",
+              "check": true,
+              "code": "using Random\nfunction apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nfunction apply_cx!(ψ, c, t)\n    for k in 0:length(ψ)-1\n        if k & (1 << c) != 0 && k & (1 << t) == 0\n            j = k | (1 << t)\n            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]\n        end\n    end\n    return ψ\nend\nfunction measure!(ψ, q, r)\n    m = 1 << q\n    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)\n    outcome = r < p0 ? 0 : 1\n    scale = 1 / sqrt(outcome == 0 ? p0 : 1 - p0)\n    for k in 0:length(ψ)-1\n        ψ[k + 1] = (((k & m) != 0) == (outcome == 1)) ? ψ[k + 1] * scale : zero(eltype(ψ))\n    end\n    return outcome\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nrng = Xoshiro(12)\nn11 = 0\nfor _ in 1:2000\n    ψ = zeros(ComplexF64, 8); ψ[1] = 1                               # message |0⟩\n    apply_1q!(ψ, H, 1); apply_cx!(ψ, 1, 2); apply_cx!(ψ, 0, 1); apply_1q!(ψ, H, 0)\n    m0 = measure!(ψ, 0, rand(rng)); m1 = measure!(ψ, 1, rand(rng))\n    global n11 += (m0 == 1 && m1 == 1)\nend\nprintln(\"message |0⟩: frequency of (m0, m1) = (1, 1): \", n11 / 2000)",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "message |0⟩: frequency of (m0, m1) = (1, 1): 0.257\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "Almost never",
+                  "About 1/4 of the runs",
+                  "About 1/2 of the runs"
+                ],
+                "explain": "The regrouping gives every pair of bits probability `1/4` for every message, `|0⟩` included: Alice's `H` on qubit 0 makes `m0` a fair coin, and the Bell pair makes `m1` one. That is why the bits reveal nothing about the message.",
+                "kc": "teleportation",
+                "measured": "0.257",
+                "prompt": "The message is `|0⟩`. Measured directly it would always give 0. Before the output is shown: how often do Alice's two bits both come out 1?"
+              }
+            }
+          ],
+          "questions": [],
+          "refs": [],
+          "title": "Fidelity 1 over random messages, and the four outcomes 1/4 each"
+        },
+        {
+          "analogies": [],
+          "body": "A check that cannot fail proves nothing (unit 52's control). Here the\ncontrol is Bob skipping step 3. His qubit is then `X^m1 Z^m0 φ`, and its\nfidelity with `φ` depends on the bits:\n\n| bits | Bob holds | fidelity with `φ` |\n|---|---|---|\n| `(0, 0)` | `φ` | 1 |\n| `(0, 1)` | `X φ` | `⟨X⟩²` |\n| `(1, 0)` | `Z φ` | `⟨Z⟩²` |\n| `(1, 1)` | `X Z φ` | `⟨Y⟩²` |\n\nwhere `⟨X⟩ = φ' X φ` and so on are the coordinates of `φ`'s Bloch vector\n(unit 51; `XZ = -iY`, and `|-i|² = 1`). Each row has probability 1/4, and\nfor a pure state `⟨X⟩² + ⟨Y⟩² + ⟨Z⟩² = 1`, so the average fidelity is\n`(1 + 1)/4 = 1/2` for **every** message, not only on average over messages.\nThe control should measure about 1/2; a mean fidelity near 1 would mean\nthat the test itself is broken.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "2000 teleportations of random messages with Bob's corrections skipped: the mean fidelity.",
+              "check": true,
+              "code": "using Random\nfunction apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nfunction apply_cx!(ψ, c, t)\n    for k in 0:length(ψ)-1\n        if k & (1 << c) != 0 && k & (1 << t) == 0\n            j = k | (1 << t)\n            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]\n        end\n    end\n    return ψ\nend\nfunction measure!(ψ, q, r)\n    m = 1 << q\n    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)\n    outcome = r < p0 ? 0 : 1\n    scale = 1 / sqrt(outcome == 0 ? p0 : 1 - p0)\n    for k in 0:length(ψ)-1\n        ψ[k + 1] = (((k & m) != 0) == (outcome == 1)) ? ψ[k + 1] * scale : zero(eltype(ψ))\n    end\n    return outcome\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nfidelity(φ, χ) = abs2(sum(conj.(φ) .* χ))\nrng = Xoshiro(13)\ntotal = 0.0\nfor _ in 1:2000\n    φ = randn(rng, ComplexF64, 2); φ ./= sqrt(sum(abs2, φ))\n    ψ = zeros(ComplexF64, 8); ψ[1] = φ[1]; ψ[2] = φ[2]\n    apply_1q!(ψ, H, 1); apply_cx!(ψ, 1, 2); apply_cx!(ψ, 0, 1); apply_1q!(ψ, H, 0)\n    m0 = measure!(ψ, 0, rand(rng)); m1 = measure!(ψ, 1, rand(rng))\n    global total += fidelity(φ, ψ[[m0 + 2m1 + 1, m0 + 2m1 + 5]])  # no corrections\nend\nprintln(\"mean fidelity without corrections: \", round(total / 2000; digits = 3))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "mean fidelity without corrections: 0.496\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "About 1/4",
+                  "About 1/2",
+                  "About 3/4"
+                ],
+                "explain": "The `(0, 0)` quarter contributes fidelity 1, and the other three quarters contribute `⟨X⟩²`, `⟨Z⟩²` and `⟨Y⟩²`, which sum to 1 for a pure state: `(1 + 1)/4 = 1/2`. About 1/4 would be right if the wrong outcomes gave fidelity 0, but a Pauli applied to a random state is rarely orthogonal to it.",
+                "kc": "teleportation",
+                "measured": "0.496",
+                "prompt": "Bob skips the corrections. One of the four outcomes, `(0, 0)`, leaves his qubit exactly right. Before the output is shown: what is the mean fidelity over 2000 random messages?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Bob applying `Z` when `m1 = 1` and `X` when `m0 = 1`",
+                "Forgetting Alice's `H` on qubit 0",
+                "Using `|00⟩` instead of a Bell pair on qubits 1 and 2"
+              ],
+              "code": "",
+              "explain": "The bits come out before Bob does anything, so his corrections cannot change their frequencies: swapped corrections give the right frequencies and a wrong state. Only a fidelity check sees Bob's qubit. The other two bugs change the distribution of the measured bits.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "Without the `H`, `m0` is a measurement of the message itself in the 0/1 basis: 1 with probability `|β|²`, which is not 1/2 for most messages, so the frequencies move.",
+                "Without the Bell pair, qubit 1 stays `|0⟩` until Alice's CNOT copies qubit 0's bit into it, so `m1` follows the message's statistics instead of a fair coin."
+              ],
+              "prompt": "A teleportation test only checks that the four outcomes have frequency 1/4. Which bug does it miss?"
+            }
+          ],
+          "refs": [],
+          "title": "Control: without the corrections the fidelity drops to 1/2"
+        },
+        {
+          "analogies": [],
+          "body": "Bob's step 3 is a gate chosen by a measured bit. The **principle of\ndeferred measurement** says that measuring a qubit and then using the result\nto choose a gate gives the same statistics as applying the gate as a\n*controlled* gate, controlled by that qubit, and measuring afterwards (or\nnot at all). So teleportation also works with no mid-circuit measurement:\n\n* `X^m1` becomes CNOT 1→2 (flip Bob's qubit where qubit 1 is 1);\n* `Z^m0` becomes CZ between qubits 0 and 2: multiply the amplitude by `-1`\n  where both qubits are 1.\n\nThe result is a plain circuit of gates, and Bob's reduced density matrix\n(unit 53) should be exactly `φ φ'`, whatever Alice's qubits are later\nmeasured to be. Many devices and simulators prefer this form, and it is the\none the `qsim` project exports to check against Qiskit. CZ is symmetric: it\nmultiplies by `-1` where *both* bits are set, so `CZ(0, 2)` and `CZ(2, 0)`\nare the same gate; there is no real control and target.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "The deferred circuit on 200 random messages: the largest difference between Bob's reduced density matrix and `φ φ'`.",
+              "check": true,
+              "code": "using LinearAlgebra, Random\nfunction apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nfunction apply_cx!(ψ, c, t)\n    for k in 0:length(ψ)-1\n        if k & (1 << c) != 0 && k & (1 << t) == 0\n            j = k | (1 << t)\n            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]\n        end\n    end\n    return ψ\nend\nfunction apply_cz!(ψ, a, b)\n    for k in 0:length(ψ)-1\n        if k & (1 << a) != 0 && k & (1 << b) != 0\n            ψ[k + 1] = -ψ[k + 1]\n        end\n    end\n    return ψ\nend\nfunction reduced_density(ψ, q)\n    ρ = zeros(ComplexF64, 2, 2); m = 1 << q\n    for k in 0:length(ψ)-1\n        if k & m == 0\n            a0, a1 = ψ[k + 1], ψ[(k | m) + 1]\n            ρ[1, 1] += abs2(a0); ρ[1, 2] += a0 * conj(a1); ρ[2, 1] += a1 * conj(a0); ρ[2, 2] += abs2(a1)\n        end\n    end\n    return ρ\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nrng = Xoshiro(14)\nworst = 0.0\nfor _ in 1:200\n    φ = normalize(randn(rng, ComplexF64, 2))\n    ψ = zeros(ComplexF64, 8); ψ[1] = φ[1]; ψ[2] = φ[2]\n    apply_1q!(ψ, H, 1); apply_cx!(ψ, 1, 2); apply_cx!(ψ, 0, 1); apply_1q!(ψ, H, 0)\n    apply_cx!(ψ, 1, 2); apply_cz!(ψ, 0, 2)                         # the corrections, as gates\n    global worst = max(worst, maximum(abs, reduced_density(ψ, 2) - φ * φ'))\nend\nprintln(\"largest |ρ_Bob - φφ'| entry over 200 messages: below 1e-14: \", worst < 1e-14)",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "largest |ρ_Bob - φφ'| entry over 200 messages: below 1e-14: true\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "They are back in `|00⟩`, so they can be reused",
+                "Measured, each gives a fair coin, as in the original",
+                "They hold a copy of the message, entangled with Bob's"
+              ],
+              "code": "",
+              "explain": "The controlled gates act only on Bob's qubit, so the statistics of Alice's qubits are those of the original protocol: four outcomes with probability 1/4 each. Deferring the measurement does not change what it would give.",
+              "kind": "choice",
+              "misconceptions": [
+                "Nothing resets them: they are left in an equal mixture over all four outcomes, as their measurement statistics show.",
+                "",
+                "A copy is impossible here: Bob's reduced state is already `φ φ'`, a pure state, which leaves no room for any correlation with another copy; Alice's qubits are independent fair coins."
+              ],
+              "prompt": "In the deferred circuit, which statement about Alice's qubits 0 and 1 at the end is right?"
+            }
+          ],
+          "refs": [
+            "nielsen-chuang-2010"
+          ],
+          "title": "Deferred measurement: the same circuit with controlled gates"
+        }
+      ],
+      "status": "ready",
+      "summary": "Measuring one qubit picks an outcome with the Born rule and collapses the state onto it. With that and a shared Bell pair, Alice sends an unknown qubit state to Bob using two classical bits: Bob's qubit matches the message with fidelity 1 on 2000 random messages, the four measurement outcomes come out 1/4 each whatever the message, and a control without Bob's corrections drops the fidelity to 1/2 on average, as a short calculation predicts. Finally the same protocol without mid-circuit measurement, using controlled gates instead (deferred measurement).",
       "title": "Measurement and teleportation",
       "track": "quantum"
     },
@@ -1994,20 +2856,423 @@
         "phase-kickback"
       ],
       "lessons": [],
-      "outline": [
-        "The question: how do you tell a constant function from a balanced one with a single query?",
-        "Phase oracles and phase kickback; diagram of the circuit",
-        "Deutsch-Jozsa on all 72 constant or balanced functions on 3 qubits",
-        "Bernstein-Vazirani: every hidden string up to n = 5 in one query"
-      ],
+      "outline": [],
       "prerequisites": [
         "54-measurement-teleportation"
       ],
-      "problems": [],
-      "references": [],
-      "sections": [],
-      "status": "planned",
-      "summary": "Phase oracles and the first algorithms that beat classical query counts, checked on every function and every hidden string.",
+      "problems": [
+        {
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "warm-up",
+          "entry": "apply_phase_oracle!",
+          "hints": [
+            "Which amplitudes change? Those at the inputs where the truth table holds `true`, and only by a sign.",
+            "Loop over `eachindex(ψ, f)` and negate `ψ[k]` where `f[k]` is `true`; `ifelse(f[k], -ψ[k], ψ[k])` does it without a branch."
+          ],
+          "id": "or-phase-oracle",
+          "kcs": [
+            "oracles"
+          ],
+          "perf": {
+            "mutates": true,
+            "sizes": [
+              65536
+            ]
+          },
+          "prompt": "Write `apply_phase_oracle!(ψ, f)` that applies the phase oracle of the\ntruth table `f` (a `Vector{Bool}`, `f[x + 1]` the value at input `x`) to the\nstate `ψ` in place and returns `ψ`: every amplitude whose input has\n`f(x) = 1` is multiplied by `-1`, and the rest are unchanged.\n\n```julia\napply_phase_oracle!(ComplexF64[1, 1, 1, 1] / 2, [false, true, true, false])   # [1, -1, -1, 1] / 2\n```\n\nNegating a number is exact, so results are compared with `isequal`. Speed\nand allocations are graded against the reference, which allocates nothing.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "apply_phase_oracle!(ComplexF64[1, 1, 1, 1] / 2, [false, true, true, false])",
+              "result": "4-element Vector{ComplexF64}:\n  0.5 + 0.0im\n -0.5 - 0.0im\n -0.5 - 0.0im\n  0.5 + 0.0im"
+            },
+            {
+              "call": "apply_phase_oracle!(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], Bool[0, 0, 0, 0, 0, 1, 0, 0])",
+              "result": "8-element Vector{ComplexF64}:\n  1.0 + 0.0im\n  2.0 + 0.0im\n  3.0 + 0.0im\n  4.0 + 0.0im\n  5.0 + 0.0im\n -6.0 - 0.0im\n  7.0 + 0.0im\n  8.0 + 0.0im"
+            },
+            {
+              "call": "apply_phase_oracle!(ComplexF64[0.6, 0.8im], [true, true])",
+              "result": "2-element Vector{ComplexF64}:\n -0.6 - 0.0im\n -0.0 - 0.8im"
+            },
+            {
+              "call": "apply_phase_oracle!(ComplexF64[1, 0], [false, false])",
+              "result": "2-element Vector{ComplexF64}:\n 1.0 + 0.0im\n 0.0 + 0.0im"
+            }
+          ],
+          "starter": "function apply_phase_oracle!(ψ, f)\n    # your code here\nend\n",
+          "title": "A phase oracle in place"
+        },
+        {
+          "check_type": true,
+          "compare": "custom",
+          "difficulty": "core",
+          "entry": "dj_zero_probability",
+          "hints": [
+            "The register has `n = trailing_zeros(length(f))` qubits. Three steps act on one state vector: a layer of `H`, the oracle, and the same layer of `H`.",
+            "Start from `ψ = zeros(ComplexF64, length(f)); ψ[1] = 1`, call `apply_1q!(ψ, H, q)` for every `q`, negate `ψ[k]` where `f[k]`, repeat the `H` layer, and return `abs2(ψ[1])`."
+          ],
+          "id": "or-dj-zero-probability",
+          "kcs": [
+            "oracles",
+            "phase-kickback"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              1024
+            ]
+          },
+          "prompt": "Write `dj_zero_probability(f)` that simulates the Deutsch-Jozsa circuit for\nthe truth table `f` (a `Vector{Bool}` of length `2^n`): start from\n`|0…0⟩` on `n` qubits, apply `H` to every qubit, apply the phase oracle of\n`f`, apply `H` to every qubit again, and return the probability of the\noutcome `0…0` as a `Float64`.\n\n```julia\ndj_zero_probability(fill(true, 8))                        # 1.0 (up to rounding): constant\ndj_zero_probability(Bool[0, 1, 1, 0, 1, 0, 0, 1])          # 0.0: balanced\ndj_zero_probability([x == 5 for x in 0:7])                # 0.5625: neither\n```\n\n`f` need not be constant or balanced. Results are compared with an absolute\ntolerance of `1e-12`: the exact answer is the square of an average of\n`±1` values, and the circuit computes it with an error of a few `eps`.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "dj_zero_probability(fill(true, 8))",
+              "result": "0.9999999999999991"
+            },
+            {
+              "call": "dj_zero_probability(fill(false, 2))",
+              "result": "0.9999999999999996"
+            },
+            {
+              "call": "dj_zero_probability(Bool[0, 1, 1, 0, 1, 0, 0, 1])",
+              "result": "0.0"
+            },
+            {
+              "call": "dj_zero_probability([x == 5 for x in 0:7])",
+              "result": "0.5624999999999996"
+            },
+            {
+              "call": "dj_zero_probability([x < 8 for x in 0:15])",
+              "result": "0.0"
+            }
+          ],
+          "starter": "function apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\n\nfunction dj_zero_probability(f)\n    # your code here\nend\n",
+          "title": "Deutsch-Jozsa: the probability of 0…0"
+        },
+        {
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "core",
+          "entry": "bv_hidden_string",
+          "hints": [
+            "The circuit is the Deutsch-Jozsa circuit; only the reading at the end differs. The outcome `s` has probability 1, so it is the largest entry of `abs2.(ψ)`.",
+            "After the two `H` layers and the oracle, `argmax(abs2.(ψ))` is the 1-based index of the outcome, so `s` is one less."
+          ],
+          "id": "or-bv-hidden-string",
+          "kcs": [
+            "oracles"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              4096
+            ]
+          },
+          "prompt": "Write `bv_hidden_string(f)` that takes the truth table of\n`f(x) = s·x ⊻ b` (a `Vector{Bool}` of length `2^n`, `f[x + 1]` the value at\n`x`, with `s·x = count_ones(s & x) % 2`) and returns `s` as an `Int`, by\nsimulating the Bernstein-Vazirani circuit: `H` on every qubit of `|0…0⟩`,\nthe phase oracle, `H` on every qubit, and the most likely outcome.\n\n```julia\nbv_hidden_string([isodd(count_ones(6 & x)) for x in 0:7])          # 6\nbv_hidden_string([!isodd(count_ones(6 & x)) for x in 0:7])         # 6: b = 1 is a global phase\n```\n\nResults are compared with `isequal`. The grader checks the answer, not how\n`f` was read; a classical loop over `n + 1` entries also passes, and is\nfaster, which is the point of the last question in this unit's section 5.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "bv_hidden_string([isodd(count_ones(6 & x)) for x in 0:7])",
+              "result": "6"
+            },
+            {
+              "call": "bv_hidden_string([!isodd(count_ones(6 & x)) for x in 0:7])",
+              "result": "6"
+            },
+            {
+              "call": "bv_hidden_string([false, true])",
+              "result": "1"
+            },
+            {
+              "call": "bv_hidden_string(fill(false, 16))",
+              "result": "0"
+            },
+            {
+              "call": "bv_hidden_string(fill(true, 32))",
+              "result": "0"
+            }
+          ],
+          "starter": "function apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\n\nfunction bv_hidden_string(f)\n    # your code here\nend\n",
+          "title": "Bernstein-Vazirani: read the hidden string"
+        }
+      ],
+      "references": [
+        {
+          "authors": "Deutsch, D.; Jozsa, R.",
+          "id": "deutsch-jozsa-1992",
+          "note": "The constant-or-balanced promise problem and a quantum algorithm that solves it with certainty; the one-query circuit of this unit is the later form by Cleve et al., who say that the original used two evaluations of the function.",
+          "title": "Rapid solution of problems by quantum computation",
+          "url": "https://doi.org/10.1098/rspa.1992.0167",
+          "venue": "Proceedings of the Royal Society of London A 439, 553-558",
+          "year": 1992
+        },
+        {
+          "authors": "Cleve, R.; Ekert, A.; Macchiavello, C.; Mosca, M.",
+          "id": "cleve-1998",
+          "note": "Section 3: Deutsch-Jozsa with a single evaluation of f, using an auxiliary qubit in (|0⟩ - |1⟩)/√2 (Fig. 4, Eqs. 3.4 to 3.6), and in Eq. 3.7 the vector a of f(x) = (a·x) ⊕ b from one evaluation, the Bernstein-Vazirani problem. Section 1 describes the phase as kicked back. Also arXiv:quant-ph/9708016.",
+          "title": "Quantum algorithms revisited",
+          "url": "https://doi.org/10.1098/rspa.1998.0164",
+          "venue": "Proceedings of the Royal Society of London A 454, 339-354",
+          "year": 1998
+        },
+        {
+          "authors": "Bernstein, E.; Vazirani, U.",
+          "id": "bernstein-vazirani-1997",
+          "note": "The paper usually credited with the hidden-string problem of this unit's section 5, as part of a study of quantum Turing machines and their complexity classes.",
+          "title": "Quantum complexity theory",
+          "url": "https://doi.org/10.1137/S0097539796300921",
+          "venue": "SIAM Journal on Computing 26, 1411-1473",
+          "year": 1997
+        }
+      ],
+      "sections": [
+        {
+          "analogies": [],
+          "body": "This unit uses `apply_1q!(ψ, U, q)` from unit 52, the Hadamard gate\n`H = [1 1; 1 -1]/√2` of unit 51 and the little-endian order of unit 50\n(outcome `k` has qubit `q` in bit `q`). Each example defines the helpers it\nneeds.\n\n**Functions as truth tables.** A function `f` from `n`-bit inputs to one bit\nis stored as a `Vector{Bool}` of length `2^n`, with `f[x + 1]` the value at\ninput `x`, the same offset as amplitudes.\n\n**`H` on every qubit.** Applying `H` to each of `n` qubits (written `H⊗n`)\nmaps the basis state `|x⟩` to\n\n```\nH⊗n |x⟩  =  2^(-n/2)  Σ over y of  (-1)^(x·y) |y⟩\n```\n\nwhere `x·y` is the parity of the bits that `x` and `y` share,\n`count_ones(x & y) % 2`. For `x = 0` all signs are `+`: the uniform\nsuperposition of unit 49. Since `H H = I`, applying `H⊗n` again undoes it.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "`H⊗3` applied to `|5⟩ = |101⟩`, gate by gate, against the sign formula.",
+              "check": true,
+              "code": "function apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nn, x = 3, 5\nψ = zeros(ComplexF64, 2^n); ψ[x + 1] = 1\nfor q in 0:n-1\n    apply_1q!(ψ, H, q)\nend\nformula = [(-1)^count_ones(x & y) / sqrt(2^n) for y in 0:2^n-1]\nprintln(\"signs of H⊗3 |5⟩ for y = 0..7: \", join((real(a) > 0 ? \"+\" : \"-\" for a in ψ), \" \"))\nprintln(\"largest difference from the formula: \", maximum(abs.(ψ .- formula)) < 1e-15 ? \"below 1e-15\" : \"too large\")",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the sign at `y` is `-` exactly when `y` shares an odd number of 1 bits with `x = 5` (bits 0 and 2).",
+              "ok": true,
+              "output": "signs of H⊗3 |5⟩ for y = 0..7: + - + - - + - +\nlargest difference from the formula: below 1e-15\n"
+            }
+          ],
+          "questions": [],
+          "refs": [],
+          "title": "What you need from earlier units"
+        },
+        {
+          "analogies": [],
+          "body": "A function `f` on `n`-bit inputs is promised to be one of two kinds:\n**constant** (the same value on all `2^n` inputs) or **balanced** (1 on\nexactly half of them). The task is to say which. The function is a black\nbox, an **oracle**: the only access is to ask for `f` at an input, a\n**query**, and the cost of an algorithm is the number of queries.\n\nA classical algorithm that must always be right asks for `f(0)`, `f(1)`, ...\nand stops as soon as two answers differ (then `f` is balanced). If the first\n`2^(n-1)` answers are all equal it still cannot stop: the other half of the\ninputs might all hold the other value, which makes `f` balanced. One more\nquery settles it, so the worst case is `2^(n-1) + 1` queries. No other\norder of queries does better, since the same argument applies to any `2^(n-1)`\ninputs. For `n = 3` there are 2 constant functions and `C(8, 4) = 70`\nbalanced ones, few enough to run the algorithm on all 72.\n\nA randomised algorithm can do better on average, at the price of a small\nchance of being wrong. The quantum algorithm of Deutsch and Jozsa answers\nwith **one** query and is never wrong.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "The classical algorithm on every constant or balanced function of 3 bits.",
+              "check": true,
+              "code": "fs = [[isodd(m >> x) for x in 0:7] for m in 0:255]          # all 256 functions of 3 bits\npromised = filter(f -> !any(f) || all(f) || count(f) == 4, fs)\nfunction classical_queries(f)\n    for q in 2:length(f) ÷ 2 + 1                             # query f at inputs 0, 1, 2, ...\n        f[q] != f[1] && return q                             # two answers differ: balanced\n    end\n    return length(f) ÷ 2 + 1                                 # half plus one equal answers: constant\nend\nqs = classical_queries.(promised)\nprintln(length(promised), \" functions: \", count(f -> !any(f) || all(f), promised), \" constant, \", count(f -> count(f) == 4, promised), \" balanced\")\nprintln(\"functions needing 2, 3, 4, 5 queries: \", [count(==(k), qs) for k in 2:5])\nprintln(\"worst case: \", maximum(qs), \" queries\")",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "72 functions: 2 constant, 70 balanced\nfunctions needing 2, 3, 4, 5 queries: [40, 20, 8, 4]\nworst case: 5 queries\n",
+              "predict": {
+                "answer": 3,
+                "choices": [
+                  "2",
+                  "4",
+                  "5"
+                ],
+                "explain": "Four equal answers still leave a balanced function possible (the other four inputs all holding the other value), so a fifth query is needed: `2^(n-1) + 1 = 5`. Only 4 of the 72 functions need it, the 2 constant ones and the 2 balanced ones whose first four values agree, but an algorithm that must always be right has to allow for them. Two queries suffice for most balanced functions, which is the common case, not the worst.",
+                "kc": "oracles",
+                "measured": "5",
+                "prompt": "The inputs have 3 bits, so there are 8 of them. Before the output is shown: how many queries does the classical algorithm need in the worst case?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "Four queries only see half of the inputs, and half is never enough to decide",
+                "The four unseen inputs could all be 1, and then f would be balanced",
+                "Classical answers are noisy, so each one has to be checked again"
+              ],
+              "code": "",
+              "explain": "The promise allows exactly two kinds of function. Four zeros fit the constant function 0 and also the balanced function that is 1 on the four unseen inputs, so the algorithm cannot tell them apart until it sees one more value.",
+              "kind": "choice",
+              "misconceptions": [
+                "Half the inputs is sometimes enough: two different answers among them already prove `f` balanced. The trouble is only with four equal answers.",
+                "",
+                "The oracle's answers are exact; a query never needs repeating. The extra query is needed because of what the answers so far leave open, not because they might be wrong."
+              ],
+              "prompt": "A classical algorithm has queried 4 of the 8 inputs of a 3-bit function and got 0 every time. Why can it not answer \"constant\" yet?"
+            }
+          ],
+          "refs": [
+            "deutsch-jozsa-1992"
+          ],
+          "title": "The question: constant or balanced, with how many queries?"
+        },
+        {
+          "analogies": [
+            {
+              "breaks": "A fired ball is changed (it flies off), while the ancilla ends exactly as it\nstarted: `|−⟩` is unchanged by a bit flip apart from a sign, and that sign\nbelongs to the whole state, so it can be booked on the register. The\nanalogy also suggests that every oracle call produces a recoil; with the\nancilla in `|0⟩` or `|+⟩` there is no sign to kick back at all, as the\ncontrol in the next section shows.",
+              "text": "When a cannon fires, the push on the ball comes with an equal push back on\nthe cannon. The oracle acts on the ancilla, controlled by `x`, and the effect\nshows up on the control side, the register that holds `x`. The ancilla in\n`|−⟩` plays the ball, and the sign on `|x⟩` is the recoil.",
+              "title": "The recoil of a cannon"
+            }
+          ],
+          "body": "A quantum oracle has to be a unitary, so it cannot replace `x` by `f(x)`\n(that would lose information whenever two inputs share a value). The\n**bit oracle** keeps the input and adds the answer to an extra qubit, the\n**ancilla**:\n\n```\nU_f |x⟩|y⟩ = |x⟩|y ⊻ f(x)⟩\n```\n\nIt is a permutation of basis states, so it is unitary. Now prepare the\nancilla in `|−⟩ = (|0⟩ - |1⟩)/√2`. If `f(x) = 0` nothing changes. If\n`f(x) = 1` the ancilla's `|0⟩` and `|1⟩` swap, which turns `|−⟩` into\n`-|−⟩`. In both cases\n\n```\nU_f |x⟩|−⟩ = (-1)^f(x) |x⟩|−⟩\n```\n\nThe ancilla stays in `|−⟩` and the sign moves to the input register: the\nsign is **kicked back**, in the words of Cleve, Ekert, Macchiavello and\nMosca. Since the ancilla is left as it was, it can be dropped, and what\nremains is the **phase oracle**\n\n```\nO_f |x⟩ = (-1)^f(x) |x⟩\n```\n\nOn a single basis state the sign is a global phase and invisible. On a\nsuperposition of many `x` it becomes a pattern of relative signs, and a\nsecond layer of `H` gates can turn that pattern into a measurable result,\nwhich the next section does.",
+          "diagrams": [
+            {
+              "alt": "The Deutsch-Jozsa circuit. An n-qubit register starts in |0…0⟩, goes through H on every qubit, then into the oracle box U_f, then through H on every qubit again, and is measured. An ancilla qubit starts in |1⟩, goes through H to become |−⟩, passes through the same oracle box and leaves it still in |−⟩. Labels under the register give the state at each stage: the uniform superposition, the same with the signs (−1) to the f(x), and the amplitude of |0…0⟩ at the end, the sum of the signs divided by 2 to the n.",
+              "caption": "The Deutsch-Jozsa circuit. The oracle acts on the register and the ancilla together; with the ancilla in `|−⟩` its only effect is a sign on each `|x⟩`.",
+              "src": "assets/diagrams/55-oracles/dj-circuit.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "The bit oracle on 3 input qubits and an ancilla (qubit 3) in `|−⟩`, against the phase oracle with the ancilla left out.",
+              "check": true,
+              "code": "function apply_bit_oracle!(ψ, f, n)              # ancilla is qubit n, the highest bit\n    for x in 0:2^n-1\n        if f[x + 1]                              # swap |x⟩|0⟩ and |x⟩|1⟩\n            ψ[x + 1], ψ[x + 2^n + 1] = ψ[x + 2^n + 1], ψ[x + 1]\n        end\n    end\n    return ψ\nend\nn = 3\nf = Bool[0, 1, 1, 0, 1, 0, 0, 1]                  # a balanced function\nregister = fill(ComplexF64(1 / sqrt(8)), 8)       # uniform superposition\nminus = ComplexF64[1, -1] / sqrt(2)\nψ = [r * a for a in minus for r in register]      # register ⊗ ancilla, ancilla the high bit\napply_bit_oracle!(ψ, f, n)\nphased = [f[x + 1] ? -register[x + 1] : register[x + 1] for x in 0:7]\nexpected = [r * a for a in minus for r in phased]\nprintln(\"largest difference from (phase oracle on the register) ⊗ |−⟩: \", maximum(abs.(ψ .- expected)))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "largest difference from (phase oracle on the register) ⊗ |−⟩: 0.0\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "It makes the oracle's answer random, which hides f from the ancilla",
+                "A bit flip only multiplies `|−⟩` by -1, so it stays unentangled",
+                "`|−⟩` is the only input state that the bit oracle accepts"
+              ],
+              "code": "",
+              "explain": "`|−⟩` is an eigenvector of the bit flip `X` with eigenvalue -1. Whatever `f(x)` is, the ancilla ends in `|−⟩` times a sign, so the state stays a product of register and ancilla, and the sign can be attributed to the register.",
+              "kind": "choice",
+              "misconceptions": [
+                "Nothing random happens: the oracle is a fixed permutation, and the state after it is fully determined by `f`.",
+                "",
+                "The bit oracle is a unitary on all `2^(n+1)` basis states and accepts any input. With the ancilla in `|0⟩` it writes `f(x)` into the ancilla and entangles it with the register instead of producing signs."
+              ],
+              "prompt": "Why is the ancilla prepared in `|−⟩` before the bit oracle?"
+            }
+          ],
+          "refs": [
+            "cleve-1998"
+          ],
+          "title": "Phase oracles and phase kickback"
+        },
+        {
+          "analogies": [],
+          "body": "The circuit of the diagram: `H⊗n` on `|0…0⟩`, the phase oracle, `H⊗n`\nagain, and measure. Follow the amplitude of the outcome `0…0`. After the\nfirst layer the register is `2^(-n/2) Σ |x⟩`; the oracle gives\n`2^(-n/2) Σ (-1)^f(x) |x⟩`; and by the formula of the first section (with\n`y = 0`, where all signs are `+`) the second layer leaves at `|0…0⟩` the\namplitude\n\n```\n(1 / 2^n) Σ over x of (-1)^f(x)\n```\n\nIf `f` is constant every term has the same sign: the amplitude is `±1` and\nthe outcome is `0…0` with probability 1. If `f` is balanced there are as\nmany `+1` as `-1` terms: the amplitude is 0 and the outcome is never `0…0`.\nSo \"outcome `0…0`\" means constant and anything else means balanced, after\none query and with certainty.\n\nThis is the one-query form of the algorithm given by Cleve, Ekert,\nMacchiavello and Mosca; Deutsch and Jozsa's original circuit called the\noracle twice. The example runs it on every one of the 72 functions. The\ntwo classes are decided by a probability of 1 or 0, so a rounding error of\na few `eps` in an amplitude, a probability error of order `1e-31` near 0 and\n`1e-15` near 1, cannot move either across the threshold `1/2`.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Deutsch-Jozsa with one phase-oracle query, on all 2 constant and 70 balanced functions of 3 bits.",
+              "check": true,
+              "code": "function apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nfunction dj_zero_probability(f)\n    n = trailing_zeros(length(f))\n    ψ = zeros(ComplexF64, length(f)); ψ[1] = 1\n    for q in 0:n-1; apply_1q!(ψ, H, q); end\n    for k in eachindex(ψ); f[k] && (ψ[k] = -ψ[k]); end   # the phase oracle: one query\n    for q in 0:n-1; apply_1q!(ψ, H, q); end\n    return abs2(ψ[1])                                      # probability of outcome 0…0\nend\nfs = [[isodd(m >> x) for x in 0:7] for m in 0:255]\nconstant = filter(f -> !any(f) || all(f), fs)\nbalanced = filter(f -> count(f) == 4, fs)\nprintln(\"constant (\", length(constant), \"): smallest P(000) = \", minimum(dj_zero_probability.(constant)))\nprintln(\"balanced (\", length(balanced), \"): largest P(000) = \", maximum(dj_zero_probability.(balanced)))\nprintln(\"all 72 classified correctly: \", all(dj_zero_probability.(constant) .> 0.5) && all(dj_zero_probability.(balanced) .< 0.5))",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the balanced functions give exactly 0.0 here: each `H` step adds and subtracts the same two numbers, so equal terms cancel without rounding.",
+              "ok": true,
+              "output": "constant (2): smallest P(000) = 0.9999999999999991\nbalanced (70): largest P(000) = 0.0\nall 72 classified correctly: true\n"
+            },
+            {
+              "caption": "Control: the same circuit built from the bit oracle, with the ancilla in `|+⟩` instead of `|−⟩`.",
+              "check": true,
+              "code": "function apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nfunction apply_bit_oracle!(ψ, f, n)\n    for x in 0:2^n-1\n        f[x + 1] && ((ψ[x + 1], ψ[x + 2^n + 1]) = (ψ[x + 2^n + 1], ψ[x + 1]))\n    end\n    return ψ\nend\nfunction dj_with_ancilla(f, ancilla)                 # P(register reads 000)\n    n = trailing_zeros(length(f)); N = length(f)\n    ψ = zeros(ComplexF64, 2N); ψ[1], ψ[N + 1] = ancilla[1], ancilla[2]\n    for q in 0:n-1; apply_1q!(ψ, H, q); end\n    apply_bit_oracle!(ψ, f, n)\n    for q in 0:n-1; apply_1q!(ψ, H, q); end\n    return abs2(ψ[1]) + abs2(ψ[N + 1])               # either ancilla value\nend\nbalanced = filter(f -> count(f) == 4, [[isodd(m >> x) for x in 0:7] for m in 0:255])\nminus, plus = ComplexF64[1, -1] / sqrt(2), ComplexF64[1, 1] / sqrt(2)\nprintln(\"ancilla |−⟩: balanced misclassified as constant: \", count(f -> dj_with_ancilla(f, minus) > 0.5, balanced), \" of 70\")\nprintln(\"ancilla |+⟩: balanced misclassified as constant: \", count(f -> dj_with_ancilla(f, plus) > 0.5, balanced), \" of 70\")",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "ancilla |−⟩: balanced misclassified as constant: 0 of 70\nancilla |+⟩: balanced misclassified as constant: 70 of 70\n",
+              "predict": {
+                "answer": 3,
+                "choices": [
+                  "None",
+                  "About half",
+                  "All 70"
+                ],
+                "explain": "`|+⟩` is unchanged by a bit flip, with eigenvalue `+1`, so the oracle does nothing at all to the state. The two `H⊗n` layers then cancel, and the register reads `000` with certainty for every function. A check that runs the circuit only on constant functions would not notice; the balanced ones are the control.",
+                "kc": "phase-kickback",
+                "measured": "70",
+                "prompt": "The same circuit, with the bit oracle and the ancilla in `|+⟩` instead of `|−⟩`. Before the output is shown: how many of the 70 balanced functions does it misclassify as constant?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "0, as for a balanced function, since f is not constant",
+                "`(6/8)² = 0.5625`: the circuit gives no clear answer",
+                "`1/8`, the fraction of inputs where f is 1"
+              ],
+              "code": "",
+              "explain": "The amplitude of `000` is the average of the signs: seven `+1` and one `-1` give `6/8`, and the probability is its square, `0.5625`. Neither 0 nor 1, so the outcome says nothing reliable: the algorithm is only exact under the promise.",
+              "kind": "choice",
+              "misconceptions": [
+                "The amplitude is 0 only when the `+1` and `-1` terms balance exactly. One `-1` against seven `+1` leaves `6/8`.",
+                "",
+                "The probability is the square of the average sign, `((8 - 2·1)/8)²`, not the fraction of marked inputs."
+              ],
+              "prompt": "The promise is broken: `f` is 1 on exactly one of the 8 inputs. What is the probability of the outcome `000`?"
+            }
+          ],
+          "refs": [
+            "cleve-1998",
+            "deutsch-jozsa-1992"
+          ],
+          "title": "Deutsch-Jozsa on all 72 functions"
+        },
+        {
+          "analogies": [],
+          "body": "Now `f(x) = s·x ⊻ b` for a hidden `n`-bit string `s` and a bit `b`, and the\ntask is to find `s`. Classically one query returns one bit, and `s` has `n`\nbits, so `n` queries are needed: `f(0) = b`, and `f(2^q) ⊻ f(0)` is bit `q`\nof `s`.\n\nThe same circuit as Deutsch-Jozsa finds all of `s` with one query. After\nthe oracle the register is\n\n```\n2^(-n/2) Σ over x of (-1)^(s·x ⊻ b) |x⟩  =  (-1)^b · 2^(-n/2) Σ over x of (-1)^(s·x) |x⟩\n```\n\nwhich is `(-1)^b H⊗n |s⟩` by the formula of the first section. The second\nlayer of `H` undoes the first, leaving `(-1)^b |s⟩`: the outcome is `s` with\nprobability 1, and `b` is only a global phase. Bernstein and Vazirani\nintroduced the problem; Cleve et al. give this one-query circuit. Since\noutcome `k` holds qubit `q` in bit `q`, the measured integer is `s` itself,\nwith no bit reversal.\n\nThe example runs it for every `s` with `n = 1` to 5 bits, 62 strings in all.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Bernstein-Vazirani on all 62 hidden strings of 1 to 5 bits, with `b = 0` and with `b = 1`.",
+              "check": true,
+              "code": "function apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nfunction bv_probabilities(f)\n    n = trailing_zeros(length(f))\n    ψ = zeros(ComplexF64, length(f)); ψ[1] = 1\n    for q in 0:n-1; apply_1q!(ψ, H, q); end\n    for k in eachindex(ψ); f[k] && (ψ[k] = -ψ[k]); end\n    for q in 0:n-1; apply_1q!(ψ, H, q); end\n    return abs2.(ψ)\nend\nfor b in (false, true)\n    found, total = 0, 0\n    for n in 1:5, s in 0:2^n-1\n        f = [isodd(count_ones(s & x)) ⊻ b for x in 0:2^n-1]\n        p = bv_probabilities(f)\n        found += (argmax(p) - 1 == s && p[s + 1] >= 1 - 1e-12)\n        total += 1\n    end\n    println(\"b = \", Int(b), \": s recovered with P ≥ 1 - 1e-12 for \", found, \" of \", total)\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "b = 0: s recovered with P ≥ 1 - 1e-12 for 62 of 62\nb = 1: s recovered with P ≥ 1 - 1e-12 for 62 of 62\n",
+              "predict": {
+                "answer": 3,
+                "choices": [
+                  "None",
+                  "31, the strings with s·s = 0",
+                  "All 62"
+                ],
+                "explain": "Flipping every answer multiplies every sign by -1, which is a global phase: `(-1)^b` comes out of the sum. The measured state is `-|s⟩`, which gives the outcome `s` exactly as often as `|s⟩` does. A classical algorithm, in contrast, has to spend a query on `f(0)` to learn `b` before it can read `s`.",
+                "kc": "oracles",
+                "measured": "62",
+                "prompt": "With `b = 1` the oracle's answer is flipped on every input. Before the output is shown: for how many of the 62 hidden strings does the circuit still return `s` with probability 1?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Queries to f: one instead of n + 1",
+                "Simulation time on a classical computer, once n is large",
+                "The promise: it works for every f, not only f(x) = s·x ⊻ b"
+              ],
+              "code": "",
+              "explain": "The cost model is the number of queries to the oracle, which is the expensive step when `f` is a physical process. Simulating the quantum circuit costs time proportional to `2^n`; the savings are in calls to `f` on quantum hardware, not in classical simulation.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "Simulation is never faster: the state vector has `2^n` entries, while the classical loop reads `n + 1` of them. This unit's third problem runs both.",
+                "For a function not of the form `s·x ⊻ b` the outcome is random and says nothing reliable, as with the broken promise of the previous section."
+              ],
+              "prompt": "A classical loop finds `s` from `n + 1` lookups in the truth table, far faster than simulating the circuit, which takes `n · 2^n` steps. What does Bernstein-Vazirani save, then?"
+            }
+          ],
+          "refs": [
+            "bernstein-vazirani-1997",
+            "cleve-1998"
+          ],
+          "title": "Bernstein-Vazirani: a hidden string in one query"
+        }
+      ],
+      "status": "ready",
+      "summary": "A function is promised to be constant or balanced. A classical algorithm that must be right needs 5 queries for 3-bit inputs in the worst case, as a run over all 72 such functions shows; one query to a phase oracle settles it with certainty for every one of the 72. The unit builds the phase oracle from a bit oracle by phase kickback, shows with a control that the kickback needs the ancilla in |−⟩, and recovers every hidden string s up to 5 bits from one query to f(x) = s·x ⊕ b (Bernstein-Vazirani).",
       "title": "Oracles: Deutsch-Jozsa and Bernstein-Vazirani",
       "track": "quantum"
     },
@@ -2019,20 +3284,437 @@
         "amplitude-amplification"
       ],
       "lessons": [],
-      "outline": [
-        "The question: how many oracle calls find one marked item among N?",
-        "Oracle and diffuser as two reflections; diagram of the 2-D rotation picture",
-        "P(success) = sin^2((2k+1) theta) exactly, n = 2 to 8, M = 1 to 3 marked items",
-        "Overshooting: what happens past the optimal number of iterations"
-      ],
+      "outline": [],
       "prerequisites": [
         "55-oracles"
       ],
-      "problems": [],
-      "references": [],
-      "sections": [],
-      "status": "planned",
-      "summary": "Amplitude amplification as a rotation in a plane, with the success probability checked against sin^2((2k+1) theta) for every iteration count.",
+      "problems": [
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "warm-up",
+          "entry": "apply_diffuser!",
+          "hints": [
+            "Two passes over the vector: one to find the mean, one to replace each amplitude. The mean must come from the amplitudes before any of them changes.",
+            "Compute `μ = sum(ψ) / length(ψ)` first, then set `ψ[k] = 2μ - ψ[k]` for every `k`."
+          ],
+          "id": "gr-diffuser",
+          "kcs": [
+            "amplitude-amplification"
+          ],
+          "perf": {
+            "mutates": true,
+            "sizes": [
+              1024
+            ]
+          },
+          "prompt": "Write `apply_diffuser!(ψ)` that applies the inversion about the mean to the\nstate `ψ` in place and returns `ψ`: with `μ = sum(ψ) / length(ψ)`, every\namplitude `a` becomes `2μ - a`. Amplitudes are complex.\n\n```julia\napply_diffuser!(ComplexF64[0.5, 0.5, -0.5, 0.5])     # [0, 0, 1, 0]\n```\n\nResults are compared with `isapprox` at `rtol = 1e-12` (norm of the\ndifference over the norm of the reference): a different order of summation\nchanges `μ` by about `N · eps` relative to the largest amplitude. Speed and\nallocations are graded against the reference, which allocates nothing.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "apply_diffuser!(ComplexF64[0.5, 0.5, -0.5, 0.5])",
+              "result": "4-element Vector{ComplexF64}:\n 0.0 + 0.0im\n 0.0 + 0.0im\n 1.0 + 0.0im\n 0.0 + 0.0im"
+            },
+            {
+              "call": "apply_diffuser!(fill(ComplexF64(1 / sqrt(8)), 8))",
+              "result": "8-element Vector{ComplexF64}:\n 0.35355339059327373 + 0.0im\n 0.35355339059327373 + 0.0im\n 0.35355339059327373 + 0.0im\n 0.35355339059327373 + 0.0im\n 0.35355339059327373 + 0.0im\n 0.35355339059327373 + 0.0im\n 0.35355339059327373 + 0.0im\n 0.35355339059327373 + 0.0im"
+            },
+            {
+              "call": "apply_diffuser!(ComplexF64[1, 0])",
+              "result": "2-element Vector{ComplexF64}:\n 0.0 + 0.0im\n 1.0 + 0.0im"
+            },
+            {
+              "call": "apply_diffuser!(ComplexF64[0.6, 0.8im, 0, 0])",
+              "result": "4-element Vector{ComplexF64}:\n -0.3 + 0.4im\n  0.3 - 0.4im\n  0.3 + 0.4im\n  0.3 + 0.4im"
+            }
+          ],
+          "starter": "function apply_diffuser!(ψ)\n    # your code here\nend\n",
+          "title": "Inversion about the mean in place"
+        },
+        {
+          "check_type": true,
+          "compare": "custom",
+          "difficulty": "core",
+          "entry": "grover_success",
+          "hints": [
+            "Keep the whole state vector. Each iteration has two steps that both act on it: a sign flip at the marked items, then every amplitude reflected about the mean.",
+            "Start from `fill(ComplexF64(1 / sqrt(2^n)), 2^n)`; in each of the `k` iterations negate `ψ[m + 1]` for `m` in `marked`, then set every entry to `2μ - ψ[j]` with `μ` computed first. Return the sum of `abs2(ψ[m + 1])` over `marked`."
+          ],
+          "id": "gr-success-probability",
+          "kcs": [
+            "amplitude-amplification"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              4096
+            ]
+          },
+          "prompt": "Write `grover_success(n, marked, k)` that starts from the uniform\nsuperposition on `n` qubits, applies `k` Grover iterations (the phase\noracle that negates the amplitudes of the items in `marked`, then the\ninversion about the mean), and returns the probability that a measurement\ngives one of the marked items, as a `Float64`. `marked` is a vector of\ndistinct items in `0:2^n-1`, with fewer than `2^n` of them.\n\n```julia\ngrover_success(2, [2], 1)        # 1.0 (up to rounding)\ngrover_success(6, [5], 6)        # 0.99658...\ngrover_success(3, [0, 1, 2, 3], 1)   # 0.5\n```\n\nResults are compared with an absolute tolerance of `1e-10`. The tested sizes\n(`n ≤ 8`, `k ≤ 15`) give rounding errors below about `15 · 256 · eps ≈\n8.5e-13` by the bound of section 4, so the tolerance leaves room for any\norder of summation, and the closed form `sin²((2k + 1)θ)` also passes.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "grover_success(2, [2], 1)",
+              "result": "1.0"
+            },
+            {
+              "call": "grover_success(6, [5], 6)",
+              "result": "0.996585680786799"
+            },
+            {
+              "call": "grover_success(3, [0, 1, 2, 3], 1)",
+              "result": "0.4999999999999999"
+            },
+            {
+              "call": "grover_success(5, [7], 0)",
+              "result": "0.031249999999999993"
+            },
+            {
+              "call": "grover_success(4, [1, 9, 14], 2)",
+              "result": "0.615966796875"
+            },
+            {
+              "call": "grover_success(6, [5], 12)",
+              "result": "7.050584240359265e-5"
+            }
+          ],
+          "starter": "function grover_success(n, marked, k)\n    # your code here\nend\n",
+          "title": "Simulate Grover and measure the success probability"
+        },
+        {
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "core",
+          "entry": "grover_iterations",
+          "hints": [
+            "The probability is largest when the angle `(2k + 1)θ` is closest to `π/2`. Solve `(2k + 1)θ = π/2` for `k` and think about which integer is closest.",
+            "`θ = asin(sqrt(M / N))`; the best count is `floor(Int, π / (4θ))`, since `(2k + 1)θ` is then within `θ` of `π/2`."
+          ],
+          "id": "gr-iterations",
+          "kcs": [
+            "amplitude-amplification"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              1048576
+            ]
+          },
+          "prompt": "Write `grover_iterations(N, M)` that returns, as an `Int`, the smallest\n`k ≥ 0` that maximises the success probability `sin²((2k + 1)θ)` with\n`sin²θ = M/N`, for `1 ≤ M ≤ N/4`.\n\n```julia\ngrover_iterations(4, 1)       # 1: P = 1\ngrover_iterations(64, 1)      # 6\ngrover_iterations(1024, 1)    # 25\n```\n\nResults are compared with `isequal`. (With `M ≤ N/4` the best `k` is\nnever a tie; at `M/N = 1/2` the counts 0 and 1 both give `1/2`.)",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "grover_iterations(4, 1)",
+              "result": "1"
+            },
+            {
+              "call": "grover_iterations(64, 1)",
+              "result": "6"
+            },
+            {
+              "call": "grover_iterations(1024, 1)",
+              "result": "25"
+            },
+            {
+              "call": "grover_iterations(256, 3)",
+              "result": "7"
+            },
+            {
+              "call": "grover_iterations(16, 4)",
+              "result": "1"
+            },
+            {
+              "call": "grover_iterations(2^20, 5)",
+              "result": "359"
+            },
+            {
+              "call": "grover_iterations(128, 19)",
+              "result": "1"
+            }
+          ],
+          "starter": "function grover_iterations(N, M)\n    # your code here\nend\n",
+          "title": "How many Grover iterations"
+        }
+      ],
+      "references": [
+        {
+          "authors": "Grover, L. K.",
+          "id": "grover-1996",
+          "note": "The search algorithm with O(√N) queries (abstract), and the inversion about average as the step that amplifies the marked amplitude (Section 4, Fig. 1). Also arXiv:quant-ph/9605043.",
+          "title": "A fast quantum mechanical algorithm for database search",
+          "url": "https://doi.org/10.1145/237814.237866",
+          "venue": "Proceedings of the 28th Annual ACM Symposium on Theory of Computing (STOC), 212-219",
+          "year": 1996
+        },
+        {
+          "authors": "Boyer, M.; Brassard, G.; Høyer, P.; Tapp, A.",
+          "id": "boyer-1998",
+          "note": "Section 3: sin²θ = t/N for t marked items, the amplitudes after j iterations (Eq. 3, the marked ones sin((2j + 1)θ)/√t each) and the iteration count m = ⌊π/(4θ)⌋; Section 2 gives (π/4)√N for one item; the success probability sin²((2j + 1)θ) appears in the proof of Lemma 2 (Section 4). Also arXiv:quant-ph/9605034.",
+          "title": "Tight bounds on quantum searching",
+          "url": "https://doi.org/10.1002/(SICI)1521-3978(199806)46:4/5<493::AID-PROP493>3.0.CO;2-P",
+          "venue": "Fortschritte der Physik 46, 493-505",
+          "year": 1998
+        },
+        {
+          "authors": "Brassard, G.; Høyer, P.; Mosca, M.; Tapp, A.",
+          "id": "brassard-2002",
+          "note": "Section 2, Lemma 1 and Eqs. 2 to 5: the amplification iterate as a product of two reflections, acting as a rotation with eigenvalues e^(±i2θ) in a two-dimensional subspace. Also arXiv:quant-ph/0005055.",
+          "title": "Quantum amplitude amplification and estimation",
+          "url": "https://doi.org/10.1090/conm/305/05215",
+          "venue": "Contemporary Mathematics 305, 53-74",
+          "year": 2002
+        }
+      ],
+      "sections": [
+        {
+          "analogies": [],
+          "body": "This unit uses the phase oracle of unit 55, which multiplies the amplitude\nof every marked input by `-1`, and the uniform superposition\n`|s⟩ = H⊗n |0…0⟩`, every amplitude `1/√N` with `N = 2^n`. Each example\ndefines what it needs.\n\nOne new operation, the **inversion about the mean**: replace every\namplitude `a` by `2μ - a`, where `μ = sum(ψ) / N` is the mean amplitude. An\namplitude below the mean ends as far above it as it was below, and the\nreverse. As a matrix it is `D = 2|s⟩⟨s| - I`: `|s⟩⟨s|` maps `ψ` to\n`(s'ψ) s`, and since every entry of `s` is `1/√N`, that is the vector with\n`μ` in every entry. It is unitary because it is a reflection: it keeps `|s⟩` and negates every\nvector orthogonal to `|s⟩`.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Inversion about the mean on 4 amplitudes, one of them negated by an oracle.",
+              "check": true,
+              "code": "ψ = fill(0.5, 4)                  # the uniform superposition on 2 qubits\nψ[3] = -ψ[3]                      # the oracle marks item 2 (index 3)\nμ = sum(ψ) / length(ψ)\nprintln(\"after the oracle: \", ψ, \",  mean \", μ)\nψ .= 2μ .- ψ\nprintln(\"after inversion about the mean: \", ψ)",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the negated amplitude, far below the mean, ends far above it, and the other three shrink to 0.",
+              "ok": true,
+              "output": "after the oracle: [0.5, 0.5, -0.5, 0.5],  mean 0.25\nafter inversion about the mean: [0.0, 0.0, 1.0, 0.0]\n"
+            }
+          ],
+          "questions": [],
+          "refs": [],
+          "title": "What you need from earlier units"
+        },
+        {
+          "analogies": [],
+          "body": "An oracle answers whether an item `x` in `0:N-1` is marked, and nothing\nelse: there is no order or structure to exploit. With `M = 1` marked item,\na classical algorithm that queries items in a random order without\nrepetition finds it at each position with probability `1/N`, so the mean\nnumber of queries is `(1 + 2 + … + N)/N = (N + 1)/2`. Any classical method\nneeds a number of queries proportional to `N`, since each query rules out\none item.\n\nGrover showed that a quantum computer with a phase oracle needs only about\n`(π/4)√N` queries. For `N = 2^40` that is about 820 000 calls instead of\nabout 5.5 · 10^11. The speed-up is quadratic, not exponential, and Boyer,\nBrassard, Høyer and Tapp work out the exact number of iterations, also for\n`M > 1` marked items, which this unit follows.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Classical search in a random order for item 17 among 64, repeated 10 000 times.",
+              "check": true,
+              "code": "using Random\nrng = Xoshiro(56)\nN, target = 64, 17\nqueries = [findfirst(==(target), randperm(rng, N)) for _ in 1:10_000]   # position of the target in the order\nprintln(\"average queries: \", round(sum(queries) / length(queries); digits = 2), \"  ((N + 1)/2 = \", (N + 1) / 2, \")\")",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "average queries: 32.28  ((N + 1)/2 = 32.5)\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "About 8, the square root of 64",
+                  "About 32",
+                  "About 64"
+                ],
+                "explain": "The target is equally likely at each of the 64 positions, so the mean position is `(N + 1)/2 = 32.5`. About `√N = 8` is the scale of Grover's quantum algorithm, not of any classical one; about 64 is the worst case, when the target comes last.",
+                "kc": "amplitude-amplification",
+                "measured": "32.28",
+                "prompt": "Items are queried in a random order until the marked one turns up. Before the output is shown: how many queries does that take on average for N = 64?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "About 5.5 · 10^11, half of N, like a classical search",
+                "About 820 000, that is (π/4)·√N",
+                "About 40, one per qubit"
+              ],
+              "code": "",
+              "explain": "`√(2^40) = 2^20 ≈ 1.05 · 10^6`, and `π/4` of that is about 823 550. The speed-up over the classical `N/2` is the factor `2√N/π ≈ 670 000`: large, but it grows like `√N`, so Grover's cost still grows exponentially with the number of qubits.",
+              "kind": "choice",
+              "misconceptions": [
+                "Half of N is the classical mean. The quantum algorithm needs about the square root of that many calls.",
+                "",
+                "One query per qubit would be an exponential speed-up. Grover's algorithm needs about `√N` calls, which for `N = 2^40` is `2^20`, not 40."
+              ],
+              "prompt": "Grover search on `N = 2^40` items, one of them marked: about how many oracle calls does it need?"
+            }
+          ],
+          "refs": [
+            "grover-1996",
+            "boyer-1998"
+          ],
+          "title": "The question: how many oracle calls find one marked item among N?"
+        },
+        {
+          "analogies": [
+            {
+              "breaks": "Real mirrors work in three dimensions on objects; here the \"mirrors\" are\nlines in a two-dimensional plane inside a space of `N` dimensions, and the\npicture holds only because the start state lies in that plane. A pair of\nmirrors also turns you by the same `2θ` whatever you hold; the state's\nangle `θ` depends on the fraction `M/N` of marked items, which an unknown\n`M` leaves unknown.",
+              "text": "Stand between two mirrors that meet at an angle `θ`. Your reflection in the\nfirst mirror, reflected again in the second, is you turned by `2θ` around\nthe line where they meet. Grover's two reflections do the same to the\nstate: neither reflection alone gets anywhere, and the pair turns the state\na fixed step each time.",
+              "title": "Two mirrors at an angle"
+            }
+          ],
+          "body": "One **Grover iteration** is the phase oracle `O` followed by the inversion\nabout the mean `D`. Both are reflections:\n\n* `O` negates the marked basis states and keeps the unmarked ones: a\n  reflection about the subspace of unmarked states.\n* `D = 2|s⟩⟨s| - I` keeps `|s⟩` and negates what is orthogonal to it: a\n  reflection about `|s⟩`.\n\nWrite `|good⟩` for the normalised sum of the `M` marked basis states and\n`|bad⟩` for that of the `N - M` unmarked ones. The start state lies in their\nplane,\n\n```\n|s⟩ = sin θ |good⟩ + cos θ |bad⟩,     sin²θ = M / N\n```\n\nand both reflections map that plane to itself, so the state never leaves\nit. In a plane, a reflection about one line followed by a reflection about\nanother line at angle `θ` to it is a rotation by `2θ`. Each iteration\ntherefore turns the state by `2θ` toward `|good⟩`, and after `k` iterations\n\n```\nG^k |s⟩ = sin((2k + 1)θ) |good⟩ + cos((2k + 1)θ) |bad⟩\nP(measure a marked item) = sin²((2k + 1)θ)\n```\n\nThis is the analysis of Boyer et al. (their Section 3); Brassard, Høyer,\nMosca and Tapp state it for any starting algorithm as amplitude\namplification, with the iterate as a product of two reflections whose\neigenvalues are `e^(±2iθ)`.\n\nOn hardware, `D` is built from gates as `H⊗n`, a sign flip on every basis\nstate except `|0…0⟩`, then `H⊗n` again. The simulator\nhere applies it directly as `2μ - a`.",
+          "diagrams": [
+            {
+              "alt": "A plane with a horizontal axis labelled |bad⟩ and a vertical axis labelled |good⟩. The start vector |s⟩ is at a small angle θ above the bad axis. The oracle reflects it to an angle θ below the bad axis. The inversion about the mean reflects that about |s⟩, to an angle 3θ above the bad axis. Further iterations continue the rotation by 2θ each, toward the good axis.",
+              "caption": "One Grover iteration: the oracle reflects about `|bad⟩`, the inversion about the mean reflects about `|s⟩`, and the two together rotate by `2θ`. The marked probability is the squared height on the `|good⟩` axis.",
+              "src": "assets/diagrams/56-grover/grover-rotation.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "One Grover iteration on 2 qubits with one marked item, and the inversion about the mean checked against its gate form `H⊗n`, sign flip, `H⊗n`.",
+              "check": true,
+              "code": "function apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nn = 2; N = 2^n\nψ = fill(ComplexF64(1 / sqrt(N)), N)\nψ[3] = -ψ[3]                                       # oracle: item 2 is marked\nμ = sum(ψ) / N\nψ .= 2μ .- ψ                                       # inversion about the mean\nprintln(\"P(item 2) after one iteration: \", round(abs2(ψ[3]); digits = 12))\n# the gate form of D on a random state: H⊗n, -1 on every basis state but 0…0, H⊗n\nusing Random\nv = randn(Xoshiro(7), ComplexF64, 8); v ./= sqrt(sum(abs2, v))\nw = copy(v)\nfor q in 0:2; apply_1q!(w, H, q); end\nw[2:end] .= .-w[2:end]\nfor q in 0:2; apply_1q!(w, H, q); end\nprintln(\"gate form equals 2μ - a: \", maximum(abs.(w .- (2 * sum(v) / 8 .- v))) < 1e-14)",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "P(item 2) after one iteration: 1.0\ngate form equals 2μ - a: true\n",
+              "predict": {
+                "answer": 3,
+                "choices": [
+                  "1/4, as before",
+                  "1/2",
+                  "1"
+                ],
+                "explain": "`sin²θ = 1/4` gives `θ = 30°`, and one iteration takes the angle to `3θ = 90°`: the state is exactly `|good⟩`. In amplitudes: after the oracle they are `1/2, 1/2, -1/2, 1/2` with mean `1/4`, and `2μ - a` gives `0, 0, 1, 0`.",
+                "kc": "amplitude-amplification",
+                "measured": "1.0",
+                "prompt": "Two qubits, so `N = 4`, with one marked item. Before the output is shown: what is the probability of measuring the marked item after a single Grover iteration?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "Sets it to 1 and the others to 0",
+                "Negates it, leaving its size unchanged",
+                "Doubles it, so the item is more likely to be measured"
+              ],
+              "code": "",
+              "explain": "The oracle multiplies the marked amplitudes by `-1`. Every probability is unchanged after the oracle alone; the gain comes from the inversion about the mean, which turns the sign difference into a difference in size.",
+              "kind": "choice",
+              "misconceptions": [
+                "An oracle that returned the answer state directly would make the search one query long. It only marks, by a sign, and measuring right after it gives a uniformly random item.",
+                "",
+                "Doubling an amplitude is not unitary (it changes the norm). The oracle is a reflection, and only the following inversion changes sizes."
+              ],
+              "prompt": "What does the phase oracle do to the amplitude of a marked item?"
+            }
+          ],
+          "refs": [
+            "boyer-1998",
+            "brassard-2002",
+            "grover-1996"
+          ],
+          "title": "Two reflections make a rotation"
+        },
+        {
+          "analogies": [],
+          "body": "The formula is checked here against the simulation for `n = 2` to 8 qubits,\n`M = 1` to 3 marked items and every `k` from 0 to 3 past the peak, 163 cases.\nThe tolerance is `1e-12`: each iteration sums `N` amplitudes once, and\nunit 49's summation bound gives an error of about `N · eps` per sum, so\nafter `k ≤ 15` iterations with `N ≤ 256` about `15 · 256 · 2.2e-16 ≈ 8.5e-13`.\n\n**How many iterations.** The probability is largest when `(2k + 1)θ` is\nclosest to `π/2`. Boyer et al. take `k = ⌊π/(4θ)⌋`. Since\n`π/(4θ) - 1 < k ≤ π/(4θ)`, the angle `(2k + 1)θ` lies within `θ` of `π/2`,\nso\n\n```\nP ≥ sin²(π/2 - θ) = cos²θ = 1 - M/N\n```\n\nFor small `M/N`, `θ ≈ √(M/N)` and `k ≈ (π/4)√(N/M)`: with `M = 1` this is\nthe `(π/4)√N` of the question.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "The simulated success probability against `sin²((2k + 1)θ)`, and the probability at `k = ⌊π/(4θ)⌋`.",
+              "check": true,
+              "code": "function grover_probability(n, marked, k)\n    N = 2^n\n    ψ = fill(ComplexF64(1 / sqrt(N)), N)\n    for _ in 1:k\n        for m in marked; ψ[m + 1] = -ψ[m + 1]; end       # the oracle\n        μ = sum(ψ) / N\n        ψ .= 2μ .- ψ                                     # inversion about the mean\n    end\n    return sum(abs2(ψ[m + 1]) for m in marked)\nend\nworst, cases, above_bound = 0.0, 0, true\nfor n in 2:8, M in 1:3\n    N = 2^n; marked = [(3j) % N for j in 0:M-1]          # M distinct items\n    θ = asin(sqrt(M / N)); kbest = floor(Int, π / (4θ))\n    for k in 0:kbest + 3\n        global worst = max(worst, abs(grover_probability(n, marked, k) - sin((2k + 1) * θ)^2))\n        global cases += 1\n    end\n    global above_bound &= grover_probability(n, marked, kbest) >= 1 - M / N - 1e-12\nend\nprintln(cases, \" cases, largest |simulated - formula| below 1e-12: \", worst < 1e-12)\nprintln(\"P at ⌊π/(4θ)⌋ ≥ 1 - M/N in every case: \", above_bound)\nfor n in (4, 6, 8, 10)\n    θ = asin(sqrt(1 / 2^n)); k = floor(Int, π / (4θ))\n    println(\"n = \", n, \": \", k, \" iterations, P = \", round(grover_probability(n, [5], k); digits = 4))\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "163 cases, largest |simulated - formula| below 1e-12: true\nP at ⌊π/(4θ)⌋ ≥ 1 - M/N in every case: true\nn = 4: 3 iterations, P = 0.9613\nn = 6: 6 iterations, P = 0.9966\nn = 8: 12 iterations, P = 0.9999\nn = 10: 25 iterations, P = 0.9995\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "10, one per qubit",
+                  "25",
+                  "512, half of N"
+                ],
+                "explain": "`θ = asin(1/32) ≈ 0.03125`, and `π/(4θ) ≈ 25.13`, so 25 iterations, close to `(π/4)√1024 ≈ 25.1`. The success probability there is about 0.9995.",
+                "kc": "amplitude-amplification",
+                "measured": "25",
+                "prompt": "Ten qubits, `N = 1024`, one marked item. Before the output is shown: how many iterations does `⌊π/(4θ)⌋` give?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "1, as for N = 4 with one marked item",
+                "1/2, the same as before the iteration",
+                "0, since the rotation overshoots every marked item"
+              ],
+              "code": "",
+              "explain": "`sin²θ = 4/8` gives `θ = 45°`, and one iteration moves the state to `3θ = 135°`, where `sin² = 1/2` again. With half the items marked, Grover's iteration gains nothing; a random guess already succeeds half the time.",
+              "kind": "choice",
+              "misconceptions": [
+                "One iteration reaches certainty only when `3θ = 90°`, that is `M/N = 1/4`. Here `M/N = 1/2`.",
+                "",
+                "The state passes `|good⟩` (at 90°) and lands at 135°, which still has `sin² = 1/2`; overshooting reduces the probability, it does not make it 0 in one step."
+              ],
+              "prompt": "Three qubits, `N = 8`, with `M = 4` items marked. What is the success probability after one Grover iteration?"
+            }
+          ],
+          "refs": [
+            "boyer-1998"
+          ],
+          "title": "P(success) = sin²((2k + 1)θ), checked"
+        },
+        {
+          "analogies": [],
+          "body": "The rotation does not stop at `|good⟩`. Past `k = ⌊π/(4θ)⌋` the state keeps\nturning, and the success probability falls, reaching about 0 near twice\nthe best count, when the angle `(2k + 1)θ` is near `π` and the state is\nback near `|bad⟩` (with a minus sign). Then it climbs again, with period\nabout `π/θ` in `k`.\n\nSo Grover search is not like a classical search, where more queries never\nhurt. The number of iterations has to be chosen from `M/N` in advance, and\na measurement in between would collapse the state and start the search\nover.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "The success probability for 6 qubits and one marked item, for `k = 0` to 14.",
+              "check": true,
+              "code": "function grover_probability(n, marked, k)\n    N = 2^n\n    ψ = fill(ComplexF64(1 / sqrt(N)), N)\n    for _ in 1:k\n        for m in marked; ψ[m + 1] = -ψ[m + 1]; end\n        μ = sum(ψ) / N\n        ψ .= 2μ .- ψ\n    end\n    return sum(abs2(ψ[m + 1]) for m in marked)\nend\nfor k in 0:14\n    p = grover_probability(6, [5], k)\n    println(lpad(k, 2), \"  \", rpad(round(p; digits = 4), 6), \"  \", \"#\"^round(Int, 40p))\nend\nprintln(\"P at k = 12: \", round(grover_probability(6, [5], 12); digits = 4))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": " 0  0.0156  #\n 1  0.1348  #####\n 2  0.3439  ##############\n 3  0.5914  ########################\n 4  0.8164  #################################\n 5  0.9635  #######################################\n 6  0.9966  ########################################\n 7  0.9074  ####################################\n 8  0.718   #############################\n 9  0.475   ###################\n10  0.2381  ##########\n11  0.0656  ###\n12  0.0001  \n13  0.0576  ##\n14  0.2239  #########\nP at k = 12: 0.0001\n",
+              "predict": {
+                "answer": 1,
+                "choices": [
+                  "Close to 0",
+                  "About 1/2",
+                  "Close to 1, it stays there"
+                ],
+                "explain": "`θ = asin(1/8) ≈ 7.2°`, and at `k = 12` the angle is `25θ ≈ 179.6°`: nearly `π`, so the state is almost `-|bad⟩` and the marked items are almost never measured (`P ≈ 7e-5`). The probability does not plateau, because the iteration is a rotation, not a convergence.",
+                "kc": "amplitude-amplification",
+                "measured": "0.0001",
+                "prompt": "For `N = 64` and one marked item, the best count is `k = 6`, with `P ≈ 0.997`. Before the output is shown: what is the success probability at `k = 12`?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "The state has turned by about π in total, back near the unmarked states",
+                "Each extra iteration adds noise that wipes out the amplitudes",
+                "The oracle stops marking items after they have been found once"
+              ],
+              "code": "",
+              "explain": "Each iteration is the same rotation by `2θ`. After about `π/(2θ)` of them the total angle is about `π`, where `sin²` is near 0. The simulation has no noise and the oracle is the same at every call; the drop comes from the geometry alone.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "The simulation is exact up to rounding of about `1e-15`; there is no noise to accumulate. The probability rises again after the minimum, which noise would not do.",
+                "The oracle is a fixed unitary and keeps no record of earlier calls. It negates the marked amplitudes every time, and that is what keeps the rotation going."
+              ],
+              "prompt": "Why does running twice the best number of iterations almost never find a marked item?"
+            }
+          ],
+          "refs": [
+            "boyer-1998"
+          ],
+          "title": "Overshooting: more iterations can make it worse"
+        }
+      ],
+      "status": "ready",
+      "summary": "Finding one marked item among N by asking an oracle takes about N/2 queries classically. Grover's algorithm alternates the phase oracle with an inversion about the mean, two reflections whose product rotates the state by a fixed angle in a plane; after about (π/4)√N rotations a measurement finds a marked item with probability close to 1. The unit checks the success probability against sin²((2k+1)θ) for n = 2 to 8 qubits, 1 to 3 marked items and every iteration count up to past the peak, derives the iteration count ⌊π/(4θ)⌋ with its guarantee P ≥ 1 - M/N, and shows that running longer makes the result worse.",
       "title": "Grover search",
       "track": "quantum"
     },

@@ -19,7 +19,7 @@ describe("course site data", () => {
       const n = course.units.filter((u) => u.course === c.id).reduce((s, u) => s + u.problems.length, 0);
       expect(c.problems).toBe(n);
     }
-    expect(course.courses.reduce((s, c) => s + c.problems, 0)).toBe(159);   // 147 + 12 in quantum units 49-52
+    expect(course.courses.reduce((s, c) => s + c.problems, 0)).toBe(171);   // 147 + 24 in quantum units 49-56
   });
   it("resolves cross-course prerequisites to unit ids that exist", () => {
     const ids = new Set(course.units.map((u) => u.id));

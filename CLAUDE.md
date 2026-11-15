@@ -281,10 +281,13 @@ every role above has had the chance to object (recorded in the PR).
   lesson circuits, QFT/QPE vs Qiskit's library, noise; per-mutant layer table
   in projects/qsim/README.md). Units 49-52 are written and verified (states,
   qubit order, gates and the Bloch sphere, applying gates; 12 problems; the
-  unit-52 `apply_1q!` kernel measures 0 bytes allocated). Not met yet: the
-  zero-allocation kernels in projects/qsim (`apply!` allocates an offset
+  unit-52 `apply_1q!` kernel measures 0 bytes allocated). Units 53-56 are
+  written and verified (entanglement and CHSH, measurement and teleportation,
+  Deutsch-Jozsa and Bernstein-Vazirani on every function and hidden string up
+  to 5 bits, Grover against sin²((2k+1)θ); 12 more problems). Not met yet:
+  the zero-allocation kernels in projects/qsim (`apply!` allocates an offset
   table and buffers, measured in `measure_baseline.toml`), the benchmark
-  report and units 53-61.
+  report and units 57-61.
 * **M10 Fourth project: ude (universal differential equation, SciML).**
   Requires M4 (the student's odeint) and M7 (latency). *DoD:* every package
   justified in the PR (OrdinaryDiffEq, SciMLSensitivity, one AD backend, Lux,

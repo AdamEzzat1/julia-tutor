@@ -2,15 +2,963 @@ id = "54-measurement-teleportation"
 title = "Measurement and teleportation"
 track = "quantum"
 env = "base"
-status = "planned"
-summary = "Measurement with collapse, teleporting an unknown state with two classical bits, and the deferred-measurement principle."
+status = "ready"
+summary = "Measuring one qubit picks an outcome with the Born rule and collapses the state onto it. With that and a shared Bell pair, Alice sends an unknown qubit state to Bob using two classical bits: Bob's qubit matches the message with fidelity 1 on 2000 random messages, the four measurement outcomes come out 1/4 each whatever the message, and a control without Bob's corrections drops the fidelity to 1/2 on average, as a short calculation predicts. Finally the same protocol without mid-circuit measurement, using controlled gates instead (deferred measurement)."
 kcs = ["measurement", "teleportation"]
 prerequisites = ["53-entanglement-chsh"]
-outline = [
-  "The question: can you move a qubit's state without moving the qubit?",
-  "measure! with collapse and renormalisation; outcome frequencies follow the Born rule",
-  "Teleportation circuit (diagram) and its corrections",
-  "Fidelity 1 over random messages; outcomes 1/4 each",
-  "Control: without the corrections the fidelity drops (measured), so the check can fail",
-  "Deferred measurement: the same circuit with controlled gates instead",
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit uses the in-place gates of unit 52 (`apply_1q!`, `apply_cx!`),
+the Bell pair of unit 53, and inverse-CDF sampling from unit 51: draw `r`
+uniform in `[0, 1)` and pick the first outcome whose cumulative probability
+exceeds `r`.
+
+One new number: the **fidelity** of a pure state `φ` with a state `χ` is
+`|φ' χ|²`, the probability that `χ`, measured in a basis that contains `φ`,
+is found to be `φ`. It is 1 when `χ` is `φ` up to a global phase (a factor
+`cis(α)`, which no measurement can see) and 0 when they are orthogonal.
+Comparing states by fidelity, not entry by entry, is how this unit ignores
+the global phase.
+'''
+
+  [[section.example]]
+  caption = "Fidelities of `|0⟩` with itself, with `-|0⟩`, with `|+⟩` and with `|1⟩`."
+  code = '''
+fidelity(φ, χ) = abs2(sum(conj.(φ) .* χ))         # |φ' χ|²
+zero_, one_, plus = ComplexF64[1, 0], ComplexF64[0, 1], ComplexF64[1, 1] / sqrt(2)
+println("F(|0⟩, |0⟩) = ", fidelity(zero_, zero_), ",  F(|0⟩, -|0⟩) = ", fidelity(zero_, -zero_))
+println("F(|0⟩, |+⟩) = ", round(fidelity(zero_, plus); digits = 12), ",  F(|0⟩, |1⟩) = ", fidelity(zero_, one_))
+'''
+
+[[section]]
+title = "The question: can you move a qubit's state without moving the qubit?"
+body = '''
+Alice holds a qubit in a state `φ = α|0⟩ + β|1⟩` that she does not know.
+She wants Bob, far away, to end up with a qubit in the same state, but she
+can only send him ordinary bits.
+
+Measuring her qubit does not help: it gives one bit, 0 or 1 with
+probabilities `|α|²` and `|β|²`, and leaves the qubit in `|0⟩` or `|1⟩`. The
+complex numbers `α` and `β` are gone. Estimating them would need many copies
+of the state, and she has one.
+
+**Measurement with collapse.** Measuring qubit `q` of a many-qubit state
+gives 0 with probability `p0`, the sum of `|ψ[k + 1]|²` over the outcomes
+`k` with bit `q` clear, and 1 with probability `p1 = 1 - p0`. Afterwards
+the state is what is consistent with the result: the amplitudes of the other
+half are set to 0, and the rest are divided by `√p` (`p` the probability of
+the result) so that the state is normalised again. The other qubits keep
+whatever correlation they had with qubit `q`: measuring qubit 0 of a Bell
+pair leaves qubit 1 with the same value.
+
+The answer to the question turns out to be yes, with one Bell pair shared in
+advance and two classical bits: **teleportation**, by Bennett, Brassard,
+Crépeau, Jozsa, Peres and Wootters.
+'''
+refs = ["bennett-1993"]
+
+  [[section.example]]
+  caption = "`measure!` with collapse, applied to qubit 0 and then qubit 1 of a fresh Bell pair, 10 000 times."
+  code = '''
+using Random
+function measure!(ψ, q, r)                     # r uniform in [0, 1): the inverse CDF of unit 51
+    m = 1 << q
+    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)
+    outcome = r < p0 ? 0 : 1
+    scale = 1 / sqrt(outcome == 0 ? p0 : 1 - p0)
+    for k in 0:length(ψ)-1
+        keep = ((k & m) != 0) == (outcome == 1)
+        ψ[k + 1] = keep ? ψ[k + 1] * scale : zero(eltype(ψ))
+    end
+    return outcome
+end
+rng = Xoshiro(54)
+ones0, disagree = 0, 0
+for _ in 1:10_000
+    ψ = ComplexF64[1, 0, 0, 1] / sqrt(2)
+    m0 = measure!(ψ, 0, rand(rng))
+    m1 = measure!(ψ, 1, rand(rng))
+    global ones0 += m0
+    global disagree += (m0 != m1)
+end
+println("qubit 0 gave 1 in ", ones0, " of 10000 runs")
+println("qubit 1 disagreed with qubit 0 in ", disagree, " of 10000 runs")
+'''
+
+    [section.example.predict]
+    kc = "measurement"
+    prompt = "Each run makes a fresh `|Φ+⟩ = (|00⟩ + |11⟩)/√2`, measures qubit 0, then measures qubit 1. Before the output is shown: in how many of the 10 000 runs does qubit 1 disagree with qubit 0?"
+    choices = ["0", "About 2500", "About 5000"]
+    measure = 'qubit 1 disagreed with qubit 0 in (\d+) of 10000'
+    ranges = [[0, 1], [2000, 3000], [4500, 5500]]
+    answer = 1
+    explain = "After qubit 0 gives 0, only the amplitude of `|00⟩` is left, so qubit 1 is 0 with certainty; after a 1, only `|11⟩` is left. The first measurement is a fair coin (about 5000 ones), but the second is then determined. About 5000 disagreements is what two independent fair coins give, for example the product state `|+⟩ ⊗ |+⟩`."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "After a measurement of qubit `q` gives 1, the amplitudes with bit `q` clear are set to 0. Why are the others divided by `√p1`?"
+  choices = [
+    "To keep the state normalised for later measurements",
+    "To undo the rounding errors of the measurement",
+    "Because measuring changes the relative phases of the outcomes",
+  ]
+  answer = 1
+  explain = "The kept amplitudes have `Σ|ψ|² = p1`. Dividing each by `√p1` makes their squares sum to 1 again and keeps their ratios, so the relative probabilities and phases of the remaining outcomes are unchanged."
+  misconceptions = [
+    "",
+    "The division is exact bookkeeping, not an error correction: without it the state has total probability `p1 < 1`, and every later probability is too small.",
+    "Dividing by the positive real `√p1` multiplies every kept amplitude by the same real factor, which changes no phase at all.",
+  ]
+
+[[section]]
+title = "The teleportation circuit and its corrections"
+body = '''
+Qubit 0 holds Alice's message `φ`. Qubits 1 (Alice's) and 2 (Bob's) are a
+Bell pair made beforehand: `H` on 1, then CNOT 1→2. The protocol:
+
+1. Alice applies CNOT 0→1, then `H` on qubit 0.
+2. Alice measures qubits 0 and 1, getting bits `m0` and `m1`, and sends them
+   to Bob.
+3. Bob applies `X` to his qubit if `m1 = 1`, then `Z` if `m0 = 1`.
+
+**Why it works.** Write `φ = α|0⟩ + β|1⟩` and follow the terms through step
+1 by hand. The eight amplitudes can then be grouped by Alice's two bits:
+
+```
+½ Σ over m0, m1 of   |m1 m0⟩ on Alice's qubits  ⊗  X^m1 Z^m0 φ  on Bob's
+```
+
+For example, with `m0 = m1 = 1` Bob holds `α|1⟩ - β|0⟩ = X Z φ`. Two
+consequences:
+
+* Each of the four results has probability `1/4`, **whatever `φ` is**. The
+  two bits say nothing about the message.
+* Bob's qubit is the message with a known Pauli applied. Applying `X^m1` and
+  then `Z^m0` gives `Z^m0 X^m1 X^m1 Z^m0 φ = φ`, since `X X = Z Z = I`.
+
+The message was not copied: Alice's qubit 0 ends in `|m0⟩`, and only Bob's
+qubit is in the state `φ`. Nor does anything travel faster than light:
+until the bits arrive, Bob's qubit is each of the four Paulis applied to
+`φ` with probability 1/4, which averages to `I/2`, a fair coin.
+'''
+refs = ["bennett-1993", "nielsen-chuang-2010"]
+
+  [[section.diagram]]
+  file = "teleport-circuit.svg"
+  alt = "The teleportation circuit on three qubit lines. Qubit 0 starts in the message phi; qubits 1 and 2 start in |0⟩ and become a Bell pair by H on qubit 1 and a CNOT from 1 to 2. Alice then applies a CNOT from 0 to 1 and H on 0, and measures qubits 0 and 1. Double lines carry the bits m1 and m0 down to Bob's qubit 2, where they control an X gate and then a Z gate. Bob's qubit ends in phi."
+  caption = "Teleportation. Single lines are qubits, double lines classical bits. Bob's X and Z are applied only when the bit that reaches them is 1."
+
+  [[section.analogy]]
+  title = "A fax that shreds the original"
+  text = '''
+Teleportation behaves like a fax machine that destroys the page it sends: at
+the end Bob has the state and Alice's qubit no longer does. And, like a fax,
+Bob cannot read the message before the transmission (here, the two bits)
+arrives.
+'''
+  breaks = '''
+A fax sends the content of the page down the line. The two bits of
+teleportation carry no information about `φ` at all (they are uniformly
+random, whatever `φ` is); the state reaches Bob through the Bell pair the two
+of them shared before, and the bits only say which of four known
+corrections to apply. Two bits could never describe the two complex numbers
+`α` and `β` anyway. And nothing is shredded: Alice's qubit is
+measured, and ends in `|m0⟩`.
+'''
+
+  [[section.example]]
+  caption = "One teleportation of a random message: Alice's two bits, Bob's qubit before and after the corrections, and its fidelity with the message."
+  code = '''
+using Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+function measure!(ψ, q, r)
+    m = 1 << q
+    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)
+    outcome = r < p0 ? 0 : 1
+    scale = 1 / sqrt(outcome == 0 ? p0 : 1 - p0)
+    for k in 0:length(ψ)-1
+        ψ[k + 1] = (((k & m) != 0) == (outcome == 1)) ? ψ[k + 1] * scale : zero(eltype(ψ))
+    end
+    return outcome
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2);  X = ComplexF64[0 1; 1 0];  Z = ComplexF64[1 0; 0 -1]
+fidelity(φ, χ) = abs2(sum(conj.(φ) .* χ))
+rng = Xoshiro(3)
+φ = randn(rng, ComplexF64, 2); φ ./= sqrt(sum(abs2, φ))          # the unknown message
+ψ = zeros(ComplexF64, 8); ψ[1] = φ[1]; ψ[2] = φ[2]                # φ on qubit 0, |00⟩ on qubits 1, 2
+apply_1q!(ψ, H, 1); apply_cx!(ψ, 1, 2)                            # the shared Bell pair
+apply_cx!(ψ, 0, 1); apply_1q!(ψ, H, 0)                            # step 1
+m0 = measure!(ψ, 0, rand(rng)); m1 = measure!(ψ, 1, rand(rng))    # step 2
+bob = ψ[[m0 + 2m1 + 1, m0 + 2m1 + 5]]                            # Bob's amplitudes: qubit 2 = 0 and 1
+println("Alice's bits: m0 = ", m0, ", m1 = ", m1)
+println("fidelity before the corrections: ", round(fidelity(φ, bob); digits = 6))
+m1 == 1 && (bob = X * bob);  m0 == 1 && (bob = Z * bob)          # step 3
+println("fidelity after the corrections:  ", round(fidelity(φ, bob); digits = 12))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Alice measures `m0 = 1` and `m1 = 0`. Which state does Bob hold before he corrects anything?"
+  choices = [
+    "`Z φ`",
+    "`X φ`",
+    "`φ` itself, since `m1 = 0`",
+  ]
+  answer = 1
+  explain = "Bob holds `X^m1 Z^m0 φ`, which for `m0 = 1`, `m1 = 0` is `Z φ = α|0⟩ - β|1⟩`; the bit `m0` comes from Alice's qubit 0, which she put through `H`, and it controls the phase. Bob applies `Z` to undo it."
+  misconceptions = [
+    "",
+    "`X` is the correction for `m1`, the bit of Alice's half of the Bell pair. Here `m1 = 0`, so no `X` is needed.",
+    "Both bits matter: `m0 = 1` alone means a `Z` has been applied, and `Z φ` differs from `φ` unless `α` or `β` is 0.",
+  ]
+
+[[section]]
+title = "Fidelity 1 over random messages, and the four outcomes 1/4 each"
+body = '''
+One run shows that the protocol can work; the claim is that it works for
+*every* message and every outcome. The test below teleports 2000 random
+messages, each with its own random measurement outcomes, and checks two
+things:
+
+* **Fidelity.** Bob's corrected qubit has fidelity 1 with the message,
+  up to rounding: the test asks for more than `1 - 1e-12`. A run takes some
+  20 complex multiply-adds per amplitude, so its rounding errors are a few
+  `u ≈ 1.1e-16`; `1e-12` leaves a factor of a thousand, and any wrong
+  correction lowers the fidelity by far more for a random message.
+* **Outcomes.** Each of the four `(m0, m1)` should have frequency `1/4`.
+  With `N = 2000` runs a frequency has standard deviation `√(p(1 - p)/N) =
+  √(0.25 · 0.75 / 2000) ≈ 0.0097`, so the test accepts `|f - 1/4| < 5σ`,
+  which a correct simulator fails with probability below `1e-5` per outcome.
+
+A second example fixes the message at `|0⟩`, where the regrouping says that
+the outcomes are still `1/4` each, although measuring `|0⟩` directly would
+always give 0.
+'''
+
+  [[section.example]]
+  caption = "2000 teleportations of random messages: the smallest fidelity, and the frequency of each pair of bits."
+  notice = "Notice that the worst fidelity is 1 to about 15 digits, and that every frequency is within 5σ = 0.048 of 1/4."
+  code = '''
+using Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+function measure!(ψ, q, r)
+    m = 1 << q
+    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)
+    outcome = r < p0 ? 0 : 1
+    scale = 1 / sqrt(outcome == 0 ? p0 : 1 - p0)
+    for k in 0:length(ψ)-1
+        ψ[k + 1] = (((k & m) != 0) == (outcome == 1)) ? ψ[k + 1] * scale : zero(eltype(ψ))
+    end
+    return outcome
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2);  X = ComplexF64[0 1; 1 0];  Z = ComplexF64[1 0; 0 -1]
+fidelity(φ, χ) = abs2(sum(conj.(φ) .* χ))
+function teleport(φ, rng; correct = true)
+    ψ = zeros(ComplexF64, 8); ψ[1] = φ[1]; ψ[2] = φ[2]
+    apply_1q!(ψ, H, 1); apply_cx!(ψ, 1, 2); apply_cx!(ψ, 0, 1); apply_1q!(ψ, H, 0)
+    m0 = measure!(ψ, 0, rand(rng)); m1 = measure!(ψ, 1, rand(rng))
+    bob = ψ[[m0 + 2m1 + 1, m0 + 2m1 + 5]]
+    if correct
+        m1 == 1 && (bob = X * bob);  m0 == 1 && (bob = Z * bob)
+    end
+    return bob, (m0, m1)
+end
+rng = Xoshiro(11)
+N = 2000
+counts = Dict((0, 0) => 0, (0, 1) => 0, (1, 0) => 0, (1, 1) => 0)
+worst = 1.0
+for _ in 1:N
+    φ = randn(rng, ComplexF64, 2); φ ./= sqrt(sum(abs2, φ))
+    bob, m = teleport(φ, rng)
+    global worst = min(worst, fidelity(φ, bob))
+    counts[m] += 1
+end
+σ = sqrt(0.25 * 0.75 / N)
+println("smallest fidelity over ", N, " messages: ", round(worst; digits = 12), ",  above 1 - 1e-12: ", worst > 1 - 1e-12)
+println("frequencies (m0, m1): ", join(["$m => $(counts[m] / N)" for m in sort(collect(keys(counts)))], ", "))
+println("all within 5σ = ", round(5σ; digits = 3), " of 1/4: ", all(abs(c / N - 0.25) < 5σ for c in values(counts)))
+'''
+
+  [[section.example]]
+  caption = "The same protocol with the message fixed at `|0⟩`: the frequency of each pair of bits over 2000 runs."
+  code = '''
+using Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+function measure!(ψ, q, r)
+    m = 1 << q
+    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)
+    outcome = r < p0 ? 0 : 1
+    scale = 1 / sqrt(outcome == 0 ? p0 : 1 - p0)
+    for k in 0:length(ψ)-1
+        ψ[k + 1] = (((k & m) != 0) == (outcome == 1)) ? ψ[k + 1] * scale : zero(eltype(ψ))
+    end
+    return outcome
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+rng = Xoshiro(12)
+n11 = 0
+for _ in 1:2000
+    ψ = zeros(ComplexF64, 8); ψ[1] = 1                               # message |0⟩
+    apply_1q!(ψ, H, 1); apply_cx!(ψ, 1, 2); apply_cx!(ψ, 0, 1); apply_1q!(ψ, H, 0)
+    m0 = measure!(ψ, 0, rand(rng)); m1 = measure!(ψ, 1, rand(rng))
+    global n11 += (m0 == 1 && m1 == 1)
+end
+println("message |0⟩: frequency of (m0, m1) = (1, 1): ", n11 / 2000)
+'''
+
+    [section.example.predict]
+    kc = "teleportation"
+    prompt = "The message is `|0⟩`. Measured directly it would always give 0. Before the output is shown: how often do Alice's two bits both come out 1?"
+    choices = ["Almost never", "About 1/4 of the runs", "About 1/2 of the runs"]
+    measure = 'frequency of \(m0, m1\) = \(1, 1\): ([0-9.]+)'
+    ranges = [[0, 0.05], [0.2, 0.3], [0.45, 0.55]]
+    answer = 2
+    explain = "The regrouping gives every pair of bits probability `1/4` for every message, `|0⟩` included: Alice's `H` on qubit 0 makes `m0` a fair coin, and the Bell pair makes `m1` one. That is why the bits reveal nothing about the message."
+
+[[section]]
+title = "Control: without the corrections the fidelity drops to 1/2"
+body = '''
+A check that cannot fail proves nothing (unit 52's control). Here the
+control is Bob skipping step 3. His qubit is then `X^m1 Z^m0 φ`, and its
+fidelity with `φ` depends on the bits:
+
+| bits | Bob holds | fidelity with `φ` |
+|---|---|---|
+| `(0, 0)` | `φ` | 1 |
+| `(0, 1)` | `X φ` | `⟨X⟩²` |
+| `(1, 0)` | `Z φ` | `⟨Z⟩²` |
+| `(1, 1)` | `X Z φ` | `⟨Y⟩²` |
+
+where `⟨X⟩ = φ' X φ` and so on are the coordinates of `φ`'s Bloch vector
+(unit 51; `XZ = -iY`, and `|-i|² = 1`). Each row has probability 1/4, and
+for a pure state `⟨X⟩² + ⟨Y⟩² + ⟨Z⟩² = 1`, so the average fidelity is
+`(1 + 1)/4 = 1/2` for **every** message, not only on average over messages.
+The control should measure about 1/2; a mean fidelity near 1 would mean
+that the test itself is broken.
+'''
+
+  [[section.example]]
+  caption = "2000 teleportations of random messages with Bob's corrections skipped: the mean fidelity."
+  code = '''
+using Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+function measure!(ψ, q, r)
+    m = 1 << q
+    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)
+    outcome = r < p0 ? 0 : 1
+    scale = 1 / sqrt(outcome == 0 ? p0 : 1 - p0)
+    for k in 0:length(ψ)-1
+        ψ[k + 1] = (((k & m) != 0) == (outcome == 1)) ? ψ[k + 1] * scale : zero(eltype(ψ))
+    end
+    return outcome
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+fidelity(φ, χ) = abs2(sum(conj.(φ) .* χ))
+rng = Xoshiro(13)
+total = 0.0
+for _ in 1:2000
+    φ = randn(rng, ComplexF64, 2); φ ./= sqrt(sum(abs2, φ))
+    ψ = zeros(ComplexF64, 8); ψ[1] = φ[1]; ψ[2] = φ[2]
+    apply_1q!(ψ, H, 1); apply_cx!(ψ, 1, 2); apply_cx!(ψ, 0, 1); apply_1q!(ψ, H, 0)
+    m0 = measure!(ψ, 0, rand(rng)); m1 = measure!(ψ, 1, rand(rng))
+    global total += fidelity(φ, ψ[[m0 + 2m1 + 1, m0 + 2m1 + 5]])  # no corrections
+end
+println("mean fidelity without corrections: ", round(total / 2000; digits = 3))
+'''
+
+    [section.example.predict]
+    kc = "teleportation"
+    prompt = "Bob skips the corrections. One of the four outcomes, `(0, 0)`, leaves his qubit exactly right. Before the output is shown: what is the mean fidelity over 2000 random messages?"
+    choices = ["About 1/4", "About 1/2", "About 3/4"]
+    measure = 'mean fidelity without corrections: ([0-9.]+)'
+    ranges = [[0.2, 0.3], [0.45, 0.55], [0.7, 0.8]]
+    answer = 2
+    explain = "The `(0, 0)` quarter contributes fidelity 1, and the other three quarters contribute `⟨X⟩²`, `⟨Z⟩²` and `⟨Y⟩²`, which sum to 1 for a pure state: `(1 + 1)/4 = 1/2`. About 1/4 would be right if the wrong outcomes gave fidelity 0, but a Pauli applied to a random state is rarely orthogonal to it."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A teleportation test only checks that the four outcomes have frequency 1/4. Which bug does it miss?"
+  choices = [
+    "Bob applying `Z` when `m1 = 1` and `X` when `m0 = 1`",
+    "Forgetting Alice's `H` on qubit 0",
+    "Using `|00⟩` instead of a Bell pair on qubits 1 and 2",
+  ]
+  answer = 1
+  explain = "The bits come out before Bob does anything, so his corrections cannot change their frequencies: swapped corrections give the right frequencies and a wrong state. Only a fidelity check sees Bob's qubit. The other two bugs change the distribution of the measured bits."
+  misconceptions = [
+    "",
+    "Without the `H`, `m0` is a measurement of the message itself in the 0/1 basis: 1 with probability `|β|²`, which is not 1/2 for most messages, so the frequencies move.",
+    "Without the Bell pair, qubit 1 stays `|0⟩` until Alice's CNOT copies qubit 0's bit into it, so `m1` follows the message's statistics instead of a fair coin.",
+  ]
+
+[[section]]
+title = "Deferred measurement: the same circuit with controlled gates"
+body = '''
+Bob's step 3 is a gate chosen by a measured bit. The **principle of
+deferred measurement** says that measuring a qubit and then using the result
+to choose a gate gives the same statistics as applying the gate as a
+*controlled* gate, controlled by that qubit, and measuring afterwards (or
+not at all). So teleportation also works with no mid-circuit measurement:
+
+* `X^m1` becomes CNOT 1→2 (flip Bob's qubit where qubit 1 is 1);
+* `Z^m0` becomes CZ between qubits 0 and 2: multiply the amplitude by `-1`
+  where both qubits are 1.
+
+The result is a plain circuit of gates, and Bob's reduced density matrix
+(unit 53) should be exactly `φ φ'`, whatever Alice's qubits are later
+measured to be. Many devices and simulators prefer this form, and it is the
+one the `qsim` project exports to check against Qiskit. CZ is symmetric: it
+multiplies by `-1` where *both* bits are set, so `CZ(0, 2)` and `CZ(2, 0)`
+are the same gate; there is no real control and target.
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.example]]
+  caption = "The deferred circuit on 200 random messages: the largest difference between Bob's reduced density matrix and `φ φ'`."
+  code = '''
+using LinearAlgebra, Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+function apply_cz!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if k & (1 << a) != 0 && k & (1 << b) != 0
+            ψ[k + 1] = -ψ[k + 1]
+        end
+    end
+    return ψ
+end
+function reduced_density(ψ, q)
+    ρ = zeros(ComplexF64, 2, 2); m = 1 << q
+    for k in 0:length(ψ)-1
+        if k & m == 0
+            a0, a1 = ψ[k + 1], ψ[(k | m) + 1]
+            ρ[1, 1] += abs2(a0); ρ[1, 2] += a0 * conj(a1); ρ[2, 1] += a1 * conj(a0); ρ[2, 2] += abs2(a1)
+        end
+    end
+    return ρ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+rng = Xoshiro(14)
+worst = 0.0
+for _ in 1:200
+    φ = normalize(randn(rng, ComplexF64, 2))
+    ψ = zeros(ComplexF64, 8); ψ[1] = φ[1]; ψ[2] = φ[2]
+    apply_1q!(ψ, H, 1); apply_cx!(ψ, 1, 2); apply_cx!(ψ, 0, 1); apply_1q!(ψ, H, 0)
+    apply_cx!(ψ, 1, 2); apply_cz!(ψ, 0, 2)                         # the corrections, as gates
+    global worst = max(worst, maximum(abs, reduced_density(ψ, 2) - φ * φ'))
+end
+println("largest |ρ_Bob - φφ'| entry over 200 messages: below 1e-14: ", worst < 1e-14)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "In the deferred circuit, which statement about Alice's qubits 0 and 1 at the end is right?"
+  choices = [
+    "They are back in `|00⟩`, so they can be reused",
+    "Measured, each gives a fair coin, as in the original",
+    "They hold a copy of the message, entangled with Bob's",
+  ]
+  answer = 2
+  explain = "The controlled gates act only on Bob's qubit, so the statistics of Alice's qubits are those of the original protocol: four outcomes with probability 1/4 each. Deferring the measurement does not change what it would give."
+  misconceptions = [
+    "Nothing resets them: they are left in an equal mixture over all four outcomes, as their measurement statistics show.",
+    "",
+    "A copy is impossible here: Bob's reduced state is already `φ φ'`, a pure state, which leaves no room for any correlation with another copy; Alice's qubits are independent fair coins.",
+  ]
+
+[[problem]]
+id = "mt-measure"
+title = "Measure one qubit, with collapse"
+difficulty = "core"
+kcs = ["measurement"]
+entry = "measure!"
+packages = []
+prompt = '''
+Write `measure!(ψ, q, r)` that measures qubit `q` of the state `ψ`
+(little-endian) using the uniform random number `r` in `[0, 1)`, changes
+`ψ` in place to the collapsed state, and returns the outcome `0` or `1` (an
+`Int`). Use the inverse CDF of unit 51: the outcome is 0 when `r < p0`,
+where `p0` is the total probability of the outcomes with bit `q` clear, and
+1 otherwise. Collapse: set the amplitudes inconsistent with the outcome to
+0 and divide the others by `√p` of the outcome.
+
+```julia
+ψ = ComplexF64[1, 0, 0, 1] / sqrt(2)
+measure!(ψ, 0, 0.3)      # 0, and ψ becomes [1, 0, 0, 0]
+measure!(ψ, 1, 0.9)      # 0 again: qubit 1 now agrees with qubit 0
+```
+
+Passing `r` in, instead of drawing it, makes the function deterministic and
+testable. The outcome is compared exactly and the collapsed `ψ` as a whole
+vector with `rtol = 1e-12`: two correct versions sum `p0` in a different
+order and divide by `√p` differing in the last bits, a relative difference
+of a few `u`.
+'''
+starter = '''
+function measure!(ψ, q, r)
+    # your code here
+end
+'''
+reference = '''
+function measure!(ψ, q, r)
+    m = 1 << q
+    p0 = 0.0
+    for k in 0:length(ψ)-1
+        k & m == 0 && (p0 += abs2(ψ[k + 1]))
+    end
+    outcome = r < p0 ? 0 : 1
+    scale = 1 / sqrt(outcome == 0 ? p0 : 1 - p0)
+    for k in 0:length(ψ)-1
+        if ((k & m) != 0) == (outcome == 1)
+            ψ[k + 1] *= scale
+        else
+            ψ[k + 1] = 0
+        end
+    end
+    return outcome
+end
+'''
+cases = [
+  "ComplexF64[1, 0, 0, 1] / sqrt(2), 0, 0.3",
+  "ComplexF64[1, 0, 0, 1] / sqrt(2), 1, 0.7",
+  "ComplexF64[0.6, 0.8im], 0, 0.35",
+  "ComplexF64[0.6, 0.8im], 0, 0.37",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8] / sqrt(204), 2, 0.5",
 ]
+gen = "rng -> [(n = rand(rng, 1:7); v = randn(rng, ComplexF64, 2^n); (v ./ sqrt(sum(abs2, v)), rand(rng, 0:n-1), rand(rng))) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+compare_args = true
+check_type = true
+hints = [
+  "First the probability `p0` of outcome 0: which amplitudes belong to qubit `q` being 0? Then the outcome from `r`, and only then the collapse.",
+  "Sum `abs2(ψ[k + 1])` over `k` with `k & (1 << q) == 0`; the outcome is `r < p0 ? 0 : 1`. Then loop again: keep and divide by `sqrt(p)` the amplitudes whose bit `q` equals the outcome, and set the rest to 0.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, n); v ./ sqrt(sum(abs2, v))), 5, 0.5"
+  sizes = [65536]
+  mutates = true
+
+  [[problem.variant]]
+  label = "forgets to renormalise"
+  code = '''
+function measure!(ψ, q, r)
+    m = 1 << q
+    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)
+    outcome = r < p0 ? 0 : 1
+    for k in 0:length(ψ)-1
+        ((k & m) != 0) == (outcome == 1) || (ψ[k + 1] = 0)
+    end
+    return outcome
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "divides by p instead of √p"
+  code = '''
+function measure!(ψ, q, r)
+    m = 1 << q
+    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)
+    outcome = r < p0 ? 0 : 1
+    p = outcome == 0 ? p0 : 1 - p0
+    for k in 0:length(ψ)-1
+        ψ[k + 1] = ((k & m) != 0) == (outcome == 1) ? ψ[k + 1] / p : 0
+    end
+    return outcome
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "outcome 1 when r < p1 (the CDF from the other end)"
+  code = '''
+function measure!(ψ, q, r)
+    m = 1 << q
+    p1 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m != 0)
+    outcome = r < p1 ? 1 : 0
+    p = outcome == 1 ? p1 : 1 - p1
+    for k in 0:length(ψ)-1
+        ψ[k + 1] = ((k & m) != 0) == (outcome == 1) ? ψ[k + 1] / sqrt(p) : 0
+    end
+    return outcome
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "textbook qubit order (bit n - 1 - q)"
+  code = '''
+function measure!(ψ, q, r)
+    m = 1 << (trailing_zeros(length(ψ)) - 1 - q)
+    p0 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & m == 0)
+    outcome = r < p0 ? 0 : 1
+    p = outcome == 0 ? p0 : 1 - p0
+    for k in 0:length(ψ)-1
+        ψ[k + 1] = ((k & m) != 0) == (outcome == 1) ? ψ[k + 1] / sqrt(p) : 0
+    end
+    return outcome
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a mask vector and broadcasting"
+  code = '''
+function measure!(ψ, q, r)
+    bit = [(k >> q) & 1 for k in 0:length(ψ)-1]
+    p0 = sum(abs2.(ψ[bit .== 0]))
+    outcome = r < p0 ? 0 : 1
+    ψ .= ifelse.(bit .== outcome, ψ ./ sqrt(outcome == 0 ? p0 : 1 - p0), 0)
+    return outcome
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "mt-teleport-state"
+title = "The teleportation state before Alice measures"
+difficulty = "core"
+kcs = ["teleportation"]
+entry = "teleport_state"
+packages = []
+prompt = '''
+Write `teleport_state(φ)` that takes a one-qubit message `φ` (two
+amplitudes) and returns the 3-qubit state, a `Vector{ComplexF64}` of 8
+amplitudes, just before Alice measures: `φ` on qubit 0 and `|0⟩` on qubits 1
+and 2, then `H` on 1, CNOT 1→2 (the Bell pair), CNOT 0→1 and `H` on 0. The
+order is little-endian: amplitude `k + 1` is the outcome with qubit 0 = bit
+0 of `k`, and so on.
+
+```julia
+teleport_state(ComplexF64[1, 0])     # [1, 1, 0, 0, 0, 0, 1, 1] / 2: outcomes 0, 1, 6 and 7
+```
+
+A check of your result, from section 3: the four amplitudes with Alice's
+bits `(m0, m1)` are, up to a factor `1/2`, Bob's qubit `X^m1 Z^m0 φ`.
+Results are compared as whole vectors with `rtol = 1e-12`.
+'''
+starter = '''
+function teleport_state(φ)
+    # your code here
+end
+'''
+reference = '''
+function teleport_state(φ)
+    ψ = zeros(ComplexF64, 8)
+    ψ[1], ψ[2] = φ[1], φ[2]                          # φ on qubit 0, qubits 1 and 2 in |0⟩
+    h = 1 / sqrt(2)
+    function apply_h!(q)
+        s = 1 << q
+        for k in 0:7
+            if k & s == 0
+                a, b = ψ[k + 1], ψ[k + s + 1]
+                ψ[k + 1], ψ[k + s + 1] = h * (a + b), h * (a - b)
+            end
+        end
+    end
+    function apply_cx!(c, t)
+        for k in 0:7
+            if k & (1 << c) != 0 && k & (1 << t) == 0
+                j = k | (1 << t)
+                ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+            end
+        end
+    end
+    apply_h!(1); apply_cx!(1, 2)                     # the Bell pair on qubits 1 and 2
+    apply_cx!(0, 1); apply_h!(0)                     # Alice's step 1
+    return ψ
+end
+'''
+cases = [
+  "ComplexF64[1, 0]",
+  "ComplexF64[0, 1]",
+  "ComplexF64[1, 1] / sqrt(2)",
+  "ComplexF64[0.6, 0.8im]",
+  "ComplexF64[cos(0.7), cis(2.1) * sin(0.7)]",
+]
+gen = "rng -> [(v = randn(rng, ComplexF64, 2); (v ./ sqrt(sum(abs2, v)),)) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "Put `φ` in the first two amplitudes (qubit 0), then apply the four gates in order with the in-place functions of unit 52. Which gates make the Bell pair, and on which qubits?",
+  "`H` on qubit 1 and CNOT with control 1, target 2 make the pair; then CNOT with control 0, target 1, and `H` on qubit 0. Check: for `φ = |0⟩` the result is 1/2 on outcomes 0, 1, 6 and 7.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, 2); v ./ sqrt(sum(abs2, v)))"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "the Bell pair on qubits 0 and 1 (overwrites the message)"
+  code = '''
+using LinearAlgebra
+function teleport_state(φ)
+    H = ComplexF64[1 1; 1 -1] / sqrt(2); I2 = ComplexF64[1 0; 0 1]
+    CX(c, t) = (P = zeros(ComplexF64, 8, 8); for k in 0:7; j = k & (1 << c) != 0 ? k ⊻ (1 << t) : k; P[j + 1, k + 1] = 1; end; P)
+    ψ = kron(ComplexF64[1, 0], ComplexF64[1, 0], φ)
+    ψ = CX(0, 1) * kron(I2, I2, H) * ψ
+    return kron(I2, I2, H) * CX(0, 1) * ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "CNOT with control and target swapped (1→0)"
+  code = '''
+using LinearAlgebra
+function teleport_state(φ)
+    H = ComplexF64[1 1; 1 -1] / sqrt(2); I2 = ComplexF64[1 0; 0 1]
+    CX(c, t) = (P = zeros(ComplexF64, 8, 8); for k in 0:7; j = k & (1 << c) != 0 ? k ⊻ (1 << t) : k; P[j + 1, k + 1] = 1; end; P)
+    ψ = kron(ComplexF64[1, 0], ComplexF64[1, 0], φ)
+    ψ = CX(1, 2) * kron(I2, H, I2) * ψ
+    return kron(I2, I2, H) * CX(1, 0) * ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "H on qubit 0 before Alice's CNOT instead of after"
+  code = '''
+using LinearAlgebra
+function teleport_state(φ)
+    H = ComplexF64[1 1; 1 -1] / sqrt(2); I2 = ComplexF64[1 0; 0 1]
+    CX(c, t) = (P = zeros(ComplexF64, 8, 8); for k in 0:7; j = k & (1 << c) != 0 ? k ⊻ (1 << t) : k; P[j + 1, k + 1] = 1; end; P)
+    ψ = kron(ComplexF64[1, 0], ComplexF64[1, 0], φ)
+    ψ = CX(1, 2) * kron(I2, H, I2) * ψ
+    return CX(0, 1) * kron(I2, I2, H) * ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "dense 8×8 operators from kron (qubit 2 leftmost)"
+  code = '''
+using LinearAlgebra
+function teleport_state(φ)
+    H = ComplexF64[1 1; 1 -1] / sqrt(2); I2 = ComplexF64[1 0; 0 1]
+    CX(c, t) = (P = zeros(ComplexF64, 8, 8); for k in 0:7; j = k & (1 << c) != 0 ? k ⊻ (1 << t) : k; P[j + 1, k + 1] = 1; end; P)
+    ψ = kron(ComplexF64[1, 0], ComplexF64[1, 0], ComplexF64.(φ))
+    ψ = CX(1, 2) * kron(I2, H, I2) * ψ
+    return kron(I2, I2, H) * CX(0, 1) * ψ
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "mt-apply-cz"
+title = "CZ in place"
+difficulty = "warm-up"
+kcs = ["teleportation"]
+entry = "apply_cz!"
+packages = []
+prompt = '''
+Write `apply_cz!(ψ, a, b)` that applies the controlled-Z gate on qubits `a`
+and `b` (`a ≠ b`) to `ψ` in place and returns `ψ`: every amplitude whose
+outcome has **both** bit `a` and bit `b` set is multiplied by `-1`, and the
+rest are unchanged. It is the gate that replaces Bob's `Z^m0` in the
+deferred circuit.
+
+```julia
+apply_cz!(ComplexF64[1, 1, 1, 1] / 2, 0, 1)     # [1, 1, 1, -1] / 2
+```
+
+Negating a number is exact, so results are compared with `isequal`.
+Speed and allocations are graded against the reference, which allocates
+nothing.
+'''
+starter = '''
+function apply_cz!(ψ, a, b)
+    # your code here
+end
+'''
+reference = '''
+function apply_cz!(ψ, a, b)
+    m = (1 << a) | (1 << b)                          # both bits
+    for k in 0:length(ψ)-1
+        if k & m == m
+            ψ[k + 1] = -ψ[k + 1]
+        end
+    end
+    return ψ
+end
+'''
+cases = [
+  "ComplexF64[1, 1, 1, 1] / 2, 0, 1",
+  "ComplexF64[1, 1, 1, 1] / 2, 1, 0",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 0, 2",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 2, 1",
+]
+gen = "rng -> [(n = rand(rng, 2:7); ab = randperm(rng, n) .- 1; (randn(rng, ComplexF64, 2^n), ab[1], ab[2])) for _ in 1:25]"
+compare = "isequal"
+check_type = true
+hints = [
+  "Which outcomes does the gate change? Only those where two particular bits are both 1.",
+  "Make a mask with both bits, `(1 << a) | (1 << b)`, and negate `ψ[k + 1]` where `k & mask == mask`.",
+]
+
+  [problem.perf]
+  args = "randn(rng, ComplexF64, n), 3, 9"
+  sizes = [65536]
+  mutates = true
+
+  [[problem.variant]]
+  label = "negates where either bit is set"
+  code = '''
+function apply_cz!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if k & ((1 << a) | (1 << b)) != 0
+            ψ[k + 1] = -ψ[k + 1]
+        end
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Z on qubit b alone (forgets the control)"
+  code = '''
+function apply_cz!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        k & (1 << b) != 0 && (ψ[k + 1] = -ψ[k + 1])
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "two bit tests joined by && (b tested first): correct, since CZ is symmetric, but slower than one mask compare"
+  code = '''
+function apply_cz!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if k & (1 << b) != 0 && k & (1 << a) != 0
+            ψ[k + 1] = -ψ[k + 1]
+        end
+    end
+    return ψ
+end
+'''
+  expect = ["correct", "slow"]
+
+  [[problem.variant]]
+  label = "a ±1 sign vector, broadcast"
+  code = '''
+function apply_cz!(ψ, a, b)
+    ψ .*= [((k >> a) & (k >> b) & 1) == 1 ? -1 : 1 for k in 0:length(ψ)-1]
+    return ψ
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[reference]]
+id = "bennett-1993"
+authors = "Bennett, C. H.; Brassard, G.; Crépeau, C.; Jozsa, R.; Peres, A.; Wootters, W. K."
+title = "Teleporting an unknown quantum state via dual classical and Einstein-Podolsky-Rosen channels"
+venue = "Physical Review Letters 70, 1895-1899"
+year = 1993
+url = "https://doi.org/10.1103/PhysRevLett.70.1895"
+note = "The teleportation protocol: a shared entangled pair, a joint measurement by the sender, two classical bits, and one of four unitary corrections by the receiver, the protocol of this unit's sections 3 to 5."
+
+[[reference]]
+id = "nielsen-chuang-2010"
+authors = "Nielsen, M. A.; Chuang, I. L."
+title = "Quantum Computation and Quantum Information"
+venue = "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)"
+year = 2012
+url = "https://doi.org/10.1017/CBO9780511976667"
+note = "The textbook teleportation circuit with its corrections `X^M2` and `Z^M1` (this unit's section 3), and the principle of deferred measurement (section 6)."
