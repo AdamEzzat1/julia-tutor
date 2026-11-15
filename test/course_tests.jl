@@ -718,6 +718,30 @@ raw_perf(; sub = (1e3, 16e3), ref = (1e3, 16e3), bytes = (0, 0), locals = Any[],
                    occursin("`acc` in `total` starts as one number type", f["detail"]), r["feedback"])
 end
 
+@testset "verify margin for timed verdicts (perf_near_miss)" begin
+    nm = Practice.perf_near_miss
+    m = Practice.VERIFY_MARGIN
+    perf(r; gs = 1.0, gr = 1.0) = Dict{String,Any}("ratio" => r, "growth_sub" => gs, "growth_ref" => gr)
+    # fast: thresholds come from the grader's own constants, not restated numbers.
+    @test nm("fast", perf(Practice.PAR * 1.1)) isa String              # just past PAR: accepted, with a note
+    @test occursin("measured", nm("fast", perf(Practice.PAR * 1.1)))
+    @test nm("fast", perf(Practice.PAR * m * 1.01)) === nothing         # past the margin: a real miss
+    @test nm("fast", perf(10.0)) === nothing                            # a reference 10x slower than itself
+    # slow: accepted only while clearly slower; a variant as fast as the reference is a miss.
+    @test nm("slow", perf(Practice.SLOWER * 0.8)) isa String
+    @test nm("slow", perf(Practice.SLOWER / m * 0.99)) === nothing
+    @test nm("slow", perf(1.0)) === nothing
+    # scaling needs both the growth gap and the ratio within the margin.
+    @test nm("scaling", perf(1.8; gs = 1.9, gr = 1.0 + Practice.GROWTH_GAP)) isa String
+    @test nm("scaling", perf(1.8; gs = 1.0, gr = 1.0)) === nothing     # same growth
+    @test nm("scaling", perf(1.0; gs = 2.0, gr = 1.0)) === nothing     # grows worse but no slower
+    # counted verdicts and missing measurements are never excused
+    @test nm("allocates", perf(1.0)) === nothing
+    @test nm("unstable", perf(1.0)) === nothing
+    @test nm("fast", nothing) === nothing
+    @test nm("fast", Dict{String,Any}("overall" => "needs-work", "timed_out" => true)) === nothing
+end
+
 @testset "performance ladder (on synthetic measurements)" begin
     states(l) = [x["state"] for x in l["rungs"]]
     lad(raw; p = P, kw...) = Practice.ladder(p, Practice.assess(p, raw; kw...))
