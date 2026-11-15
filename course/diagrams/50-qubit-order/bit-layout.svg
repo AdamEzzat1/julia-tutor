@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 330" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Which character is which qubit</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker></defs>
+<rect width="640" height="330" fill="#ffffff"/>
+<text x="20" y="28" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">Outcome k = 6 on three qubits, little-endian (Qiskit and this course)</text>
+<rect x="110" y="60" width="80" height="70" rx="6" fill="#7b4bb8" fill-opacity="0.12" stroke="#7b4bb8" stroke-width="1.5"/>
+<text x="150" y="108" font-size="32" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700">1</text>
+<text x="150" y="152" font-size="14" fill="#7b4bb8" text-anchor="middle" font-weight="600">qubit 2</text>
+<text x="150" y="176" font-size="13" fill="#776f82" text-anchor="middle" >bit 2, weight 2^2 = 4</text>
+<rect x="230" y="60" width="80" height="70" rx="6" fill="#7b4bb8" fill-opacity="0.12" stroke="#7b4bb8" stroke-width="1.5"/>
+<text x="270" y="108" font-size="32" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700">1</text>
+<text x="270" y="152" font-size="14" fill="#7b4bb8" text-anchor="middle" font-weight="600">qubit 1</text>
+<text x="270" y="176" font-size="13" fill="#776f82" text-anchor="middle" >bit 1, weight 2^1 = 2</text>
+<rect x="350" y="60" width="80" height="70" rx="6" fill="#7b4bb8" fill-opacity="0.12" stroke="#7b4bb8" stroke-width="1.5"/>
+<text x="390" y="108" font-size="32" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700">0</text>
+<text x="390" y="152" font-size="14" fill="#7b4bb8" text-anchor="middle" font-weight="600">qubit 0</text>
+<text x="390" y="176" font-size="13" fill="#776f82" text-anchor="middle" >bit 0, weight 2^0 = 1</text>
+<text x="20" y="108" font-size="13" fill="#776f82" text-anchor="start" >bitstring</text>
+<text x="20" y="222" font-size="15" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">k = 1·4 + 1·2 + 0·1 = 6</text>
+<text x="20" y="252" font-size="15" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">amplitude stored at ψ[k + 1] = ψ[7]</text>
+<line x1="390" y1="200" x2="390" y2="140" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="400" y="222" font-size="13" fill="#776f82" text-anchor="start" >qubit 0 is the rightmost character</text>
+<text x="400" y="240" font-size="13" fill="#776f82" text-anchor="start" >and the least significant bit</text>
+<text x="20" y="300" font-size="13" fill="#776f82" text-anchor="start" >Operator order follows the bits: kron(op₂, op₁, op₀), qubit 0's factor last.</text>
+</svg>

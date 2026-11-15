@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 300" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Strided pairs for a gate on qubit 1</title>
+<rect width="700" height="300" fill="#ffffff"/>
+<text x="20.0" y="28.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">A gate on qubit 1 of 3: four independent pairs, each 2 apart</text>
+<rect x="40" y="168" width="60" height="44" rx="6" fill="#7b4bb8" fill-opacity="0.08" stroke="#776f82"/>
+<text x="70.0" y="196.0" font-size="16" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"><tspan fill="#2b2733">0</tspan><tspan fill="#7b4bb8" font-weight="700">0</tspan><tspan fill="#2b2733">0</tspan></text>
+<text x="70.0" y="234.0" font-size="12" fill="#776f82" text-anchor="middle" >k = 0</text>
+<text x="70.0" y="252.0" font-size="12" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[1]</text>
+<rect x="120" y="168" width="60" height="44" rx="6" fill="#7b4bb8" fill-opacity="0.08" stroke="#776f82"/>
+<text x="150.0" y="196.0" font-size="16" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"><tspan fill="#2b2733">0</tspan><tspan fill="#7b4bb8" font-weight="700">0</tspan><tspan fill="#2b2733">1</tspan></text>
+<text x="150.0" y="234.0" font-size="12" fill="#776f82" text-anchor="middle" >k = 1</text>
+<text x="150.0" y="252.0" font-size="12" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[2]</text>
+<rect x="200" y="168" width="60" height="44" rx="6" fill="#7b4bb8" fill-opacity="0.08" stroke="#776f82"/>
+<text x="230.0" y="196.0" font-size="16" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"><tspan fill="#2b2733">0</tspan><tspan fill="#7b4bb8" font-weight="700">1</tspan><tspan fill="#2b2733">0</tspan></text>
+<text x="230.0" y="234.0" font-size="12" fill="#776f82" text-anchor="middle" >k = 2</text>
+<text x="230.0" y="252.0" font-size="12" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[3]</text>
+<rect x="280" y="168" width="60" height="44" rx="6" fill="#7b4bb8" fill-opacity="0.08" stroke="#776f82"/>
+<text x="310.0" y="196.0" font-size="16" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"><tspan fill="#2b2733">0</tspan><tspan fill="#7b4bb8" font-weight="700">1</tspan><tspan fill="#2b2733">1</tspan></text>
+<text x="310.0" y="234.0" font-size="12" fill="#776f82" text-anchor="middle" >k = 3</text>
+<text x="310.0" y="252.0" font-size="12" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[4]</text>
+<rect x="360" y="168" width="60" height="44" rx="6" fill="#7b4bb8" fill-opacity="0.08" stroke="#776f82"/>
+<text x="390.0" y="196.0" font-size="16" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"><tspan fill="#2b2733">1</tspan><tspan fill="#7b4bb8" font-weight="700">0</tspan><tspan fill="#2b2733">0</tspan></text>
+<text x="390.0" y="234.0" font-size="12" fill="#776f82" text-anchor="middle" >k = 4</text>
+<text x="390.0" y="252.0" font-size="12" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[5]</text>
+<rect x="440" y="168" width="60" height="44" rx="6" fill="#7b4bb8" fill-opacity="0.08" stroke="#776f82"/>
+<text x="470.0" y="196.0" font-size="16" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"><tspan fill="#2b2733">1</tspan><tspan fill="#7b4bb8" font-weight="700">0</tspan><tspan fill="#2b2733">1</tspan></text>
+<text x="470.0" y="234.0" font-size="12" fill="#776f82" text-anchor="middle" >k = 5</text>
+<text x="470.0" y="252.0" font-size="12" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[6]</text>
+<rect x="520" y="168" width="60" height="44" rx="6" fill="#7b4bb8" fill-opacity="0.08" stroke="#776f82"/>
+<text x="550.0" y="196.0" font-size="16" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"><tspan fill="#2b2733">1</tspan><tspan fill="#7b4bb8" font-weight="700">1</tspan><tspan fill="#2b2733">0</tspan></text>
+<text x="550.0" y="234.0" font-size="12" fill="#776f82" text-anchor="middle" >k = 6</text>
+<text x="550.0" y="252.0" font-size="12" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[7]</text>
+<rect x="600" y="168" width="60" height="44" rx="6" fill="#7b4bb8" fill-opacity="0.08" stroke="#776f82"/>
+<text x="630.0" y="196.0" font-size="16" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"><tspan fill="#2b2733">1</tspan><tspan fill="#7b4bb8" font-weight="700">1</tspan><tspan fill="#2b2733">1</tspan></text>
+<text x="630.0" y="234.0" font-size="12" fill="#776f82" text-anchor="middle" >k = 7</text>
+<text x="630.0" y="252.0" font-size="12" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[8]</text>
+<path d="M70,168 C70,98 230,98 230,168" fill="none" stroke="#7b4bb8" stroke-width="2"/>
+<text x="150.0" y="114.0" font-size="12" fill="#7b4bb8" text-anchor="middle" >(0, 2)</text>
+<path d="M150,168 C150,118 310,118 310,168" fill="none" stroke="#7b4bb8" stroke-width="2"/>
+<text x="230.0" y="134.0" font-size="12" fill="#7b4bb8" text-anchor="middle" >(1, 3)</text>
+<path d="M390,168 C390,98 550,98 550,168" fill="none" stroke="#7b4bb8" stroke-width="2"/>
+<text x="470.0" y="114.0" font-size="12" fill="#7b4bb8" text-anchor="middle" >(4, 6)</text>
+<path d="M470,168 C470,118 630,118 630,168" fill="none" stroke="#7b4bb8" stroke-width="2"/>
+<text x="550.0" y="134.0" font-size="12" fill="#7b4bb8" text-anchor="middle" >(5, 7)</text>
+<text x="20.0" y="286.0" font-size="12" fill="#776f82" text-anchor="start" >The middle bit (qubit 1, purple) is 0 on the left of each pair and 1 on the right; the other bits match. Each pair is multiplied by U.</text>
+</svg>

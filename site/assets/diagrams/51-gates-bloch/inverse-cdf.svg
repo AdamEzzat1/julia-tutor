@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 230" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Inverse-CDF sampling</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker><marker id="arrowp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7b4bb8"/></marker></defs>
+<rect width="680" height="230" fill="#ffffff"/>
+<text x="20.0" y="28.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">Inverse-CDF sampling: each outcome owns a piece of [0, 1)</text>
+<rect x="40.0" y="90" width="60.0" height="40" fill="#3657c8" fill-opacity="0.15" stroke="#2b2733" stroke-width="1"/>
+<text x="70.0" y="115.0" font-size="14" fill="#2b2733" text-anchor="middle" font-weight="600">k = 0</text>
+<text x="70.0" y="150.0" font-size="13" fill="#776f82" text-anchor="middle" >p = 0.1</text>
+<text x="40.0" y="82.0" font-size="12" fill="#776f82" text-anchor="middle" >0</text>
+<rect x="100.0" y="90" width="240.0" height="40" fill="#776f82" fill-opacity="0.15" stroke="#2b2733" stroke-width="1"/>
+<text x="220.0" y="115.0" font-size="14" fill="#2b2733" text-anchor="middle" font-weight="600">k = 1</text>
+<text x="220.0" y="150.0" font-size="13" fill="#776f82" text-anchor="middle" >p = 0.4</text>
+<text x="100.0" y="82.0" font-size="12" fill="#776f82" text-anchor="middle" >0.1</text>
+<rect x="340.0" y="90" width="120.0" height="40" fill="#7b4bb8" fill-opacity="0.35" stroke="#2b2733" stroke-width="1"/>
+<text x="400.0" y="115.0" font-size="14" fill="#2b2733" text-anchor="middle" font-weight="600">k = 2</text>
+<text x="400.0" y="150.0" font-size="13" fill="#776f82" text-anchor="middle" >p = 0.2</text>
+<text x="340.0" y="82.0" font-size="12" fill="#776f82" text-anchor="middle" >0.5</text>
+<rect x="460.0" y="90" width="180.0" height="40" fill="#776f82" fill-opacity="0.15" stroke="#2b2733" stroke-width="1"/>
+<text x="550.0" y="115.0" font-size="14" fill="#2b2733" text-anchor="middle" font-weight="600">k = 3</text>
+<text x="550.0" y="150.0" font-size="13" fill="#776f82" text-anchor="middle" >p = 0.3</text>
+<text x="460.0" y="82.0" font-size="12" fill="#776f82" text-anchor="middle" >0.7</text>
+<text x="640.0" y="82.0" font-size="12" fill="#776f82" text-anchor="middle" >1</text>
+<line x1="412.0" y1="60" x2="412.0" y2="134" stroke="#2e7d4f" stroke-width="2.5"/>
+<text x="412.0" y="54.0" font-size="13" fill="#2e7d4f" text-anchor="middle" font-weight="600">u = 0.62</text>
+<text x="20.0" y="196.0" font-size="13" fill="#2b2733" text-anchor="start" >Cumulative sums 0.1, 0.5, 0.7, 1.0: the first one above u = 0.62 is 0.7, so the outcome is k = 2.</text>
+<text x="20.0" y="216.0" font-size="12" fill="#776f82" text-anchor="start" >A uniform u lands in a piece with probability equal to the piece's length: the Born probability.</text>
+</svg>

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 470" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>The Bloch sphere</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker><marker id="arrowp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7b4bb8"/></marker></defs>
+<rect width="620" height="470" fill="#ffffff"/>
+<text x="20.0" y="28.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">The Bloch sphere: one qubit's state as a point</text>
+<circle cx="300" cy="245" r="160" fill="#3657c8" fill-opacity="0.05" stroke="#776f82" stroke-width="1.5"/>
+<ellipse cx="300" cy="245" rx="160" ry="51.2" fill="none" stroke="#776f82" stroke-dasharray="5 4"/>
+<line x1="300" y1="245" x2="300.0" y2="85.0" stroke="#776f82" stroke-width="1.2" marker-end="url(#arrow)"/>
+<circle cx="300.0" cy="85.0" r="4" fill="#2b2733"/>
+<text x="300.0" y="75.0" font-size="14" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">|0⟩  (+z)</text>
+<line x1="300" y1="245" x2="300.0" y2="405.0" stroke="#776f82" stroke-width="1.2" marker-end="url(#arrow)"/>
+<circle cx="300.0" cy="405.0" r="4" fill="#2b2733"/>
+<text x="300.0" y="429.0" font-size="14" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">|1⟩  (−z)</text>
+<line x1="300" y1="245" x2="228.0" y2="291.1" stroke="#776f82" stroke-width="1.2" marker-end="url(#arrow)"/>
+<circle cx="228.0" cy="291.1" r="4" fill="#2b2733"/>
+<text x="220.0" y="309.1" font-size="14" fill="#2b2733" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">|+⟩  (+x)</text>
+<line x1="300" y1="245" x2="372.0" y2="198.9" stroke="#776f82" stroke-width="1.2" marker-end="url(#arrow)"/>
+<circle cx="372.0" cy="198.9" r="4" fill="#2b2733"/>
+<text x="380.0" y="190.9" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">|−⟩  (−x)</text>
+<line x1="300" y1="245" x2="460.0" y2="245.0" stroke="#776f82" stroke-width="1.2" marker-end="url(#arrow)"/>
+<circle cx="460.0" cy="245.0" r="4" fill="#2b2733"/>
+<text x="470.0" y="250.0" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">|+i⟩  (+y)</text>
+<line x1="300" y1="245" x2="140.0" y2="245.0" stroke="#776f82" stroke-width="1.2" marker-end="url(#arrow)"/>
+<circle cx="140.0" cy="245.0" r="4" fill="#2b2733"/>
+<text x="130.0" y="250.0" font-size="14" fill="#2b2733" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">|−i⟩  (−y)</text>
+<line x1="300" y1="245" x2="378.6" y2="159.8" stroke="#7b4bb8" stroke-width="2.5" marker-end="url(#arrowp)"/>
+<text x="386.6" y="153.8" font-size="16" fill="#7b4bb8" text-anchor="start" font-weight="700">r</text>
+<line x1="378.6" y1="159.8" x2="378.6" y2="262.6" stroke="#7b4bb8" stroke-dasharray="3 3"/>
+<line x1="300" y1="245" x2="378.6" y2="262.6" stroke="#7b4bb8" stroke-dasharray="3 3"/>
+<text x="314.0" y="187.0" font-size="15" fill="#7b4bb8" text-anchor="start" font-weight="600">θ</text>
+<text x="308.0" y="271.0" font-size="15" fill="#7b4bb8" text-anchor="start" font-weight="600">φ</text>
+<text x="20.0" y="440.0" font-size="13" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">|ψ⟩ = cos(θ/2)|0⟩ + e^{iφ} sin(θ/2)|1⟩   ↔   r = (sin θ cos φ, sin θ sin φ, cos θ)</text>
+<text x="20.0" y="460.0" font-size="12" fill="#776f82" text-anchor="start" >Opposite points are orthogonal states. Schematic projection; the axes are not to scale.</text>
+</svg>

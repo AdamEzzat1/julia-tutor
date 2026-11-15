@@ -12,22 +12,491 @@
         "born-rule"
       ],
       "lessons": [],
-      "outline": [
-        "The question: how much memory does a 30-qubit state need, and why?",
-        "Amplitudes, normalisation and the Born rule: probabilities are squared magnitudes",
-        "zero_state and basis_state as plain Vector{ComplexF64}, and why no wrapper struct",
-        "Julia is 1-based: the amplitude of |k> lives at psi[k+1]",
-        "Check: every state you build has norm 1 to a stated tolerance"
-      ],
+      "outline": [],
       "prerequisites": [
         "06-collections",
         "20-stdlib-tour"
       ],
-      "problems": [],
-      "references": [],
-      "sections": [],
-      "status": "planned",
-      "summary": "A qubit state is a vector of complex amplitudes; n qubits need 2^n of them. Build the zero state and basis states, and read probabilities with the Born rule.",
+      "problems": [
+        {
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "warm-up",
+          "entry": "basis_state",
+          "hints": [
+            "Outcomes are numbered from 0 and Julia's indices from 1. Where does the amplitude of outcome `k` go?",
+            "`zeros(ComplexF64, 2^n)` makes the vector; set index `k + 1`. Check the range first with `0 <= k < 2^n`."
+          ],
+          "id": "qs-basis-state",
+          "kcs": [
+            "state-vector"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              1
+            ]
+          },
+          "prompt": "Write `basis_state(n, k)` that returns the basis state `|k⟩` of `n` qubits\nas a `Vector{ComplexF64}` of length `2^n`: amplitude 1 on outcome `k`, zero\neverywhere else. Outcomes run from `0` to `2^n - 1`; for any other `k`,\nthrow an `ArgumentError`.\n\n```julia\nbasis_state(1, 1)          # ComplexF64[0, 1]\nbasis_state(3, 5)          # a 1 at index 6, zeros elsewhere\nbasis_state(2, 4)          # throws ArgumentError: 2 qubits have outcomes 0..3\n```\n\nResults are compared exactly (`isequal`) and must have the type\n`Vector{ComplexF64}`.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "basis_state(1, 0)",
+              "result": "2-element Vector{ComplexF64}:\n 1.0 + 0.0im\n 0.0 + 0.0im"
+            },
+            {
+              "call": "basis_state(1, 1)",
+              "result": "2-element Vector{ComplexF64}:\n 0.0 + 0.0im\n 1.0 + 0.0im"
+            },
+            {
+              "call": "basis_state(3, 5)",
+              "result": "8-element Vector{ComplexF64}:\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 1.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im"
+            },
+            {
+              "call": "basis_state(4, 15)",
+              "result": "16-element Vector{ComplexF64}:\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 1.0 + 0.0im"
+            },
+            {
+              "call": "basis_state(2, 4)",
+              "result": "throws ArgumentError"
+            },
+            {
+              "call": "basis_state(3, -1)",
+              "result": "throws ArgumentError"
+            }
+          ],
+          "starter": "function basis_state(n, k)\n    # your code here\nend\n",
+          "title": "The basis state |k⟩"
+        },
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "most_likely",
+          "hints": [
+            "The probability of an outcome is `abs2` of its amplitude. Which index holds outcome `k`?",
+            "`argmax` returns an index, not an outcome; or keep a running best in a loop over `eachindex(ψ)`, remembering that index `i` is outcome `i - 1`."
+          ],
+          "id": "qs-most-likely",
+          "kcs": [
+            "state-vector",
+            "born-rule"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              65536
+            ]
+          },
+          "prompt": "Write `most_likely(ψ)` that returns a tuple `(k, p)`: the outcome `k` (an\n`Int`, numbered from 0 like `|k⟩`) that a measurement of the state `ψ` gives\nwith the highest probability, and that probability `p` (a `Float64`). If\nseveral outcomes tie, return the smallest `k`.\n\n```julia\nmost_likely(ComplexF64[0.6, 0, 0, 0.8im])    # (3, 0.6400000000000001)\nmost_likely(ComplexF64[1, 0])                # (0, 1.0)\n```\n\nResults are compared with `rtol = 1e-12` (the probability is one `abs2`,\nexact to a rounding or two; the outcome must match exactly). Speed and\nallocations are graded against the reference, which reads the vector once\nand allocates nothing.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "most_likely(ComplexF64[0.6, 0, 0, 0.8im])",
+              "result": "(3, 0.6400000000000001)"
+            },
+            {
+              "call": "most_likely(ComplexF64[1, 0])",
+              "result": "(0, 1.0)"
+            },
+            {
+              "call": "most_likely(ComplexF64[0, 1])",
+              "result": "(1, 1.0)"
+            },
+            {
+              "call": "most_likely(ComplexF64[0.5, 0.5, 0.5im, -0.5])",
+              "result": "(0, 0.25)"
+            },
+            {
+              "call": "most_likely(ComplexF64[0, 0.6, 0, 0, 0, 0, 0.8, 0])",
+              "result": "(6, 0.6400000000000001)"
+            }
+          ],
+          "starter": "function most_likely(ψ)\n    # your code here\nend\n",
+          "title": "The most likely outcome"
+        },
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "outcome_probability",
+          "hints": [
+            "Outcomes that cannot happen together have probabilities that add. What is the probability of one outcome `k`, and where is its amplitude?",
+            "Loop over `ks` and add `abs2(ψ[k + 1])`, starting from `0.0` so the empty case is a `Float64`."
+          ],
+          "id": "qs-outcome-probability",
+          "kcs": [
+            "born-rule"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              65536
+            ]
+          },
+          "prompt": "Write `outcome_probability(ψ, ks)` that returns the probability (a\n`Float64`) that measuring the state `ψ` gives one of the outcomes in the\nvector `ks`. Outcomes are numbered from 0 and the entries of `ks` are\ndistinct; an empty `ks` has probability `0.0`.\n\n```julia\nψ = ComplexF64[0.6, 0, 0, 0.8im]\noutcome_probability(ψ, [3])        # 0.6400000000000001\noutcome_probability(ψ, [0, 3])     # 1.0\noutcome_probability(ψ, Int[])      # 0.0\n```\n\nResults are compared with `rtol = 1e-10`. Derivation: the sums have at\nmost `2^16` terms, and two summation orders of `m` nonnegative terms differ\nby at most about `2 m u ≈ 7e-12` relative (section \"Check: every state you\nbuild has norm 1\"); `1e-10` leaves a factor of more than 10. Speed and\nallocations are graded against the reference.",
+          "random_cases": true,
+          "rtol": 1.0e-10,
+          "samples": [
+            {
+              "call": "outcome_probability(ComplexF64[0.6, 0, 0, 0.8im], [3])",
+              "result": "0.6400000000000001"
+            },
+            {
+              "call": "outcome_probability(ComplexF64[0.6, 0, 0, 0.8im], [0, 3])",
+              "result": "1.0"
+            },
+            {
+              "call": "outcome_probability(ComplexF64[0.6, 0, 0, 0.8im], Int[])",
+              "result": "0.0"
+            },
+            {
+              "call": "outcome_probability(ComplexF64[0.5, 0.5, 0.5im, -0.5], [1, 2])",
+              "result": "0.5"
+            },
+            {
+              "call": "outcome_probability(ComplexF64[0, 0.6, 0, 0, 0, 0, 0.8, 0], [0, 1, 7])",
+              "result": "0.36"
+            }
+          ],
+          "starter": "function outcome_probability(ψ, ks)\n    # your code here\nend\n",
+          "title": "The probability of a set of outcomes"
+        }
+      ],
+      "references": [
+        {
+          "authors": "Feynman, R. P.",
+          "id": "feynman-1982",
+          "note": "Argues that simulating a quantum system on a classical computer takes resources that grow exponentially with its size, and proposes computers made of quantum systems: the doubling per qubit of section 2.",
+          "title": "Simulating physics with computers",
+          "url": "https://doi.org/10.1007/BF02650179",
+          "venue": "International Journal of Theoretical Physics 21, 467-488",
+          "year": 1982
+        },
+        {
+          "authors": "Häner, T.; Steiger, D. S.",
+          "id": "haner-steiger-2017",
+          "note": "A state-vector simulation of 45 qubits on a supercomputer, with half a petabyte of memory for the 2^45 amplitudes: the practical limit quoted in section 2 (16 · 2^45 bytes = 512 TiB). An arXiv copy is at https://arxiv.org/abs/1704.01127.",
+          "title": "0.5 petabyte simulation of a 45-qubit quantum circuit",
+          "url": "https://doi.org/10.1145/3126908.3126947",
+          "venue": "Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis (SC17), 1-10",
+          "year": 2017
+        },
+        {
+          "authors": "Born, M.",
+          "id": "born-1926",
+          "note": "The paper on collisions in which Born first read the squared magnitude of a quantum amplitude as a probability: the Born rule of section 3. In German.",
+          "title": "Zur Quantenmechanik der Stoßvorgänge",
+          "url": "https://doi.org/10.1007/BF01397477",
+          "venue": "Zeitschrift für Physik 37, 863-867",
+          "year": 1926
+        },
+        {
+          "authors": "Nielsen, M. A.; Chuang, I. L.",
+          "id": "nielsen-chuang-2010",
+          "note": "The standard textbook: qubits, kets and amplitudes, the measurement postulate and normalisation (chapters 1 and 2), as used in sections 3 and 4.",
+          "title": "Quantum Computation and Quantum Information",
+          "url": "https://doi.org/10.1017/CBO9780511976667",
+          "venue": "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)",
+          "year": 2012
+        },
+        {
+          "authors": "Higham, N. J.",
+          "id": "higham-2002",
+          "note": "The rounding-error bound for sums and inner products used in section 6: a computed sum of `m` terms has relative error at most `γ_m = m u / (1 - m u)` for nonnegative terms, in any summation order (chapters 3 and 4).",
+          "title": "Accuracy and Stability of Numerical Algorithms",
+          "url": "https://doi.org/10.1137/1.9780898718027",
+          "venue": "SIAM, second edition",
+          "year": 2002
+        }
+      ],
+      "sections": [
+        {
+          "analogies": [],
+          "body": "This course builds a quantum simulator out of Julia's standard library, so\nit needs no physics beyond what each unit explains, and no package beyond\n`LinearAlgebra` and `Random`. It relies on four things from Core Julia:\n\n* **Vectors and 1-based indexing**: `v[1]` is the first element, and\n  `zeros(T, n)` makes `n` zeros of type `T` (unit 6, \"Collections\").\n* **`LinearAlgebra`**: `norm(v)`, `dot(u, v)` and `'` for the conjugate\n  transpose (unit 20, \"A tour of the standard library\").\n* **Complex numbers**, built into Julia: `im` is the imaginary unit, so\n  `0.6 + 0.8im` is a `ComplexF64`. `abs2(z)` is `|z|²` (cheaper than\n  `abs(z)^2`, no square root), `conj(z)` flips the sign of the imaginary\n  part, and `cis(θ)` is `e^{iθ} = cos θ + i sin θ`.\n* **Floating point is not exact**: compare computed numbers with a tolerance,\n  never with `==` (Core Julia's numbers unit, and invariant 9 of this\n  repository).\n\nA word you will meet in every unit: an **amplitude** is one complex number\nof a quantum state, one per possible measurement outcome.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "The complex-number operations this course uses most.",
+              "check": true,
+              "code": "z = 0.6 + 0.8im\nprintln(typeof(z))\nprintln(abs2(z), \"   \", 0.8^2)\nprintln(conj(z))\nprintln(cis(pi / 2))           # e^{iπ/2} = i, up to rounding in cos(π/2)",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that `abs2` of `0.6 + 0.8im` is `1.0` here, but `0.8^2` alone is `0.6400000000000001`: each operation rounds, and whether the rounding errors cancel depends on the numbers.",
+              "ok": true,
+              "output": "ComplexF64\n1.0   0.6400000000000001\n0.6 - 0.8im\n6.123233995736766e-17 + 1.0im\n"
+            }
+          ],
+          "questions": [],
+          "refs": [],
+          "title": "What you need from earlier units"
+        },
+        {
+          "analogies": [
+            {
+              "breaks": "The pages are not settings the panel secretly holds, with the measurement\njust reading one off. The numbers are complex and can cancel each other (the\nnext units use exactly that), and a measurement returns one setting, `n`\nbits, not the book. The `2^n` numbers are the cost of *simulating* the\nqubits, not information that could be read out of them.",
+              "text": "Picture a panel of `n` light switches. Writing down which switches are on\ntakes `n` marks: that is a classical register. Now picture a book with one\npage for every possible setting of the panel, `2^n` pages, each holding a\nnumber. A quantum state of `n` qubits is that book, and a simulator must\nstore every page. Adding one switch doubles the book.",
+              "title": "A light-switch panel and its book of settings"
+            }
+          ],
+          "body": "A classical register of `n` bits holds one of its `2^n` possible values at a\ntime, and `n` bits store it. A register of `n` **qubits** (quantum bits) is\ndescribed by one complex amplitude for *every* one of the `2^n` values at\nonce. Simulating it on a classical computer means storing all of them.\n\nJulia's `ComplexF64` is two `Float64`s, 16 bytes, so a state of `n` qubits\nneeds `16 · 2^n` bytes. Each added qubit doubles the memory. That doubling is\nwhy Feynman argued in 1982 that simulating quantum systems on classical\ncomputers costs resources exponential in their size, and why he proposed\ncomputers built from quantum systems instead. It is also the practical limit\nof the simulator you build in this course: state-vector simulation of 45\nqubits needed half a pebibyte of memory spread over a supercomputer.\n\nThe rest of this unit is about what those `2^n` numbers mean and how to\nstore them in Julia.",
+          "diagrams": [
+            {
+              "alt": "A bar chart on a logarithmic scale of the memory a state vector of ComplexF64 amplitudes needs: 16 KiB at 10 qubits, 16 MiB at 20, 16 GiB at 30, 16 TiB at 40 and 512 TiB at 45: ten doublings from each bar to the next, five for the last step.",
+              "caption": "Every 10 qubits multiply the memory by 2^10 = 1024; the values are 16 · 2^n bytes, the same as the example prints.",
+              "src": "assets/diagrams/49-quantum-states/state-memory.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "The memory of an `n`-qubit state vector, `16 · 2^n` bytes, printed with Julia's own byte formatter. `big(2)^n` avoids `Int` overflow, which `2^n` would hit at `n = 63`.",
+              "check": true,
+              "code": "for n in (1, 10, 20, 30, 40, 45)\n    println(\"n = \", lpad(n, 2), \": \", Base.format_bytes(16 * big(2)^n))\nend\nprintln(\"measured: sizeof(zeros(ComplexF64, 2^20)) == 16 * 2^20: \", sizeof(zeros(ComplexF64, 2^20)) == 16 * 2^20)",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "n =  1: 32 bytes\nn = 10: 16.000 KiB\nn = 20: 16.000 MiB\nn = 30: 16.000 GiB\nn = 40: 16.000 TiB\nn = 45: 512.000 TiB\nmeasured: sizeof(zeros(ComplexF64, 2^20)) == 16 * 2^20: true\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "About 480 bytes",
+                  "About 16 GiB",
+                  "About 1 GiB",
+                  "About 16 TiB"
+                ],
+                "explain": "Thirty qubits have `2^30` basis states, about a billion, and each needs its own 16-byte amplitude: `16 · 2^30` bytes = 16 GiB. `30 × 16` bytes would describe 30 separate numbers, which is how classical bits are stored, not qubits. 16 TiB is 40 qubits: ten more doublings.",
+                "kc": "state-vector",
+                "measured": "16.000 GiB",
+                "prompt": "Each amplitude is a `ComplexF64` of 16 bytes. Before the output is shown: how much memory does a state vector of **30** qubits take?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "16.5 GiB: one more amplitude of 16 bytes for the new qubit",
+                "32 GiB: the number of amplitudes doubles",
+                "16 GiB: the new qubit starts in |0⟩, which costs nothing"
+              ],
+              "code": "",
+              "explain": "The state of 31 qubits has `2^31` amplitudes, one per basis state, twice as many as 30 qubits have. A qubit's value is not stored in one place: every amplitude belongs to a setting of *all* the qubits.",
+              "kind": "choice",
+              "misconceptions": [
+                "That is how classical bits add up (one more bit, one more slot). For qubits, each of the `2^30` existing basis states splits into two, so the count doubles.",
+                "",
+                "Even a qubit in `|0⟩` doubles the vector: the amplitudes with that qubit set to 1 are zero, but a state-vector simulator stores them anyway, because later gates can make them nonzero."
+              ],
+              "prompt": "A simulator holds a 30-qubit state in 16 GiB. How much does it need after one more qubit is added?"
+            }
+          ],
+          "refs": [
+            "feynman-1982",
+            "haner-steiger-2017"
+          ],
+          "title": "The question: how much memory does a 30-qubit state need?"
+        },
+        {
+          "analogies": [
+            {
+              "breaks": "A die has a face up before anyone looks, and the throw only reveals it. A\nquantum state has no outcome until it is measured; the amplitudes are not\nhidden probabilities of a hidden answer. And die weights cannot cancel,\nwhile amplitudes are complex numbers that do: two paths to the same outcome\nwith amplitudes `+0.5` and `-0.5` give probability 0, not 0.5 (unit 51 and\nthe interference units after it). The die only describes one measurement of\na state that is not changed further.",
+              "text": "A measurement behaves like rolling a loaded die with one face per outcome\n`k`. The amplitudes do not give the weights directly: the weight of face `k`\nis `|ψ_k|²`, the squared magnitude, which is why `0.6` and `0.8` make a fair\npair of weights `0.36` and `0.64`, and normalisation is the rule that the\nweights of a die add up to 1.",
+              "title": "A loaded die whose weights are squares"
+            }
+          ],
+          "body": "Write the `2^n` possible outcomes of measuring all `n` qubits as integers\n`k = 0, 1, …, 2^n - 1`, and the state as `|ψ⟩ = Σ_k ψ_k |k⟩`, where `|k⟩`\n(read \"ket k\") is the outcome `k` and `ψ_k` its amplitude. For one qubit that\nis `α|0⟩ + β|1⟩`.\n\nThe **Born rule** connects amplitudes to experiments: measuring all qubits\ngives outcome `k` with probability\n\n```\nP(k) = |ψ_k|²        (in Julia: abs2(ψ[k + 1]))\n```\n\nProbabilities must add up to 1, so a valid state is **normalised**:\n`Σ_k |ψ_k|² = 1`, which is `norm(ψ) = 1`.\n\nTwo details matter later. First, only magnitudes enter `P(k)`: `0.8` and\n`0.8im` give the same probability `0.64`, so measuring this way cannot tell\nthe phases of the amplitudes apart. The phases are not decoration, though;\ngates make amplitudes add and cancel, and the phases decide which (unit 51\nshows two states with equal probabilities that a gate tells apart). Second,\nthe computed probabilities are floating-point numbers, so their sum is 1\nonly up to rounding (the last section of this unit derives how far).",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Probabilities of a two-qubit state with amplitudes on |0⟩ and |3⟩, and of the equal superposition of one qubit.",
+              "check": true,
+              "code": "ψ = ComplexF64[0.6, 0, 0, 0.8im]          # 0.6|0⟩ + 0.8i|3⟩\nprintln(\"P(k) for k = 0..3: \", abs2.(ψ), \"   sum = \", sum(abs2, ψ))\na = 1 / sqrt(2)\nφ = ComplexF64[a, a]                       # (|0⟩ + |1⟩)/√2\np = abs2.(φ)\nprintln(\"equal superposition: \", p, \"   sum = \", sum(p), \"   sum == 1: \", sum(p) == 1)",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that `0.8im` gives the same probability as `0.8` would, and that the equal superposition's probabilities add up to `0.9999999999999998`, not 1: `1/sqrt(2)` is rounded, and so is its square.",
+              "ok": true,
+              "output": "P(k) for k = 0..3: [0.36, 0.0, 0.0, 0.6400000000000001]   sum = 1.0\nequal superposition: [0.4999999999999999, 0.4999999999999999]   sum = 0.9999999999999998   sum == 1: false\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 3,
+              "choices": [
+                "-0.8i, the amplitude of |1⟩",
+                "0.8, the magnitude of the amplitude",
+                "0.64, the squared magnitude",
+                "-0.64, the square of -0.8i"
+              ],
+              "code": "",
+              "explain": "The Born rule squares the magnitude: `|-0.8i|² = 0.64`, which is `abs2(-0.8im)`. The phase (here the factor `-i`) does not change it. `0.36 + 0.64 = 1`, so the state is normalised.",
+              "kind": "choice",
+              "misconceptions": [
+                "An amplitude is a complex number and cannot be a probability. The probability is computed from it.",
+                "The magnitude is 0.8, but the Born rule uses its square: `0.6` and `0.8` would add up to 1.4, not 1.",
+                "",
+                "`(-0.8i)² = -0.64` squares the complex number itself; the Born rule multiplies it by its conjugate, `z · conj(z) = |z|²`, which is never negative."
+              ],
+              "prompt": "One qubit is in the state `0.6|0⟩ - 0.8i|1⟩`. What is the probability of measuring 1?"
+            }
+          ],
+          "refs": [
+            "born-1926",
+            "nielsen-chuang-2010"
+          ],
+          "title": "Amplitudes, normalisation and the Born rule"
+        },
+        {
+          "analogies": [],
+          "body": "In code, the state is a `Vector{ComplexF64}` of length `2^n`, and nothing\nmore: no struct around it. A plain vector is what `LinearAlgebra` already\nunderstands, so `norm(ψ)`, `dot(φ, ψ)` (which conjugates its first\nargument: `⟨φ|ψ⟩ = Σ conj(φ_k) ψ_k`), `ψ'` and `kron` work on it at once, and\nthe simulator's functions can be tested against textbook linear algebra\nwithout conversions. The number of qubits is not stored either: it is\n`log2(length(ψ))`, and the simulator checks that the length is a power of 2.\n\nTwo states are worth naming:\n\n* the **zero state** `|0…0⟩`, the usual start of a computation: amplitude\n  1 on `k = 0`, zero elsewhere;\n* the **basis state** `|k⟩`: amplitude 1 on outcome `k`, zero elsewhere.\n\nDistinct basis states are **orthonormal**: `⟨j|k⟩` is 1 when `j = k` and 0\notherwise. Every state is a combination of them, which is what the vector\n`ψ` lists.",
+          "diagrams": [
+            {
+              "alt": "The eight entries of basis_state(3, 5) drawn as a column: for each outcome k from 0 to 7 the diagram shows k in binary, the Julia index k + 1 that holds its amplitude, and the amplitude, which is 1 at k = 5 (Julia index 6) and 0 elsewhere.",
+              "caption": "Outcome k is stored at Julia index k + 1: the 1 of |5⟩ sits at ψ[6]. Which bit of k is which qubit is the subject of the next unit.",
+              "src": "assets/diagrams/49-quantum-states/basis-state-layout.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "`zero_state` and `basis_state` as plain functions, and the inner products of basis states.",
+              "check": true,
+              "code": "using LinearAlgebra\nzero_state(n) = (ψ = zeros(ComplexF64, 2^n); ψ[1] = 1; ψ)\nbasis_state(n, k) = (ψ = zeros(ComplexF64, 2^n); ψ[k + 1] = 1; ψ)\nprintln(\"length of a 3-qubit state: \", length(zero_state(3)))\nprintln(\"⟨5|5⟩ = \", dot(basis_state(3, 5), basis_state(3, 5)), \",  ⟨4|5⟩ = \", dot(basis_state(3, 4), basis_state(3, 5)))\nbasis_state(2, 2)",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the vector has eight entries for three qubits, that the 1 of `|2⟩` is the third entry, and that `dot` gives 1 for a state with itself and 0 for two different basis states.",
+              "ok": true,
+              "output": "length of a 3-qubit state: 8\n⟨5|5⟩ = 1.0 + 0.0im,  ⟨4|5⟩ = 0.0 + 0.0im\n4-element Vector{ComplexF64}:\n 0.0 + 0.0im\n 0.0 + 0.0im\n 1.0 + 0.0im\n 0.0 + 0.0im\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 3,
+              "choices": [
+                "A struct field cannot hold a vector of complex numbers",
+                "Plain vectors are faster to index than struct fields",
+                "`norm`, `dot` and `kron` then work on it directly"
+              ],
+              "code": "",
+              "explain": "With a plain vector, every function of `LinearAlgebra` applies without unwrapping, and tests can compare the simulator with textbook linear algebra directly. `n` is derived from the length, so it cannot disagree with the data.",
+              "kind": "choice",
+              "misconceptions": [
+                "Structs hold vectors fine (`struct S; v::Vector{ComplexF64}; end` is a common pattern); the reason is interoperability, not what a struct can store.",
+                "A concretely typed struct field costs nothing to access in Julia; the compiler sees through it. Speed is not the reason.",
+                ""
+              ],
+              "prompt": "Why does the simulator store a state as a plain `Vector{ComplexF64}` instead of a `struct QuantumState` with the vector and `n` as fields?"
+            }
+          ],
+          "refs": [
+            "nielsen-chuang-2010"
+          ],
+          "title": "States as plain vectors"
+        },
+        {
+          "analogies": [],
+          "body": "Outcomes are numbered from 0, because they are binary numbers (`|000⟩` is\n0). Julia's arrays are numbered from 1. So the amplitude of `|k⟩` is\n`ψ[k + 1]`, and the outcome stored at index `i` is `i - 1`.\n\nThis shift is the first of two classic off-by-one bugs in simulators (the\nsecond, which bit is which qubit, is unit 50). It bites in two directions:\n\n* **writing**: `ψ[k] = 1` puts the 1 on the wrong outcome for `k ≥ 1`, and\n  throws a `BoundsError` for `k = 0`, which is the lucky case;\n* **reading**: `argmax(abs2.(ψ))` returns an *index*, so the most likely\n  outcome is `argmax(abs2.(ψ)) - 1`.\n\nPython and C number from 0, and quantum computing papers write `|0⟩` for\nthe first state; in those languages index and outcome coincide, which is\nwhy code translated to Julia often carries this bug.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "A `basis_state` written with `ψ[k] = 1`: the lucky case, where the bug throws.",
+              "check": true,
+              "code": "basis_state_wrong(n, k) = (ψ = zeros(ComplexF64, 2^n); ψ[k] = 1; ψ)\nbasis_state_wrong(3, 0)",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the error names index `[0]`: outcome 0 asked for array position 0, which Julia does not have. For `k = 5` the same code would silently set outcome 4.",
+              "ok": false,
+              "output": "ERROR: BoundsError: attempt to access 8-element Vector{ComplexF64} at index [0]\n  @ basis_state_wrong at line 1\n  @ top-level scope at line 2\n"
+            },
+            {
+              "caption": "The most probable outcome of the basis state |5⟩ on three qubits, read with `argmax`.",
+              "check": true,
+              "code": "basis_state(n, k) = (ψ = zeros(ComplexF64, 2^n); ψ[k + 1] = 1; ψ)\nψ = basis_state(3, 5)\nargmax(abs2.(ψ))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "6\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "5",
+                  "6",
+                  "4"
+                ],
+                "explain": "`argmax` returns the position in the array, and the amplitude of outcome 5 sits at position 6. The most likely outcome is `argmax(abs2.(ψ)) - 1 = 5`. A result of 4 would come from shifting the wrong way.",
+                "kc": "state-vector",
+                "measured": "6",
+                "prompt": "`ψ` is the basis state `|5⟩` on three qubits. Before the output is shown: what does `argmax(abs2.(ψ))` return?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "Outcome 4, which does not exist on 2 qubits",
+                "Outcome 3, written `|11⟩` in binary",
+                "Outcome 5"
+              ],
+              "code": "",
+              "explain": "Index `i` holds outcome `i - 1`, so `ψ[4]` is outcome 3, binary `11`: the last of the four outcomes 0 to 3 of two qubits.",
+              "kind": "choice",
+              "misconceptions": [
+                "That reads the index as the outcome, as in a 0-based language. Two qubits have outcomes 0 to 3, stored at indices 1 to 4.",
+                "",
+                "That shifts in the wrong direction: the index is one *more* than the outcome, so the outcome is one less."
+              ],
+              "prompt": "`ψ` is a 2-qubit state and `i = 4`. Which outcome's amplitude is `ψ[i]`?"
+            }
+          ],
+          "refs": [],
+          "title": "Julia is 1-based: the amplitude of |k⟩ lives at ψ[k+1]"
+        },
+        {
+          "analogies": [],
+          "body": "A simulator must keep states normalised, and every test of that needs a\ntolerance. `norm(ψ) == 1` is the wrong test: the example of section 3 shows\nan exactly normalised state whose computed probabilities add up to\n`0.9999999999999998`.\n\nThe tolerance comes from the summation. `norm(ψ)²` adds `2N` real squares\n(a real and an imaginary part for each of the `N = 2^n` amplitudes). Whatever\norder the additions run in, the computed sum `ŝ` of nonnegative terms\nsatisfies `|ŝ - s| ≤ γ_{2N} s` with `γ_m = m u / (1 - m u)` and the unit\nroundoff `u = eps() / 2` (Higham, chapters 3 and 4). The square root halves\nthat relative error and adds at most `u` of its own, and the normalisation\n`ψ ./= norm(ψ)` rounds each amplitude once more. Adding these up, a\nnormalised state built this way satisfies\n\n```\n|norm(ψ) - 1| ≤ 2N u + O(u) ≈ 2^n · eps()\n```\n\nand the check below allows twice that, `2^(n+1) · eps()`. This is a\nworst-case bound: it assumes every rounding error goes the same way. Real\nerrors partly cancel, and `norm` sums in blocks, so measured errors are much\nsmaller, as the example shows. A tolerance from the bound can still never\nfail a correct implementation, which is what a test needs.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Random states of 1 to 20 qubits, normalised with `ψ ./= norm(ψ)`: is `|norm(ψ) - 1|` within the derived tolerance, and how close does it come?",
+              "check": true,
+              "code": "using LinearAlgebra, Random\nrng = Xoshiro(2026)\nworst = 0.0\nfor n in 1:20\n    ψ = randn(rng, ComplexF64, 2^n)\n    ψ ./= norm(ψ)\n    tol = 2.0^(n + 1) * eps()\n    global worst = max(worst, abs(norm(ψ) - 1) / tol)\nend\nprintln(\"all 20 states within |norm(ψ) - 1| ≤ 2^(n+1)·eps(): \", worst <= 1)\nprintln(\"worst error as a fraction of its tolerance below 0.01: \", worst < 0.01)",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that every state passes, and that the worst error uses less than a hundredth of the tolerance: the bound is pessimistic, as the section says. The digits of the errors themselves depend on the BLAS that computes `norm`, so the example prints comparisons only.",
+              "ok": true,
+              "output": "all 20 states within |norm(ψ) - 1| ≤ 2^(n+1)·eps(): true\nworst error as a fraction of its tolerance below 0.01: true\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "It is too loose: rounding errors are always below `eps()`",
+                "It can fail a correct implementation: the bound grows with `2^n`",
+                "`norm` of a complex vector is complex, so the comparison throws"
+              ],
+              "code": "",
+              "explain": "For 20 qubits the worst-case error of the computed norm is about `2^20 · eps() ≈ 2e-10`. Measured errors are usually far smaller, so the test may pass for years, then fail on another CPU or summation order with a correct simulator. A tolerance must come from a bound, not from the errors seen so far.",
+              "kind": "choice",
+              "misconceptions": [
+                "One rounding is below `eps()`, but a norm adds about two million squares on 20 qubits, and their errors can add up: the bound for 20 qubits is about `2e-10`, five orders of magnitude above `1e-15`.",
+                "",
+                "`norm` always returns a real, nonnegative number, also for complex vectors: it is `sqrt(Σ |ψ_k|²)`."
+              ],
+              "prompt": "A test checks `abs(norm(ψ) - 1) < 1e-15` for states of up to 20 qubits. Why is that a poor test?"
+            }
+          ],
+          "refs": [
+            "higham-2002"
+          ],
+          "title": "Check: every state you build has norm 1 to a stated tolerance"
+        }
+      ],
+      "status": "ready",
+      "summary": "A qubit state is a vector of complex amplitudes, and n qubits need 2^n of them: why a 30-qubit state takes 16 GiB, the Born rule that turns amplitudes into probabilities, basis states as plain `Vector{ComplexF64}`, Julia's `ψ[k+1]` for the amplitude of |k⟩, and a norm check with a tolerance derived from the number of terms.",
       "title": "States as vectors",
       "track": "quantum"
     },
@@ -39,22 +508,439 @@
         "qubit-ordering"
       ],
       "lessons": [],
-      "outline": [
-        "The question: which index holds the amplitude of |10>, and which qubit is 1?",
-        "Bit q of the basis index is qubit q; the rightmost character is qubit 0",
-        "Diagram: the bit layout of a 3-qubit index, and kron(op_{n-1}, ..., op_0)",
-        "Why this order fits Julia's column-major arrays (reshape gives dimension 1 = qubit 0)",
-        "Textbooks (Nielsen and Chuang) use the opposite order: translating between them",
-        "Check: bitstrings and indices agree with Qiskit's on every basis state of 3 qubits"
-      ],
+      "outline": [],
       "prerequisites": [
         "49-quantum-states"
       ],
-      "problems": [],
-      "references": [],
-      "sections": [],
-      "status": "planned",
-      "summary": "Little-endian qubit order, as in Qiskit: qubit 0 is the least significant bit and the rightmost character of a bitstring. The source of most simulator bugs.",
+      "problems": [
+        {
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "warm-up",
+          "entry": "bitstring_of",
+          "hints": [
+            "Qubit `q` is bit `q` of `k`. Which qubit's character comes first in the string?",
+            "`(k >> q) & 1` is qubit `q`'s value; loop `q` from `n - 1` down to `0`. Julia's `string(k; base = 2, pad = n)` also writes binary."
+          ],
+          "id": "qo-bitstring",
+          "kcs": [
+            "qubit-ordering"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              1
+            ]
+          },
+          "prompt": "Write `bitstring_of(k, n)` that returns the `n`-character bitstring of\noutcome `k` in this course's (Qiskit's) order: qubit `n - 1` first, qubit 0\nthe rightmost character.\n\n```julia\nbitstring_of(6, 3)     # \"110\"\nbitstring_of(1, 4)     # \"0001\"\nbitstring_of(0, 2)     # \"00\"\n```\n\nResults are compared exactly and must be a `String`.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "bitstring_of(6, 3)",
+              "result": "\"110\""
+            },
+            {
+              "call": "bitstring_of(1, 4)",
+              "result": "\"0001\""
+            },
+            {
+              "call": "bitstring_of(0, 2)",
+              "result": "\"00\""
+            },
+            {
+              "call": "bitstring_of(5, 3)",
+              "result": "\"101\""
+            },
+            {
+              "call": "bitstring_of(8, 4)",
+              "result": "\"1000\""
+            },
+            {
+              "call": "bitstring_of(1, 1)",
+              "result": "\"1\""
+            }
+          ],
+          "starter": "function bitstring_of(k, n)\n    # your code here\nend\n",
+          "title": "The bitstring of an outcome"
+        },
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "qubit_probability",
+          "hints": [
+            "Which outcomes have qubit `q` equal to 1? Their probabilities add up.",
+            "Loop over the indices; index `i` is outcome `k = i - 1`, and `(k >> q) & 1` is qubit `q`'s value in it."
+          ],
+          "id": "qo-qubit-probability",
+          "kcs": [
+            "qubit-ordering"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              65536
+            ]
+          },
+          "prompt": "Write `qubit_probability(ψ, q)` that returns the probability (a `Float64`)\nthat measuring qubit `q` of the state `ψ` gives 1. By the Born rule, that is\nthe sum of `|ψ_k|²` over every outcome `k` in which qubit `q` is 1.\n\n```julia\nψ = ComplexF64[0, 0.6, 0.8, 0]       # 0.6|01⟩ + 0.8|10⟩\nqubit_probability(ψ, 0)              # 0.36: only |01⟩ has qubit 0 set\nqubit_probability(ψ, 1)              # 0.6400000000000001: only |10⟩ has qubit 1 set\n```\n\nResults are compared with `rtol = 1e-10` (sums of up to `2^16` terms in a\ndifferent order than the reference differ by at most about\n`2 · 2^15 · u ≈ 7e-12` relative; see unit 49's last section). Speed and\nallocations are graded against the reference, which reads the vector once\nand allocates nothing.",
+          "random_cases": true,
+          "rtol": 1.0e-10,
+          "samples": [
+            {
+              "call": "qubit_probability(ComplexF64[0, 0.6, 0.8, 0], 0)",
+              "result": "0.36"
+            },
+            {
+              "call": "qubit_probability(ComplexF64[0, 0.6, 0.8, 0], 1)",
+              "result": "0.6400000000000001"
+            },
+            {
+              "call": "qubit_probability(ComplexF64[1, 0], 0)",
+              "result": "0.0"
+            },
+            {
+              "call": "qubit_probability(ComplexF64[0, 0, 0, 0, 0.6, 0, 0, 0.8im], 2)",
+              "result": "1.0"
+            },
+            {
+              "call": "qubit_probability(ComplexF64[0, 0, 0, 0, 0.6, 0, 0, 0.8im], 0)",
+              "result": "0.6400000000000001"
+            }
+          ],
+          "starter": "function qubit_probability(ψ, q)\n    # your code here\nend\n",
+          "title": "The probability that one qubit is 1"
+        },
+        {
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "core",
+          "entry": "flip_qubit!",
+          "hints": [
+            "`X` on qubit `q` exchanges the amplitudes of two outcomes that differ only in bit `q`. If you swap every such pair twice, what happens?",
+            "Loop over the outcomes `k` whose bit `q` is 0 (`k & (1 << q) == 0`) and swap `ψ[k + 1]` with `ψ[(k | (1 << q)) + 1]`."
+          ],
+          "id": "qo-flip-qubit",
+          "kcs": [
+            "qubit-ordering"
+          ],
+          "perf": {
+            "mutates": true,
+            "sizes": [
+              65536
+            ]
+          },
+          "prompt": "Write `flip_qubit!(ψ, q)` that applies the bit flip `X` to qubit `q` of the\nstate `ψ` **in place** and returns `ψ`. `X` swaps the amplitudes of each pair\nof outcomes that differ only in qubit `q`: outcome `k` and `k ⊻ (1 << q)`.\nDo not build the `2^n × 2^n` matrix.\n\n```julia\nflip_qubit!(ComplexF64[1, 0, 0, 0], 0)       # |00⟩ → |01⟩ = ComplexF64[0, 1, 0, 0]\nflip_qubit!(ComplexF64[1, 0, 0, 0], 1)       # |00⟩ → |10⟩ = ComplexF64[0, 0, 1, 0]\n```\n\nResults are compared exactly: a swap moves amplitudes without arithmetic.\nSpeed and allocations are graded against the reference, which allocates\nnothing.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "flip_qubit!(ComplexF64[1, 0, 0, 0], 0)",
+              "result": "4-element Vector{ComplexF64}:\n 0.0 + 0.0im\n 1.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im"
+            },
+            {
+              "call": "flip_qubit!(ComplexF64[1, 0, 0, 0], 1)",
+              "result": "4-element Vector{ComplexF64}:\n 0.0 + 0.0im\n 0.0 + 0.0im\n 1.0 + 0.0im\n 0.0 + 0.0im"
+            },
+            {
+              "call": "flip_qubit!(ComplexF64[0.6, 0.8im], 0)",
+              "result": "2-element Vector{ComplexF64}:\n 0.0 + 0.8im\n 0.6 + 0.0im"
+            },
+            {
+              "call": "flip_qubit!(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 2)",
+              "result": "8-element Vector{ComplexF64}:\n 5.0 + 0.0im\n 6.0 + 0.0im\n 7.0 + 0.0im\n 8.0 + 0.0im\n 1.0 + 0.0im\n 2.0 + 0.0im\n 3.0 + 0.0im\n 4.0 + 0.0im"
+            },
+            {
+              "call": "flip_qubit!(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 0)",
+              "result": "8-element Vector{ComplexF64}:\n 2.0 + 0.0im\n 1.0 + 0.0im\n 4.0 + 0.0im\n 3.0 + 0.0im\n 6.0 + 0.0im\n 5.0 + 0.0im\n 8.0 + 0.0im\n 7.0 + 0.0im"
+            }
+          ],
+          "starter": "function flip_qubit!(ψ, q)\n    # your code here\nend\n",
+          "title": "Flip one qubit in place"
+        }
+      ],
+      "references": [
+        {
+          "authors": "Nielsen, M. A.; Chuang, I. L.",
+          "id": "nielsen-chuang-2010",
+          "note": "The textbook convention of section 5: multi-qubit states written with the first qubit leftmost, and the CNOT matrix with the first qubit as control (section 1.3.2); the tensor product of operators used in section 3 (section 2.1.7).",
+          "title": "Quantum Computation and Quantum Information",
+          "url": "https://doi.org/10.1017/CBO9780511976667",
+          "venue": "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)",
+          "year": 2012
+        }
+      ],
+      "sections": [
+        {
+          "analogies": [],
+          "body": "Unit 49 stored an `n`-qubit state as a `Vector{ComplexF64}` of `2^n`\namplitudes, the amplitude of outcome `k` at `ψ[k + 1]`. It left one thing\nopen: an outcome `k` is a setting of *all* the qubits, so which qubit has\nwhich value in outcome `k`? This unit answers that, and needs only Julia's\ninteger bit operations:\n\n* `k >> q` shifts `k` right by `q` bits, so `(k >> q) & 1` is bit `q` of `k`\n  (bit 0 is the least significant, worth 1; bit 1 is worth 2; and so on);\n* `1 << q` is `2^q`, an integer with only bit `q` set, and `k ⊻ (1 << q)`\n  (`xor`, typed `\\xor` then Tab) flips bit `q`;\n* `parse(Int, \"110\"; base = 2)` reads a binary string, here 6.\n\nA **bitstring** is the way an outcome is printed: one character `0` or `1`\nper qubit.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Bits of the integer 6, binary 110, read with shifts and masks.",
+              "check": true,
+              "code": "k = 6\nprintln(\"bits of 6: bit 0 = \", (k >> 0) & 1, \", bit 1 = \", (k >> 1) & 1, \", bit 2 = \", (k >> 2) & 1)\nprintln(\"6 with bit 0 flipped: \", k ⊻ (1 << 0), \";  parse(Int, \\\"110\\\"; base = 2) = \", parse(Int, \"110\"; base = 2))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "bits of 6: bit 0 = 0, bit 1 = 1, bit 2 = 1\n6 with bit 0 flipped: 7;  parse(Int, \"110\"; base = 2) = 6\n"
+            }
+          ],
+          "questions": [],
+          "refs": [],
+          "title": "What you need from earlier units"
+        },
+        {
+          "analogies": [
+            {
+              "breaks": "An odometer shows a single reading. A quantum state has an amplitude on\nevery reading at once, so \"the value of qubit 0\" is not one digit but a\nprobability spread over all outcomes (the last section computes it). And\nthe order is a convention: an odometer cannot be read from the other end,\nbut a textbook bitstring is exactly that, as section 5 shows.",
+              "text": "Read a bitstring like an odometer: the rightmost wheel turns fastest and\ncounts the smallest unit, and each wheel to the left is worth a power more.\nIn a little-endian bitstring the rightmost wheel is qubit 0, worth 1, the\nnext is qubit 1, worth 2, and so on. Counting the outcomes `k = 0, 1, 2, …`\nturns qubit 0 at every step, exactly as the last wheel of an odometer turns\nat every unit.",
+              "title": "Reading a car's odometer"
+            }
+          ],
+          "body": "A two-qubit outcome printed `10` has one qubit at 1 and one at 0. Which\none? Nothing in the mathematics decides it: it is a **convention**, and\nsimulators, textbooks and hardware vendors chose differently. Mixing two\nconventions does not raise an error. It silently puts gates on the wrong\nqubits, and the result is a valid state, just the wrong one, which is why\nqubit order causes more simulator bugs than any other single thing.\n\nThis course uses Qiskit's convention, **little-endian** order:\n\n* **qubit `q` is bit `q` of `k`**, so qubit 0 is the least significant bit:\n  `k = Σ_q b_q 2^q` where `b_q` is the value of qubit `q`;\n* a bitstring is written like a binary number, **most significant bit\n  first**, so qubit 0 is the *rightmost* character: `|q₂ q₁ q₀⟩`.\n\nSo `|10⟩` means qubit 1 is 1 and qubit 0 is 0; `k = 2`, and its amplitude\nis `ψ[3]`. IBM's documentation states the same rule: bit 0 is the least\nsignificant bit and the rightmost character of a string\n([Bit-ordering in the Qiskit SDK](https://quantum.cloud.ibm.com/docs/en/guides/bit-ordering)).",
+          "diagrams": [
+            {
+              "alt": "The 3-qubit outcome 6 drawn three ways: as the bitstring 110 with its characters labelled qubit 2, qubit 1 and qubit 0 from left to right, as the binary weights 4, 2 and 1 under them, so 6 = 4 + 2, and as the Julia index 7 that holds its amplitude.",
+              "caption": "Qubit q carries the weight 2^q, and the rightmost character is qubit 0. The amplitude of outcome 6 is at ψ[7].",
+              "src": "assets/diagrams/50-qubit-order/bit-layout.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "All eight outcomes of three qubits: the bitstring and the value of each qubit, from the bits of `k`.",
+              "check": true,
+              "code": "bit(k, q) = (k >> q) & 1\nbitstring_of(k, n) = join(bit(k, q) for q in n-1:-1:0)     # qubit n-1 first\nprintln(\" k  bitstring  qubit 2  qubit 1  qubit 0\")\nfor k in 0:7\n    println(lpad(k, 2), \"  \", bitstring_of(k, 3), \"        \", bit(k, 2), \"        \", bit(k, 1), \"        \", bit(k, 0))\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that qubit 0 alternates at every step, qubit 1 every two steps and qubit 2 every four, and that the bitstring's rightmost character is always qubit 0.",
+              "ok": true,
+              "output": " k  bitstring  qubit 2  qubit 1  qubit 0\n 0  000        0        0        0\n 1  001        0        0        1\n 2  010        0        1        0\n 3  011        0        1        1\n 4  100        1        0        0\n 5  101        1        0        1\n 6  110        1        1        0\n 7  111        1        1        1\n"
+            },
+            {
+              "caption": "The outcome `|10⟩` of two qubits as an integer and a Julia index.",
+              "check": true,
+              "code": "k = parse(Int, \"10\"; base = 2)       # qubit 1 = 1, qubit 0 = 0\nprintln(\"k = \", k, \", Julia index \", k + 1)",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "k = 2, Julia index 3\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "ψ[2]",
+                  "ψ[3]",
+                  "ψ[4]"
+                ],
+                "explain": "`|10⟩` is binary 10, so `k = 2` (qubit 1 is set, worth 2), stored at index `k + 1 = 3`. `ψ[2]` holds `|01⟩`, where qubit 0 is set: that is what you get by reading the leftmost character as qubit 0. `ψ[4]` holds `|11⟩`.",
+                "kc": "qubit-ordering",
+                "measured": "3",
+                "prompt": "Two qubits, little-endian. Before the output is shown: which Julia index holds the amplitude of `|10⟩`?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 3,
+              "choices": [
+                "k = 2, printed `010`",
+                "k = 4, printed `001`",
+                "k = 4, printed `100`",
+                "k = 1, printed `100`"
+              ],
+              "code": "",
+              "explain": "Qubit 2 is bit 2, worth `2^2 = 4`, and bitstrings print the most significant qubit first, so `100`. Little-endian order is about which *bit* a qubit is; the string is still written like an ordinary binary number.",
+              "kind": "choice",
+              "misconceptions": [
+                "That takes the qubit number as the value. Qubit 2 is worth `2^2 = 4`, and `010` has qubit 1 set.",
+                "The value is right, but the string is printed most significant bit first: qubit 0 is the rightmost character, so qubit 2 is the leftmost.",
+                "",
+                "That reads the leftmost character as qubit 0 and gives it weight 1: the textbook order of section 5, not this course's."
+              ],
+              "prompt": "On three qubits, only qubit 2 is 1. Which outcome `k` is that, and how is it printed?"
+            }
+          ],
+          "refs": [],
+          "title": "The question: which index holds |10⟩, and which qubit is 1?"
+        },
+        {
+          "analogies": [],
+          "body": "A gate `U` on one qubit of `n` acts as a `2^n × 2^n` matrix on the whole\nstate: `U` on its qubit and the identity `I` on all the others. Textbooks\nbuild it with the Kronecker product `⊗` (`kron` in Julia), and the order of\nthe factors is the order of the bits: `kron(A, B)` makes `A`'s index the\n*more* significant one. In little-endian order the most significant qubit is\n`n - 1`, so\n\n```\noperator on n qubits = kron(op_{n-1}, ..., op_1, op_0)\n```\n\nand `U` on qubit `q` sits in slot `n - 1 - q` counting from the left. For\ntwo qubits, `X` on qubit 0 is `kron(I, X)`, and `X` on qubit 1 is\n`kron(X, I)`. Writing `kron(X, I)` for \"X on qubit 0\" is the most common\nqubit-order bug.\n\nUnit 52 shows how to apply a gate without forming this matrix at all; the\n`kron` construction stays as the textbook reference to test against.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "`X` (the bit flip, `X|0⟩ = |1⟩`) placed with `kron` in each of the two slots, applied to `|00⟩`.",
+              "check": true,
+              "code": "I2 = ComplexF64[1 0; 0 1]\nX  = ComplexF64[0 1; 1 0]\nbitstring_of(k, n) = join(((k >> q) & 1 for q in n-1:-1:0))\nψ00 = ComplexF64[1, 0, 0, 0]\nfor (name, O) in ((\"kron(I2, X)\", kron(I2, X)), (\"kron(X, I2)\", kron(X, I2)))\n    k = findfirst(!iszero, O * ψ00) - 1\n    println(name, \" * |00⟩ = |\", bitstring_of(k, 2), \"⟩\")\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the factor on the *right* acts on qubit 0: `kron(I2, X)` flips the rightmost character.",
+              "ok": true,
+              "output": "kron(I2, X) * |00⟩ = |01⟩\nkron(X, I2) * |00⟩ = |10⟩\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "|01⟩: qubit 0 flipped",
+                  "|10⟩: qubit 1 flipped"
+                ],
+                "explain": "In `kron(A, B)` the left factor acts on the more significant bit, and in little-endian order that is the higher qubit. So `X` on the left flips qubit 1, giving `|10⟩` (outcome 2), and `kron(I2, X)` flips qubit 0.",
+                "kc": "qubit-ordering",
+                "measured": "10",
+                "prompt": "Before the output is shown: `kron(X, I2) * |00⟩` is which state?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 3,
+              "choices": [
+                "`kron(H, I2, I2)`",
+                "`kron(I2, H, I2)`",
+                "`kron(I2, I2, H)`"
+              ],
+              "code": "",
+              "explain": "The factors run from qubit `n - 1` on the left to qubit 0 on the right, so qubit 0's factor comes last.",
+              "kind": "choice",
+              "misconceptions": [
+                "That puts `H` on the most significant qubit, qubit 2: the first factor of `kron` is the high bit.",
+                "The middle slot is qubit 1 on three qubits.",
+                ""
+              ],
+              "prompt": "Three qubits. Which `kron` product applies `H` to qubit 0 and leaves qubits 1 and 2 alone?"
+            }
+          ],
+          "refs": [
+            "nielsen-chuang-2010"
+          ],
+          "title": "Operators: `kron` lists the qubits from the highest down"
+        },
+        {
+          "analogies": [],
+          "body": "Julia stores a multidimensional array **column-major**: the first index\nvaries fastest in memory\n([Performance tips: access arrays in memory order](https://docs.julialang.org/en/v1.10/manual/performance-tips/#man-performance-column-major)).\nSo `reshape(ψ, 2, 2, ..., 2)` turns the state into an `n`-dimensional\n`2 × 2 × … × 2` array whose **first** index changes at every step through\n`ψ`, exactly like qubit 0. In general\n\n```\nA = reshape(ψ, ntuple(_ -> 2, n))      # A[b₀+1, b₁+1, …, b_{n-1}+1] = ψ[k+1]\n```\n\n**dimension `d` is qubit `d - 1`**. Little-endian order and column-major\nstorage agree, so an operation on one qubit becomes an operation along one\narray dimension. For example, the probability that qubit 0 is 1\nsums `|A|²` over the slice `A[2, :, …, :]`. The partial trace in the `qsim`\nproject uses this.\n\nIn C and NumPy, arrays are row-major (the *last* index fastest), so the same\n`reshape` there gives the opposite correspondence; a simulator written in\nthose languages with little-endian qubits has to reverse the dimensions.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "The outcome `|110⟩` reshaped to a 2×2×2 array, and the probability that qubit 0 is 1 computed two ways for a state with amplitudes on all outcomes.",
+              "check": true,
+              "code": "using LinearAlgebra\nψ = zeros(ComplexF64, 8); ψ[0b110 + 1] = 1\nprintln(findfirst(!iszero, reshape(ψ, 2, 2, 2)))\nφ = normalize(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8])\nP = abs2.(reshape(φ, 2, 2, 2))\nby_slice = sum(P[2, :, :])                                         # dimension 1 = qubit 0\nby_bits  = sum(abs2(φ[k + 1]) for k in 0:7 if (k >> 0) & 1 == 1)\nprintln(\"P(qubit 0 = 1): slice \", round(by_slice; digits = 6), \", bits \", round(by_bits; digits = 6),\n        \", exact 120/204 = \", round(120 / 204; digits = 6))",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that `findfirst` reports `(1, 2, 2)`: dimension 1 holds `b₀ + 1 = 1` (qubit 0 is 0) and dimensions 2 and 3 hold 2 (qubits 1 and 2 are 1), the bitstring `110` read right to left.",
+              "ok": true,
+              "output": "CartesianIndex(1, 2, 2)\nP(qubit 0 = 1): slice 0.588235, bits 0.588235, exact 120/204 = 0.588235\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "`A[1, :, :, :]`",
+                "`A[:, :, :, 1]`",
+                "`A[:, :, :, 2]`"
+              ],
+              "code": "",
+              "explain": "Dimension `d` is qubit `d - 1`, so qubit 3 is the fourth dimension, and the value 0 is index 1 along it.",
+              "kind": "choice",
+              "misconceptions": [
+                "The first dimension is qubit 0 (column-major: it varies fastest), and index 1 there means qubit 0 is 0.",
+                "",
+                "Right dimension, but index 2 along it is the value 1: indices are values plus one."
+              ],
+              "prompt": "`A = reshape(ψ, 2, 2, 2, 2)` for a 4-qubit state. Which slice holds the amplitudes where qubit 3 is 0?"
+            }
+          ],
+          "refs": [],
+          "title": "Why this order fits Julia's column-major arrays"
+        },
+        {
+          "analogies": [],
+          "body": "Most textbooks and papers, Nielsen and Chuang among them, write a state\n`|x₁ x₂ … x_n⟩` with the **first** qubit as the **leftmost**, most\nsignificant character: **big-endian** order. Their CNOT with the first qubit\nas control and the second as target (a gate that flips the target when the\ncontrol is 1) has the matrix\n\n```\n1 0 0 0\n0 1 0 0\n0 0 0 1\n0 0 1 0\n```\n\nIn this course's order, CNOT with control qubit 0 and target qubit 1 is a\ndifferent matrix, because \"control is 1\" now means \"the least significant\nbit is 1\", outcomes 1 and 3. The two are the same gate written in two\nconventions, and a permutation translates between them: reverse the order\nof the bits of every outcome. For a state, the amplitude at outcome `k`\nmoves to outcome `reverse_bits(k)`; for an operator `O`, use `R O Rᵀ` with\nthe permutation matrix `R`.\n\nWhen you take a circuit from a paper: number its qubits from the right, or\nreverse each bitstring, before comparing results. Other simulators vary too.\nQiskit is little-endian like this course. Yao.jl, the second cross-check of\nthis course's `qsim` project, is little-endian but numbers qubits from 1, so\nthe cross-check maps qubit `q` to Yao's `q + 1`.",
+          "diagrams": [
+            {
+              "alt": "The same three-qubit state, qubit 0 set and qubits 1 and 2 clear, written in two conventions: little-endian, as in Qiskit and this course, prints 001 and is outcome 1; textbook big-endian order prints 100 and calls it outcome 4. An arrow labelled reverse the bits connects them.",
+              "caption": "One physical state, two names. Reversing the bits of each outcome translates between the conventions.",
+              "src": "assets/diagrams/50-qubit-order/textbook-order.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "The bit-reversal permutation on two qubits, applied to this course's CNOT (control 0, target 1); and where each 3-qubit outcome goes.",
+              "check": true,
+              "code": "bit(k, q) = (k >> q) & 1\nreverse_bits(k, n) = foldl((acc, q) -> (acc << 1) | bit(k, q), 0:n-1; init = 0)\nCX_course   = [1 0 0 0; 0 0 0 1; 0 0 1 0; 0 1 0 0]   # control qubit 0, target qubit 1\nCX_textbook = [1 0 0 0; 0 1 0 0; 0 0 0 1; 0 0 1 0]   # control first, target second (big-endian)\nR = zeros(Int, 4, 4)\nfor k in 0:3\n    R[reverse_bits(k, 2) + 1, k + 1] = 1\nend\nprintln(\"R * CX_course * R' == CX_textbook: \", R * CX_course * R' == CX_textbook)\nprintln(\"3 qubits, outcome k -> reverse_bits(k): \", [k => reverse_bits(k, 3) for k in 0:7])",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that `R CX Rᵀ` gives exactly the textbook matrix, and that the palindromes `000`, `010`, `101`, `111` (outcomes 0, 2, 5, 7) keep their numbers.",
+              "ok": true,
+              "output": "R * CX_course * R' == CX_textbook: true\n3 qubits, outcome k -> reverse_bits(k): [0 => 0, 1 => 4, 2 => 2, 3 => 6, 4 => 1, 5 => 5, 6 => 3, 7 => 7]\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "`100`, since a bitstring is the same in every convention",
+                "`001`: the paper's first qubit is qubit 0, printed rightmost here",
+                "`010`: only the middle qubit keeps its place"
+              ],
+              "code": "",
+              "explain": "The paper's leftmost character is its first qubit, which this course calls qubit 0 and prints rightmost. Reversing the string translates it: `100` becomes `001`, outcome 1 here and outcome 4 in the paper.",
+              "kind": "choice",
+              "misconceptions": [
+                "The physical state is the same, but its printed name depends on the convention. Comparing strings without translating is exactly the silent bug of section 2.",
+                "",
+                "The middle character stays in the middle for three qubits, but the outer two swap: `100` becomes `001`."
+              ],
+              "prompt": "A paper reports that a 3-qubit circuit ends in `|100⟩`, with its first qubit as the leftmost character. What does this course's simulator print for the same circuit?"
+            }
+          ],
+          "refs": [
+            "nielsen-chuang-2010"
+          ],
+          "title": "Textbooks use the opposite order: translating between them"
+        },
+        {
+          "analogies": [],
+          "body": "A convention needs a test like any other code. The rule to check is Qiskit's\ndefinition: the bitstring of outcome `k` is `k` in binary with bit `n - 1`\nfirst, so reading the string back as a binary number gives `k`, and the\ncharacter at position `n - q` (counting from 1 on the left) is the value of\nqubit `q`. The check below runs over all `2^n` outcomes, which is cheap for\nsmall `n` and leaves no case untested.\n\nThat checks this course's functions against the rule as Qiskit's\ndocumentation states it. That Qiskit itself follows the rule in every gate\nis checked elsewhere: the `qsim` project's cross-check job runs 500 random\ncircuits in Qiskit and in the simulator you build and compares every\namplitude (`projects/qsim/README.md`).",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "For every outcome of 1 to 5 qubits: the bitstring read back in base 2 is `k`, and character `n - q` is qubit `q`.",
+              "check": true,
+              "code": "bit(k, q) = (k >> q) & 1\nbitstring_of(k, n) = join(bit(k, q) for q in n-1:-1:0)\nchecks = 0\nok = true\nfor n in 1:5, k in 0:2^n-1\n    s = bitstring_of(k, n)\n    global ok &= parse(Int, s; base = 2) == k\n    for q in 0:n-1\n        global ok &= s[n - q] == (bit(k, q) == 1 ? '1' : '0')\n    end\n    global checks += 1\nend\nprintln(checks, \" outcomes checked, all agree with the rule: \", ok)",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "62 outcomes checked, all agree with the rule: true\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "Some order bugs agree with the rule on palindromes like `101`",
+                "Julia's `parse` is unreliable for short strings",
+                "Testing a few examples is never good practice"
+              ],
+              "code": "",
+              "explain": "A function that reverses the qubit order still gives the right string for every palindrome (`0`, `11`, `101`, `0110`, ...), and `k = 6`, `110`, is caught only by luck. An exhaustive check over all `2^n` outcomes of small `n` costs a few hundred comparisons and catches every such bug.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "`parse` is exact for any valid binary string; the reason is the bug the test must catch.",
+                "Well-chosen examples are useful (they document the rule), but a few hand-picked cases can miss a whole class of bugs; when every case is cheap, test them all."
+              ],
+              "prompt": "Why does the check run over every outcome instead of a few examples such as `k = 6`?"
+            }
+          ],
+          "refs": [],
+          "title": "Check: bitstrings and indices agree with Qiskit's rule on every basis state"
+        }
+      ],
+      "status": "ready",
+      "summary": "Little-endian qubit order, as in Qiskit: qubit q is bit q of the outcome's index, so qubit 0 is the least significant bit and the rightmost character of a bitstring. Why `kron` lists qubits from the highest down, why Julia's column-major `reshape` makes dimension 1 qubit 0, and how to translate to the textbook order that most papers use.",
       "title": "Which bit is which qubit",
       "track": "quantum"
     },
@@ -68,22 +954,477 @@
         "born-rule"
       ],
       "lessons": [],
-      "outline": [
-        "The question: what does a gate do to the point that represents a qubit?",
-        "Pauli, Hadamard, S, T and sqrt(X) matrices; checking U'U = I",
-        "Rotations R_a(theta) = exp(-i theta a/2): the half angle, and why 2 pi gives -I",
-        "Diagram: the Bloch sphere with the six cardinal states",
-        "bloch_vector from the density matrix; global phase is unobservable",
-        "Born-rule sampling, checked against exact probabilities within 5 sigma"
-      ],
+      "outline": [],
       "prerequisites": [
         "50-qubit-order"
       ],
-      "problems": [],
-      "references": [],
-      "sections": [],
-      "status": "planned",
-      "summary": "Single-qubit gates as 2x2 unitaries, rotations with their half angles, the Bloch vector, and sampling measurement outcomes.",
+      "problems": [
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "warm-up",
+          "entry": "bloch",
+          "hints": [
+            "The Bloch vector is the expected value of each Pauli matrix. Which entry of `ρ = ψψ'` holds the relative phase between the amplitudes?",
+            "With `c = conj(ψ[1]) * ψ[2]`: `x = 2real(c)`, `y = 2imag(c)`, `z = abs2(ψ[1]) - abs2(ψ[2])`. Conjugating the other amplitude flips the sign of `y`."
+          ],
+          "id": "gb-bloch",
+          "kcs": [
+            "bloch-sphere"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              1
+            ]
+          },
+          "prompt": "Write `bloch(ψ)` that returns the Bloch vector `[x, y, z]` (a\n`Vector{Float64}`) of the one-qubit state `ψ = [α, β]`. It is\n`(tr(ρX), tr(ρY), tr(ρZ))` with `ρ = ψψ'`; written out with the amplitudes,\n\n```\nx = 2 Re(conj(α) β),   y = 2 Im(conj(α) β),   z = |α|² − |β|²\n```\n\n```julia\nbloch(ComplexF64[1, 0])                    # [0.0, 0.0, 1.0]\nbloch(ComplexF64[1, im] / sqrt(2))         # [0.0, 1.0, 0.0] up to rounding\n```\n\nResults are compared as whole vectors with `rtol = 1e-12`: each component\nis a product or difference of two rounded amplitudes, so two correct\nformulas differ by a few `u` relative to `‖r‖ = 1`. Speed is graded\nagainst the reference.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "bloch(ComplexF64[1, 0])",
+              "result": "3-element Vector{Float64}:\n 0.0\n 0.0\n 1.0"
+            },
+            {
+              "call": "bloch(ComplexF64[0, 1])",
+              "result": "3-element Vector{Float64}:\n  0.0\n  0.0\n -1.0"
+            },
+            {
+              "call": "bloch(ComplexF64[1, 1] / sqrt(2))",
+              "result": "3-element Vector{Float64}:\n 0.9999999999999998\n 0.0\n 0.0"
+            },
+            {
+              "call": "bloch(ComplexF64[1, im] / sqrt(2))",
+              "result": "3-element Vector{Float64}:\n 0.0\n 0.9999999999999998\n 0.0"
+            },
+            {
+              "call": "bloch(ComplexF64[0.6, 0.8im])",
+              "result": "3-element Vector{Float64}:\n  0.0\n  0.96\n -0.28000000000000014"
+            },
+            {
+              "call": "bloch(ComplexF64[cos(0.4), cis(1.3) * sin(0.4)])",
+              "result": "3-element Vector{Float64}:\n 0.19189191402233535\n 0.6912143332451152\n 0.6967067093471655"
+            }
+          ],
+          "starter": "function bloch(ψ)\n    # your code here\nend\n",
+          "title": "The Bloch vector of one qubit"
+        },
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "rotation",
+          "hints": [
+            "The rotation turns the sphere by `θ`, but its matrix uses half of `θ`. What does a full turn have to give?",
+            "Write `nx X + ny Y + nz Z = [nz  nx - i ny; nx + i ny  -nz]`, multiply by `-i sin(θ/2)`, and add `cos(θ/2)` on the diagonal."
+          ],
+          "id": "gb-rotation",
+          "kcs": [
+            "unitary-gates"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              1
+            ]
+          },
+          "prompt": "Write `rotation(n, θ)` that returns the `2×2` matrix (a\n`Matrix{ComplexF64}`) of the rotation by angle `θ` about the unit axis\n`n = [nx, ny, nz]` of the Bloch sphere:\n\n```\nR_n(θ) = cos(θ/2) I − i sin(θ/2) (nx X + ny Y + nz Z)\n```\n\nwith the Pauli matrices `X = [0 1; 1 0]`, `Y = [0 -i; i 0]`,\n`Z = [1 0; 0 -1]`. For `n = [0, 0, 1]` it is `RZ(θ)`, and `rotation(n, 2π)`\nis `-I` for every axis.\n\n```julia\nrotation([0.0, 0.0, 1.0], pi)     # [-im 0; 0 im] up to rounding: RZ(π)\nrotation([1.0, 0.0, 0.0], pi)     # [0 -im; -im 0] up to rounding: -iX\n```\n\nResults are compared as whole matrices with `rtol = 1e-12`: each entry is\na sum of two or three products of rounded numbers of size at most 1, so\ntwo correct implementations agree to a few `u`, and `exp` of the\ngenerator (a scaling-and-squaring algorithm) to within about `1e-15`.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "rotation([0.0, 0.0, 1.0], pi)",
+              "result": "2×2 Matrix{ComplexF64}:\n 6.12323e-17-1.0im          0.0-0.0im\n         0.0-0.0im  6.12323e-17+1.0im"
+            },
+            {
+              "call": "rotation([1.0, 0.0, 0.0], pi)",
+              "result": "2×2 Matrix{ComplexF64}:\n 6.12323e-17-0.0im          0.0-1.0im\n         0.0-1.0im  6.12323e-17+0.0im"
+            },
+            {
+              "call": "rotation([0.0, 1.0, 0.0], pi / 2)",
+              "result": "2×2 Matrix{ComplexF64}:\n 0.707107-0.0im  -0.707107-0.0im\n 0.707107-0.0im   0.707107+0.0im"
+            },
+            {
+              "call": "rotation([0.0, 0.0, 1.0], 2pi)",
+              "result": "2×2 Matrix{ComplexF64}:\n -1.0-1.22465e-16im   0.0-0.0im\n  0.0-0.0im          -1.0+1.22465e-16im"
+            },
+            {
+              "call": "rotation([1.0, 1.0, 1.0] / sqrt(3), 2pi / 3)",
+              "result": "2×2 Matrix{ComplexF64}:\n 0.5-0.5im  -0.5-0.5im\n 0.5-0.5im   0.5+0.5im"
+            },
+            {
+              "call": "rotation([0.6, 0.0, 0.8], 1.234)",
+              "result": "2×2 Matrix{ComplexF64}:\n 0.815618-0.462873im       0.0-0.347155im\n      0.0-0.347155im  0.815618+0.462873im"
+            }
+          ],
+          "starter": "function rotation(n, θ)\n    # your code here\nend\n",
+          "title": "A rotation about any axis"
+        },
+        {
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "core",
+          "entry": "sample_outcome",
+          "hints": [
+            "Each outcome owns a piece of `[0, 1)` as long as its probability. Walk through the pieces in order: which one contains `u`?",
+            "Keep a running sum of `abs2(ψ[i])` and return `i - 1` as soon as it exceeds `u`; after the loop, return the last outcome."
+          ],
+          "id": "gb-sample-outcome",
+          "kcs": [
+            "born-rule"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              65536
+            ]
+          },
+          "prompt": "Write `sample_outcome(ψ, u)` that turns one uniform random number\n`u ∈ [0, 1)` into a measurement outcome of the state `ψ`, by inverse-CDF\nsampling: return the smallest outcome `k` (an `Int`, numbered from 0) with\n\n```\n|ψ_0|² + |ψ_1|² + … + |ψ_k|²  >  u\n```\n\nIf rounding leaves the total just below 1 and `u` is above it, return the\nlast outcome, `length(ψ) - 1`.\n\n```julia\nψ = ComplexF64[sqrt(0.1), sqrt(0.4), sqrt(0.2), sqrt(0.3)]\nsample_outcome(ψ, 0.05)     # 0\nsample_outcome(ψ, 0.62)     # 2: the cumulative sums are 0.1, 0.5, 0.7, 1.0\nsample_outcome(ψ, 0.99)     # 3\n```\n\nThe test values of `u` stay at least `1e-9` away from every cumulative sum,\nso the order of summation cannot change the outcome; results are compared\nexactly. Speed and allocations are graded against the reference, which\nallocates nothing.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "sample_outcome(ComplexF64[sqrt(0.1), sqrt(0.4), sqrt(0.2), sqrt(0.3)], 0.05)",
+              "result": "0"
+            },
+            {
+              "call": "sample_outcome(ComplexF64[sqrt(0.1), sqrt(0.4), sqrt(0.2), sqrt(0.3)], 0.62)",
+              "result": "2"
+            },
+            {
+              "call": "sample_outcome(ComplexF64[sqrt(0.1), sqrt(0.4), sqrt(0.2), sqrt(0.3)], 0.99)",
+              "result": "3"
+            },
+            {
+              "call": "sample_outcome(ComplexF64[1, 0], 0.999999)",
+              "result": "0"
+            },
+            {
+              "call": "sample_outcome(ComplexF64[0, 1], 0.0)",
+              "result": "1"
+            },
+            {
+              "call": "sample_outcome(ComplexF64[0.6, 0, 0, 0.8im], 0.5)",
+              "result": "3"
+            }
+          ],
+          "starter": "function sample_outcome(ψ, u)\n    # your code here\nend\n",
+          "title": "One measurement by inverse-CDF sampling"
+        }
+      ],
+      "references": [
+        {
+          "authors": "Nielsen, M. A.; Chuang, I. L.",
+          "id": "nielsen-chuang-2010",
+          "note": "Single-qubit gates as unitary matrices, the Pauli, Hadamard, phase and T gates, the rotation operators `exp(-iθa/2)` and the Bloch sphere (sections 1.2-1.3 and 4.2), as used in sections 2 to 5.",
+          "title": "Quantum Computation and Quantum Information",
+          "url": "https://doi.org/10.1017/CBO9780511976667",
+          "venue": "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)",
+          "year": 2012
+        },
+        {
+          "authors": "Barenco, A.; Bennett, C. H.; Cleve, R.; DiVincenzo, D. P.; Margolus, N.; Shor, P.; Sleator, T.; Smolin, J. A.; Weinfurter, H.",
+          "id": "barenco-1995",
+          "note": "Lemma 4.1: every 2×2 unitary is a phase times `R_z(α) R_y(θ) R_z(β)`, the decomposition behind the general gate `U(θ, φ, λ)` in section 4. An arXiv copy is at https://arxiv.org/abs/quant-ph/9503016.",
+          "title": "Elementary gates for quantum computation",
+          "url": "https://doi.org/10.1103/PhysRevA.52.3457",
+          "venue": "Physical Review A 52, 3457-3467",
+          "year": 1995
+        },
+        {
+          "authors": "Bloch, F.",
+          "id": "bloch-1946",
+          "note": "Describes the polarisation of spin-1/2 nuclei as a vector precessing in a magnetic field, the picture from which the Bloch sphere of section 5 takes its name.",
+          "title": "Nuclear Induction",
+          "url": "https://doi.org/10.1103/PhysRev.70.460",
+          "venue": "Physical Review 70, 460-474",
+          "year": 1946
+        },
+        {
+          "authors": "Devroye, L.",
+          "id": "devroye-1986",
+          "note": "The inversion method for discrete distributions, returning the first outcome whose cumulative probability exceeds a uniform draw (chapters 2 and 3): the sampler of section 6.",
+          "title": "Non-Uniform Random Variate Generation",
+          "url": "https://doi.org/10.1007/978-1-4613-8643-8",
+          "venue": "Springer",
+          "year": 1986
+        }
+      ],
+      "sections": [
+        {
+          "analogies": [],
+          "body": "Units 49 and 50 built the state: `2^n` complex amplitudes, outcome `k` at\n`ψ[k + 1]`, qubit `q` as bit `q` of `k`. This unit stays with **one qubit**,\na state `ψ = [α, β]` meaning `α|0⟩ + β|1⟩` with `|α|² + |β|² = 1`, and asks\nhow it changes. You need:\n\n* matrix-vector products `U * ψ` and the conjugate transpose `U'`\n  (`LinearAlgebra`, Core Julia unit 20);\n* `tr(A)`, the trace (sum of the diagonal), also from `LinearAlgebra`;\n* the Born rule of unit 49: outcome `k` has probability `|ψ_k|²`;\n* comparing floating-point results with a tolerance: `isapprox(a, b;\n  atol = t)` (or `a ≈ b`, which uses a relative tolerance of about\n  `sqrt(eps())` and no absolute one).",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "A 2×2 complex matrix acting on a one-qubit state, and the comparison operators this unit uses.",
+              "check": true,
+              "code": "using LinearAlgebra\nU = ComplexF64[0 1; 1 0]\nψ = ComplexF64[0.6, 0.8im]\nprintln(\"U * ψ = \", U * ψ)\nprintln(\"U' == U: \", U' == U, \",  tr(U) = \", tr(U))\nprintln(\"0.1 + 0.2 ≈ 0.3: \", 0.1 + 0.2 ≈ 0.3, \",  isapprox(1e-20, 0.0): \", isapprox(1e-20, 0.0), \",  with atol = 1e-15: \", isapprox(1e-20, 0.0; atol = 1e-15))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "U * ψ = ComplexF64[0.0 + 0.8im, 0.6 + 0.0im]\nU' == U: true,  tr(U) = 0.0 + 0.0im\n0.1 + 0.2 ≈ 0.3: true,  isapprox(1e-20, 0.0): false,  with atol = 1e-15: true\n"
+            }
+          ],
+          "questions": [],
+          "refs": [],
+          "title": "What you need from earlier units"
+        },
+        {
+          "analogies": [],
+          "body": "A **gate** is an operation on qubits; on one qubit it is a `2×2` complex\nmatrix `U`, and applying it is `ψ ↦ U ψ`. Column `j` of `U` is the image of\n`|j⟩`: the bit flip `X` maps `|0⟩` to `|1⟩` and back, so its columns are\n`(0, 1)` and `(1, 0)`.\n\nNot every matrix is a gate. The new state must still be normalised for\nevery `ψ`, which holds exactly when `U` is **unitary**: `U'U = I`, so\n`U⁻¹ = U'`. Every gate can be undone by its conjugate transpose.\n\nThe question this unit answers is geometric. A qubit's state, once two\nredundancies are removed (normalisation and a global phase, section 5), is\na point on a sphere, the **Bloch sphere**, and every single-qubit gate turns\nthat sphere. Knowing which turn each gate is lets you predict what a circuit\ndoes before running it, and gives a simulator a set of exact facts to be\ntested against.",
+          "diagrams": [],
+          "examples": [],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "So that `U` is Hermitian, `U' = U`, like an observable",
+                "So that every normalised state stays normalised",
+                "So that `U` has only real eigenvalues, like a measurement"
+              ],
+              "code": "",
+              "explain": "`‖Uψ‖² = ψ'U'Uψ`, which equals `ψ'ψ = 1` for every `ψ` exactly when `U'U = I`. Probabilities then still add up to 1 after the gate.",
+              "kind": "choice",
+              "misconceptions": [
+                "Hermitian (`U' = U`) is a different property: observables are Hermitian. Some gates are both (`X`, `H`), but `S = diag(1, i)` is unitary and not Hermitian.",
+                "",
+                "Unitary matrices have eigenvalues of magnitude 1, usually complex (`S` has `1` and `i`). Real eigenvalues belong to Hermitian matrices."
+              ],
+              "prompt": "Why must a single-qubit gate be unitary, `U'U = I`?"
+            }
+          ],
+          "refs": [
+            "nielsen-chuang-2010"
+          ],
+          "title": "The question: what does a gate do to the point that represents a qubit?"
+        },
+        {
+          "analogies": [],
+          "body": "Seven fixed gates cover most circuits:\n\n* the **Pauli** gates `X = [0 1; 1 0]` (bit flip), `Z = [1 0; 0 -1]` (phase\n  flip, `|1⟩ ↦ -|1⟩`) and `Y = [0 -i; i 0]` (both, `Y = iXZ`);\n* the **Hadamard** gate `H = [1 1; 1 -1]/√2`, which maps `|0⟩` to\n  `|+⟩ = (|0⟩ + |1⟩)/√2` and `|1⟩` to `|−⟩ = (|0⟩ − |1⟩)/√2`;\n* the **phase** gates `S = diag(1, i)` and `T = diag(1, e^{iπ/4})`;\n* **√X** (Qiskit's `sx`), `[1+i 1-i; 1-i 1+i]/2`, whose square is `X`.\n\nA test of `U'U = I` needs a tolerance, and it follows from how the entries\nwere computed. Each entry of a gate is exact or rounded once (`1/√2` and\n`e^{iπ/4}` have relative error at most `u = eps()/2`; Julia's `cos` and\n`sin` are within about one unit in the last place, so at most `2u`). An\nentry of `U'U` adds two products of such entries, each of magnitude at most\n1: about `2 · (2u + 2u + u) + u ≈ 11u`. The check uses `atol = 16 · eps() =\n32u`, three times that bound. An absolute tolerance is right here because\nthe entries of `I` are 0 and 1, and a relative one would demand exact zeros.\n\nThese identities follow from the matrices and are what a simulator's gate\ndefinitions are tested against:\n\n```\nH X H = Z      H Z H = X      S² = Z      T² = S      (√X)² = X      X Y = iZ\n```",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Every fixed gate passes `U'U ≈ I` with the derived tolerance, and the six identities hold.",
+              "check": true,
+              "code": "using LinearAlgebra\nX  = ComplexF64[0 1; 1 0];  Y = ComplexF64[0 -im; im 0];  Z = ComplexF64[1 0; 0 -1]\nH  = ComplexF64[1 1; 1 -1] / sqrt(2)\nS  = ComplexF64[1 0; 0 im];  T = ComplexF64[1 0; 0 cis(pi / 4)]\nSX = ComplexF64[1+im 1-im; 1-im 1+im] / 2\nis_unitary(U) = isapprox(U' * U, I; atol = 16 * eps())\nprintln(\"unitary: \", join((string(name, \" \", is_unitary(U)) for (name, U) in ((\"X\", X), (\"Y\", Y), (\"Z\", Z), (\"H\", H), (\"S\", S), (\"T\", T), (\"SX\", SX))), \", \"))\nfor (claim, ok) in ((\"H X H = Z\", H * X * H ≈ Z), (\"H Z H = X\", H * Z * H ≈ X), (\"S² = Z\", S * S ≈ Z),\n                    (\"T² = S\", T * T ≈ S), (\"SX² = X\", SX * SX ≈ X), (\"X Y = iZ\", X * Y ≈ im * Z))\n    println(rpad(claim, 10), ok)\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the identities are tested with `≈` (relative tolerance), which is right for them: both sides are matrices with entries of size about 1.",
+              "ok": true,
+              "output": "unitary: X true, Y true, Z true, H true, S true, T true, SX true\nH X H = Z true\nH Z H = X true\nS² = Z    true\nT² = S    true\nSX² = X   true\nX Y = iZ  true\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "It passes: `H` is unitary, so the product is exactly `I`",
+                "It fails: the rounded entries miss `I` by about `eps()`",
+                "It throws: `==` cannot compare a matrix with `I`"
+              ],
+              "code": "",
+              "explain": "`1/√2` is not a binary fraction, so `(1/√2)² + (1/√2)²` comes out as `0.9999999999999998` (unit 49 measured it). A correct unitary fails an exact test; the check needs the tolerance derived above.",
+              "kind": "choice",
+              "misconceptions": [
+                "`H` is unitary in exact arithmetic, but the computed matrix has rounded entries; the product misses `I` in the last bits.",
+                "",
+                "`==` with `I` (the `UniformScaling` from `LinearAlgebra`) works and compares entry by entry; the problem is rounding, not the operator."
+              ],
+              "prompt": "A test checks `U' * U == I` for `H = [1 1; 1 -1] / sqrt(2)`. What happens?"
+            }
+          ],
+          "refs": [
+            "nielsen-chuang-2010"
+          ],
+          "title": "Pauli, Hadamard, S, T and √X, and checking U'U = I"
+        },
+        {
+          "analogies": [
+            {
+              "breaks": "The belt is an ordinary object, and its twist can be seen; the qubit's sign\nafter one full turn cannot, on the qubit alone, because it is a global\nphase. The analogy shows only that \"one turn\" and \"two turns\" can differ for\na rotation that is attached to something, not why amplitudes move by half\nthe angle, which is the algebra of `exp(-i θ a / 2)` above.",
+              "text": "Hold one end of a belt fixed and turn the buckle a full turn, 360°: the belt\nis twisted, and no sliding of the buckle without turning it removes the\ntwist. Turn it a second full turn, 720°, and the twist can be undone without\nany further turning, by passing the belt around the buckle. A qubit behaves\nthe same way under rotation: after one full turn its state has picked up a\nsign, `R(2π) = -I`, and after two it is back, `R(4π) = I`.",
+              "title": "Dirac's belt trick"
+            }
+          ],
+          "body": "Each Pauli matrix generates a family of rotations of the Bloch sphere. The\nrotation by an angle `θ` about axis `a ∈ {X, Y, Z}` is\n\n```\nR_a(θ) = exp(-i θ a / 2) = cos(θ/2) I − i sin(θ/2) a\n```\n\nThe **half angle** `θ/2` is not a convention you can drop. The Bloch sphere\nturns by `θ`, but the matrix entries move by `θ/2`, because a state vector's\ndirection and its point on the sphere are related by a factor of 2 (two\northogonal states, at 90° as vectors, are opposite points on the sphere,\n180° apart). So `R_y(θ)|0⟩ = cos(θ/2)|0⟩ + sin(θ/2)|1⟩`, and a full turn,\n`θ = 2π`, gives `cos(π) I = -I`, not `I`. Only a turn of `4π` returns the\nmatrix to `I`.\n\nThe `-I` multiplies every amplitude by the same factor, a **global phase**,\nwhich no measurement of this qubit alone can detect (section 5). It does\nshow once the rotation is applied only when another qubit is 1 (a\ncontrolled gate, later in this course): then the `-1` lands on one branch\nof the state and not the other.\n\nTwo more facts a simulator relies on: `R_x(π) = -iX`, the bit flip up to a\nglobal phase, and the phase gate `P(λ) = diag(1, e^{iλ})` equals\n`e^{iλ/2} R_z(λ)`, again up to a global phase. Every single-qubit gate is a\nglobal phase times `R_z(α) R_y(θ) R_z(β)` for some angles (Barenco et al.,\nLemma 4.1); Qiskit's general gate `U(θ, φ, λ)` is built that way.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Rotations about `Z` at a full turn and at two full turns, the bit flip as a rotation, and the phase gate.",
+              "check": true,
+              "code": "using LinearAlgebra\nX = ComplexF64[0 1; 1 0]\nRX(θ) = ComplexF64[cos(θ/2) -im*sin(θ/2); -im*sin(θ/2) cos(θ/2)]\nRZ(θ) = ComplexF64[cis(-θ/2) 0; 0 cis(θ/2)]\nP(λ)  = ComplexF64[1 0; 0 cis(λ)]\nname(U) = U ≈ I ? \"I\" : U ≈ -I ? \"-I\" : \"neither\"\nprintln(\"RZ(2π) = \", name(RZ(2pi)), \",  RZ(4π) = \", name(RZ(4pi)))\nprintln(\"RX(π) ≈ -iX: \", RX(pi) ≈ -im * X, \",  P(0.9) ≈ e^{0.45i} RZ(0.9): \", P(0.9) ≈ cis(0.45) * RZ(0.9))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "RZ(2π) = -I,  RZ(4π) = I\nRX(π) ≈ -iX: true,  P(0.9) ≈ e^{0.45i} RZ(0.9): true\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "I: a full turn changes nothing",
+                  "-I",
+                  "neither I nor -I"
+                ],
+                "explain": "With the half angle, both diagonal entries are `e^{∓iπ} = -1`, so `RZ(2π) = -I`; `RZ(4π)` is `I`. The point on the Bloch sphere is back where it started after `2π`, but the state vector carries the global phase `-1`.",
+                "kc": "unitary-gates",
+                "measured": "-I",
+                "prompt": "`RZ(θ) = diag(e^{-iθ/2}, e^{iθ/2})`. Before the output is shown: what is `RZ(2π)`, a full turn?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "`|1⟩` both ways: the factor only changes the global phase",
+                "`-|0⟩` with the bug, while the correct gate gives `|1⟩`",
+                "`|+⟩` with the bug, while the correct gate gives `|1⟩`"
+              ],
+              "code": "",
+              "explain": "Correctly, `RY(π)|0⟩ = cos(π/2)|0⟩ + sin(π/2)|1⟩ = |1⟩`: a half turn about `y` takes the north pole to the south pole. With the full angle, `cos(π)|0⟩ + sin(π)|1⟩ = -|0⟩`: the qubit has gone all the way around and never left `|0⟩` as far as measurement can tell. The `qsim` project tests this half angle.",
+              "kind": "choice",
+              "misconceptions": [
+                "The half angle changes which state you get, not only a phase: `cos` and `sin` at `π` and at `π/2` are different numbers.",
+                "",
+                "`|+⟩` is `RY(π/2)|0⟩` with the correct half angle, a quarter of the way around the sphere."
+              ],
+              "prompt": "`RY(θ)` is written with `cos(θ)` and `sin(θ)` instead of `cos(θ/2)` and `sin(θ/2)`. What does `RY(π)|0⟩` give then, and what should it give?"
+            }
+          ],
+          "refs": [
+            "barenco-1995",
+            "nielsen-chuang-2010"
+          ],
+          "title": "Rotations: the half angle, and why a full turn gives -I"
+        },
+        {
+          "analogies": [
+            {
+              "breaks": "On a globe, opposite points are as different as two places can be; on the\nBloch sphere opposite points are *orthogonal* states, and the angle between\ntwo state vectors is half the angle between their points (the `θ/2` of the\nformula). The globe also stops at one qubit: two qubits do not have two\nBloch vectors in general, because entangled states (unit 53) have no point\non any sphere for each qubit.",
+              "text": "The Bloch sphere is a globe for one qubit. `θ` is the angle down from the\nnorth pole (90° minus the latitude) and says how the probability is shared:\n`P(0) = cos²(θ/2)`, so the north pole is certainly `0`, the south pole\ncertainly `1`, and the equator is a fair coin. `φ` is the longitude, the\nrelative phase between the two amplitudes, which no measurement in the\n`0`/`1` basis can see, but which decides where a later gate sends the state.",
+              "title": "Latitude and longitude on a globe"
+            }
+          ],
+          "body": "A one-qubit state `α|0⟩ + β|1⟩` has four real numbers. Normalisation\nremoves one, and the **global phase** (multiplying both amplitudes by the\nsame `e^{iγ}`) removes another, because it changes no probability of any\nmeasurement. Two remain, two angles on a sphere:\n\n```\n|ψ⟩ = cos(θ/2)|0⟩ + e^{iφ} sin(θ/2)|1⟩   ↔   r = (sin θ cos φ, sin θ sin φ, cos θ)\n```\n\nThe **Bloch vector** `r` has a formula that needs no angles. With the\n**density matrix** `ρ = ψψ'` (a `2×2` matrix; unit 59 uses it for noisy\nstates), `r = (tr(ρX), tr(ρY), tr(ρZ))`, the expected values of the three\nPauli measurements. Multiplying `ψ` by `e^{iγ}` multiplies `ψψ'` by\n`e^{iγ} e^{-iγ} = 1`, so `ρ`, and with it `r`, does not see a global phase.\n\nSix points are worth knowing by heart: `|0⟩` is the north pole `+z`, `|1⟩`\nthe south pole, `|±⟩` sit on `±x` and `|±i⟩ = (|0⟩ ± i|1⟩)/√2` on `±y`.\nAntipodal points are orthogonal states.\n\nA *relative* phase, unlike a global one, moves the point: `|+⟩` and `|−⟩`\ngive the same probabilities (0.5 and 0.5) but sit on opposite sides of the\nsphere, and `H` sends them to different poles. This is the example unit 49\npromised: equal probabilities, different states.",
+          "diagrams": [
+            {
+              "alt": "The Bloch sphere drawn as a circle with three axes: the north pole +z labelled |0⟩, the south pole labelled |1⟩, +x and -x labelled |+⟩ and |−⟩, +y and -y labelled |+i⟩ and |−i⟩, and a state vector r at polar angle θ from +z and azimuth φ from +x.",
+              "caption": "The polar angle θ appears as θ/2 in the amplitudes; orthogonal states are opposite points.",
+              "src": "assets/diagrams/51-gates-bloch/bloch-sphere.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "Bloch vectors of the six cardinal states, the effect of a global phase, and `H` applied to `|+⟩` and `|−⟩`.",
+              "check": true,
+              "code": "using LinearAlgebra\nX = ComplexF64[0 1; 1 0];  Y = ComplexF64[0 -im; im 0];  Z = ComplexF64[1 0; 0 -1]\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nbloch(ψ) = (ρ = ψ * ψ'; real.([tr(ρ * X), tr(ρ * Y), tr(ρ * Z)]))\nshow_r(r) = round.(r; digits = 12) .+ 0.0                     # .+ 0.0 turns -0.0 into 0.0\na = 1 / sqrt(2)\nfor (label, ψ) in ((\"|0⟩\", [1, 0]), (\"|1⟩\", [0, 1]), (\"|+⟩\", [a, a]), (\"|−⟩\", [a, -a]), (\"|+i⟩\", [a, a * im]), (\"|−i⟩\", [a, -a * im]))\n    println(rpad(label, 5), show_r(bloch(ComplexF64.(ψ))))\nend\nψ = ComplexF64[cos(0.55), sin(0.55)]\nprintln(\"global phase e^{0.7i}: same Bloch vector: \", bloch(cis(0.7) * ψ) ≈ bloch(ψ))\nplus, minus = ComplexF64[a, a], ComplexF64[a, -a]\nprintln(\"probabilities |+⟩: \", abs2.(plus), \",  |−⟩: \", abs2.(minus))\nprintln(\"H|+⟩ probabilities: \", round.(abs2.(H * plus); digits = 12), \",  H|−⟩: \", round.(abs2.(H * minus); digits = 12))",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that `e^{0.7i}ψ` has the same Bloch vector as `ψ`, while `|+⟩` and `|−⟩`, with identical probabilities, are opposite points and come out of `H` as different basis states.",
+              "ok": true,
+              "output": "|0⟩  [0.0, 0.0, 1.0]\n|1⟩  [0.0, 0.0, -1.0]\n|+⟩  [1.0, 0.0, 0.0]\n|−⟩  [-1.0, 0.0, 0.0]\n|+i⟩ [0.0, 1.0, 0.0]\n|−i⟩ [0.0, -1.0, 0.0]\nglobal phase e^{0.7i}: same Bloch vector: true\nprobabilities |+⟩: [0.4999999999999999, 0.4999999999999999],  |−⟩: [0.4999999999999999, 0.4999999999999999]\nH|+⟩ probabilities: [1.0, 0.0],  H|−⟩: [0.0, 1.0]\n"
+            },
+            {
+              "caption": "Where `S H |0⟩` sits on the sphere: `H` first, then `S`.",
+              "check": true,
+              "code": "using LinearAlgebra\nX = ComplexF64[0 1; 1 0];  Y = ComplexF64[0 -im; im 0];  Z = ComplexF64[1 0; 0 -1]\nH = ComplexF64[1 1; 1 -1] / sqrt(2);  S = ComplexF64[1 0; 0 im]\nbloch(ψ) = (ρ = ψ * ψ'; real.([tr(ρ * X), tr(ρ * Y), tr(ρ * Z)]))\nr = bloch(S * H * ComplexF64[1, 0])\naxes = [\"+x\" => [1, 0, 0], \"-x\" => [-1, 0, 0], \"+y\" => [0, 1, 0], \"-y\" => [0, -1, 0], \"+z\" => [0, 0, 1], \"-z\" => [0, 0, -1]]\nprintln(\"S H|0⟩ points along \", first(a for (a, v) in axes if isapprox(r, v; atol = 1e-12)))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "S H|0⟩ points along +y\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "+x",
+                  "+y",
+                  "-y",
+                  "+z"
+                ],
+                "explain": "`S H|0⟩ = (|0⟩ + i|1⟩)/√2 = |+i⟩`, on `+y`: `S` multiplies the `|1⟩` amplitude by `i`, a relative phase of `π/2`, which turns the point a quarter turn about `z`, from `+x` towards `+y`. `-y` would be `S'`, the opposite turn.",
+                "kc": "bloch-sphere",
+                "measured": "+y",
+                "prompt": "`H` takes `|0⟩` to `|+⟩` on the `+x` axis, and `S = diag(1, i)` is a quarter turn about `z`. Before the output is shown: where does `S H |0⟩` point?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 3,
+              "choices": [
+                "Yes: a state is fixed by its probabilities",
+                "No: they can differ by a global phase, which no measurement detects",
+                "No: a relative phase can differ, and a later gate reveals it"
+              ],
+              "code": "",
+              "explain": "Equal probabilities fix `θ` on the sphere but not `φ`. `|+⟩` and `|−⟩` are the example: same probabilities, opposite points, and `H` maps one to `|0⟩` and the other to `|1⟩`. A global phase gives no different state at all: it is the same point.",
+              "kind": "choice",
+              "misconceptions": [
+                "Probabilities in the `0`/`1` basis fix only the latitude, `θ`; the longitude `φ` (the relative phase) is invisible to that measurement and changes what later gates do.",
+                "A global phase is true but describes the *same* state: it never changes any measurement, before or after any gate. States that differ physically differ by a relative phase.",
+                ""
+              ],
+              "prompt": "Two one-qubit states give the same probabilities of 0 and 1. Must they be the same state?"
+            }
+          ],
+          "refs": [
+            "bloch-1946",
+            "nielsen-chuang-2010"
+          ],
+          "title": "The Bloch sphere: one qubit as a point"
+        },
+        {
+          "analogies": [],
+          "body": "A simulator returns amplitudes, but a quantum computer returns measurement\n**outcomes**, one per run (\"shot\"). To produce shots, a simulator draws\noutcomes with the Born probabilities. The standard way is **inverse-CDF\nsampling**: line up the probabilities `p_0, p_1, …` on the interval\n`[0, 1)`, draw `u` uniformly, and return the first `k` whose cumulative sum\n`p_0 + … + p_k` exceeds `u`.\n\nChecking a sampler needs a statistical tolerance, and it can be derived.\nOut of `N` shots, the number of 1s is binomial, so the observed frequency\n`f` of an outcome with probability `p` has mean `p` and standard error\n`σ = sqrt(p (1 - p) / N)`. For `N = 200 000` the frequency is close to\nnormal, and a correct sampler lands more than `5σ` away with probability\nabout `6e-7`, about once in 1.7 million runs. A test that allows `5σ`\nalmost never fails a correct sampler, and the RNG is seeded, so the result\nis the same on every run: if it fails once, it fails every time and is a\nbug.\n\nA wrong sampler is not caught by every check of this kind. One that\nreturns the right outcome distribution with the bits of `k` in the wrong\norder passes this one-qubit test; the `qsim` project tests that with\nseveral qubits.",
+          "diagrams": [
+            {
+              "alt": "The interval from 0 to 1 split into four segments of lengths 0.1, 0.4, 0.2 and 0.3 for the outcomes 0 to 3, with a uniform draw u = 0.62 marked; it falls in the third segment, which spans 0.5 to 0.7, so the sampler returns outcome 2.",
+              "caption": "Each outcome owns a piece of [0, 1) as long as its probability; a uniform u picks the piece it lands in.",
+              "src": "assets/diagrams/51-gates-bloch/inverse-cdf.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "200 000 measurements of `RY(2π/3)|0⟩`, whose exact `P(1)` is `sin²(π/3) = 0.75`, drawn with a seeded RNG.",
+              "check": true,
+              "code": "using Random, Printf\nθ = 2pi / 3\nψ = ComplexF64[cos(θ / 2), sin(θ / 2)]             # RY(θ)|0⟩\np1 = abs2(ψ[2])\nN = 200_000\nrng = Xoshiro(42)\ndraw(rng) = rand(rng) < abs2(ψ[1]) ? 0 : 1          # inverse CDF for one qubit\nf1 = count(_ -> draw(rng) == 1, 1:N) / N\nσ = sqrt(p1 * (1 - p1) / N)\n@printf(\"exact P(1) = %.4f, observed %.4f, off by %.1f σ (σ = %.5f): within 5σ: %s\\n\", p1, f1, abs(f1 - p1) / σ, σ, abs(f1 - p1) < 5σ)",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the frequency misses 0.75 by about 1.8 standard errors, inside the 5σ band: a correct sampler is off by a few σ in most runs, so a tolerance tighter than the noise would fail it.",
+              "ok": true,
+              "output": "exact P(1) = 0.7500, observed 0.7517, off by 1.8 σ (σ = 0.00097): within 5σ: true\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "Nothing: with a seeded RNG every run gives the same result",
+                "Depending on the seed, a third of correct samplers fail",
+                "It is too loose: a correct sampler is always within `0.1σ`"
+              ],
+              "code": "",
+              "explain": "A normal deviate exceeds `1σ` with probability about 0.32. Seeding makes the test repeatable, but which way it goes depends on the seed: change the seed (or the number of shots) and a third of correct samplers fail. `5σ` makes that about `6e-7`.",
+              "kind": "choice",
+              "misconceptions": [
+                "Seeding fixes the outcome of this run, not whether the tolerance is sensible: the next seed, or the next change to the code that draws one extra random number, has a 1 in 3 chance of failing a correct sampler.",
+                "",
+                "The deviation of a correct sampler is about `1σ` in a typical run, by definition of the standard error; the example's was 1.8σ."
+              ],
+              "prompt": "A sampler test with 200 000 shots allows only `1σ` of difference from the exact probability. What is wrong with it?"
+            }
+          ],
+          "refs": [
+            "devroye-1986"
+          ],
+          "title": "Born-rule sampling, checked within 5 standard errors"
+        }
+      ],
+      "status": "ready",
+      "summary": "Single-qubit gates as 2×2 unitary matrices checked by `U'U ≈ I` with a derived tolerance; the identities a simulator must satisfy; rotations with their half angle, and why a full turn gives `-I`; the Bloch vector as the picture of one qubit, blind to global phase; and Born-rule sampling checked against the exact probability within 5 standard errors.",
       "title": "Gates and the Bloch sphere",
       "track": "quantum"
     },
@@ -96,21 +1437,495 @@
         "property-testing"
       ],
       "lessons": [],
-      "outline": [
-        "The question: a 20-qubit full operator has 2^40 entries; how do you apply a gate without it?",
-        "apply! by strided pairs of amplitudes and bit masks, in place",
-        "full_operator from the definition, and full_operator_kron from textbook Kronecker products",
-        "Property tests: the three agree on random unitaries, qubit subsets and states",
-        "Measured: allocations and time of apply! against the dense product"
-      ],
+      "outline": [],
       "prerequisites": [
         "51-gates-bloch"
       ],
-      "problems": [],
-      "references": [],
-      "sections": [],
-      "status": "planned",
-      "summary": "Three implementations of the same operation: bit manipulation in place, the element-by-element definition, and Kronecker products, with tests that they agree.",
+      "problems": [
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "apply_1q!",
+          "hints": [
+            "A gate on qubit `q` mixes only two outcomes at a time, those that differ in bit `q` alone. How do you visit each such pair exactly once?",
+            "Loop over `k` with `k & (1 << q) == 0`; the partner is `k + (1 << q)`. Read both amplitudes into locals, then write `U[1,1]a + U[1,2]b` and `U[2,1]a + U[2,2]b`."
+          ],
+          "id": "ag-apply-1q",
+          "kcs": [
+            "gate-application"
+          ],
+          "perf": {
+            "mutates": true,
+            "sizes": [
+              65536
+            ]
+          },
+          "prompt": "Write `apply_1q!(ψ, U, q)` that applies the `2×2` gate `U` to qubit `q` of\nthe state `ψ` (little-endian, as in unit 50), **in place**, and returns `ψ`.\nUpdate each pair of amplitudes whose outcomes differ only in bit `q`, and do\nnot build the `2^n × 2^n` operator.\n\n```julia\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\napply_1q!(ComplexF64[1, 0, 0, 0], H, 0)     # (|00⟩ + |01⟩)/√2: entries 1 and 2 are 1/√2\napply_1q!(ComplexF64[1, 0, 0, 0], H, 1)     # (|00⟩ + |10⟩)/√2: entries 1 and 3 are 1/√2\n```\n\nResults are compared as whole vectors with `rtol = 1e-12`. Two correct\nversions compute each amplitude from the same two products, so they differ\nby a few `u` at most (section \"full_operator from the definition\"); `1e-12`\nis far above that and far below the difference any wrong pairing makes.\nSpeed and allocations are graded against the reference, which allocates\nnothing.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "apply_1q!(ComplexF64[1, 0, 0, 0], ComplexF64[1 1; 1 -1] / sqrt(2), 0)",
+              "result": "4-element Vector{ComplexF64}:\n 0.7071067811865475 + 0.0im\n 0.7071067811865475 + 0.0im\n                0.0 + 0.0im\n                0.0 + 0.0im"
+            },
+            {
+              "call": "apply_1q!(ComplexF64[1, 0, 0, 0], ComplexF64[1 1; 1 -1] / sqrt(2), 1)",
+              "result": "4-element Vector{ComplexF64}:\n 0.7071067811865475 + 0.0im\n                0.0 + 0.0im\n 0.7071067811865475 + 0.0im\n                0.0 + 0.0im"
+            },
+            {
+              "call": "apply_1q!(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8] / sqrt(204), ComplexF64[0 1; 1 0], 2)",
+              "result": "8-element Vector{ComplexF64}:\n  0.3500700210070024 + 0.0im\n 0.42008402520840293 + 0.0im\n  0.4900980294098034 + 0.0im\n  0.5601120336112039 + 0.0im\n 0.07001400420140048 + 0.0im\n 0.14002800840280097 + 0.0im\n 0.21004201260420147 + 0.0im\n 0.28005601680560194 + 0.0im"
+            },
+            {
+              "call": "apply_1q!(ComplexF64[0.6, 0.8im], ComplexF64[1 0; 0 im], 0)",
+              "result": "2-element Vector{ComplexF64}:\n  0.6 + 0.0im\n -0.8 + 0.0im"
+            },
+            {
+              "call": "apply_1q!(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8] / sqrt(204), ComplexF64[cos(0.3) -cis(0.5)*sin(0.3); cis(1.1)*sin(0.3) cis(1.6)*cos(0.3)], 1)",
+              "result": "8-element Vector{ComplexF64}:\n 0.012413927461644492 - 0.02975873853487881im\n  0.06114319192445357 - 0.039678318046505075im\n 0.003525955114582733 + 0.2190148108449676im\n 0.010958043210624178 + 0.3043127965327097im\n   0.2073309853128808 - 0.06943705658138388im\n  0.25606024977568986 - 0.07935663609301015im\n  0.03325430749874852 + 0.5602067535959362im\n  0.04068639559478997 + 0.6455047392836782im"
+            }
+          ],
+          "starter": "function apply_1q!(ψ, U, q)\n    # your code here\nend\n",
+          "title": "Apply a single-qubit gate in place"
+        },
+        {
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "warm-up",
+          "entry": "kron_operator",
+          "hints": [
+            "The order of the `kron` factors is the order of the bits, most significant first. Which qubit is the most significant?",
+            "Make the list of `n` factors for `i = n-1, n-2, …, 0`, with `U` where `i == q` and the identity elsewhere, and combine them with `reduce(kron, factors)`."
+          ],
+          "id": "ag-kron-operator",
+          "kcs": [
+            "gate-application"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              1
+            ]
+          },
+          "prompt": "Write `kron_operator(U, q, n)` that returns the `2^n × 2^n` operator (a\n`Matrix{ComplexF64}`) of the `2×2` gate `U` on qubit `q` of `n` qubits,\nas the Kronecker product of `n` factors: `U` for qubit `q`, the identity for\nevery other qubit, in this course's order (the leftmost factor is qubit\n`n - 1`, unit 50).\n\n```julia\nX = ComplexF64[0 1; 1 0]\nkron_operator(X, 0, 2) == kron(ComplexF64[1 0; 0 1], X)    # true\nkron_operator(X, 1, 2) == kron(X, ComplexF64[1 0; 0 1])    # true\n```\n\n`kron` multiplies entries of the factors, and every entry of an identity is\nan exact 0 or 1, so every entry of the result is exact. Exact does not mean\n`isequal`, though: `0 * x` is `-0.0` when `x` is negative, so two correct\nversions that multiply in a different order can disagree on the *sign* of a\nzero, and `isequal(0.0, -0.0)` is `false`. Results are therefore compared\nwith `isapprox` at `rtol = 1e-14`, which treats `0.0` and `-0.0` as equal\nand still leaves no room for a wrong entry. Speed is graded against the\nreference.",
+          "random_cases": true,
+          "rtol": 1.0e-14,
+          "samples": [
+            {
+              "call": "kron_operator(ComplexF64[0 1; 1 0], 0, 2)",
+              "result": "4×4 Matrix{ComplexF64}:\n 0.0+0.0im  1.0+0.0im  0.0+0.0im  0.0+0.0im\n 1.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  1.0+0.0im\n 0.0+0.0im  0.0+0.0im  1.0+0.0im  0.0+0.0im"
+            },
+            {
+              "call": "kron_operator(ComplexF64[0 1; 1 0], 1, 2)",
+              "result": "4×4 Matrix{ComplexF64}:\n 0.0+0.0im  0.0+0.0im  1.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  1.0+0.0im\n 1.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  1.0+0.0im  0.0+0.0im  0.0+0.0im"
+            },
+            {
+              "call": "kron_operator(ComplexF64[1 1; 1 -1] / sqrt(2), 1, 3)",
+              "result": "8×8 Matrix{ComplexF64}:\n 0.707107+0.0im       0.0+0.0im   0.707107+0.0im        0.0+0.0im       0.0+0.0im       0.0+0.0im        0.0+0.0im        0.0+0.0im\n      0.0+0.0im  0.707107+0.0im        0.0+0.0im   0.707107+0.0im       0.0+0.0im       0.0+0.0im        0.0+0.0im        0.0+0.0im\n 0.707107+0.0im       0.0+0.0im  -0.707107+0.0im       -0.0+0.0im       0.0+0.0im       0.0+0.0im       -0.0+0.0im       -0.0+0.0im\n      0.0+0.0im  0.707107+0.0im       -0.0+0.0im  -0.707107+0.0im       0.0+0.0im       0.0+0.0im       -0.0+0.0im       -0.0+0.0im\n      0.0+0.0im       0.0+0.0im        0.0+0.0im        0.0+0.0im  0.707107+0.0im       0.0+0.0im   0.707107+0.0im        0.0+0.0im\n      0.0+0.0im       0.0+0.0im        0.0+0.0im        0.0+0.0im       0.0+0.0im  0.707107+0.0im        0.0+0.0im   0.707107+0.0im\n      0.0+0.0im       0.0+0.0im       -0.0+0.0im       -0.0+0.0im  0.707107+0.0im       0.0+0.0im  -0.707107+0.0im       -0.0+0.0im\n      0.0+0.0im       0.0+0.0im       -0.0+0.0im       -0.0+0.0im       0.0+0.0im  0.707107+0.0im       -0.0+0.0im  -0.707107+0.0im"
+            },
+            {
+              "call": "kron_operator(ComplexF64[1 0; 0 im], 0, 1)",
+              "result": "2×2 Matrix{ComplexF64}:\n 1.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+1.0im"
+            },
+            {
+              "call": "kron_operator(ComplexF64[0 -im; im 0], 2, 4)",
+              "result": "16×16 Matrix{ComplexF64}:\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0-1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0-1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0-1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0-1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0-1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0-1.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0-1.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0-1.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im\n 0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+1.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im  0.0+0.0im"
+            }
+          ],
+          "starter": "using LinearAlgebra\n\nfunction kron_operator(U, q, n)\n    # your code here\nend\n",
+          "title": "The textbook operator with kron"
+        },
+        {
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "core",
+          "entry": "apply_cx!",
+          "hints": [
+            "CNOT is the bit flip of unit 50 applied only on the half of the outcomes where the control bit is 1. Which pairs does it swap?",
+            "Loop over `k` with bit `c` set and bit `t` clear, and swap `ψ[k + 1]` with `ψ[(k | (1 << t)) + 1]`."
+          ],
+          "id": "ag-apply-cx",
+          "kcs": [
+            "gate-application"
+          ],
+          "perf": {
+            "mutates": true,
+            "sizes": [
+              65536
+            ]
+          },
+          "prompt": "Write `apply_cx!(ψ, c, t)` that applies CNOT, the controlled NOT, with\ncontrol qubit `c` and target qubit `t` (`c ≠ t`) to the state `ψ` in place,\nand returns `ψ`. CNOT flips the target when the control is 1: it swaps the\namplitudes of each pair of outcomes that have bit `c` equal to 1 and differ\nonly in bit `t`, and leaves every outcome with bit `c` equal to 0 alone.\n\n```julia\napply_cx!(ComplexF64[0, 1, 0, 0], 0, 1)     # |01⟩ → |11⟩: control qubit 0 is 1, so qubit 1 flips\napply_cx!(ComplexF64[0, 0, 1, 0], 0, 1)     # |10⟩ stays: control qubit 0 is 0\n```\n\nA swap moves amplitudes without arithmetic, so results are compared\nexactly. Speed and allocations are graded against the reference, which\nallocates nothing.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "apply_cx!(ComplexF64[0, 1, 0, 0], 0, 1)",
+              "result": "4-element Vector{ComplexF64}:\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 1.0 + 0.0im"
+            },
+            {
+              "call": "apply_cx!(ComplexF64[0, 0, 1, 0], 0, 1)",
+              "result": "4-element Vector{ComplexF64}:\n 0.0 + 0.0im\n 0.0 + 0.0im\n 1.0 + 0.0im\n 0.0 + 0.0im"
+            },
+            {
+              "call": "apply_cx!(ComplexF64[0, 0, 1, 0], 1, 0)",
+              "result": "4-element Vector{ComplexF64}:\n 0.0 + 0.0im\n 0.0 + 0.0im\n 0.0 + 0.0im\n 1.0 + 0.0im"
+            },
+            {
+              "call": "apply_cx!(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 2, 0)",
+              "result": "8-element Vector{ComplexF64}:\n 1.0 + 0.0im\n 2.0 + 0.0im\n 3.0 + 0.0im\n 4.0 + 0.0im\n 6.0 + 0.0im\n 5.0 + 0.0im\n 8.0 + 0.0im\n 7.0 + 0.0im"
+            },
+            {
+              "call": "apply_cx!(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 0, 2)",
+              "result": "8-element Vector{ComplexF64}:\n 1.0 + 0.0im\n 6.0 + 0.0im\n 3.0 + 0.0im\n 8.0 + 0.0im\n 5.0 + 0.0im\n 2.0 + 0.0im\n 7.0 + 0.0im\n 4.0 + 0.0im"
+            }
+          ],
+          "starter": "function apply_cx!(ψ, c, t)\n    # your code here\nend\n",
+          "title": "CNOT in place"
+        }
+      ],
+      "references": [
+        {
+          "authors": "Jones, T.; Brown, A.; Bush, I.; Benjamin, S. C.",
+          "id": "jones-2019",
+          "note": "Equation 1 applies a single-qubit gate on qubit q by updating pairs of amplitudes 2^q apart, with no full 2^N × 2^N matrix, the update of sections 2, 3 and 6; the paper also gives the 16 · 2^n bytes of a state. An arXiv copy is at https://arxiv.org/abs/1802.08032.",
+          "title": "QuEST and High Performance Simulation of Quantum Computers",
+          "url": "https://doi.org/10.1038/s41598-019-47174-9",
+          "venue": "Scientific Reports 9, 10736",
+          "year": 2019
+        },
+        {
+          "authors": "Higham, N. J.",
+          "id": "higham-2002",
+          "note": "The rounding-error bounds for complex multiplication (`√2 γ₂` relative, section 3.6) and for sums (chapter 3), used in section 4 to derive the `8 · eps()` tolerance.",
+          "title": "Accuracy and Stability of Numerical Algorithms",
+          "url": "https://doi.org/10.1137/1.9780898718027",
+          "venue": "SIAM, second edition",
+          "year": 2002
+        },
+        {
+          "authors": "Nielsen, M. A.; Chuang, I. L.",
+          "id": "nielsen-chuang-2010",
+          "note": "The tensor-product construction of an operator on one qubit of several (section 2.1.7) and CNOT (section 1.3.2), the textbook references that section 4 and the CNOT problem test against.",
+          "title": "Quantum Computation and Quantum Information",
+          "url": "https://doi.org/10.1017/CBO9780511976667",
+          "venue": "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)",
+          "year": 2012
+        },
+        {
+          "authors": "Claessen, K.; Hughes, J.",
+          "id": "claessen-hughes-2000",
+          "note": "Introduced testing programs against stated properties on many random inputs, the style of section 5.",
+          "title": "QuickCheck: a lightweight tool for random testing of Haskell programs",
+          "url": "https://doi.org/10.1145/351240.351266",
+          "venue": "Proceedings of the Fifth ACM SIGPLAN International Conference on Functional Programming (ICFP), 268-279",
+          "year": 2000
+        },
+        {
+          "authors": "Mezzadri, F.",
+          "id": "mezzadri-2007",
+          "note": "Shows that the QR factorization of a complex Gaussian matrix is not Haar-distributed as computed, and that multiplying Q by the phases of R's diagonal makes it so (sections 4 and 5): the `haar_unitary` of section 5.",
+          "title": "How to generate random matrices from the classical compact groups",
+          "url": "https://arxiv.org/abs/math-ph/0609050",
+          "venue": "Notices of the American Mathematical Society 54, 592-604",
+          "year": 2007
+        }
+      ],
+      "sections": [
+        {
+          "analogies": [],
+          "body": "This unit puts the pieces of units 49 to 51 together: a gate `U` (a `2×2`\nunitary, unit 51) acting on qubit `q` (bit `q` of every outcome, unit 50) of\nan `n`-qubit state stored as `2^n` amplitudes (unit 49). It also uses:\n\n* the bit operations of unit 50: `1 << q`, `k & m` (bits set in both),\n  `k | m` (bits set in either);\n* `kron` for the textbook operator `kron(op_{n-1}, ..., op_0)` (unit 50);\n* `@allocated f(x)`, which reports the bytes a call allocates; measure it\n  after a first call, which compiles (Core Julia unit 14, \"Performance\");\n* `qr` from `LinearAlgebra`, which factors a matrix into an orthonormal `Q`\n  and a triangular `R` (used here to make random unitary matrices).",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Bit masks on the outcome 5 = binary 101.",
+              "check": true,
+              "code": "k, m = 5, 1 << 1                      # m = 2 = binary 010: bit 1\nprintln(\"k & m = \", k & m, \",  k | m = \", k | m, \",  qubit 1 of 5 is \", (k & m) == 0 ? 0 : 1)",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "k & m = 0,  k | m = 7,  qubit 1 of 5 is 0\n"
+            }
+          ],
+          "questions": [],
+          "refs": [],
+          "title": "What you need from earlier units"
+        },
+        {
+          "analogies": [],
+          "body": "Unit 50 built the operator of a gate on qubit `q` as a `2^n × 2^n` matrix,\n`kron(I, ..., U, ..., I)`, and applying it is a matrix-vector product. That\ncosts `4^n` multiplications and `16 · 4^n` bytes of memory. At 20 qubits the\nstate is 16 MiB, but the matrix would be 16 TiB, and nearly all of it zeros.\n\nMost of those zeros are known in advance. A gate on qubit `q` never changes\nthe other qubits, so it only mixes the amplitudes of two outcomes that agree\non every other bit: `k` with qubit `q` equal to 0, and its partner\n`k + 2^q`, with qubit `q` equal to 1. Each of the `2^(n-1)` such pairs is\nmultiplied by the same `2×2` matrix `U`:\n\n```\n(ψ[k], ψ[k + 2^q])  ←  U * (ψ[k], ψ[k + 2^q])      for every k with qubit q = 0\n```\n\nThat is `2 · 2^n` multiplications and no extra memory, and it is how\nstate-vector simulators apply gates; QuEST, for example, describes exactly\nthis update with pairs `2^q` apart. The rest of this unit writes it, builds\ntwo independent versions of the same operator to test it against, and\nmeasures what is gained.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Entries and memory of the full operator against the state itself, `16 · 4^n` and `16 · 2^n` bytes.",
+              "check": true,
+              "code": "for n in (10, 20, 30)\n    println(\"n = \", n, \": state \", Base.format_bytes(16 * big(2)^n), \", full operator \", Base.format_bytes(16 * big(4)^n),\n            \" (\", big(4)^n, \" entries, of which \", 2 * big(2)^n, \" are not zero)\")\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "n = 10: state 16.000 KiB, full operator 16.000 MiB (1048576 entries, of which 2048 are not zero)\nn = 20: state 16.000 MiB, full operator 16.000 TiB (1099511627776 entries, of which 2097152 are not zero)\nn = 30: state 16.000 GiB, full operator 16384.000 PiB (1152921504606846976 entries, of which 2147483648 are not zero)\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "`4^n`: every outcome can feed into every other",
+                "`2 · 2^n`: two in each row",
+                "`4`: only the four entries of `U` itself"
+              ],
+              "code": "",
+              "explain": "Each row `k` of the operator has at most two nonzero entries, in the columns of `k` and of its partner `k ⊻ 2^q` (the other outcomes differ in a qubit the gate does not touch). That gives `2 · 2^n`, each a copy of one of `U`'s four entries.",
+              "kind": "choice",
+              "misconceptions": [
+                "A gate on one qubit cannot change the others, so it cannot mix two outcomes that differ in another qubit: those entries are zero.",
+                "",
+                "The four entries of `U` are repeated once for every setting of the other `n - 1` qubits, `2^(n-1)` times each."
+              ],
+              "prompt": "A gate on qubit `q` of `n` qubits: how many entries of its `2^n × 2^n` operator can be nonzero?"
+            }
+          ],
+          "refs": [
+            "jones-2019"
+          ],
+          "title": "The question: a 20-qubit operator has 2^40 entries; how do you apply a gate without it?"
+        },
+        {
+          "analogies": [
+            {
+              "breaks": "A crossing routes a train onto one track or the other. A gate *combines*\nthe two amplitudes: each output is a weighted sum of both inputs, with\ncomplex weights that can cancel, and nothing is conserved the way trains\nare, except the total `|a|² + |b|²`. The yard also suggests that the order of\nthe crossings matters; for one gate it does not, because the pairs are\ndisjoint, but two gates on different qubits share tracks, which is why a\ncircuit applies them one after the other.",
+              "text": "Picture `2^n` tracks, one per outcome, and a gate on qubit `q` as a set of\nsmall crossings, each joining two tracks `2^q` apart. Each crossing works\non its own two tracks and nothing else, and they are all built from the same\nblueprint `U`. The full operator is a table of how every track connects to\nevery other one: `4^n` cells, almost all of them saying \"not connected\".\n`apply!` builds only the crossings.",
+              "title": "A railway yard of independent crossings"
+            }
+          ],
+          "body": "The update needs two decisions, both about bits.\n\n**Which outcomes start a pair?** Those whose bit `q` is 0: `k & (1 << q) ==\n0`. Each pair is then visited exactly once, from its lower member. Visiting\nevery `k` and updating its pair would apply `U` twice, or, for a gate such\nas `X`, undo the first application with the second.\n\n**Where is the partner?** `k | (1 << q)`, which is `k + 2^q` because bit `q`\nof `k` is 0. In Julia indices the pair is `ψ[k + 1]` and `ψ[k + 2^q + 1]`.\nThe pairs are `2^q` apart, a **stride** of `2^q`, which is where the name\n\"strided pairs\" comes from.\n\nThe update has to read both old amplitudes before writing either:\n`a, b = ψ[i], ψ[j]`, then `ψ[i] = u₁₁a + u₁₂b` and `ψ[j] = u₂₁a + u₂₂b`.\nWriting `ψ[i]` first and then reading it for `ψ[j]` uses the new value.\n\nThe function changes `ψ` and returns it, so by Julia's convention its name\nends in `!`. It allocates nothing: the four entries of `U` and the two\namplitudes are local variables.",
+          "diagrams": [
+            {
+              "alt": "The eight amplitudes of a 3-qubit state, outcomes 0 to 7 in binary, with arcs joining the pairs that a gate on qubit 1 mixes: 0 with 2, 1 with 3, 4 with 6 and 5 with 7. Each pair differs only in the middle bit and is 2 apart.",
+              "caption": "A gate on qubit 1 mixes outcomes that differ only in bit 1: four pairs, each 2^1 = 2 apart, each multiplied by the same 2×2 matrix.",
+              "src": "assets/diagrams/52-applying-gates/strided-pairs.svg"
+            }
+          ],
+          "examples": [
+            {
+              "caption": "`apply_1q!` in full, the pairs it visits for qubit 1 of 3, and `H` applied to qubit 1 of `|000⟩`.",
+              "check": true,
+              "code": "function apply_1q!(ψ, U, q)\n    s = 1 << q                                   # stride: partner of k is k + s\n    u11, u21, u12, u22 = U[1, 1], U[2, 1], U[1, 2], U[2, 2]\n    for k in 0:length(ψ)-1\n        if k & s == 0                            # k starts a pair (its qubit q is 0)\n            a, b = ψ[k + 1], ψ[k + s + 1]        # read both before writing either\n            ψ[k + 1]     = u11 * a + u12 * b\n            ψ[k + s + 1] = u21 * a + u22 * b\n        end\n    end\n    return ψ\nend\nprintln(\"pairs for qubit 1 of 3: \", [(k, k | 2) for k in 0:7 if k & 2 == 0])\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nψ = zeros(ComplexF64, 8); ψ[1] = 1\napply_1q!(ψ, H, 1)\nprintln(\"H on qubit 1 of |000⟩: nonzero outcomes \", [k for k in 0:7 if abs(ψ[k + 1]) > 0], \", amplitudes \", round.(real.(ψ[[1, 3]]); digits = 6))",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the result has amplitude `1/√2` on outcomes 0 and 2, `|000⟩` and `|010⟩`: only qubit 1 changed, as the pairs say.",
+              "ok": true,
+              "output": "pairs for qubit 1 of 3: [(0, 2), (1, 3), (4, 6), (5, 7)]\nH on qubit 1 of |000⟩: nonzero outcomes [0, 2], amplitudes [0.707107, 0.707107]\n"
+            },
+            {
+              "caption": "The partner of outcome 5 for a gate on qubit 1 of three qubits.",
+              "check": true,
+              "code": "k, q = 5, 1\nprintln(\"partner of \", k, \": \", k ⊻ (1 << q))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "partner of 5: 7\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "4",
+                  "7",
+                  "1"
+                ],
+                "explain": "The partner differs from `101` only in bit 1, the middle bit: `111`, which is 7. Outcome 4 (`100`) differs in bit 0, a partner for a gate on qubit 0; outcome 1 (`001`) differs in bit 2, a partner for qubit 2.",
+                "kc": "gate-application",
+                "measured": "7",
+                "prompt": "Outcome 5 is binary `101`. A gate on qubit 1 mixes its amplitude with one other outcome. Before the output is shown: which one?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 1,
+              "choices": [
+                "It updates each pair twice, once from each member",
+                "`⊻` flips every bit of `k`, not only bit `q`",
+                "It reads `ψ[j + 1]` after the assignment has written it"
+              ],
+              "code": "",
+              "explain": "Both `k` and its partner `j` run through the loop, so each pair is updated twice, and from the upper member the roles of `a` and `b` are swapped as well. Restrict the loop to `k & (1 << q) == 0`.",
+              "kind": "choice",
+              "misconceptions": [
+                "",
+                "`k ⊻ m` flips only the bits that are set in `m`, and `1 << q` has only bit `q` set: the partner is right.",
+                "Both amplitudes are read into `a` and `b` before the tuple assignment writes either, so each update itself is correct."
+              ],
+              "prompt": "This loop applies `U` to qubit `q`. What is wrong with it?\n\n```julia\nfor k in 0:length(ψ)-1\n    j = k ⊻ (1 << q)\n    a, b = ψ[k + 1], ψ[j + 1]\n    ψ[k + 1], ψ[j + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\nend\n```"
+            }
+          ],
+          "refs": [
+            "jones-2019"
+          ],
+          "title": "apply! by strided pairs of amplitudes and bit masks, in place"
+        },
+        {
+          "analogies": [],
+          "body": "To test `apply_1q!`, compare it with something that shares none of its\ncode. Two such references build the full operator, so they only work for\nsmall `n`, which is all a test needs.\n\n**From the definition.** The operator `O` of a gate on qubit `q` maps\n`|k_in⟩` to `|k_out⟩` with the amplitude `U[b_out + 1, b_in + 1]` when the two\noutcomes agree on every bit except `q` (`b_in`, `b_out` are their bits `q`),\nand 0 otherwise. Building `O` entry by entry from that sentence loops over\nall `4^n` pairs of outcomes and uses no strides or pairs at all.\n\n**From the textbook.** `kron(op_{n-1}, ..., op_0)` with `U` in the slot of\nqubit `q` (unit 50).\n\nIf `apply_1q!`, `O * ψ` and `kron(...) * ψ` agree, a bug would have to be\nin all three in the same way to go unnoticed. The `qsim` project uses this\ntriple for its gates (`apply!`, `full_operator`, `full_operator_kron`).\n\n**How closely must they agree?** In the dense products, the zero entries\ncontribute exact zeros, so each output amplitude is computed from the same\ntwo products `u_{r1} a + u_{r2} b` as in `apply_1q!`, only possibly in another\norder or with a fused multiply-add. A complex product `xy` is computed\nwith an error of at most `√2 γ₂ |xy|`, with `γ₂ = 2u / (1 - 2u) ≈ 2u`\n(Higham, section 3.6), and the complex sum of the two products adds at most\n`u` relative. So each way has an error of at most about\n`(2√2 + 1) u (|u_{r1} a| + |u_{r2} b|)`, and `|u_{r1} a| + |u_{r2} b| ≤ √2`\nfor a unitary row and a normalised state (Cauchy-Schwarz). Two such results\ndiffer by at most `2 · (2√2 + 1) · √2 · u ≈ 10.8u`, about `5.4 · eps()`.\nThe tests use `atol = 8 · eps()`, half as much again.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "The three constructions for a random gate on qubit 2 of 4 qubits.",
+              "check": true,
+              "code": "using LinearAlgebra, Random\nfunction apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\nfunction full_operator(U, q, n)                  # from the definition, entry by entry\n    O = zeros(ComplexF64, 2^n, 2^n)\n    for kin in 0:2^n-1, kout in 0:2^n-1\n        if kin & ~(1 << q) == kout & ~(1 << q)   # agree on every bit except q\n            O[kout + 1, kin + 1] = U[((kout >> q) & 1) + 1, ((kin >> q) & 1) + 1]\n        end\n    end\n    return O\nend\nfull_operator_kron(U, q, n) = reduce(kron, [i == q ? U : Matrix{ComplexF64}(I, 2, 2) for i in n-1:-1:0])\nrng = Xoshiro(3)\nU = Matrix(qr(randn(rng, ComplexF64, 2, 2)).Q)\nψ = normalize(randn(rng, ComplexF64, 16))\nO, K = full_operator(U, 2, 4), full_operator_kron(U, 2, 4)\nprintln(\"full_operator == full_operator_kron: \", O == K)\nprintln(\"apply_1q! within 8eps of O * ψ: \", maximum(abs, apply_1q!(copy(ψ), U, 2) - O * ψ) <= 8 * eps())",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the two dense matrices are exactly equal (`==` counts `0.0` and `-0.0` as equal; `kron` only multiplies by exact 0s and 1s, which does not round), and that `apply_1q!` agrees with them to within the derived `8 · eps()`.",
+              "ok": true,
+              "output": "full_operator == full_operator_kron: true\napply_1q! within 8eps of O * ψ: true\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "It is faster, so the test runs on more qubits",
+                "It shares no code, and no idea, with `apply_1q!`",
+                "It needs no tolerance, since it does no arithmetic"
+              ],
+              "code": "",
+              "explain": "A second copy of the pair loop would repeat the same choice of pairs and strides, so it would share any misunderstanding of them. The definition loops over all outcome pairs and checks one sentence; for a bug to pass, both readings of the gate would have to be wrong the same way.",
+              "kind": "choice",
+              "misconceptions": [
+                "It is far slower (`4^n` entries), and usable only for small `n`; its value is independence, not speed.",
+                "",
+                "Building `O` copies entries without arithmetic, but `O * ψ` multiplies and adds, so comparing results still needs the tolerance derived above."
+              ],
+              "prompt": "Why is `full_operator`, built from the definition, a better reference for testing `apply_1q!` than a copy of `apply_1q!` written more carefully?"
+            }
+          ],
+          "refs": [
+            "higham-2002",
+            "nielsen-chuang-2010"
+          ],
+          "title": "full_operator from the definition, and full_operator_kron from textbook Kronecker products"
+        },
+        {
+          "analogies": [],
+          "body": "One example tests one case. A **property test** states a property that must\nhold for *all* inputs (\"`apply_1q!` equals the dense product\") and checks\nit on many random ones, drawn from a seeded RNG so that a failure can be\nreproduced. QuickCheck made this style popular; here it needs only a loop.\n\nThe inputs must cover what can go wrong: every qubit position (an order bug\nhides on the middle qubit of an odd `n`, where `n - 1 - q = q`), small and\nlarger `n`, and gates that are not special. A Haar-random unitary, the\nuniform distribution over all unitaries, has no special structure. The usual\nrecipe is the QR factorization of a matrix of complex Gaussians, but QR\nalone does not give the uniform distribution: the phases of `R`'s diagonal\nmust be moved into `Q`, `U = Q · diag(R_ii / |R_ii|)` (Mezzadri, section 5).\n\nA test that cannot fail proves nothing, so the example also runs a\n**control**: a deliberately wrong version (qubit order reversed, the bug of\nunit 50) that the same test must catch.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "1000 random trials: `n` from 1 to 6, a random qubit, a Haar-random gate and a random state. The control applies the gate with the qubit order reversed.",
+              "check": true,
+              "code": "using LinearAlgebra, Random\nfunction apply_1q!(ψ, U, q)\n    s = 1 << q\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\n        end\n    end\n    return ψ\nend\napply_reversed!(ψ, U, q) = apply_1q!(ψ, U, trailing_zeros(length(ψ)) - 1 - q)    # the control\nfull_operator_kron(U, q, n) = reduce(kron, [i == q ? U : Matrix{ComplexF64}(I, 2, 2) for i in n-1:-1:0])\nfunction haar_unitary(rng)                       # Mezzadri: fix the phases of R's diagonal\n    F = qr(randn(rng, ComplexF64, 2, 2))\n    return Matrix(F.Q) * Diagonal(sign.(diag(F.R)))\nend\nrng = Xoshiro(7)\nworst, control_failures = 0.0, 0\nfor trial in 1:1000\n    n = rand(rng, 1:6); q = rand(rng, 0:n-1)\n    U = haar_unitary(rng); ψ = normalize(randn(rng, ComplexF64, 2^n))\n    expected = full_operator_kron(U, q, n) * ψ\n    global worst = max(worst, maximum(abs, apply_1q!(copy(ψ), U, q) - expected))\n    global control_failures += maximum(abs, apply_reversed!(copy(ψ), U, q) - expected) > 8 * eps()\nend\nprintln(\"apply_1q!: all 1000 within 8eps: \", worst <= 8 * eps(), \",  worst below a quarter of it: \", worst < 2 * eps())\nprintln(\"control (qubit order reversed) fails \", control_failures, \" of 1000 trials\")",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the correct version passes every trial with a wide margin, and that the reversed version fails 732 of 1000. The trials it passes are those where reversing the order changes nothing (`n = 1`, or the middle qubit of an odd `n`): a test on the middle qubit of 3 alone would have missed the bug.",
+              "ok": true,
+              "output": "apply_1q!: all 1000 within 8eps: true,  worst below a quarter of it: true\ncontrol (qubit order reversed) fails 732 of 1000 trials\n",
+              "predict": {
+                "answer": 2,
+                "choices": [
+                  "All 1000",
+                  "Between 600 and 900",
+                  "Between 100 and 600",
+                  "Fewer than 100"
+                ],
+                "explain": "Reversing the order changes nothing when `n - 1 - q = q`: for `n = 1` (one qubit), and for the middle qubit when `n` is odd. With `n` uniform on 1 to 6, that is `1/6 · (1 + 1/3 + 1/5) ≈ 0.26` of the trials, so the control should fail about 74%; it failed 732 times. A failure count below 1000 is the point: some inputs cannot see this bug.",
+                "kc": "property-testing",
+                "measured": "732",
+                "prompt": "The control reverses the qubit order. `n` is drawn from 1 to 6 and `q` from `0:n-1`. Before the output is shown: about how many of the 1000 trials does the control fail?"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "Writing `ψ[k + 1]` before reading it for the partner",
+                "Reversing the qubit order, `q ↦ n - 1 - q`",
+                "Using `U'` instead of `U`"
+              ],
+              "code": "",
+              "explain": "On 3 qubits the middle qubit maps to itself under reversal, `3 - 1 - 1 = 1`, so the reversed code does exactly the right thing for every gate and state the test draws. Drawing `q` and `n` at random is what exposes it.",
+              "kind": "choice",
+              "misconceptions": [
+                "Overwriting an amplitude before it is read changes the result for almost any random gate and state, so this test catches it.",
+                "",
+                "A random unitary is almost never equal to its conjugate transpose, so `U'` gives a different state and the test fails, as it should."
+              ],
+              "prompt": "A property test of `apply_1q!` always uses `n = 3` and `q = 1`, with random gates and states. Which bug can it not catch?"
+            }
+          ],
+          "refs": [
+            "claessen-hughes-2000",
+            "mezzadri-2007"
+          ],
+          "title": "Property tests: the three agree on random unitaries, qubits and states"
+        },
+        {
+          "analogies": [],
+          "body": "The pair loop saves memory by construction; how much time it saves is a\nmeasurement. Two numbers, measured differently:\n\n* **Allocations** are counted, not timed, and do not vary: `@allocated`\n  after a first call reports what one call allocates. The loop allocates\n  nothing; the dense product allocates its result vector (and the operator\n  itself had to be built first).\n* **Time** varies from run to run and machine to machine, so that example\n  is recorded but not checked (`check = false`), and takes the best of 5\n  runs. On 11 qubits the dense product does `4^11 ≈ 4.2` million\n  multiply-adds against `2 · 2^11 = 4096` for the loop, a ratio of 1024. The\n  measured ratio is of that order, not equal to it: reading the 64 MiB\n  matrix from memory slows the dense product, and the loop's branch per\n  outcome slows the loop. Two runs on the same laptop gave 1004 and 1580.\n\nFor two-qubit gates the same idea needs groups of four amplitudes instead of\npairs (the `qsim` project's `apply!` gathers `2^k` amplitudes for a `k`-qubit\ngate). The measured cost of that general version is in the project's\n`measure_baseline.toml`; it allocates a small table and buffer per call,\nwhich this unit's specialised loop avoids.",
+          "diagrams": [],
+          "examples": [
+            {
+              "caption": "Bytes allocated by one call of `apply_1q!` on 16 qubits, after a first call to compile it.",
+              "check": true,
+              "code": "using LinearAlgebra, Random\nfunction apply_1q!(ψ, U, q)\n    s = 1 << q\n    u11, u21, u12, u22 = U[1, 1], U[2, 1], U[1, 2], U[2, 2]\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1]     = u11 * a + u12 * b\n            ψ[k + s + 1] = u21 * a + u22 * b\n        end\n    end\n    return ψ\nend\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nψ = normalize(randn(Xoshiro(1), ComplexF64, 2^16))\napply_1q!(ψ, H, 3)                               # compile first\nprintln(\"apply_1q! on 16 qubits allocated \", @allocated(apply_1q!(ψ, H, 3)), \" bytes\")",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "apply_1q! on 16 qubits allocated 0 bytes\n",
+              "predict": {
+                "answer": 1,
+                "choices": [
+                  "0",
+                  "Between 1 and 1000",
+                  "About 1 MiB, a copy of the state"
+                ],
+                "explain": "Everything the loop needs is a local variable: four entries of `U`, two amplitudes, the stride and `k`. The compiler keeps them in registers, so the call allocates nothing; the state is changed where it is. A version that wrote `out = U * [a, b]` would allocate two small vectors per pair, `2^15` times.",
+                "kc": "gate-application",
+                "measured": "0",
+                "prompt": "The state has `2^16` amplitudes (1 MiB). Before the output is shown: how many bytes does one call of `apply_1q!` allocate?"
+              }
+            },
+            {
+              "caption": "Time of the pair loop and of the dense product on 11 qubits, best of 5. Recorded, not checked: timings vary from run to run and machine to machine.",
+              "check": false,
+              "code": "using LinearAlgebra, Random\nBLAS.set_num_threads(1)\nfunction apply_1q!(ψ, U, q)\n    s = 1 << q\n    u11, u21, u12, u22 = U[1, 1], U[2, 1], U[1, 2], U[2, 2]\n    for k in 0:length(ψ)-1\n        if k & s == 0\n            a, b = ψ[k + 1], ψ[k + s + 1]\n            ψ[k + 1]     = u11 * a + u12 * b\n            ψ[k + s + 1] = u21 * a + u22 * b\n        end\n    end\n    return ψ\nend\nn, q = 11, 4\nH = ComplexF64[1 1; 1 -1] / sqrt(2)\nO = reduce(kron, [i == q ? H : Matrix{ComplexF64}(I, 2, 2) for i in n-1:-1:0])\nψ = normalize(randn(Xoshiro(1), ComplexF64, 2^n))\napply_1q!(ψ, H, q); O * ψ                        # compile first\nt_loop  = minimum(@elapsed(apply_1q!(ψ, H, q)) for _ in 1:5)\nt_dense = minimum(@elapsed(O * ψ) for _ in 1:5)\nprintln(\"pair loop: \", round(t_loop * 1e6; digits = 1), \" μs,  dense O * ψ: \", round(t_dense * 1e3; digits = 2), \" ms,  ratio ≈ \", round(Int, t_dense / t_loop))\nprintln(\"allocated: pair loop \", @allocated(apply_1q!(ψ, H, q)), \" bytes,  dense \", @allocated(O * ψ), \" bytes\")",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the ratio is of the same order as the 1024 that the operation counts predict (it moves from run to run), and that the dense product allocates its result (the 64 MiB operator was built before timing).",
+              "ok": true,
+              "output": "pair loop: 1.8 μs,  dense O * ψ: 2.4 ms,  ratio ≈ 1332\nallocated: pair loop 0 bytes,  dense 32816 bytes\n"
+            }
+          ],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "About 1000 again: the ratio is a property of the method",
+                "About 2000: the ratio doubles per qubit",
+                "About 4000: the dense product grows like `4^n`"
+              ],
+              "code": "",
+              "explain": "The dense product does `4^n` multiply-adds and the loop `2 · 2^n`, so their ratio is `2^(n-1)`: 1024 at 11 qubits, 2048 at 12. (At 12 qubits the operator is 256 MiB, and memory traffic may move the measured ratio; the count gives the trend.)",
+              "kind": "choice",
+              "misconceptions": [
+                "The ratio of operation counts is `4^n / (2 · 2^n) = 2^(n-1)`, which doubles with every qubit.",
+                "",
+                "The dense product's cost grows by 4 per qubit, but so does nothing in the ratio's denominator: the loop's cost doubles too, and `4 / 2 = 2`."
+              ],
+              "prompt": "On 11 qubits the measured speed-up of the pair loop over the dense product is of order 1000. What would you expect on 12 qubits?"
+            }
+          ],
+          "refs": [
+            "jones-2019"
+          ],
+          "title": "Measured: allocations and time of apply! against the dense product"
+        }
+      ],
+      "status": "ready",
+      "summary": "Three implementations of one operation: a single-qubit gate applied in place to pairs of amplitudes found with bit masks, the same operator built from its definition, and the textbook Kronecker product. Property tests over random unitaries, qubits and states show they agree to a derived tolerance, and a deliberately wrong version shows the test can fail; then the in-place version is measured: no allocation, and three orders of magnitude faster than the dense product at 11 qubits, as the operation counts predict.",
       "title": "Applying gates without the big matrix",
       "track": "quantum"
     },

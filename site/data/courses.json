@@ -429,9 +429,9 @@
         "base"
       ],
       "estimate": {
-        "basis": "no estimate until a unit is published; it will count 30–60 min per ready unit (0), 10–25 min per practice problem (0), 2–4 h per guided project (0), 4–8 h per hole project (1); guessed rates, not measured",
-        "high_hours": 0,
-        "low_hours": 0
+        "basis": "30–60 min per ready unit (4), 10–25 min per practice problem (12), 2–4 h per guided project (0), 4–8 h per hole project (1); guessed rates, not measured",
+        "high_hours": 17,
+        "low_hours": 8
       },
       "guided": [],
       "id": "quantum",
@@ -498,7 +498,7 @@
           "text": "Show that a numerical result is not wrong: redundant implementations, theory checks, an independent reference, controls that must fail, and mutation testing."
         }
       ],
-      "problems": 0,
+      "problems": 12,
       "projects": [
         "qsim"
       ],

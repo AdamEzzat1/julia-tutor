@@ -279,9 +279,12 @@ every role above has had the chance to object (recorded in the PR).
   explain fixture per hole). The Qiskit CI job (`qsim-crosscheck`) and the
   Yao env are built (`projects/qsim/crosscheck/`: 500 random circuits, the
   lesson circuits, QFT/QPE vs Qiskit's library, noise; per-mutant layer table
-  in projects/qsim/README.md). Not met yet: the zero-allocation kernels
-  (`apply!` allocates an offset table and buffers, measured in
-  `measure_baseline.toml`), the benchmark report and the units themselves.
+  in projects/qsim/README.md). Units 49-52 are written and verified (states,
+  qubit order, gates and the Bloch sphere, applying gates; 12 problems; the
+  unit-52 `apply_1q!` kernel measures 0 bytes allocated). Not met yet: the
+  zero-allocation kernels in projects/qsim (`apply!` allocates an offset
+  table and buffers, measured in `measure_baseline.toml`), the benchmark
+  report and units 53-61.
 * **M10 Fourth project: ude (universal differential equation, SciML).**
   Requires M4 (the student's odeint) and M7 (latency). *DoD:* every package
   justified in the PR (OrdinaryDiffEq, SciMLSensitivity, one AD backend, Lux,
