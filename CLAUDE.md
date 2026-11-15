@@ -276,10 +276,12 @@ every role above has had the chance to object (recorded in the PR).
   *Status:* projects/qsim is built (15 holes over 3 stages, 2,103 tests,
   holemap clean: every trivial body and all 22 seeded mutants in
   `mutants.toml` caught, each starter stage fails only at its blanks; one
-  explain fixture per hole). Not met yet: the zero-allocation kernels
+  explain fixture per hole). The Qiskit CI job (`qsim-crosscheck`) and the
+  Yao env are built (`projects/qsim/crosscheck/`: 500 random circuits, the
+  lesson circuits, QFT/QPE vs Qiskit's library, noise; per-mutant layer table
+  in projects/qsim/README.md). Not met yet: the zero-allocation kernels
   (`apply!` allocates an offset table and buffers, measured in
-  `measure_baseline.toml`), the Qiskit CI job and the Yao env, the benchmark
-  report and the units themselves.
+  `measure_baseline.toml`), the benchmark report and the units themselves.
 * **M10 Fourth project: ude (universal differential equation, SciML).**
   Requires M4 (the student's odeint) and M7 (latency). *DoD:* every package
   justified in the PR (OrdinaryDiffEq, SciMLSensitivity, one AD backend, Lux,

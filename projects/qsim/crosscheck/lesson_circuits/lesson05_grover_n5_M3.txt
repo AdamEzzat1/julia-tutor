@@ -1,0 +1,82 @@
+n 5
+h 0
+h 1
+h 2
+h 3
+h 4
+x 2
+x 3
+x 4
+mcz 5 0 1 2 3 4
+x 2
+x 3
+x 4
+x 1
+x 2
+x 3
+mcz 5 0 1 2 3 4
+x 1
+x 2
+x 3
+x 0
+mcz 5 0 1 2 3 4
+x 0
+h 0
+h 1
+h 2
+h 3
+h 4
+x 0
+x 1
+x 2
+x 3
+x 4
+mcz 5 0 1 2 3 4
+x 0
+x 1
+x 2
+x 3
+x 4
+h 0
+h 1
+h 2
+h 3
+h 4
+x 2
+x 3
+x 4
+mcz 5 0 1 2 3 4
+x 2
+x 3
+x 4
+x 1
+x 2
+x 3
+mcz 5 0 1 2 3 4
+x 1
+x 2
+x 3
+x 0
+mcz 5 0 1 2 3 4
+x 0
+h 0
+h 1
+h 2
+h 3
+h 4
+x 0
+x 1
+x 2
+x 3
+x 4
+mcz 5 0 1 2 3 4
+x 0
+x 1
+x 2
+x 3
+x 4
+h 0
+h 1
+h 2
+h 3
+h 4

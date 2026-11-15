@@ -71,10 +71,63 @@ means that layer missed the bug):
 No single layer was enough there; here the lesson checks and the unit tests
 are one suite, plus the new SX test.
 
+## Cross-checks against Qiskit and Yao (`crosscheck/`)
+
+Author-side only: the CI job `qsim-crosscheck` runs both on every pull
+request; no learner installs either, and the course runs without them.
+
+* `qiskit_diff.py` (Qiskit 2.5.2, numpy 2.2.6, `requirements.txt`), ported
+  from the original: 500 seeded random circuits over the full gate set,
+  amplitude for amplitude with global phase; the nine lesson circuits; the QFT
+  circuit's unitary vs Qiskit's `QFTGate` (n = 1..6); QPE vs Qiskit's
+  `phase_estimation` (which bit-reverses its readout, undone explicitly and
+  shown to matter) and vs a textbook QPE built from `QFTGate`†; lesson 8's
+  noisy density matrix vs `qiskit.quantum_info.Kraus`. Tolerance 1e-10.
+  Unlike the original, a missing input is a failure, never a skipped section.
+* `yao_diff.jl` (Yao 0.9.3, the pinned env in `yao/`): the same random-circuit
+  distribution and the lesson circuits against a second simulator, in Julia.
+  Yao's circuit is built from Yao's own gate blocks by a separate tokenizer,
+  never from a QSim matrix.
+* `export.jl` rebuilds every lesson circuit from the current reference and
+  fails if one differs from the original's export (`lesson_circuits/`), so
+  the circuits compared are the ones the course teaches.
+* `mutant_layers.py` re-measures which external layer catches each seeded
+  mutant (slow; not in CI).
+
+```bash
+JULIA="julia +1.10.13" python projects/qsim/crosscheck/qiskit_diff.py
+julia +1.10.13 --project=projects/qsim/crosscheck/yao projects/qsim/crosscheck/yao_diff.jl
+JULIA="julia +1.10.13" python projects/qsim/crosscheck/mutant_layers.py
+```
+
+Measured on 1.10.13 (2026-11-15, `mutant_layers.py`, 100 random circuits per
+layer). FAIL: a comparison caught it; drift: only the "rebuilt lesson circuits
+equal `lesson_circuits/`" guard did; pass: the layer missed it. The unit tests
+(`holemap.toml [seeded]`) catch all 22.
+
+| mutant | qiskit | yao |
+|---|---|---|
+| H-sign, S-conj, T-angle, SX-dagger, RX-halfangle, RY-sign, RZ-sign, U-phase, CX-endian, CP-sign, CCX-control, apply-endian | FAIL | FAIL |
+| kraus-transpose | FAIL | pass |
+| QFT-angle, QFT-noswap, iQFT-sign, QPE-power | FAIL | drift |
+| Grover-nodiff | drift | drift |
+| sampler-bias, measure-flip, ptrace-conj, bloch-y | pass | pass |
+
+How to read it:
+
+* A simulator-vs-simulator diff cannot see a wrong circuit *builder*: both
+  simulators run the same (wrong) gate list and agree. Only a comparison with
+  an independent algorithm catches that (Qiskit's `QFTGate` and
+  `phase_estimation`), or the drift guard, which only says the circuit
+  changed, not that it is wrong. So Yao reports the QFT and QPE mutants as
+  drift only, and Grover-nodiff (Qiskit has no library Grover in this diff)
+  is drift in both.
+* Yao has no noise check, so kraus-transpose passes there.
+* Neither diff looks at sampling, measurement, partial trace or Bloch vectors;
+  those four are caught by the unit tests alone.
+
 ## Not here yet
 
-* The Qiskit differential test and the Yao 0.9.3 cross-check are author-side
-  only and come in a later PR (a pinned CI job and `crosscheck/`).
 * `apply!` allocates (an offset table and a buffer per call; see
   `measure_baseline.toml`). CLAUDE.md's M9 definition of done asks for
   zero-allocation kernels; that is not met by this port.
