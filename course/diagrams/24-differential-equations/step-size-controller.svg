@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>How an adaptive solver accepts or rejects a step</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker><marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker></defs>
+<rect x="0" y="0" width="720" height="400" fill="#ffffff"/>
+<text x="360.0" y="26.0" font-size="15" text-anchor="middle" fill="#2b2733" >One step of an adaptive solver such as Tsit5</text>
+<rect x="20" y="70" width="170" height="70" rx="6" fill="#ffffff" stroke="#3657c8" stroke-width="1.5"/>
+<text x="105.0" y="98.0" font-size="14" text-anchor="middle" fill="#2b2733" >try a step of</text>
+<text x="105.0" y="118.0" font-size="14" text-anchor="middle" fill="#2b2733" >size h from (t, u)</text>
+<rect x="225" y="60" width="200" height="90" rx="6" fill="#ffffff" stroke="#776f82" stroke-width="1.5"/>
+<text x="325.0" y="86.0" font-size="14" text-anchor="middle" fill="#2b2733" >two embedded formulas</text>
+<text x="325.0" y="106.0" font-size="14" text-anchor="middle" fill="#2b2733" >of orders 5 and 4</text>
+<text x="325.0" y="128.0" font-size="14" text-anchor="middle" fill="#3657c8" >err = their difference</text>
+<polygon points="555,40 690,105 555,170 420,105" fill="#ffffff" stroke="#776f82" stroke-width="1.5"/>
+<text x="555.0" y="100.0" font-size="14" text-anchor="middle" fill="#2b2733" >err ≤ abstol +</text>
+<text x="555.0" y="120.0" font-size="14" text-anchor="middle" fill="#2b2733" >reltol · |u| ?</text>
+<line x1="190.0" y1="105.0" x2="223.0" y2="105.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="425.0" y1="105.0" x2="440.0" y2="105.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="430" y="240" width="260" height="70" rx="6" fill="#ffffff" stroke="#2f8a4c" stroke-width="1.5"/>
+<text x="560.0" y="266.0" font-size="14" text-anchor="middle" fill="#2f8a4c" >yes: accept the step</text>
+<text x="560.0" y="288.0" font-size="14" text-anchor="middle" fill="#2b2733" >t = t + h, try a larger h next</text>
+<rect x="40" y="240" width="280" height="70" rx="6" fill="#ffffff" stroke="#c0392b" stroke-width="1.5"/>
+<text x="180.0" y="266.0" font-size="14" text-anchor="middle" fill="#c0392b" >no: reject the step</text>
+<text x="180.0" y="288.0" font-size="14" text-anchor="middle" fill="#2b2733" >keep (t, u), retry with a smaller h</text>
+<line x1="555.0" y1="170.0" x2="555.0" y2="238.0" stroke="#2f8a4c" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="150.0" x2="250.0" y2="238.0" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 105 240 L 105 142" fill="none" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 560 310 L 560 340 L 60 340 L 60 142" fill="none" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="310.0" y="360.0" font-size="13" text-anchor="middle" fill="#776f82" >next step (until the end of tspan)</text>
+<text x="115.0" y="205.0" font-size="13" text-anchor="start" fill="#776f82" >retry</text>
+<text x="360.0" y="385.0" font-size="13" text-anchor="middle" fill="#776f82" >The test bounds the error of this one step (local error), not the error at the end.</text>
+</svg>

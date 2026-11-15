@@ -8,6 +8,7 @@ project:
     - assets/app/app.js
     - assets/app/app.css
     - assets/figures/**
+    - assets/diagrams/**
     - .nojekyll
 
 website:

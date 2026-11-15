@@ -49,6 +49,29 @@ loss does not. The check that works for both is to evaluate the residual,
 or the error against a reference, at points the method did not use.
 '''
 
+  [[section.diagram]]
+  file = "collocation-aliasing.svg"
+  alt = "Plot on 0 to 1 of sin(pi x) in blue and sin(pi x) + 0.5 sin(8 pi x) in red; the red curve wiggles above and below the blue one but crosses it exactly at the seven collocation points x = i/8, marked with circles, and both curves are zero at the boundary squares x = 0 and x = 1."
+  caption = "At every collocation point the two functions take the same value and both residuals are zero, so the loss cannot tell them apart, though the red one is off by 0.5 between the points."
+
+  [[section.analogy]]
+  title = "A wagon wheel that seems to stand still on film"
+  text = '''
+In old films a turning wagon wheel can seem to stand still. The camera takes
+24 pictures a second, and if a spoke moves exactly to the next spoke's place
+between pictures, every frame looks the same. The collocation points are the
+frames. The added term `0.5 sin(8πx)` and its second derivative are both
+zero exactly at the points `i/8`, so at every frame the wrong function looks
+like the right one.
+'''
+  breaks = '''
+In both cases the trouble is only in the sampling, but a trained network is
+not a wheel turning at a chosen speed: it does not set out to hide between
+the points, it is just never told what happens there. Checking at new
+points, such as the midpoints, plays the part of filming at a different
+rate, and exposes the error at once.
+'''
+
   [[section.example]]
   caption = "The exact solution plus `0.5 sin(8πx)`, against the PINN loss on the 7 interior points `i/8` (the ends x = 0 and x = 1 enter through the boundary term), then on 7 points shifted half a spacing to the left."
   notice = "Notice that the loss is at rounding level for both functions, while the second has an error of 0.5: the collocation points sit exactly on the zeros of the added term's second derivative. Fresh midpoints expose it at once."
@@ -158,6 +181,36 @@ recomputed during training. On their Helmholtz example the relative L²
 error fell from `1.81e-1` to `1.27e-2`. The ratio `λ̂` itself is a cheap
 diagnostic: compute it at initialization and see how far apart the terms
 are before you train.
+
+More published evidence for this difficulty: Wang, Teng and Perdikaris
+(journal version in the SIAM Journal on Scientific Computing, 2021) relate
+the imbalance to stiffness in the gradient dynamics, and report that their
+annealing rule together with a modified network architecture improved
+accuracy 50 to 100 times on their test problems. Krishnapriyan, Gholami,
+Zhe, Kirby and Mahoney showed PINNs failing on convection, reaction and
+diffusion problems only slightly harder than textbook cases. They argue that
+the PDE term in the loss makes the optimization problem more ill-conditioned
+(small changes of the weights in some directions change the loss far more
+than in others), not that the network is too small to represent the
+solution.
+'''
+refs = ["wang-teng-2021", "krishnapriyan-2021"]
+
+  [[section.analogy]]
+  title = "A tug of war with mismatched teams"
+  text = '''
+The two loss terms pull on the same rope, the weights. At initialization the
+residual team is hundreds of times stronger (the measured `λ̂` is 260 at
+`k = 4`), so the rope goes where the residual wants, and the boundary team's
+goal, the right end values, is reached late or not at all. The annealing
+weight `λ` adds members to the weak team until the pulls are comparable.
+'''
+  breaks = '''
+A rope moves along one line; the weights move in 61 directions at once, and
+the two terms can pull along different directions instead of against each
+other. `λ̂` compares the largest entry of one gradient with the mean entry
+of the other: a heuristic ratio of sizes, not a balance of forces that sums
+to zero.
 '''
 
   [[section.example]]
@@ -217,6 +270,26 @@ A slice gets weight only once all earlier slices have small residuals, so
 training proceeds forward in time, like a time-stepping solver. The
 causality parameter `ε` sets how strict that is. The weights are computed
 from the current losses and treated as constants for the gradient step.
+'''
+refs = ["wang-sankaran-2022", "krishnapriyan-2021"]
+
+  [[section.analogy]]
+  title = "A route drawn from the wrong harbour"
+  text = '''
+A ship's log is written day by day from a known harbour: each day's position
+follows from the day before. Now draw the whole route at once and check only
+that each day's leg obeys the sailing rules. You can get a route that is
+perfectly sailable and starts from the wrong harbour. A PINN can do the same:
+late time slices with small residuals, built on a wrong start. Causal weights
+make the PINN work in order: a later time slice counts only once the earlier
+slices have small residuals.
+'''
+  breaks = '''
+The weights never switch a slice off completely: `exp(-ε s)` is small but
+positive, and `ε` sets how strict the order is, while a log entry is either
+written or not. Unlike a time-stepping solver, the network still
+represents all times at once, so a change made to fix early times also
+changes late ones.
 '''
 
   [[section.example]]
@@ -296,6 +369,48 @@ evaluated on a very fine grid.
 When neither method is better at both error and time, there is no single
 winner; the methods worth considering are the **Pareto front**: those no
 other method beats in both.
+
+**What this is useful for, and where.** The evidence above does not say
+PINNs are useless; it says where they are not the tool. Grossmann et al.
+found PINNs faster than FEM at evaluating the trained solution in some
+experiments, and suggest this matters when a solution must be evaluated on a
+very fine grid. McGreivy and Hakim left PINNs out of their count because
+standard methods are known to beat them on forward problems; the published
+uses cited in unit 47 are mostly inverse problems, where measurements and an
+equation have to be combined. The fixes in this unit reported large gains
+over an ordinary PINN on their test problems: 50 to 100 times for the
+gradient-based weights with a modified architecture, 1 to 2 orders of
+magnitude for the curriculum and sequence-to-sequence training of
+Krishnapriyan et al. (start from an easy PDE, or learn one time window after
+another), and causal weights let PINNs succeed on the chaotic Lorenz system,
+the chaotic Kuramoto-Sivashinsky equation and turbulent Navier-Stokes tests
+where ordinary PINNs failed. Those gains are measured against an ordinary
+PINN, not against a classical solver at equal accuracy. Before choosing a
+PINN, apply rule 1 against a strong baseline, and count the training time.
+'''
+refs = ["mcgreivy-2024", "grossmann-2023", "wang-teng-2021", "krishnapriyan-2021", "wang-sankaran-2022"]
+
+  [[section.diagram]]
+  file = "error-time-pareto.svg"
+  alt = "Log-log scatter of maximum error against time from this unit's last recorded example: the PINN at error 2.2e-5 and 1.8 s, finite differences with n = 10 at 6.6e-3 and 4.4e-5 s, n = 100 at 7.8e-5 and 2.4e-5 s, n = 1000 at 4.1e-7 and 5.1e-5 s. The n = 100 and n = 1000 points are marked as the Pareto front with a dashed staircase; the PINN and n = 10 are marked dominated."
+  caption = "In this run the n = 1000 grid is both more accurate and more than 10000 times faster than the PINN, so the PINN is dominated and not on the Pareto front."
+
+  [[section.analogy]]
+  title = "Choosing a car on price and fuel use"
+  text = '''
+When you choose a car on price and fuel use, a car that is both dearer and
+thirstier than another is out, whatever else is said about it. The cars
+left, where paying less means burning more, form the Pareto front. In the
+measured table the `n = 1000` finite-difference row is faster and more
+accurate than the PINN, so for this problem the PINN is out.
+'''
+  breaks = '''
+A car's price and fuel use are fixed facts; a method's time and error change
+with the machine, the settings and the problem, and the microsecond timings
+here vary from run to run. The front is a statement about this problem on
+this machine, not about PINNs in general, and a method off the front for one
+task (solving once) can be on it for another (evaluating a stored solution
+many times).
 '''
 
   [[section.example]]
@@ -682,3 +797,48 @@ function pareto_front(err, time)
 end
 '''
   expect = ["correct", "scaling"]
+
+[[reference]]
+id = "krishnapriyan-2021"
+authors = "Krishnapriyan, A. S.; Gholami, A.; Zhe, S.; Kirby, R. M.; Mahoney, M. W."
+title = "Characterizing possible failure modes in physics-informed neural networks"
+venue = "Advances in Neural Information Processing Systems 34 (NeurIPS 2021)"
+year = 2021
+url = "https://arxiv.org/abs/2109.01050"
+note = "Shows PINNs failing on convection, reaction and diffusion problems because the loss is hard to optimize, not for lack of network capacity (section 3), with curriculum and sequence-to-sequence remedies (sections 4 and 5)."
+
+[[reference]]
+id = "wang-teng-2021"
+authors = "Wang, S.; Teng, Y.; Perdikaris, P."
+title = "Understanding and Mitigating Gradient Flow Pathologies in Physics-Informed Neural Networks"
+venue = "SIAM Journal on Scientific Computing 43(5), A3055-A3081 (arXiv title: Understanding and mitigating gradient pathologies in physics-informed neural networks)"
+year = 2021
+url = "https://arxiv.org/abs/2001.04536"
+note = "The gradient imbalance and the learning-rate annealing weight of section 3 (the body cites the arXiv version, arXiv:2001.04536)."
+
+[[reference]]
+id = "wang-sankaran-2022"
+authors = "Wang, S.; Sankaran, S.; Perdikaris, P."
+title = "Respecting causality is all you need for training physics-informed neural networks"
+venue = "arXiv:2203.07404"
+year = 2022
+url = "https://arxiv.org/abs/2203.07404"
+note = "The causal weights of section 4 and the chaotic and turbulent test cases cited in section 5."
+
+[[reference]]
+id = "mcgreivy-2024"
+authors = "McGreivy, N.; Hakim, A."
+title = "Weak baselines and reporting biases lead to overoptimism in machine learning for fluid-related partial differential equations"
+venue = "Nature Machine Intelligence 6"
+year = 2024
+url = "https://arxiv.org/abs/2407.07218"
+note = "The two rules for fair comparisons and the count of 60 of 76 articles with weak baselines in section 5."
+
+[[reference]]
+id = "grossmann-2023"
+authors = "Grossmann, T. G.; Komorowska, U. J.; Latz, J.; Schönlieb, C.-B."
+title = "Can Physics-Informed Neural Networks beat the Finite Element Method?"
+venue = "arXiv:2302.04107; IMA Journal of Applied Mathematics 89 (2024)"
+year = 2023
+url = "https://arxiv.org/abs/2302.04107"
+note = "The PINN versus finite element comparison of section 5: no win in solution time or accuracy, faster evaluation in some experiments."

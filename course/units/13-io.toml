@@ -23,6 +23,22 @@ form. Notice the differences in the output below: `print` loses the
 information that `"hi"` was a string and `:sym` a symbol, `repr` keeps it.
 '''
 
+  [[section.analogy]]
+  title = "Saying an address versus writing it on an envelope"
+  text = '''
+In conversation you say "I live on Main Street". On an envelope you write the
+full form the post office needs. `print` is the spoken form, for people.
+`show` and `repr` are the envelope form: they keep the quotes on a string and
+the colon on a symbol, so the text still says what kind of value it was.
+'''
+  breaks = '''
+An envelope address gets the letter delivered; `repr` text does not always
+turn back into the same value. With the custom `show` for `Point` in the
+third example, `repr(p)` gives `(1, 2)`, which Julia would read as a tuple,
+not a `Point`. The round trip holds only when `show` is written to print
+valid code.
+'''
+
   [[section.example]]
   code = '''
 x = "hi"
@@ -72,6 +88,23 @@ time proportional to `n²` (the `format-number-column` problem measures it).
 
 `sprint(f, args...)` is the shortcut: it creates the buffer, calls
 `f(io, args...)` and returns the string.
+'''
+
+  [[section.analogy]]
+  title = "Recopying a letter versus writing in a notebook"
+  text = '''
+`s *= piece` is like a letter where adding a sentence means copying the whole
+letter onto a fresh sheet first, then writing the new sentence at the end.
+After 100 sentences, the first one has been copied 100 times. An `IOBuffer`
+is a notebook with blank pages at the back: each new sentence goes after the
+last one, and nothing earlier is copied.
+'''
+  breaks = '''
+The notebook does fill up. When an `IOBuffer` runs out of spare room it moves
+its bytes to a larger block of memory, which is a copy. It grows in large
+steps (writing one million bytes in ten-byte pieces moves the data 11 times
+on Julia 1.10), so the total work stays roughly proportional to the final
+length, not to its square.
 '''
 
   [[section.example]]

@@ -71,6 +71,37 @@ into the next one, so its error bound is about `2u` times `sum(abs, x)`,
 independent of `n` ([Kahan summation](https://en.wikipedia.org/wiki/Kahan_summation_algorithm)).
 The first problem asks for an improved version of it.
 '''
+refs = ["goldberg-1991", "higham-2002", "kahan-1965"]
+
+  [[section.diagram]]
+  file = "fp-number-line.svg"
+  alt = "A number line from 1 to 8 in a toy floating-point format with four marks between each pair of powers of two: marks 0.25 apart between 1 and 2, 0.5 apart between 2 and 4, and 1 apart between 4 and 8. The value 2.7 is shown rounding to the nearest mark, 2.5. Below it, the Float64 gaps from eps: eps(1.0) = 2.2e-16, eps(2.0) = 4.4e-16, eps(4.0) = 8.9e-16 and eps(1e16) = 2.0."
+  caption = "The gap between neighbouring floats doubles at every power of 2, so a rounding error is small relative to the number, not small in absolute size."
+
+  [[section.analogy]]
+  title = "A ruler whose marks spread out"
+  text = '''
+Picture a ruler with a mark every millimetre between 1 and 2 cm, every
+2 mm between 2 and 4 cm, every 4 mm between 4 and 8 cm, and so on. Any
+length you measure is written down as the nearest mark. The written value
+is never off by more than half the local gap, and that half-gap is always
+about the same fraction of the length.
+
+A float is such a mark. `eps(x)` is the gap at `x`, and rounding to the
+nearest mark is what IEEE arithmetic does after every `+`, `-`, `*`, `/`
+and `sqrt`. One reading is as good as the ruler allows. A long sum is a
+long chain of readings, each rounded again, and that chain is where the
+error grows.
+'''
+  breaks = '''
+A person reading a ruler wobbles a little from one reading to the next.
+Floating-point rounding is a fixed rule (round to the nearest float, ties to
+the one with an even last bit), so the same operation on the same inputs
+always gives the same float: the error is deterministic, not random. The
+ruler picture also stops at small numbers: below about `2.2e-308` (the
+subnormal range) the gaps of `Float64` stop shrinking, and the relative error
+is no longer bounded by `u`.
+'''
 
   [[section.example]]
   caption = "`big(x)` shows the exact value a `Float64` stores; the stored `0.1` is off by less than `u` relative. Addition in two orders gives two different floats."
@@ -220,6 +251,32 @@ or not at all. The identity `1 - cos(x) = 2 sin²(x/2)` has no subtraction.
 Base provides such functions for the common cases: `expm1(x)` is
 `exp(x) - 1` and `log1p(x)` is `log(1 + x)`, both accurate for tiny `x`.
 '''
+refs = ["goldberg-1991"]
+
+  [[section.analogy]]
+  title = "Weighing a cat on a bathroom scale"
+  text = '''
+To weigh a cat on a bathroom scale that shows the nearest 0.1 kg, you weigh
+yourself holding the cat (80.4 kg), then alone (76.1 kg), and subtract:
+4.3 kg. The subtraction is exact. The trouble is in the two readings: each
+can be off by up to 0.05 kg, a tiny fraction of 80 kg, but together up to
+0.1 kg, more than 2% of a 4.3 kg cat.
+
+That is cancellation. `x - y` is computed exactly when `y / 2 <= x <= 2y`
+(the Sterbenz lemma), which holds whenever the two nearly cancel. What is
+left is the rounding that `x` and `y` already carried, now measured
+against a much smaller number. The cure in this section has the same shape:
+weigh the cat directly, that is, rewrite the formula so the small quantity
+is computed without subtracting two large ones.
+'''
+  breaks = '''
+A bathroom scale's error changes from one weighing to the next and does not
+depend on the reading. A float's rounding error is a fixed function of the
+value (at most half the gap `eps(x) / 2`, which grows with `|x|`), and
+repeating the computation gives the same digits. The leading digits that
+cancel were also not "lost" by the subtraction: they were the same in both
+numbers and said nothing about the difference.
+'''
 
   [[section.example]]
   caption = "`x = 1 + 1e-8` stores the nearest float; `x - 1` is computed exactly, and the result shows the rounding of `x` itself."
@@ -303,6 +360,7 @@ Since every input you have is already rounded (relative error `u`) or
 measured, an ill-conditioned problem has an uncertain answer **before any
 algorithm runs**.
 '''
+refs = ["higham-2002", "trefethen-bau-1997"]
 
   [[section.example]]
   caption = "The formula `κ = |x f'(x) / f(x)|` against a measurement: change `x` by a relative `1e-10` and divide the relative change of `f(x)` by it (both rounded to 3 digits)."
@@ -373,6 +431,7 @@ kind:
 
 The cure for instability is a different algorithm for the same problem.
 '''
+refs = ["higham-2002", "trefethen-bau-1997", "goldberg-1991"]
 
   [[section.example]]
   caption = "The small root of `x² - 1e8 x + 1`, two formulas, against a `BigFloat` evaluation (relative errors rounded to 2 digits)."
@@ -434,6 +493,39 @@ So: small residual, large error means ill-conditioning (reformulate, or get
 more accurate data); large error on a well-conditioned problem means an
 unstable algorithm (rewrite it). Digits you can trust: about
 `16 - log10(κ)` for a backward-stable method.
+'''
+refs = ["higham-2002"]
+
+  [[section.diagram]]
+  file = "error-chain.svg"
+  alt = "Two boxes, inputs and answers. In the inputs box are x and a nearby input x hat, joined by a red segment labelled backward error. Solid arrows labelled exact f map x to f(x) and x hat to y hat; a dashed blue arrow labelled the algorithm, in floats, maps x straight to y hat. A red segment between f(x) and y hat is the forward error. Below: forward error is at most the condition number κ times the backward error; κ belongs to the problem and the backward error to the algorithm."
+  caption = "The computed answer is the exact answer for a nearby input: the algorithm decides how near (backward error), and the problem decides how far that moves the answer (condition number)."
+
+  [[section.analogy]]
+  title = "A cook with a slightly wrong measuring cup"
+  text = '''
+A cook follows your recipe exactly, but with a measuring cup that holds a
+little more than it says. The dish that comes out is the exact dish of a
+slightly different recipe. That difference in the recipe is the
+**backward error**, and it belongs to the cook's tools (the algorithm).
+
+How much the dish changes depends on the dish. A soup barely changes with a
+little more water; a sauce where two strong flavours must nearly cancel can
+change completely. That sensitivity is the **condition number**, and it
+belongs to the recipe (the problem). The change in the result, the
+**forward error**, is at most the product of the two. A careful cook (a
+backward-stable algorithm) cannot rescue a recipe that sensitive: you need a
+different recipe or more accurate ingredients, which is this section's
+conclusion for the Hilbert matrix.
+'''
+  breaks = '''
+A recipe's sensitivity is a matter of taste. The condition number is a
+number with a definition (`κ = |x f'(x) / f(x)|`, or `‖A‖ ‖A⁻¹‖` for a
+linear system), and it bounds the amplification of small input changes
+only, to first order. A cup that is off by the same amount every time is
+also a single, systematic error, while an algorithm's backward error comes
+from many roundings of at most `u` each, whose signs and sizes depend on
+the data.
 '''
 
   [[section.example]]
@@ -947,3 +1039,39 @@ function kahan_sum(x)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "goldberg-1991"
+authors = "Goldberg, D."
+title = "What every computer scientist should know about floating-point arithmetic"
+venue = "ACM Computing Surveys 23(1), 5-48"
+year = 1991
+url = "https://docs.oracle.com/cd/E19957-01/806-3568/ncg_goldberg.html"
+note = "Derives the rounding model `fl(x + y) = (x + y)(1 + δ)` of section 2, proves that subtracting floats within a factor of 2 is exact and explains how cancellation exposes earlier rounding (section 3), rewrites the quadratic formula as in section 5, and analyses Kahan's compensated summation. The link is a free edited reprint."
+
+[[reference]]
+id = "higham-2002"
+authors = "Higham, N. J."
+title = "Accuracy and Stability of Numerical Algorithms"
+venue = "SIAM, second edition"
+year = 2002
+url = "https://doi.org/10.1137/1.9780898718027"
+note = "Defines forward error, backward error and the condition number and states the rule of thumb, to first order, forward error <= condition number × backward error of the last section; bounds the error of the plain, pairwise and compensated sums of section 2; and shows that LU with partial pivoting is backward stable in practice."
+
+[[reference]]
+id = "trefethen-bau-1997"
+authors = "Trefethen, L. N.; Bau, D., III"
+title = "Numerical Linear Algebra"
+venue = "SIAM"
+year = 1997
+url = "https://doi.org/10.1137/1.9780898719574"
+note = "Lectures 12 to 15 define the condition number of a problem and the stability and backward stability of an algorithm, the two ideas of sections 4 and 5."
+
+[[reference]]
+id = "kahan-1965"
+authors = "Kahan, W."
+title = "Pracniques: further remarks on reducing truncation errors"
+venue = "Communications of the ACM 8(1), 40"
+year = 1965
+url = "https://doi.org/10.1145/363707.363723"
+note = "A one-page paper introducing compensated summation, the loop in section 2's examples and in the first problem."

@@ -145,6 +145,29 @@ loop variable, so closures made in a comprehension each see their own `i`
 (Python programmers expect `[3, 3, 3]` here).
 '''
 
+  [[section.analogy]]
+  title = "A function that carries a locker key"
+  text = '''
+Each call to `make_counter()` rents a new locker and puts a `count` of 0 in
+it. The function it returns carries the key to that locker. Every time you
+call it, it opens the locker, adds one, and closes it again, which is why
+`c()` remembers how many times it was called. Call `make_counter()` again and
+you get a second locker with its own key: the two counters never see each
+other's numbers.
+
+This is the difference between capturing the *variable* (the locker) and
+capturing a *value* (a photo of what was in the locker at the time).
+'''
+  breaks = '''
+A rented locker stays rented until someone returns it. Julia's storage for a
+captured variable is freed automatically once no function holds its key
+any more (the garbage collector, the part of Julia that reclaims unused
+memory, does this). And the locker is not free: when a closure reassigns a
+captured variable, as the counter does, Julia often stores it in a `Core.Box`
+(an extra object in memory whose contents' type the compiler cannot see),
+which makes that code slower than a plain loop.
+'''
+
   [[section.example]]
   code = '''
 make_adder(n) = x -> x + n
@@ -177,6 +200,25 @@ Function arguments without type annotations accept anything that supports the
 operations used. One definition of `f(x) = 2x + 1` works for an `Int`, a
 `Float64`, a `Rational` and a `BigInt`, and Julia compiles a specialised
 version for each type, so generic code is not slow.
+'''
+
+  [[section.analogy]]
+  title = "One recipe, a prep sheet per ingredient"
+  text = '''
+`f(x) = 2x + 1` is like a recipe that says "double it, then add one", without
+naming the ingredient. The first time a cook makes it with whole numbers, they
+write a prep sheet for whole numbers; the first time with fractions, a
+separate prep sheet for fractions. Later orders of the same kind reuse the
+sheet that already exists. In Julia the prep sheet is machine code compiled
+for that argument type, and `typeof(f(3))` and `typeof(f(1//3))` differ
+because each sheet works in its own type.
+'''
+  breaks = '''
+A cook can adapt a recipe on the fly; Julia writes a new prep sheet (compiles)
+on the first call for each new combination of argument types, and that first
+call takes extra time. Also, the recipe only works for ingredients that
+support every step: calling `f("a")` fails with a `MethodError`, because there
+is no `2 * "a"` to compile, not because Julia rejects strings up front.
 '''
 
   [[section.example]]

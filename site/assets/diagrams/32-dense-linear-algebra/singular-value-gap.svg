@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>A gap in the singular values sets the numerical rank</title>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker>
+<marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker>
+</defs>
+<rect width="720" height="380" fill="#ffffff"/>
+<text x="20.0" y="26.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">Singular values of the noisy rank-3 matrix in this section (log scale)</text>
+<line x1="110.0" y1="50.0" x2="110.0" y2="320.0" stroke="#776f82" stroke-width="1"/>
+<line x1="110.0" y1="320.0" x2="520.0" y2="320.0" stroke="#776f82" stroke-width="1"/>
+<line x1="105.0" y1="320.0" x2="110.0" y2="320.0" stroke="#776f82" stroke-width="1"/>
+<text x="102" y="325.0" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">-16</tspan></text>
+<line x1="105.0" y1="260.0" x2="110.0" y2="260.0" stroke="#776f82" stroke-width="1"/>
+<text x="102" y="265.0" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">-12</tspan></text>
+<line x1="105.0" y1="200.0" x2="110.0" y2="200.0" stroke="#776f82" stroke-width="1"/>
+<text x="102" y="205.0" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">-8</tspan></text>
+<line x1="105.0" y1="140.0" x2="110.0" y2="140.0" stroke="#776f82" stroke-width="1"/>
+<text x="102" y="145.0" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">-4</tspan></text>
+<line x1="105.0" y1="80.0" x2="110.0" y2="80.0" stroke="#776f82" stroke-width="1"/>
+<text x="102" y="85.0" font-size="14" fill="#776f82" text-anchor="end">10<tspan baseline-shift="super" font-size="13">0</tspan></text>
+<rect x="140.0" y="66.6" width="44" height="253.4" fill="#3657c8" fill-opacity="0.8"/>
+<text x="162.0" y="338.0" font-size="13" fill="#776f82" text-anchor="middle">σ1</text>
+<text x="162.0" y="60.6" font-size="13" fill="#3657c8" text-anchor="middle">7.794</text>
+<rect x="204.0" y="68.7" width="44" height="251.3" fill="#3657c8" fill-opacity="0.8"/>
+<text x="226.0" y="338.0" font-size="13" fill="#776f82" text-anchor="middle">σ2</text>
+<text x="226.0" y="62.7" font-size="13" fill="#3657c8" text-anchor="middle">5.648</text>
+<rect x="268.0" y="74.0" width="44" height="246.0" fill="#3657c8" fill-opacity="0.8"/>
+<text x="290.0" y="338.0" font-size="13" fill="#776f82" text-anchor="middle">σ3</text>
+<text x="290.0" y="68.0" font-size="13" fill="#3657c8" text-anchor="middle">2.503</text>
+<rect x="332.0" y="225.5" width="44" height="94.5" fill="#776f82" fill-opacity="0.45"/>
+<text x="354.0" y="338.0" font-size="13" fill="#776f82" text-anchor="middle">σ4</text>
+<text x="354.0" y="219.5" font-size="13" fill="#776f82" text-anchor="middle">2e-10</text>
+<rect x="396.0" y="230.0" width="44" height="90.0" fill="#776f82" fill-opacity="0.45"/>
+<text x="418.0" y="338.0" font-size="13" fill="#776f82" text-anchor="middle">σ5</text>
+<text x="418.0" y="224.0" font-size="13" fill="#776f82" text-anchor="middle">1e-10</text>
+<rect x="460.0" y="237.8" width="44" height="82.2" fill="#776f82" fill-opacity="0.45"/>
+<text x="482.0" y="338.0" font-size="13" fill="#776f82" text-anchor="middle">σ6</text>
+<text x="482.0" y="231.8" font-size="13" fill="#776f82" text-anchor="middle">3e-11</text>
+<line x1="110.0" y1="289.8" x2="530.0" y2="289.8" stroke="#c0392b" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="536.0" y="285.8" font-size="13" fill="#c0392b" text-anchor="start">default rank threshold</text>
+<text x="536.0" y="303.8" font-size="13" fill="#c0392b" text-anchor="start">6 eps σ1 ≈ 1.0e-14: rank 6</text>
+<line x1="110.0" y1="186.6" x2="530.0" y2="186.6" stroke="#2f8a4c" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="536.0" y="182.6" font-size="13" fill="#2f8a4c" text-anchor="start">rtol = 1e-8:</text>
+<text x="536.0" y="200.6" font-size="13" fill="#2f8a4c" text-anchor="start">7.8e-8: rank 3</text>
+<text x="310.0" y="364.0" font-size="13" fill="#776f82" text-anchor="middle">the gap from 2.5 to 2e-10 is where the noise starts</text>
+</svg>

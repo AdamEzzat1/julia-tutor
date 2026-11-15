@@ -58,6 +58,32 @@ solver tolerance. That makes ForwardDiff a sharp check of a hand-written
 adjoint.
 '''
 
+  [[section.diagram]]
+  file = "adjoint-two-passes.svg"
+  alt = "Two rows of boxes. Top row: states u0, u1, u2 up to uN, joined by arrows pointing right, the forward pass that keeps every state. Bottom row: adjoints lambda0 up to lambdaN, joined by arrows pointing left, the backward pass that starts from the gradient of g at uN; dashed arrows show each backward step reading the stored state above it."
+  caption = "The forward pass stores the trajectory; the backward pass carries one vector of length n back through it and adds each step's share to the gradient."
+
+  [[section.analogy]]
+  title = "Tracing a late parcel back along its route"
+  text = '''
+A parcel arrives late, and you want to know how much each of many settings
+along its route (sorting speed, truck speed, loading time) added to the
+delay. Forward mode would rerun the route once per setting. The adjoint
+starts at the destination with a short list of numbers, one per state,
+saying how the final lateness changes if the parcel's state there changes a
+little. It then walks the route backward once, using the logbook of where
+the parcel was at every stop. At each stop it passes the list back one leg
+and adds that stop's share to every setting's total. One backward walk gives
+all the settings' shares.
+'''
+  breaks = '''
+The backward rule is exact linear algebra: `λ_{k+1}` is multiplied by the
+transposed step Jacobian `(I + h J_k)ᵀ`, and the shares add up only because derivatives
+are linear in small changes; real delays interact and do not split so
+neatly. The logbook is a real cost: the adjoint must store or recompute
+every state `u_k`, the memory price measured in the next section.
+'''
+
   [[section.example]]
   caption = "The discrete adjoint of 200 Euler steps of Lotka-Volterra, for `L = ‖u_N - target‖² / 2`, against ForwardDiff through the same loop."
   notice = "Notice the agreement to better than `1e-13` relative, near machine precision: both differentiate the same arithmetic, so only rounding separates them."
@@ -257,6 +283,7 @@ differently. Each needs the vector-Jacobian products `J(t)ᵀ λ` and
 `f(u, p, t)` that does not mutate arrays (the guide recommends `EnzymeVJP`
 first when it applies; Enzyme is not part of this course's examples).
 '''
+refs = ["gholami-2019"]
 
   [[section.example]]
   caption = "A Lotka-Volterra loss differentiated with `GaussAdjoint(autojacvec = ZygoteVJP())` and checked against ForwardDiff through `Tsit5`, at two tolerances."
@@ -344,6 +371,44 @@ types meet. Convert once:
 `ps = ComponentArray{Float64}(ps)`. This course uses `Float64` throughout:
 `Float32` carries about 7 digits (`eps(Float32)` is about `1.2e-7`), so
 solver tolerances below that mean nothing in it.
+
+**What this is useful for.** Chen, Rubanova, Bettencourt and Duvenaud used
+this construction for continuous-depth versions of residual networks (deep networks in which each
+layer adds a small correction to its input, which is one Euler step), for
+time-series models with a continuous hidden state, and for continuous
+normalizing flows (a model of probability distributions you can sample
+from). Rubanova, Chen and Duvenaud built latent ODE models on it for time
+series measured at irregular times: the solver can stop at any time, so
+uneven gaps between observations need no special handling, and in their
+experiments these models beat their recurrent-network counterparts
+(networks that update a hidden state one observation at a time) on such
+data. The adjoint is what makes
+the gradient affordable for the many weights of a network. Two cautions come
+with it. Gholami, Keutzer and Biros showed that the optimize-then-discretize
+gradient can be inconsistent enough to make training diverge at small time
+steps, and proposed a discretize-then-optimize method (ANODE); Ma et al.
+found that adjoints which re-solve the forward ODE backward in time
+(backsolve) are numerically unstable and unsuitable for most scientific
+models. And the limits of this unit stay: the
+element type trap above, and the cost crossover of the next section, where
+forward mode was faster at 42 parameters.
+'''
+refs = ["chen-2018", "rubanova-2019", "gholami-2019", "ma-2018"]
+
+  [[section.analogy]]
+  title = "A wind map and a paper boat"
+  text = '''
+A neural ODE is a map of wind arrows. At every point `u` the network draws
+an arrow, `NN(u; θ)`, saying which way and how fast the state moves. The ODE
+solver is a paper boat dropped at `u0` that follows the arrows. Training
+adjusts the arrows until the boat's path passes near the data.
+'''
+  breaks = '''
+Real wind exists everywhere and can be measured; the network's arrows are
+fitted only where the boat's path went, and elsewhere they are whatever the
+weights happen to give (unit 45 tests what that does to prediction). The
+arrows also know nothing about physics: nothing makes them conserve energy
+or keep populations positive unless the structure or the loss asks for it.
 '''
 
   [[section.example]]
@@ -433,6 +498,7 @@ machine. The sensitivity guide's rule of thumb (forward mode below about 100
 parameters) is a starting point; measure your own model, as here, when the
 gradient is the bottleneck.
 '''
+refs = ["ma-2018"]
 
   [[section.example]]
   caption = "Gradient time with `ForwardDiffSensitivity` (through ForwardDiff) and with `GaussAdjoint(autojacvec = ZygoteVJP())`, for a neural ODE of width `w`. Timings vary between machines, so they are recorded, not checked."
@@ -994,3 +1060,39 @@ function euler_loss_gradient(θ, u0, h, N, target)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "chen-2018"
+authors = "Chen, R. T. Q.; Rubanova, Y.; Bettencourt, J.; Duvenaud, D."
+title = "Neural Ordinary Differential Equations"
+venue = "Advances in Neural Information Processing Systems 31 (NeurIPS 2018)"
+year = 2018
+url = "https://arxiv.org/abs/1806.07366"
+note = "Introduced the neural ODE built in section 5 and the adjoint training it uses; lists the uses named there (continuous-depth networks, time-series models, normalizing flows)."
+
+[[reference]]
+id = "rubanova-2019"
+authors = "Rubanova, Y.; Chen, R. T. Q.; Duvenaud, D."
+title = "Latent ODEs for Irregularly-Sampled Time Series"
+venue = "arXiv:1907.03907"
+year = 2019
+url = "https://arxiv.org/abs/1907.03907"
+note = "Applies neural ODEs to time series with uneven gaps, the published use cited in section 5."
+
+[[reference]]
+id = "gholami-2019"
+authors = "Gholami, A.; Keutzer, K.; Biros, G."
+title = "ANODE: Unconditionally Accurate Memory-Efficient Gradients for Neural ODEs"
+venue = "arXiv:1902.10298"
+year = 2019
+url = "https://arxiv.org/abs/1902.10298"
+note = "Shows that optimize-then-discretize gradients can be inconsistent with the discretized solution (section 4) and can make training diverge (section 5)."
+
+[[reference]]
+id = "ma-2018"
+authors = "Ma, Y.; Dixit, V.; Innes, M.; Guo, X.; Rackauckas, C."
+title = "A Comparison of Automatic Differentiation and Continuous Sensitivity Analysis for Derivatives of Differential Equation Solutions"
+venue = "arXiv:1812.01892"
+year = 2018
+url = "https://arxiv.org/abs/1812.01892"
+note = "Measures the forward-versus-adjoint crossover near 100 parameters plus equations (section 6) and finds backsolve adjoints unstable for most scientific models (section 5)."

@@ -45,6 +45,24 @@ a list of arguments. You can also build expressions directly with
 `Expr(head, args...)`, which is what quoting does for you.
 '''
 
+  [[section.analogy]]
+  title = "A recipe card instead of the meal"
+  text = '''
+Quoting is writing a recipe down instead of cooking it. `:(x + 1)` is a card
+that says "take x, add 1"; nothing is cooked yet. The card is not a strip of
+text but a list of steps that can contain smaller steps: the `Expr` tree with
+its `head` and `args`. Interpolation with `$` fills in an amount from what is
+on the counter now: `:($x + 1)` writes the current value of `x` onto the card,
+while `:(x + 1)` leaves the word "x" to be looked up whenever someone cooks it.
+'''
+  breaks = '''
+A cook can guess what a smudged word meant; Julia cannot. You can build an
+`Expr` that no parser would produce, and it fails only when it is evaluated.
+And cooking a card with `eval` always happens in the module's global scope: a
+kitchen that cannot see the local variables of the function that wrote the
+card.
+'''
+
   [[section.example]]
   code = '''
 ex1 = :(x + 1)
@@ -113,6 +131,28 @@ that it keeps its meaning in the caller's scope. Forgetting `esc` is the
 classic macro bug. In the second example the unescaped `x` in `x *= 3` is
 resolved in the macro's module, as the global `Main.x`, and an expansion may
 not assign to a module-qualified name: the error points at the macro call.
+'''
+refs = ["bezanson-2017"]
+
+  [[section.analogy]]
+  title = "An editor who rewrites your draft"
+  text = '''
+A macro is an editor who receives your draft (the code, unevaluated) and
+returns a rewritten draft, which is what then gets compiled and run.
+`@macroexpand` shows you the editor's version. Hygiene is the editor's habit
+of writing their own notes in a private shorthand (fresh names from `gensym`)
+so the notes never overwrite your words. `esc` marks a passage as yours:
+"leave this as written, and read it where the author wrote it". Forget `esc`
+and your passage is read as if the editor had written it, in the macro's own
+module.
+'''
+  breaks = '''
+An editor may reread a document every time it is printed; a macro runs once,
+when the code containing it is expanded, not each time that code runs. A
+macro inside a loop body is expanded once, and the loop then repeats the
+rewritten code. And an editor understands meaning, while a macro sees only
+the shape of the expression: `@square(next!())` pastes the call twice without
+knowing it has a side effect.
 '''
 
   [[section.example]]
@@ -534,3 +574,12 @@ function subst!(e::Expr, var, val)
 end
 '''
   expect = ["correct", "fast"]
+
+[[reference]]
+id = "bezanson-2017"
+authors = "Bezanson, J.; Edelman, A.; Karpinski, S.; Shah, V. B."
+title = "Julia: A Fresh Approach to Numerical Computing"
+venue = "SIAM Review 59(1)"
+year = 2017
+url = "https://arxiv.org/abs/1411.1607"
+note = "Describes Julia macros as functions that run at parse time, taking parsed expressions in and returning transformed expressions, as in section 4."

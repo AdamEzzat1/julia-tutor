@@ -50,6 +50,27 @@ characters use `eachindex(s)` (all valid indices), `nextind(s, i)` and
 `s[end]` is safe: `end` means `lastindex(s)`.
 '''
 
+  [[section.analogy]]
+  title = "House numbers on a street of plots"
+  text = '''
+Imagine a street divided into equal plots, numbered 1, 2, 3, ... Most houses
+fill one plot, but some are wider and fill two, three or four. A house's
+address is the number of its first plot. In `"héllo"` the `h` sits on plot 1
+and the wide `é` covers plots 2 and 3, so the next house, `l`, has address 4.
+Asking for "the house at 3" (`s[3]`) points at the middle of `é`'s plot, and
+Julia refuses with a `StringIndexError` rather than hand you half a house.
+
+`nextind(s, i)` walks to the next front door, and `eachindex(s)` lists every
+front door on the street.
+'''
+  breaks = '''
+In UTF-8 the "middle plots" are not empty land: each holds a continuation
+byte (a byte whose first two bits are `10`, marking it as part of the
+character before). Julia uses exactly that marking to spot an invalid index.
+And a character never spans more than four bytes, a limit a street of houses
+does not have.
+'''
+
   [[section.example]]
   code = '''
 s = "héllo"
@@ -147,6 +168,22 @@ match or `nothing`; a match's capture groups are in `m.captures` (or `m[1]`,
 Captures, like the pieces from `split`, are `SubString`s: views into the
 original string, with no copy. They behave like strings; call `String(x)` when
 you want an independent copy.
+'''
+
+  [[section.analogy]]
+  title = "A highlighted passage, not a photocopy"
+  text = '''
+A `SubString` is like highlighting a passage in a book instead of photocopying
+it. The highlight records where the passage starts and ends in the book; no
+new paper is used. `String(x)` is the photocopy: a separate sheet you can keep
+after the book is gone.
+'''
+  breaks = '''
+Highlights in a real book can go stale if someone edits the page. A Julia
+`String` is immutable (it can never change), so a `SubString` always shows the
+same text. The cost runs the other way: as long as a small `SubString` is kept,
+the whole parent string stays in memory, which is one reason to copy with
+`String(x)` when you keep a short piece of a large text.
 '''
 
   [[section.example]]

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 330" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+  <title>How Julia picks the most specific method for combine(1, 2.0)</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#776f82"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="720" height="330" fill="#ffffff"/>
+
+  <!-- the call -->
+  <rect x="20" y="125" width="200" height="80" rx="8" fill="none" stroke="#2b2733" stroke-width="1.5"/>
+  <text x="120" y="155" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="16" fill="#2b2733">combine(1, 2.0)</text>
+  <text x="120" y="182" text-anchor="middle" font-size="13" fill="#776f82">types: (Int64, Float64)</text>
+
+  <!-- arrows to each method -->
+  <line x1="220" y1="165" x2="278" y2="81" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="220" y1="165" x2="278" y2="161" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="220" y1="165" x2="278" y2="241" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <text x="395" y="40" text-anchor="middle" font-size="13" fill="#776f82">methods of combine</text>
+
+  <!-- method 1 -->
+  <rect x="280" y="55" width="230" height="52" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+  <text x="395" y="87" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="15" fill="#2b2733">(Number, Number)</text>
+  <text x="525" y="78" font-size="14" fill="#2f8a4c">matches</text>
+  <text x="525" y="97" font-size="13" fill="#776f82">but less specific</text>
+
+  <!-- method 2: chosen -->
+  <rect x="280" y="135" width="230" height="52" rx="6" fill="none" stroke="#3657c8" stroke-width="3"/>
+  <text x="395" y="167" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="15" fill="#2b2733">(Int, Number)</text>
+  <text x="525" y="158" font-size="14" fill="#2f8a4c">matches</text>
+  <text x="525" y="177" font-size="13" fill="#3657c8">chosen: most specific</text>
+
+  <!-- method 3 -->
+  <rect x="280" y="215" width="230" height="52" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+  <text x="395" y="247" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="15" fill="#2b2733">(Number, Int)</text>
+  <text x="525" y="238" font-size="14" fill="#c0392b">no match</text>
+  <text x="525" y="257" font-size="13" fill="#776f82">2.0 is not an Int</text>
+
+  <!-- conclusion -->
+  <text x="20" y="303" font-size="14" fill="#2b2733">(Int, Number) is a subtype of (Number, Number), so it wins: the call returns "int first".</text>
+</svg>

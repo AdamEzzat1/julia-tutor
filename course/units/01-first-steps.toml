@@ -60,6 +60,27 @@ plus `Float64` is a `Float64`. Names can use Unicode, which is common in
 scientific code: type `\alpha` then Tab to get `α`.
 '''
 
+  [[section.analogy]]
+  title = "Name tags on jars"
+  text = '''
+Think of values as jars in a kitchen, each with its contents printed on the
+glass: "flour", "sugar". A variable is a paper name tag you hang on a jar.
+`x = 3` hangs the tag `x` on a jar that says "Int64, 3". The type is printed
+on the jar, not on the tag, which is why `typeof(x)` reports the type of the
+value the tag hangs on.
+
+Rebinding, as in `α = "now a string"`, moves the tag to another jar. The old
+jar is not changed; the tag now hangs somewhere else.
+'''
+  breaks = '''
+Small values such as numbers are not kept in a jar you could point at: the
+compiler may keep them in a register (a tiny storage slot inside the
+processor) or copy them freely, so two
+tags on "the same" 3 are not observably one object. And inside a function the
+compiler does work out which types each name will hold (type inference), so
+"tags have no type" describes the language rules, not what the compiler knows.
+'''
+
   [[section.example]]
   code = '''
 x = 3

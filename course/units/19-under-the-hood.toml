@@ -22,6 +22,24 @@ are stored in is not meaningful). `Base.return_types(f, (T,))` asks type
 inference what the result type would be for argument type `T`, without
 running anything.
 '''
+refs = ["bezanson-2017", "bezanson-2018"]
+
+  [[section.analogy]]
+  title = "One sewing pattern, a garment per size"
+  text = '''
+A tailor keeps one pattern for a shirt (the method). The first customer of
+size M waits while an M is cut and sewn (Julia compiles a specialization for,
+say, `Int`). The next customer of size M gets one at once from the rack. A
+customer of size L waits again while an L is made. Each finished size is a
+**method instance**: the method compiled for one combination of argument
+types.
+'''
+  breaks = '''
+The sizes are types, not values: `double(3)` and `double(4)` get the same
+`Int` garment, and a new value of a type already seen does not create a new
+method instance. And the rack is cleared when Julia exits, unless the code was
+precompiled into a package's cache (last section).
+'''
 
   [[section.example]]
   code = '''
@@ -68,6 +86,11 @@ One level further down, `@code_llvm` shows LLVM's intermediate code and
 and contains generated names that change between runs, so we only show one
 example, unchecked.
 '''
+
+  [[section.diagram]]
+  file = "compilation-pipeline.svg"
+  alt = "Six boxes in two rows. Top row, run once when a method definition is evaluated: parse the source text into an Expr (Meta.parse), expand macros (@macroexpand), lower to simple steps (@code_lowered). Bottom row, run on the first call with new argument types: type inference and optimization (@code_typed), LLVM IR (@code_llvm), machine code (@code_native). An arrow leads from machine code to a cache box: later calls with the same argument types reuse the stored code."
+  caption = "Each @code_ macro shows one stage; everything from inference down runs once per method instance, not once per method."
 
   [[section.example]]
   code = '''
@@ -149,6 +172,24 @@ starts in the latest world, which is why this never bites there.
 
 The two world ages in the message are large numbers that depend on how many
 methods were defined before, so the course shows them as `W` and `W+1`.
+'''
+refs = ["belyakova-2020"]
+
+  [[section.analogy]]
+  title = "A referee and the rulebook edition"
+  text = '''
+A referee starts a match with the current edition of the rulebook and applies
+it until the final whistle, even if the league prints an amendment at half
+time. A running function is that referee: it sees the methods that existed in
+the **world** (the numbered state of all method tables) where it started.
+`invokelatest` is the referee phoning the league for the newest edition
+before one decision.
+'''
+  breaks = '''
+A league prints a new edition now and then; Julia starts a new world with
+every single method definition. And no old copy of the rulebook is kept: each
+method records the range of world numbers in which it is visible, and a call
+considers only the methods whose range includes its own world.
 '''
 
   [[section.example]]
@@ -394,3 +435,30 @@ end
 infers_concretely(f, argtypes) = isconcretetype(Core.Compiler.return_type(f, Tuple{argtypes...}))
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "bezanson-2017"
+authors = "Bezanson, J.; Edelman, A.; Karpinski, S.; Shah, V. B."
+title = "Julia: A Fresh Approach to Numerical Computing"
+venue = "SIAM Review 59(1)"
+year = 2017
+url = "https://arxiv.org/abs/1411.1607"
+note = "Lists dataflow type inference, aggressive specialization on run-time types and JIT compilation with LLVM as the features behind Julia's speed, the stages shown in sections 1 and 2."
+
+[[reference]]
+id = "bezanson-2018"
+authors = "Bezanson, J.; Chen, J.; Chung, B.; Karpinski, S.; Shah, V. B.; Vitek, J.; Zoubritzky, L."
+title = "Julia: dynamism and performance reconciled by design"
+venue = "Proceedings of the ACM on Programming Languages 2 (OOPSLA)"
+year = 2018
+url = "https://doi.org/10.1145/3276490"
+note = "Explains how the specializing just-in-time compiler removes the cost of dynamic typing and multiple dispatch, the one-method-many-instances model of section 1."
+
+[[reference]]
+id = "belyakova-2020"
+authors = "Belyakova, J.; Chung, B.; Gelinas, J.; Nash, J.; Tate, R.; Vitek, J."
+title = "World age in Julia: optimizing method dispatch in the presence of eval"
+venue = "Proceedings of the ACM on Programming Languages 4 (OOPSLA)"
+year = 2020
+url = "https://doi.org/10.1145/3428275"
+note = "Gives the formal semantics of world age, shows how it keeps inlining valid in the presence of eval, and studies how packages bypass it with invokelatest (section 4)."

@@ -41,6 +41,35 @@ for Newton's method. Use symbolic differentiation when you want the formula
 itself, or code generated from it. In Python terms: `scipy.optimize.approx_fprime`,
 JAX or PyTorch, and SymPy; in MATLAB, `gradient`, `dlgradient` and the
 Symbolic Math Toolbox's `diff`.
+
+Baydin, Pearlmutter, Radul and Siskind (2018) survey automatic
+differentiation and set it apart from numerical (finite-difference) and
+symbolic differentiation, the same three-way split as this section. The
+diagram plots the first example's recorded errors.
+'''
+refs = ["baydin-2018"]
+
+  [[section.diagram]]
+  file = "finite-difference-error.svg"
+  alt = "A log-log plot of the error of the forward and central difference formulas for the derivative of sin at 1, against step sizes from 1e-1 to 1e-15. Both errors first fall, reach a minimum (forward near h = 1e-7, central near h = 1e-5), then rise again to about 1e-2 at h = 1e-15."
+  caption = "Each curve has a dip: left of it the dropped Taylor terms dominate, right of it rounding dominates, and a smaller h makes things worse."
+
+  [[section.analogy]]
+  title = "Measuring a hill's slope with a marked ruler"
+  text = '''
+To find how steep a hill is, measure its height at two points a distance `h`
+apart and divide the difference by `h`. Far-apart points miss the curve of
+the hill between them (truncation error). Points very close together differ
+in height by less than the ruler's marks, so what you read is mostly the
+rounding to the nearest mark (round-off error). The best spacing sits between
+the two.
+'''
+  breaks = '''
+A ruler's marks are a fixed distance apart, while floating-point spacing is
+relative: it grows with the size of the number, about `eps() * |f|`. And
+rounding happens in every arithmetic operation, not only when reading the
+final values. The rounding is deterministic, the same for the same inputs
+every time.
 '''
 
   [[section.example]]
@@ -133,6 +162,32 @@ it for the new type, and each `*` and `sin` dispatches to the dual rules.
 Constants such as `3` become duals with derivative 0 through promotion (unit
 15). This is what ForwardDiff.jl does, with more operations, many partial
 derivatives at once, and care for performance.
+
+Dual numbers as the basis of forward-mode AD are covered in Baydin et al.
+(2018); Revels, Lubin and Papamarkou (2016) describe how ForwardDiff.jl
+implements them, running AD-unaware Julia code on its own number type. The
+diagram traces the example's function at `x = 2`.
+'''
+refs = ["baydin-2018", "revels-2016"]
+
+  [[section.diagram]]
+  file = "dual-number-trace.svg"
+  alt = "A graph of f(x) = 3x times x plus sin(x) evaluated on the dual number (2, 1). The box for 3x holds (6, 3), the product box holds (12, 12), the sin box holds (0.909, -0.416), and the final sum holds (12.909, 11.584), where 11.584 equals 6 times 2 plus cos(2)."
+  caption = "Every operation updates both parts with its calculus rule, so the derivative arrives at the output together with the value."
+
+  [[section.analogy]]
+  title = "Every quantity carries a speedometer"
+  text = '''
+Imagine `x` is your position on a road and you drive at speed 1 (the seed).
+Every quantity computed from `x` is then a gauge with two dials: its current
+reading, and how fast it is changing right now. Adding two gauges adds their
+rates; the product rule and the chain rule say how the rates combine for `*`
+and `sin`. At the end, the second dial of `f` reads `f′(x)`.
+'''
+  breaks = '''
+A real speedometer measures change over a short stretch of time. Dual numbers
+take no step at all: the rates are computed exactly from the rules, and the
+rule `ε² = 0` is an algebraic definition with no counterpart on a dashboard.
 '''
 
   [[section.example]]
@@ -227,7 +282,11 @@ nested calls give correct results. JAX users will recognize `jacfwd` and
 
 All four have in-place forms (`gradient!`, `jacobian!`, ...) that write into
 a preallocated result, for use in loops.
+
+Carrying several partial derivatives in one dual number is the vector-forward
+mode described by Revels, Lubin and Papamarkou (2016).
 '''
+refs = ["revels-2016"]
 
   [[section.example]]
   caption = "Gradient and Hessian of the Rosenbrock function at (-1.2, 1) and at its minimum (1, 1)."
@@ -460,6 +519,29 @@ gives them all one API so you can switch backends.
 The choice: forward mode for few inputs, or more outputs than inputs (a
 Jacobian of a small system, a derivative along one direction); reverse mode
 for a scalar loss of many parameters (neural networks, large fits).
+
+The cost difference between the two modes (forward mode grows with the
+number of inputs, reverse mode with the number of outputs) is analysed in
+Baydin et al. (2018).
+'''
+refs = ["baydin-2018", "revels-2016"]
+
+  [[section.analogy]]
+  title = "A bakery: one ingredient forward, or one price backward"
+  text = '''
+Forward mode asks: "if I add a little more flour, how does everything I bake
+change?" One pass answers it for one ingredient and every output. Reverse
+mode asks: "for this one cake's price, how much did each ingredient
+contribute?" It starts from the cake and walks back through the recipe, so
+one pass answers it for one output and every ingredient. A neural network's
+loss is one cake made from millions of ingredients, which is why it uses
+reverse mode.
+'''
+  breaks = '''
+To walk back through the recipe, reverse mode must have written down every
+intermediate value on the way forward, a memory cost the bakery picture
+hides. And a derivative describes only small changes around the current
+point, unlike a price list that holds for any amount.
 '''
 
   [[section.example]]
@@ -573,7 +655,12 @@ as `sin(1.0)` stay in the tree unless you pass `fold = Val(true)`, and
 SymPy users will find the same ideas: `symbols`, `simplify`, `expand`,
 `subs`. The difference is that Symbolics expressions are built by running
 Julia code, so any generic Julia function can produce one.
+
+Gowda et al. (2021) describe the design of Symbolics.jl: a generic interface
+for symbolic terms built on multiple dispatch, with term rewriters such as
+those of SymbolicUtils.jl acting on it.
 '''
+refs = ["gowda-2021"]
 
   [[section.example]]
   caption = "Ordinary code on symbolic variables builds expressions."
@@ -1414,3 +1501,30 @@ end
 position_sensitivity(p, nsteps) = ForwardDiff.gradient(q -> final_position(q, nsteps), p)
 '''
   expect = ["correct", "allocates"]
+
+[[reference]]
+id = "baydin-2018"
+authors = "Baydin, A. G.; Pearlmutter, B. A.; Radul, A. A.; Siskind, J. M."
+title = "Automatic differentiation in machine learning: a survey"
+venue = "Journal of Machine Learning Research 18(153)"
+year = 2018
+url = "https://arxiv.org/abs/1502.05767"
+note = "Survey of AD that contrasts it with finite differences and symbolic differentiation, explains dual numbers and the cost of forward against reverse mode."
+
+[[reference]]
+id = "revels-2016"
+authors = "Revels, J.; Lubin, M.; Papamarkou, T."
+title = "Forward-Mode Automatic Differentiation in Julia"
+venue = "arXiv preprint"
+year = 2016
+url = "https://arxiv.org/abs/1607.07892"
+note = "Describes ForwardDiff.jl: dual numbers run through AD-unaware Julia code, and the chunked vector-forward mode used for gradients."
+
+[[reference]]
+id = "gowda-2021"
+authors = "Gowda, S.; Ma, Y.; Cheli, A.; Gwóźdź, M.; Shah, V. B.; Edelman, A.; Rackauckas, C."
+title = "High-performance symbolic-numerics via multiple dispatch"
+venue = "ACM Communications in Computer Algebra 55(3)"
+year = 2021
+url = "https://arxiv.org/abs/2105.03949"
+note = "Describes the design of Symbolics.jl used in the last sections: symbolic terms, rewriting and code generation."

@@ -23,6 +23,25 @@ Floating-point results from the underlying BLAS/LAPACK libraries can differ
 in the last digits between machines, so the examples round them with
 `round.(x; digits = 6)`.
 '''
+refs = ["higham-2002"]
+
+  [[section.analogy]]
+  title = "Dividing directly instead of using a reciprocal"
+  text = '''
+To solve 7x = 21 you divide 21 by 7. You would not first write 1/7 as
+0.142857 and then multiply: that takes two steps and rounds the reciprocal
+before you even use it. `A \ b` is the direct division: it **factors** `A`
+(writes it as a product of triangular matrices, which can be solved one row
+at a time) and then solves. `inv(A) * b` is the reciprocal route: it builds
+the whole inverse first, rounding as it goes, and then multiplies.
+'''
+  breaks = '''
+For one number the two routes cost about the same. For an n×n matrix,
+computing the inverse takes roughly three times the arithmetic of the LU
+factorization that `\` uses, and the extra error of the inverse route can
+grow with how close `A` is to singular (its *condition number*), which the
+7x = 21 example cannot show.
+'''
 
   [[section.example]]
   code = '''
@@ -108,6 +127,23 @@ versions (they are only guaranteed within a release). For data that must stay
 the same forever, such as test fixtures, use a package like StableRNGs.jl.
 Functions that need randomness should take the generator as an argument, so
 callers (and tests) can control it.
+'''
+
+  [[section.analogy]]
+  title = "A page number in a book of random digits"
+  text = '''
+Before computers, people drew random numbers from printed tables of random
+digits. A seed is like telling everyone to start at page 1234: everyone who
+starts there reads the same digits in the same order, and reading on moves
+you further down the page, which is why the second `rand` call gave
+different rolls.
+'''
+  breaks = '''
+A generator does not read a table: it computes each number from a small
+internal state with a fixed formula, and updates the state. That is why the
+same seed repeats exactly, and why a Julia version that changes the formula
+can give different numbers for the same seed, as this section warns. The
+numbers only look random; the seed determines all of them.
 '''
 
   [[section.example]]
@@ -507,3 +543,12 @@ function business_days(from, to)
 end
 '''
   expect = ["correct", "fast"]
+
+[[reference]]
+id = "higham-2002"
+authors = "Higham, N. J."
+title = "Accuracy and Stability of Numerical Algorithms"
+venue = "SIAM, second edition"
+year = 2002
+url = "https://doi.org/10.1137/1.9780898718027"
+note = "Gives the operation counts of LU factorization (about 2n³/3) and of computing the inverse (about 2n³), the threefold difference stated here."

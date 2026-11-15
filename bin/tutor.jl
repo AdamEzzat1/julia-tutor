@@ -133,26 +133,28 @@ function cmd_site_data(args)
             println("wrote site/data/$name ($(length(text)) bytes)")
         end
     end
-    # Figures: copies of course/outputs/figures, byte for byte; extra files are stale too.
-    figdir = joinpath(ROOT, "site", "assets", "figures")
-    figs = SiteData.course_figures()
-    want = Set(first.(figs))
-    have = isdir(figdir) ? Set("assets/figures/" * replace(relpath(joinpath(r, f), figdir), '\\' => '/')
-                               for (r, _, fs) in walkdir(figdir) for f in fs) : Set{String}()
-    if hasflag(args, "check")
-        bad = [p for (p, b) in figs if !isfile(joinpath(ROOT, "site", p)) || read(joinpath(ROOT, "site", p)) != b]
-        extra = setdiff(have, want)
-        ok = isempty(bad) && isempty(extra)
-        println(ok ? "site/assets/figures is up to date ($(length(figs)) figures)" :
-                     "site/assets/figures is stale ($(length(bad)) missing or changed, $(length(extra)) extra): run `tutor site-data`")
-        stale += !ok
-    else
-        rm(figdir; recursive = true, force = true)
-        for (p, b) in figs
-            dest = joinpath(ROOT, "site", p)
-            mkpath(dirname(dest)); write(dest, b)
+    # Figures and diagrams: byte-for-byte copies (course/outputs/figures,
+    # course/diagrams); extra files are stale too.
+    for (kind, files) in (("figures", SiteData.course_figures()), ("diagrams", SiteData.course_diagrams()))
+        dir = joinpath(ROOT, "site", "assets", kind)
+        want = Set(first.(files))
+        have = isdir(dir) ? Set("assets/$kind/" * replace(relpath(joinpath(r, f), dir), '\\' => '/')
+                                for (r, _, fs) in walkdir(dir) for f in fs) : Set{String}()
+        if hasflag(args, "check")
+            bad = [p for (p, b) in files if !isfile(joinpath(ROOT, "site", p)) || read(joinpath(ROOT, "site", p)) != b]
+            extra = setdiff(have, want)
+            ok = isempty(bad) && isempty(extra)
+            println(ok ? "site/assets/$kind is up to date ($(length(files)) $kind)" :
+                         "site/assets/$kind is stale ($(length(bad)) missing or changed, $(length(extra)) extra): run `tutor site-data`")
+            stale += !ok
+        else
+            rm(dir; recursive = true, force = true)
+            for (p, b) in files
+                dest = joinpath(ROOT, "site", p)
+                mkpath(dirname(dest)); write(dest, b)
+            end
+            println("wrote site/assets/$kind ($(length(files)) $kind)")
         end
-        println("wrote site/assets/figures ($(length(figs)) figures)")
     end
     return stale == 0 ? 0 : 1
 end

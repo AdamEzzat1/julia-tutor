@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 360" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>The PINN loss: network, nested AD, residual at collocation points plus boundary term</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker><marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker></defs>
+<rect x="0" y="0" width="720" height="360" fill="#ffffff"/>
+<text x="20" y="28" font-size="15" text-anchor="start" fill="#2b2733" font-weight="600">How the loss of this unit is built for u″ = f on (0, 1), u(0) = u(1) = 0</text>
+<line x1="40" y1="75" x2="300" y2="75" stroke="#776f82" stroke-width="1.5"/>
+<circle cx="48.4" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="56.8" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="65.2" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="73.5" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="81.9" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="90.3" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="98.7" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="107.1" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="115.5" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="123.9" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="132.3" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="140.6" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="149.0" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="157.4" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="165.8" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="174.2" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="182.6" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="191.0" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="199.4" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="207.7" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="216.1" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="224.5" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="232.9" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="241.3" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="249.7" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="258.1" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="266.5" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="274.8" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="283.2" cy="75" r="2.6" fill="#3657c8"/>
+<circle cx="291.6" cy="75" r="2.6" fill="#3657c8"/>
+<rect x="35" y="70" width="10" height="10" fill="none" stroke="#2b2733" stroke-width="1.6"/>
+<rect x="295" y="70" width="10" height="10" fill="none" stroke="#2b2733" stroke-width="1.6"/>
+<text x="40" y="99" font-size="13" text-anchor="middle" fill="#2b2733">0</text>
+<text x="300" y="99" font-size="13" text-anchor="middle" fill="#2b2733">1</text>
+<text x="320" y="80" font-size="13" text-anchor="start" fill="#776f82">30 collocation points (dots), 2 boundary points (squares)</text>
+<rect x="40" y="130" width="130" height="56" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<text x="105" y="154" font-size="14" text-anchor="middle" fill="#2b2733">network</text>
+<text x="105" y="174" font-size="13" text-anchor="middle" fill="#776f82">u(x; θ), 49 weights</text>
+<rect x="210" y="130" width="150" height="56" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<text x="285" y="154" font-size="14" text-anchor="middle" fill="#2b2733">nested ForwardDiff</text>
+<text x="285" y="174" font-size="13" text-anchor="middle" fill="#776f82">u″(x; θ), exact</text>
+<rect x="400" y="110" width="290" height="44" rx="6" fill="#eef1fb" stroke="#3657c8" stroke-width="1.5"/>
+<text x="545" y="137" font-size="14" text-anchor="middle" fill="#3657c8">residual: mean of (u″(xᵢ; θ) − f(xᵢ))²</text>
+<rect x="400" y="170" width="290" height="44" rx="6" fill="#eef1fb" stroke="#3657c8" stroke-width="1.5"/>
+<text x="545" y="197" font-size="14" text-anchor="middle" fill="#3657c8">boundary: λ (u(0; θ)² + u(1; θ)²)</text>
+<line x1="170" y1="158" x2="208" y2="158" stroke="#776f82" stroke-width="1.6" marker-end="url(#arrow)"/>
+<line x1="360" y1="150" x2="398" y2="134" stroke="#776f82" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M170,176 C 260,230 330,215 398,195" fill="none" stroke="#776f82" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="250" y="228" font-size="13" text-anchor="middle" fill="#776f82">values at x = 0, 1</text>
+<rect x="470" y="250" width="150" height="40" rx="6" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<text x="545" y="275" font-size="14" text-anchor="middle" fill="#2b2733">L(θ) = sum of both</text>
+<line x1="545" y1="214" x2="545" y2="248" stroke="#776f82" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M470,270 L105,270 L105,188" fill="none" stroke="#3657c8" stroke-width="1.6" marker-end="url(#arrowb)"/>
+<text x="290" y="290" font-size="13" text-anchor="middle" fill="#3657c8">BFGS changes θ to lower L (gradient by ForwardDiff)</text>
+<text x="20" y="330" font-size="13" text-anchor="start" fill="#776f82">No solution data enter: the loss only tests the equation at the chosen points and the boundary values.</text>
+<text x="20" y="350" font-size="13" text-anchor="start" fill="#776f82">Without the boundary term, sin(πx) + a + b x would satisfy the residual for any a, b.</text>
+</svg>

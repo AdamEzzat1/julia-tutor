@@ -40,7 +40,13 @@ If you know SciPy, `solve_ivp(fun, t_span, y0, method="RK45")` is the same
 idea with the method as a string; MATLAB's `ode45(odefun, tspan, y0)` uses a
 Dormand-Prince pair of the same order as `Tsit5`; R's `deSolve::ode` is
 similar again.
+
+Rackauckas and Nie (2017) describe the package and its design: problems,
+algorithms and one `solve` over many solvers. `Tsit5` is the 5(4) pair
+published by Tsitouras (2011); MATLAB's `ode45` uses the pair of Dormand and
+Prince (1980); Shampine and Reichelt (1997) describe `ode45`.
 '''
+refs = ["rackauckas-2017", "tsitouras-2011", "dormand-prince-1980", "shampine-1997"]
 
   [[section.example]]
   caption = "Exponential decay `du/dt = -k u` with `k = 0.5`, from `u = 2`; the exact solution is `2 exp(-k t)` (both rounded to 7 digits)."
@@ -208,6 +214,33 @@ A higher-order method needs fewer steps at tight tolerances. The
 [solver guide](https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/)
 recommends the Verner methods (`Vern7`, `Vern9`, of orders 7 and 9) for high
 accuracy and `Tsit5` at moderate tolerances.
+
+Dormand and Prince (1980) constructed one such embedded pair of orders 5 and
+4; Tsitouras (2011) constructed the one in `Tsit5`. The diagram shows the
+accept-or-reject loop.
+'''
+refs = ["dormand-prince-1980", "tsitouras-2011"]
+
+  [[section.diagram]]
+  file = "step-size-controller.svg"
+  alt = "A flowchart of one adaptive step: try a step of size h, compute two embedded results of orders 5 and 4 and take their difference as the error estimate, then compare it with abstol plus reltol times |u|. If it passes, the step is accepted and the next h may grow; if it fails, the step is rejected and retried with a smaller h."
+  caption = "The tolerance check is made on every step, and only on that step's own error."
+
+  [[section.analogy]]
+  title = "Driving at night and checking with two maps"
+  text = '''
+A careful driver goes fast on straight roads and slows down on bends. The
+solver does the same with its step size `h`. To know whether a stride was too
+long, it works out the new position with two formulas of different accuracy
+(orders 5 and 4) and compares them: if they disagree by more than
+`abstol + reltol * |u|`, it goes back and tries a shorter stride; if they
+agree closely, it lengthens the next one.
+'''
+  breaks = '''
+A driver can see the road. The solver never sees the true solution: the
+check measures only the error made in this one step (the local error), so
+errors from earlier steps are carried along unseen, which is why the section
+asks you to compare against something you know.
 '''
 
   [[section.example]]
@@ -320,6 +353,31 @@ default to `AutoForwardDiff()`), so you only write `f`. How to tell that a
 problem is stiff: an explicit solver takes a huge number of steps (or stops
 at its step limit, `maxiters`) while the solution looks smooth.
 `sol.stats` counts the steps, rejections, function calls and Jacobians.
+
+The diagram shows the mechanism on the simplest methods of each kind, the
+explicit and implicit Euler methods, applied to `du/dt = -λu`.
+'''
+
+  [[section.diagram]]
+  file = "stiff-stability.svg"
+  alt = "Values of u over four steps for du/dt = -lambda u with h times lambda equal to 2.5. Explicit Euler multiplies u by -1.5 each step, giving 1, -1.5, 2.25, -3.375, 5.06; implicit Euler divides by 3.5, giving 1, 0.29, 0.08, 0.02, 0.007, which decays without oscillating, like the exact solution, though more slowly (exact: 1, 0.08, 0.007 at steps 0, 1, 2)."
+  caption = "The step is too long for the explicit method, which oscillates with growing size, while the implicit one decays smoothly like the true solution, though more slowly."
+
+  [[section.analogy]]
+  title = "A shower with a very sensitive tap"
+  text = '''
+You set a shower tap by feeling the water now. If the tap is very sensitive
+and you make large turns based on what you feel, you overshoot to hot, then
+to cold, each time further: that is an explicit method with too long a step
+on a fast component. An implicit method instead asks "which setting gives the
+right temperature after this turn?" and solves for it, so it can make large
+turns without overshooting.
+'''
+  breaks = '''
+There is no delay or reaction time in the mathematics. The overshoot comes
+from the formula: explicit Euler multiplies a fast component by `1 - hλ` each
+step, which is larger than 1 in size once `hλ > 2`. Implicit methods pay for
+their stability with a linear or nonlinear solve in every step.
 '''
 
   [[section.example]]
@@ -1300,3 +1358,39 @@ function rod_peak(n, κ, T)
 end
 '''
   expect = ["correct", "allocates"]
+
+[[reference]]
+id = "rackauckas-2017"
+authors = "Rackauckas, C.; Nie, Q."
+title = "DifferentialEquations.jl: A Performant and Feature-Rich Ecosystem for Solving Differential Equations in Julia"
+venue = "Journal of Open Research Software 5(1)"
+year = 2017
+url = "https://doi.org/10.5334/jors.151"
+note = "Describes the package used in this unit: the problem, algorithm and solve interface and its families of solvers."
+
+[[reference]]
+id = "dormand-prince-1980"
+authors = "Dormand, J. R.; Prince, P. J."
+title = "A family of embedded Runge-Kutta formulae"
+venue = "Journal of Computational and Applied Mathematics 6(1)"
+year = 1980
+url = "https://doi.org/10.1016/0771-050X(80)90013-3"
+note = "Constructs the embedded 5(4) Runge-Kutta pair behind ode45, whose error estimate drives step-size control as in the tolerances section."
+
+[[reference]]
+id = "tsitouras-2011"
+authors = "Tsitouras, Ch."
+title = "Runge-Kutta pairs of order 5(4) satisfying only the first column simplifying assumption"
+venue = "Computers and Mathematics with Applications 62(2)"
+year = 2011
+url = "https://doi.org/10.1016/j.camwa.2011.06.002"
+note = "Publishes the 5(4) pair implemented as Tsit5, the solver used in most examples of this unit."
+
+[[reference]]
+id = "shampine-1997"
+authors = "Shampine, L. F.; Reichelt, M. W."
+title = "The MATLAB ODE Suite"
+venue = "SIAM Journal on Scientific Computing 18(1)"
+year = 1997
+url = "https://doi.org/10.1137/S1064827594276424"
+note = "Describes ode45 and its Dormand-Prince 5(4) pair, the solver named in this section."

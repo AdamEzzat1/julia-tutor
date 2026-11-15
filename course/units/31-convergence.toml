@@ -56,6 +56,12 @@ the observed order approaches `p` from below or above as `h` shrinks. And
 at small `h` the error reaches the rounding floor (unit 30), where it stops
 decreasing and the slope means nothing.
 '''
+refs = ["hairer-norsett-wanner-1993"]
+
+  [[section.diagram]]
+  file = "order-loglog.svg"
+  alt = "Log-log plot of the error at t = 2 against step size h from 0.0125 to 0.4 for Euler, Heun and RK4 on u' = -u + sin(t), u(0) = 1, using the recorded errors. Euler's points lie on a line of slope 1 (0.028 down to 0.00082), Heun's on a line of slope 2 (0.0041 down to 6.1e-6), and RK4's fall from 2.0e-5 at h = 0.4 to 9.9e-12 at h = 0.0125, with a bend at the coarse end before the slope settles near 4."
+  caption = "The slope of each line is the method's order; RK4's line only straightens at small h, which is why an order is read from the small-h end."
 
   [[section.example]]
   caption = "Three fixed-step methods on `u' = -u + sin(t)`, `u(0) = 1`, up to `t = 2`, against the exact solution; errors (2 digits) and the observed order between consecutive halvings."
@@ -221,6 +227,30 @@ the error of one, is what adaptive solvers do at every step (section after
 next). Richardson needs the expansion to hold: the order `p` must be known,
 and `h` small enough that the next term is negligible.
 '''
+refs = ["richardson-gaunt-1927"]
+
+  [[section.analogy]]
+  title = "Two scales that read heavy by a known ratio"
+  text = '''
+Two bathroom scales both read too heavy, and you know that scale A's excess
+is exactly four times scale B's. A says 82 kg and B says 80.5 kg. The
+difference, 1.5 kg, is then three of B's excesses, so B is 0.5 kg heavy and
+you weigh 80 kg. In formulas: `(4 × 80.5 - 82) / 3 = 80`, and B's error is
+`(82 - 80.5) / 3 = 0.5`.
+
+That is Richardson extrapolation with `p = 2`: `A(h)` is scale A, `A(h/2)`
+is scale B, the ratio of their errors is `2^p = 4`, and the same two
+readings give both a better value `R(h)` and an estimate of the error of
+`A(h/2)`.
+'''
+  breaks = '''
+The ratio `2^p` holds only in the limit of small `h`: the expansion has
+further terms (`h^4` for the central difference), so `R(h)` still has an
+error, just of higher order. Real scales follow no such law. And if the
+order `p` is wrong (a bug, or `h` too large for the leading term to
+dominate), the weights are wrong and the "corrected" value can be worse
+than `A(h/2)`.
+'''
 
   [[section.example]]
   caption = "`D(h)` and its Richardson extrapolation `R(h)` for `sin'(1)`, and the error estimate `|D(h) - D(h/2)| / 3` against the true error of `D(h/2)` (all rounded to 2 digits)."
@@ -276,6 +306,29 @@ than the sum of local errors.
 An adaptive solver can only measure local errors. Nothing in a step knows
 how the problem will amplify the error later, which is why unit 24 said the
 tolerance bounds each step and not the result.
+'''
+refs = ["hairer-norsett-wanner-1993"]
+
+  [[section.analogy]]
+  title = "Walking in fog by compass and pace count"
+  text = '''
+A walker in fog navigates by compass and by counting paces. Each leg of the
+walk adds a small error: that is the **local error**. Where the walker ends
+up, compared with where they meant to be, is the **global error**: the sum
+of every leg's error, as carried along by the legs that followed.
+
+Suppose halving the length of each leg cut its error by 4. The walk now has
+twice as many legs, so the total error falls only by 2: one power is lost
+to the count of legs. That is why a local error of order `p + 1` gives a
+global error of order `p`.
+'''
+  breaks = '''
+On open ground a walker's early mistake stays with them unchanged. An ODE
+carries old errors along with its own dynamics: `u' = -u + sin(t)` damps
+them (the example's global error at `h = 0.1` is smaller than one local
+error), and a chaotic system amplifies them. A method's errors are also
+deterministic, fixed by the formula and the step, not the random wobble of
+paces.
 '''
 
   [[section.example]]
@@ -347,6 +400,32 @@ and `10` ([alg_utils.jl](https://raw.githubusercontent.com/SciML/OrdinaryDiffEq.
 
 Everything here is local: `err <= 1` says the step's estimated error is
 within tolerance. It says nothing about the error already in `u`.
+'''
+refs = ["dormand-prince-1980", "tsitouras-2011", "hairer-norsett-wanner-1993"]
+
+  [[section.diagram]]
+  file = "embedded-step.svg"
+  alt = "Flowchart of one step of the adaptive Heun-Euler solver: compute the stages k1 = f(t, u) and k2 = f(t + h, u + h k1); form low = u + h k1 (Euler, order 1) and high = u + h (k1 + k2)/2 (Heun, order 2); compute err = |high - low| / (tol + tol max(|u|, |high|)); if err is at most 1, accept (t += h, u = high), otherwise reject and keep t and u; in both cases set h *= min(5, max(0.2, 0.9 err^(-1/2)))."
+  caption = "Both methods share the stages, so the estimate costs nothing extra, and the new step size is computed after an accepted and after a rejected step alike."
+
+  [[section.analogy]]
+  title = "A thermostat that only sees the last minute"
+  text = '''
+A thermostat compares a reading with a set point and turns the heating up
+or down. A step-size controller does the same with the step: it compares
+the scaled estimate `err` with 1 (the tolerance is the set point), makes the
+next `h` larger when `err` is small and smaller when it is large, and uses
+the safety factor 0.9 and limits on the change so that `h` does not swing.
+A step whose estimate is too large is rejected and retried, as if the
+thermostat could undo the last minute.
+'''
+  breaks = '''
+A thermostat measures the room's actual temperature. The controller never
+measures the actual error of the solution: `err` estimates only the error
+the lower-order method made in this one step, starting from the current
+`u`. The error already in `u`, and how the problem amplifies it later, are
+invisible to it, which is why the global error can end above the tolerance
+(the limit cycle in the next section).
 '''
 
   [[section.example]]
@@ -464,6 +543,7 @@ Three things to read off the results:
   (about `tol^(-1/p)` steps), which is why unit 24 recommends Verner
   methods for tight tolerances.
 '''
+refs = ["hairer-norsett-wanner-1993", "tsitouras-2011"]
 
   [[section.example]]
   caption = "`Tsit5` and `Vern9` on the limit cycle (`r0 = 0.5`) to `t = 20` and `t = 200`, `abstol = reltol / 100`: global error, error over `reltol`, and right-hand-side calls. Recorded, not checked: the last digits of an adaptive solve depend on fused multiply-adds, which differ between CPUs, and step counts are not compared between runs."
@@ -1116,3 +1196,39 @@ function midpoint_solve(f, y0, T, n)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "richardson-gaunt-1927"
+authors = "Richardson, L. F.; Gaunt, J. A."
+title = "The deferred approach to the limit"
+venue = "Philosophical Transactions of the Royal Society of London, Series A 226, 299-361"
+year = 1927
+url = "https://doi.org/10.1098/rsta.1927.0008"
+note = "Develops the extrapolation of section 3: results at two step sizes, combined with weights set by the known order, cancel the leading error term."
+
+[[reference]]
+id = "hairer-norsett-wanner-1993"
+authors = "Hairer, E.; Nørsett, S. P.; Wanner, G."
+title = "Solving Ordinary Differential Equations I: Nonstiff Problems"
+venue = "Springer Series in Computational Mathematics, second revised edition"
+year = 1993
+url = "https://doi.org/10.1007/978-3-540-78862-1"
+note = "The standard reference for the order of Runge-Kutta methods, the link between local and global error, embedded pairs with step-size control, and work-precision diagrams (sections 2, 4, 5 and 6)."
+
+[[reference]]
+id = "dormand-prince-1980"
+authors = "Dormand, J. R.; Prince, P. J."
+title = "A family of embedded Runge-Kutta formulae"
+venue = "Journal of Computational and Applied Mathematics 6(1), 19-26"
+year = 1980
+url = "https://doi.org/10.1016/0771-050X(80)90013-3"
+note = "Built a 5(4) embedded pair designed to continue with the fifth-order result (local extrapolation), the design of section 5 that `Tsit5` also follows."
+
+[[reference]]
+id = "tsitouras-2011"
+authors = "Tsitouras, Ch."
+title = "Runge-Kutta pairs of order 5(4) satisfying only the first column simplifying assumption"
+venue = "Computers & Mathematics with Applications 62(2), 770-775"
+year = 2011
+url = "https://doi.org/10.1016/j.camwa.2011.06.002"
+note = "Derived the 5(4) pair that OrdinaryDiffEq implements as `Tsit5`, the solver measured in sections 5 and 6."

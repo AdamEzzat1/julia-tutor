@@ -54,6 +54,33 @@ Between `1 / |λ|` and `2 / |λ|` the factor `1 + hλ` is negative, so the
 numbers flip sign every step while shrinking: stable, but qualitatively
 wrong for a decay.
 '''
+refs = ["hairer-wanner-1996"]
+
+  [[section.diagram]]
+  file = "euler-overshoot.svg"
+  alt = "Plot of u against t from 0 to 0.17 for u' = -100u, u(0) = 1. The exact solution e^(-100t) drops smoothly to near zero by t = 0.05. Forward Euler with h = 0.019 (blue) flips sign at every step while shrinking: 1, -0.9, 0.81 and so on. Forward Euler with h = 0.021 (red, dashed) also flips sign but grows: 1, -1.1, 1.21 and so on, reaching about 2.1 after 8 steps."
+  caption = "A step 10% longer turns a decay into growth, even though the exact solution has long since vanished."
+
+  [[section.analogy]]
+  title = "Adjusting a sensitive shower tap"
+  text = '''
+You adjust a shower by turning the tap in proportion to how wrong the
+temperature feels, then waiting a moment before checking again. With a very
+sensitive tap, the turn overshoots: too hot becomes too cold, then too hot.
+If each turn is small enough, the swings shrink; past a limit, each
+correction is bigger than the error it corrects, and the swings grow.
+
+Forward Euler does the same. It computes the slope `λ u` at the start of the
+step and follows it for the whole step `h`. When `h |λ| > 2`, the step
+overshoots zero by more than `|u|`, and the numbers grow with alternating
+sign.
+'''
+  breaks = '''
+The shower's swings come from a real delay between turning the tap and
+feeling the water. The exact solution `exp(λt)` has no delay and decays
+smoothly; the oscillation is made by the method alone, and backward Euler
+with the same step does not oscillate at all (section 5).
+'''
 
   [[section.example]]
   caption = "Forward Euler for `u' = -100u`, 100 steps of four sizes. The stability limit is `h = 2/100 = 0.02` (results rounded to 3 digits)."
@@ -133,6 +160,31 @@ nonlinear `f`, `J` changes along the solution.
 Robertson's reactions conserve total mass, `A + B + C = 1`, so their
 Jacobian always has an eigenvalue 0 (exactly, up to rounding): that
 direction neither grows nor decays and is left out of the ratio.
+'''
+refs = ["hairer-wanner-1996"]
+
+  [[section.diagram]]
+  file = "stability-disk.svg"
+  alt = "The complex hλ plane with the disk |1 + hλ| ≤ 1, centred at -1 with radius 1, shaded as forward Euler's stable region. On the real axis, λ = -100 with h = 0.019 gives hλ = -1.9, inside the disk, and h = 0.021 gives -2.1, outside. A dashed ray from the origin shows hλ for λ = -3 + 4i as h grows to 0.4: h = 0.23 is inside (|1 + hλ| = 0.971) and h = 0.25 is outside (1.031)."
+  caption = "Stability needs every hλ inside the disk; the complex eigenvalue leaves it at h = 0.24, well before its size alone (2/|λ| = 0.4) would suggest."
+
+  [[section.analogy]]
+  title = "Filming a snail and a hummingbird in one shot"
+  text = '''
+To film a snail crossing a garden with a hummingbird beside it, the frame
+rate must be fast enough for the wings, while the snail's crossing takes
+hours: an enormous number of frames. The most negative eigenvalue (the
+fastest mode) sets the frame rate, that is, the step; the eigenvalue nearest
+zero (the slowest mode) sets the length of the film, how long you must
+integrate; and their ratio, the stiffness ratio, is roughly the number of
+frames.
+'''
+  breaks = '''
+Once the hummingbird flies off, a camera could slow down. Forward Euler
+cannot: the fast mode has decayed and is invisible in the solution, but
+rounding keeps a tiny amount of it present, and any step past the limit
+makes that amount grow. That is the difference between stiffness and merely
+having fast motion to follow.
 '''
 
   [[section.example]]
@@ -224,6 +276,7 @@ estimate exceeds 1, the step is rejected, and `h` shrinks. So on a stiff problem
 count hardly changes with the tolerance, and it grows with the grid. Both
 are visible in `sol.stats`.
 '''
+refs = ["curtiss-hirschfelder-1952"]
 
   [[section.example]]
   caption = "Forward Euler by hand on the heat equation (49 interior points, κ = 1, up to t = 0.1, starting from `x(1 - x)`), at multiples of `h_max = dx^2 / 2`; the largest value at the end is printed (rounded to 3 digits)."
@@ -373,6 +426,7 @@ Stability is not accuracy: backward Euler is first order, so its error is
 proportional to `h`. Long steps are stable, and they still cost accuracy in
 the modes that matter.
 '''
+refs = ["dahlquist-1963", "hairer-wanner-1996"]
 
   [[section.example]]
   caption = "Backward Euler with Newton's method on a stiff nonlinear system (Van der Pol, μ = 1000), up to t = 0.1 with three fixed step sizes, against `Rodas5P` at `abstol = reltol = 1e-12`. The errors themselves (near `1e-10`) are printed only through their ratio `err(h) / err(h/2)`, rounded to one digit: their last digits depend on the reference solve."
@@ -527,6 +581,7 @@ explicit method's steps are already set by accuracy, and the Jacobian and
 linear solves are pure overhead. Pick the method from the problem, which
 `sol.stats` and the eigenvalues tell you.
 '''
+refs = ["steinebach-2023", "hairer-wanner-1996"]
 
   [[section.example]]
   caption = "The heat equation on 199 points (κ = 1, t up to 0.1, `abstol = reltol = 1e-6`), with the tridiagonal pattern passed as `jac_prototype` and the Jacobian as `jac`: the work counts of three solvers and each one's error against the exact PDE solution. Recorded, not checked: counts depend on the CPU's rounding and on the package version."
@@ -951,3 +1006,39 @@ function backward_euler_step(f, u, h)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "hairer-wanner-1996"
+authors = "Hairer, E.; Wanner, G."
+title = "Solving Ordinary Differential Equations II: Stiff and Differential-Algebraic Problems"
+venue = "Springer Series in Computational Mathematics, second revised edition"
+year = 1996
+url = "https://doi.org/10.1007/978-3-642-05221-7"
+note = "The standard reference for stiff problems: stability regions such as forward Euler's disk (sections 2 and 3), the Robertson reaction problem, implicit and Rosenbrock methods and their linear algebra (sections 5 and 6)."
+
+[[reference]]
+id = "curtiss-hirschfelder-1952"
+authors = "Curtiss, C. F.; Hirschfelder, J. O."
+title = "Integration of stiff equations"
+venue = "Proceedings of the National Academy of Sciences 38(3), 235-243"
+year = 1952
+url = "https://doi.org/10.1073/pnas.38.3.235"
+note = "The paper that named stiff equations: explicit methods need steps set by the fast components long after they have decayed, while implicit (backward differentiation) formulas do not, the observation of section 4."
+
+[[reference]]
+id = "dahlquist-1963"
+authors = "Dahlquist, G. G."
+title = "A special stability problem for linear multistep methods"
+venue = "BIT 3, 27-43"
+year = 1963
+url = "https://doi.org/10.1007/BF01963532"
+note = "Defined A-stability (stable at every step size when Re λ < 0), the property of backward Euler in section 5, and proved that no A-stable linear multistep method has order above 2."
+
+[[reference]]
+id = "steinebach-2023"
+authors = "Steinebach, G."
+title = "Construction of Rosenbrock-Wanner method Rodas5P and numerical benchmarks within the Julia Differential Equations package"
+venue = "BIT Numerical Mathematics 63, article 27 (open access)"
+year = 2023
+url = "https://doi.org/10.1007/s10543-023-00967-x"
+note = "Constructs `Rodas5P`, the fifth-order Rosenbrock method with an embedded error estimate used in section 6, and benchmarks it in DifferentialEquations.jl."

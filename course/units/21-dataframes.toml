@@ -48,7 +48,12 @@ interface, a small set of functions for "something with named columns".
 CSV.jl, database drivers, Arrow.jl and the plotting packages speak the same
 interface, which is why they exchange tables with a `DataFrame` without
 depending on DataFrames.jl.
+
+The package authors describe this design (columns stored as plain vectors,
+the `source => function => destination` minilanguage, grouping and joins) in
+Bouchet-Valat and Kamiński (2023).
 '''
+refs = ["bouchet-valat-2023"]
 
   [[section.example]]
   code = '''
@@ -160,6 +165,22 @@ type. `combine`, `select` and `transform` do exactly that with the
 functions you give them, which is one reason to prefer them over loops over
 `df`. The last example asks inference, through `Base.return_types`, what
 each version returns.
+'''
+
+  [[section.analogy]]
+  title = "A shared notebook page or a photocopy"
+  text = '''
+`df.salary` hands you the table's own notebook page. Write on it and the
+table changes, because there is only one page. `df[:, :salary]` hands you a
+photocopy: scribble on it as much as you like, and the table keeps its
+original. The constructor's default (`copycols = true`) is the same choice
+made at the start: the table takes a photocopy of each vector you give it.
+'''
+  breaks = '''
+Nothing in Julia marks a vector as "the copy": both are ordinary vectors,
+and the only difference is whether they share memory with the table. And
+`df[!, :col] = v` does not write on the page at all: it swaps in a different
+page, a step the paper picture does not show.
 '''
 
   [[section.example]]
@@ -419,6 +440,30 @@ Because the pairs are values, you can build them in code:
 and dplyr, which reads unquoted column names from your code. Here the
 function is a real Julia function, called with each column vector, which is
 also the function barrier from the previous section.
+
+The pattern has a name because it recurs in every data tool: Wickham (2011)
+called it split-apply-combine, describing it for R's plyr package. Splitting
+the rows into groups, applying a function to each group and combining the
+results is what `groupby` followed by `combine` does here.
+'''
+refs = ["wickham-2011"]
+
+  [[section.analogy]]
+  title = "Sorting mail into bins"
+  text = '''
+`groupby(df, :dept)` is a mail room sorting letters into one bin per
+department. `combine(g, :salary => mean)` then visits each bin, works out
+one number from the letters inside it, and writes one line per bin on a
+summary sheet. `transform` on a grouped table makes the same visits but
+writes the result back on every letter, so the output keeps one row per
+input row.
+'''
+  breaks = '''
+A mail room moves the letters. `groupby` moves and copies nothing: it
+records which row numbers belong to which group, and `combine` reads the
+columns through those row numbers. Also, the function you pass receives a
+whole column of the group at once, not one letter at a time, unless you
+wrap it in `ByRow`.
 '''
 
   [[section.example]]
@@ -849,7 +894,11 @@ The details:
 
 pandas calls these `melt` and `pivot`; tidyr calls them `pivot_longer` and
 `pivot_wider`.
+
+Wickham (2014) gives the definition of tidy data: each variable is a column,
+each observation is a row, and each kind of observational unit is a table.
 '''
+refs = ["wickham-2014"]
 
   [[section.example]]
   code = '''
@@ -1637,3 +1686,30 @@ function rain_summary(s)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "bouchet-valat-2023"
+authors = "Bouchet-Valat, M.; Kamiński, B."
+title = "DataFrames.jl: Flexible and Fast Tabular Data in Julia"
+venue = "Journal of Statistical Software 107(4)"
+year = 2023
+url = "https://doi.org/10.18637/jss.v107.i04"
+note = "The package authors' own account of the design and features of DataFrames.jl, the subject of this unit."
+
+[[reference]]
+id = "wickham-2011"
+authors = "Wickham, H."
+title = "The Split-Apply-Combine Strategy for Data Analysis"
+venue = "Journal of Statistical Software 40(1)"
+year = 2011
+url = "https://doi.org/10.18637/jss.v040.i01"
+note = "Named and described the split-apply-combine pattern that groupby and combine implement in the section on transforming and summarizing."
+
+[[reference]]
+id = "wickham-2014"
+authors = "Wickham, H."
+title = "Tidy Data"
+venue = "Journal of Statistical Software 59(10)"
+year = 2014
+url = "https://doi.org/10.18637/jss.v059.i10"
+note = "Defines tidy (long) data, one observation per row, which the reshaping section produces with stack."

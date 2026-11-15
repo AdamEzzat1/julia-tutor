@@ -230,6 +230,30 @@ often draws a large share of the bandwidth on its own, so the triad's
 speedup is below 2 by an amount that depends on the machine, which is why
 the example measures it instead of asserting it.
 '''
+refs = ["williams-2009"]
+
+  [[section.diagram]]
+  file = "roofline.svg"
+  alt = "Log-log roofline at an assumed 10 GB/s: a sloped line for the bandwidth limit meets a flat roof for the core's peak (schematic height); the stream triad at intensity 1/12 sits on the slope at 0.83 GFLOP/s, and Horner at intensity 8 would be allowed 80 GFLOP/s by memory, above the roof."
+  caption = "Left of the corner a kernel waits for memory; right of it the core sets the limit."
+
+  [[section.analogy]]
+  title = "Cooks and a narrow pantry door"
+  text = '''
+Picture fast cooks who fetch every ingredient through one narrow pantry
+door. A recipe that needs a new ingredient for every chop (the triad: two
+flops per 24 bytes) keeps the cooks waiting at the door. A recipe that
+does a long series of steps on each ingredient (Horner: 128 flops per 16
+bytes) keeps them busy at their boards. A second cook speeds up the second
+recipe almost twice. For the first recipe, the extra cook mostly queues at
+the same door.
+'''
+  breaks = '''
+The door is the memory bandwidth, and one core often cannot use all of it
+alone, so a second core can still help a memory-bound loop (the triad
+measured 1.44 on two threads, not 1). Caches, which keep recent data near
+the core, have no counterpart in the picture.
+'''
 
   [[section.example]]
   caption = "Arithmetic intensity of the two kernels from their flop and byte counts, and the bandwidth-bound ceiling each would have at an assumed 10 GB/s (the assumption is only for the arithmetic)."
@@ -338,6 +362,24 @@ a task can move to another thread, and two tasks on one thread can share the
 buffer.
 '''
 
+  [[section.analogy]]
+  title = "Two writers sharing one page"
+  text = '''
+Two people keep separate tallies in two boxes on the same sheet of paper.
+Only one of them can hold the sheet at a time. They never write in each
+other's box, so the totals come out right, but the sheet passes across the
+table at every tick. A **cache line** (the 64-byte block in which caches
+move memory) is that sheet. Padding puts the boxes on different sheets. A
+local variable per task gives each writer a private notepad, copied out
+once at the end.
+'''
+  breaks = '''
+The hardware hands over the line on its own, in nanoseconds, and nobody
+waits for permission. If the two threads run on hyperthreads of one core,
+they share one cache and there is nothing to hand over, which may be why all
+three versions took the same time in the recorded run (8.8 to 8.9 ms).
+'''
+
   [[section.example]]
   caption = "`tmapreduce` with 1, 2 and 4 tasks against a serial `mapreduce` (on this site's single thread the tasks take turns, but the chunking is the same as on many threads)."
   notice = "Notice that the threaded results agree with the serial one to a relative `1e-14`. They are printed to 12 digits because the last digits are not fixed: each number of tasks adds the terms in another order, each chunk is summed with SIMD instructions whose width depends on the CPU, and the next section shows chunkings whose last digits differ."
@@ -435,6 +477,7 @@ rule it rounds differently. Three consequences:
 The example below uses a plain loop for each chunk, so its digits depend
 only on the chunking and are the same on every machine.
 '''
+refs = ["higham-1993"]
 
   [[section.example]]
   caption = "One million `randn` terms summed with 1, 2, 3, 4 and 8 contiguous chunks (a plain loop per chunk, partial sums added in order), against the exact sum computed in `BigFloat`."
@@ -539,6 +582,32 @@ fraction, known as the **Karp-Flatt metric**
 ([Karp and Flatt 1990](https://en.wikipedia.org/wiki/Karp%E2%80%93Flatt_metric)). If `e` grows with
 `p`, the loss is not a fixed serial part but an overhead that grows with
 the threads, such as shared memory bandwidth.
+'''
+refs = ["amdahl-1967", "gustafson-1988", "karp-flatt-1990"]
+
+  [[section.diagram]]
+  file = "amdahl-speedup.svg"
+  alt = "Log-log plot of Amdahl speedup against processor count from 1 to 64 for parallel fractions 0.5, 0.9 and 0.99, with the ideal line S = p and the ceilings 2, 10 and 100; at 64 processors the speedups are 1.97, 8.77 and 39.26."
+  caption = "Each curve bends toward its ceiling 1/(1 - f): a 90% parallel program never passes 10, however many cores it gets."
+
+  [[section.analogy]]
+  title = "More cooks for one dinner, or a bigger party"
+  text = '''
+Chopping vegetables splits well between cooks. The roast needs its time
+in the oven however many cooks there are. With more cooks, dinner is ready
+sooner, but never sooner than the oven time: that is **Amdahl's law** for a
+fixed problem.
+
+**Gustafson's law** asks a different question: with more cooks, how big a
+party can you feed in the same evening? The oven time stays the same, the
+cooks make more side dishes, and the amount of food grows with the number
+of cooks.
+'''
+  breaks = '''
+Real cooks also get in each other's way, and Amdahl's model leaves that
+out; such overhead is what the Karp-Flatt metric exposes when it grows with
+the number of threads. Gustafson's law assumes the extra work splits
+perfectly, which no kitchen and no program fully achieves.
 '''
 
   [[section.example]]
@@ -1120,3 +1189,48 @@ function speedup_models(s, p)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "williams-2009"
+authors = "Williams, S.; Waterman, A.; Patterson, D."
+title = "Roofline: an insightful visual performance model for multicore architectures"
+venue = "Communications of the ACM 52(4)"
+year = 2009
+url = "https://www.osti.gov/servlets/purl/1407073"
+note = "Introduced the roofline model: attainable performance is the minimum of the peak and arithmetic intensity times memory bandwidth. The link is a free copy (the accepted manuscript)."
+
+[[reference]]
+id = "higham-1993"
+authors = "Higham, N. J."
+title = "The accuracy of floating point summation"
+venue = "SIAM Journal on Scientific Computing 14(4)"
+year = 1993
+url = "https://doi.org/10.1137/0914050"
+note = "Analyses the rounding error of summing in different orders, giving the kind of worst-case bound used in the section on threaded sums, and why actual errors are usually far smaller."
+
+[[reference]]
+id = "amdahl-1967"
+authors = "Amdahl, G. M."
+title = "Validity of the single processor approach to achieving large scale computing capabilities"
+venue = "AFIPS Spring Joint Computer Conference"
+year = 1967
+url = "https://doi.org/10.1145/1465482.1465560"
+note = "Argued that the part of a program that does not parallelize limits the speedup from more processors; S = 1 / ((1 - f) + f/p) is the standard formula for that argument (the paper itself gives no formula)."
+
+[[reference]]
+id = "gustafson-1988"
+authors = "Gustafson, J. L."
+title = "Reevaluating Amdahl's law"
+venue = "Communications of the ACM 31(5)"
+year = 1988
+url = "https://doi.org/10.1145/42411.42415"
+note = "Introduced scaled speedup s + (1 - s) p for problems that grow with the number of processors."
+
+[[reference]]
+id = "karp-flatt-1990"
+authors = "Karp, A. H.; Flatt, H. P."
+title = "Measuring parallel processor performance"
+venue = "Communications of the ACM 33(5)"
+year = 1990
+url = "https://doi.org/10.1145/78607.78614"
+note = "Defined the experimentally determined serial fraction (1/S - 1/p) / (1 - 1/p) used to read the two-thread measurement."

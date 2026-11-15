@@ -63,6 +63,31 @@ simulated: the true model from `u0 = [3, 1]`, saved every 0.25 on `[0, 3]`,
 with Gaussian noise of 0.5% of each variable's mean (also the tutorial's
 choice), drawn from a `StableRNG`.
 '''
+refs = ["rackauckas-2020"]
+
+  [[section.diagram]]
+  file = "ude-structure.svg"
+  alt = "Block diagram: the state u = (x, y) feeds two boxes, the fixed known terms (alpha x, minus gamma y) with alpha = 1.3 and gamma = 1.8, and a network NN(x, y) with 57 trained weights; their sum is du/dt, which an ODE solve turns into a prediction compared with the data, and the gradient arrow goes back to the network only."
+  caption = "Only the network's weights are trained; the known terms stay fixed, so the network has to learn a function of two inputs, not the whole dynamics."
+
+  [[section.analogy]]
+  title = "A family recipe with one smudged line"
+  text = '''
+You have a family recipe in which every step is legible except one smudged
+line. Instead of inventing the dish from scratch (a pure neural ODE), you
+keep the steps you can read and experiment only with the smudged one,
+tasting the result against the dish you remember. The known terms are the
+legible steps, the network is your guess for the smudged line, and the data
+are the remembered taste.
+'''
+  breaks = '''
+Tasting judges only the finished dish, and so does the loss: it sees `known + NN`
+together. If a legible step was copied wrong, your guess for the
+smudged line can quietly compensate and the dish still tastes right, which
+is what the last section of this unit measures. And a good taste on the
+dishes you have cooked says nothing about one you have not: the network is
+fitted only on the states the data visit.
+'''
 
   [[section.example]]
   caption = "The UDE's right-hand side with an untrained network, and with the exact missing term in place of the network."
@@ -136,6 +161,22 @@ all of them do. The last check is possible only because the data are
 simulated: the missing term is known. The learned term matches it **on the
 states the training data visit**; nothing yet says what the network does
 elsewhere.
+'''
+
+  [[section.analogy]]
+  title = "A bathroom scale that wobbles"
+  text = '''
+If your bathroom scale wobbles by about 100 grams, no model of your weight
+can match its readings better than about 100 grams. A model that matches to
+within the wobble is as good as the scale can show. The noise floor is that
+wobble for these data: the loss that the true model itself gets.
+'''
+  breaks = '''
+You could measure a scale's wobble by weighing yourself twice; here the
+floor is known only because the data are simulated and the true model is at
+hand. On real data the noise has to be estimated separately, and a loss far
+below it is not a better model but a sign that the network is fitting the
+noise.
 '''
 
   [[section.example]]
@@ -265,7 +306,21 @@ So the known terms tend to help, but the margin is not large next to the
 spread between runs. In practice, check each final loss against the noise
 floor before comparing models, train from several starts, and compare
 distributions of outcomes, not one run.
+
+**What this is useful for.** Rackauckas et al. present the UDE as one
+framework for combining scientific models with machine learning, with
+applications that run from discovering biological mechanisms automatically
+to solving high-dimensional Hamilton-Jacobi-Bellman equations (equations
+from optimal control). The pure neural ODE of this section is the model of
+Chen, Rubanova, Bettencourt and Duvenaud (unit 44). The SciML
+missing-physics tutorial this unit follows ends by turning the learned term
+into an equation with sparse regression, the method of Brunton, Proctor and
+Kutz that unit 46 writes by hand. Use it with this unit's measurements in
+view: with this training budget the outcome varied from start to start, the
+UDE had the lower held-out error in 9 of 16 runs, not all, and a wrong known
+term was absorbed instead of exposed (next section).
 '''
+refs = ["rackauckas-2020", "chen-2018", "brunton-2016"]
 
   [[section.example]]
   caption = "Which held-out states are new? For each held-out time, the distance from the true state to the nearest state of the true trajectory on `[0, 3]`, sampled densely. This depends only on the true solution, not on any training."
@@ -740,3 +795,30 @@ missing_term_targets(X, dX, α, γ) = dX .- [α, -γ] .* X
 missing_term_targets(X, dX, α, γ) = reduce(hcat, [dX[:, k] - [α * X[1, k], -γ * X[2, k]] for k in axes(X, 2)])
 '''
   expect = ["correct", "allocates"]
+
+[[reference]]
+id = "rackauckas-2020"
+authors = "Rackauckas, C.; Ma, Y.; Martensen, J.; Warner, C.; Zubov, K.; Supekar, R.; Skinner, D.; Ramadhan, A.; Edelman, A."
+title = "Universal Differential Equations for Scientific Machine Learning"
+venue = "arXiv:2001.04385"
+year = 2020
+url = "https://arxiv.org/abs/2001.04385"
+note = "Introduced the name and framework of the UDE built in sections 2 to 5, and lists the applications cited in section 4."
+
+[[reference]]
+id = "chen-2018"
+authors = "Chen, R. T. Q.; Rubanova, Y.; Bettencourt, J.; Duvenaud, D."
+title = "Neural Ordinary Differential Equations"
+venue = "Advances in Neural Information Processing Systems 31 (NeurIPS 2018)"
+year = 2018
+url = "https://arxiv.org/abs/1806.07366"
+note = "The pure neural ODE, du/dt = NN(u), that section 4 compares with the UDE."
+
+[[reference]]
+id = "brunton-2016"
+authors = "Brunton, S. L.; Proctor, J. L.; Kutz, J. N."
+title = "Discovering governing equations from data by sparse identification of nonlinear dynamical systems"
+venue = "Proceedings of the National Academy of Sciences 113"
+year = 2016
+url = "https://doi.org/10.1073/pnas.1517384113"
+note = "The sparse regression (SINDy) that turns the learned term into an equation, mentioned in section 4 and built in unit 46."

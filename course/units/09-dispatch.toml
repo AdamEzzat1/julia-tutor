@@ -18,6 +18,33 @@ which the methods were defined plays no part.
 
 A method with no annotation on an argument accepts `Any`. Methods can also
 differ in the number of arguments.
+
+Choosing a method from the types of the arguments is called *multiple
+dispatch*. Julia's designers present it as one of the main ideas of the
+language in their paper on its design (Bezanson, Edelman, Karpinski and Shah,
+2017).
+'''
+refs = ["bezanson-2017"]
+
+  [[section.analogy]]
+  title = "Sorting rules at a post office"
+  text = '''
+A sorting office has rules on the wall: "anything: tray A", "anything to
+Europe: tray B", "anything to Germany: tray C". A letter to Berlin matches all
+three, and the clerk uses the most specific rule that fits, tray C. It does not
+matter which rule was pinned up first. A letter to Japan matches only
+"anything", so it goes to tray A.
+
+`describe` works the same way: the methods are the rules, the types of the
+arguments are the address, and `describe(3)` goes to the `Integer` rule
+because `Integer` is narrower than `Real`, which is narrower than `Any`.
+'''
+  breaks = '''
+A clerk reads the address on the envelope. Julia reads the type of the value
+itself, which is fixed and cannot be mislabelled. And "more specific" has a
+precise meaning that no wall of rules spells out: one signature is more
+specific when its types are subtypes of the other's, as the next section
+shows for several arguments.
 '''
 
   [[section.example]]
@@ -43,6 +70,11 @@ The types are those of the *values*: a `Vector{Any}` holding `3` still
 dispatches on `Int64`.
 '''
 
+  [[section.diagram]]
+  file = "most-specific-method.svg"
+  alt = "The call combine(1, 2.0) has argument types Int64 and Float64. It is checked against three methods: (Number, Number) matches, (Int, Number) matches, (Number, Int) does not match because Float64 is not an Int. Of the two matches, (Int, Number) is a subtype of (Number, Number), so it is chosen and the call returns int first."
+  caption = "Dispatch first keeps the methods that match all argument types, then picks the one whose signature is a subtype of every other match."
+
   [[section.example]]
   code = '''
 combine(x::Number, y::Number) = "numbers"
@@ -61,6 +93,24 @@ With the three methods above, `combine(1, 2)` matches both `(Int, Number)` and
 guess: it throws a `MethodError` saying the call is **ambiguous**, and even
 suggests the fix. Reordering the definitions changes nothing. Define a method
 for the intersection, `(Int, Int)`.
+'''
+
+  [[section.analogy]]
+  title = "Two shipping rules that both claim a parcel"
+  text = '''
+A courier has two special rates: "from Berlin to anywhere" and "from anywhere
+to Paris". A parcel from Berlin to Paris fits both, and neither rule is
+narrower than the other: one is specific about the sender, the other about
+the destination. A careful clerk does not pick one at random; they stop and
+ask for a rule that covers exactly "Berlin to Paris". That new rule is the
+intersection of the two, and it is what `combine(x::Int, y::Int)` adds.
+'''
+  breaks = '''
+A clerk might settle the tie with a habit, such as "the sender's rule wins".
+Julia has no such tie-breaker and never looks at the order of definitions;
+the `MethodError` is raised only when such a call is actually made, so
+ambiguous methods can sit unnoticed until a call lands in the overlap
+(`Test.detect_ambiguities` finds them ahead of time).
 '''
 
   [[section.example]]
@@ -130,6 +180,24 @@ together with `hash`; `isequal` falls back to `==`. The default `==` on a
 struct compares fields with `===`, which for a `Vector` field means "the same
 array", not "equal contents". In the example the Set still has two elements
 after `==` is defined, until `hash` is defined to match.
+'''
+
+  [[section.analogy]]
+  title = "Adding a rule to the shared sorting office"
+  text = '''
+Back at the post office, the wall of rules is shared by every customer. Adding
+"letters from me: tray D" only changes your own mail, which is what a method
+on your own type does. Adding "letters from Berlin to Paris: tray D" when you
+are neither the sender nor the receiver changes everyone else's mail too.
+That is type piracy: `Base.:+(::Int, ::String)` adds a rule for two types
+that belong to Base, and every package loaded in the same session sees it.
+'''
+  breaks = '''
+A post office could post a notice about the change. Julia gives no warning
+when a method is pirated, and the new rule wins wherever it is more specific,
+so the effect shows up as a surprising result in code far from the
+definition. Piracy is also a convention, not a rule the compiler enforces:
+the code is legal, which is why reviews and checkers look for it.
 '''
 
   [[section.example]]
@@ -412,3 +480,12 @@ function path_length(xs, ys)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "bezanson-2017"
+authors = "Bezanson, J.; Edelman, A.; Karpinski, S.; Shah, V. B."
+title = "Julia: A Fresh Approach to Numerical Computing"
+venue = "SIAM Review 59"
+year = 2017
+url = "https://arxiv.org/abs/1411.1607"
+note = "The design paper of Julia by its creators. It presents multiple dispatch, picking a method from the types of the arguments, as a main idea of the language, as stated in the first section of this unit."

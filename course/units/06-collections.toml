@@ -65,6 +65,26 @@ arrays the inner arrays are still shared, and `deepcopy` copies all the way
 down.
 '''
 
+  [[section.analogy]]
+  title = "Shortcuts to a folder on your computer"
+  text = '''
+`b = a` is like making a desktop shortcut to a folder. Opening either one
+shows the same folder, so a file you change through one shows up through the
+other (`a === b` is `true`).
+
+`copy(a)` makes a new folder and fills it with what the old one held. If the
+old folder contained shortcuts to subfolders (an array of arrays), the new
+folder gets the same shortcuts, still pointing at the same subfolders: that
+is a *shallow* copy. `deepcopy(a)` copies the subfolders too, all the way
+down, so nothing is shared.
+'''
+  breaks = '''
+A desktop shortcut can break when the folder it points to is deleted. A Julia
+array is kept alive as long as any name refers to it, so `a` cannot be left
+pointing at nothing. And numbers stored in an array are copied as values, not
+as shortcuts, so for a `Vector{Int}` a shallow copy already shares nothing.
+'''
+
   [[section.example]]
   code = '''
 a = [1, 2, 3, 4]
@@ -111,6 +131,24 @@ column, then the second. `reshape` reuses the same order, so `reshape(1:6, 2, 3)
 fills columns first (reshaping a range gives a lazy wrapper rather than a new
 `Matrix`; `collect` it if you need one). Loops over a matrix are fastest when the *first* index
 changes fastest.
+'''
+
+  [[section.analogy]]
+  title = "A newspaper printed in columns"
+  text = '''
+Memory is one long line of slots, so a table has to be laid out in some
+order. Julia lays a matrix out like a newspaper page: the whole first column
+from top to bottom, then the whole second column. `vec([1 2 3; 4 5 6])` gives
+`[1, 4, 2, 5, 3, 6]` for that reason. Reading down a column (first index
+changing fastest) moves along the line one slot at a time; reading across a
+row jumps a whole column's length at every step.
+'''
+  breaks = '''
+A reader pays nothing to jump to another column. A processor does: it fetches
+memory in blocks of neighbouring slots into its cache (a small, fast memory
+close to the processor), so the next element down a column is usually already
+fetched, while the next element along a row may need a new fetch. The
+difference is in speed only: both orders reach the same elements.
 '''
 
   [[section.example]]

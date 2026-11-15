@@ -23,6 +23,28 @@ below are those of Julia 1.10 with only Base loaded; packages can add more
 subtypes.
 '''
 
+  [[section.analogy]]
+  title = "Species and families in a field guide"
+  text = '''
+A bird guide groups species into families: a robin is a thrush, a thrush is a
+songbird, a songbird is a bird. You can see a robin in your garden, but you
+never see a bird that is "just a thrush" and no particular species. Concrete
+types are the species: every value you meet is exactly one of them (`Int64`,
+`Float64`). Abstract types are the families (`Integer`, `Real`): they group
+species so you can say "any real number", but nothing is only a `Real`.
+`supertype` walks up from species to family; `subtypes` lists what a family
+contains.
+'''
+  breaks = '''
+Living species can split into subspecies, but a concrete Julia type is always
+a leaf: nothing can be declared a subtype of `Int64`. Each Julia type also has
+exactly one parent, declared by a person, not discovered from evidence. And
+some types do not fit a plain family tree: `Union{Int, String}` (later in this
+unit) is not a node in the tree at all, and for parametric types `Point2{Int}`
+and `Point2{Real}` are siblings, neither a subtype of the other, even though
+`Int` is a `Real`.
+'''
+
   [[section.example]]
   code = '''
 using InteractiveUtils
@@ -128,6 +150,26 @@ constructor unless you add one (the dispatch unit shows how, with `promote`).
 The performance unit returns to this; the `L02` lesson drills it.
 '''
 
+  [[section.analogy]]
+  title = "Warehouse shelves with labels"
+  text = '''
+A field `x::Real` is a shelf labelled "some kind of real number". A worker who
+takes an item from it must first open the package to see whether it is an
+integer, a float or a fraction, and only then knows how to handle it. That
+check happens at every use, while the program runs. A field of a parametric
+type, as in `Tight{Float64}`, is a shelf labelled "Float64, always": the
+worker knows in advance what is there and the compiler can write the exact
+instructions for a `Float64` ahead of time. That is the `Any` versus
+`Float64` you see in the `return_types` output.
+'''
+  breaks = '''
+A warehouse can relabel a shelf. A Julia type cannot change: `Tight{Float64}`
+and `Tight{Int64}` are two different types, each fixed when it is created,
+and a value of one is never a value of the other. The "package" is also
+literal: an abstract-typed field stores a pointer to a separate object on the
+heap that carries its own type tag, which costs memory as well as time.
+'''
+
   [[section.example]]
   code = '''
 struct Point2{T<:Real}
@@ -178,6 +220,25 @@ special values are common partners in a Union:
 
 `isequal` treats `missing` as equal to itself, which is why dictionaries and
 the grader use it.
+'''
+
+  [[section.analogy]]
+  title = "Two kinds of blank on a form"
+  text = '''
+A paper form can be blank for two different reasons. "Name of spouse: n/a"
+means there is no such thing to write: that is `nothing`. "Date of birth:
+unknown" means there is a real date, but nobody knows it: that is `missing`.
+A clerk asked to add a year to an unknown birth date answers "still unknown",
+which is why `missing + 1` is `missing`. Asked to add a year to "n/a", the
+question makes no sense, which is why `nothing + 1` is an error.
+'''
+  breaks = '''
+A clerk would say two unknown dates "might be equal". Julia's `missing ==
+missing` gives `missing`, not `true` and not "might", and an `if` on that
+result throws an error, so code must decide what to do with `ismissing` or
+`coalesce` before comparing. The form also hides that both are ordinary
+values of their own types (`Nothing`, `Missing`), which is what lets them sit
+in a `Union`.
 '''
 
   [[section.example]]

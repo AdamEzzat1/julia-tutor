@@ -66,6 +66,33 @@ linear system. Minimizing `x² + 2y²` on `x + y = 1`:
 
     2x = λ,   4y = λ,   x + y = 1      =>   x = 2/3, y = 1/3, λ = 4/3
 '''
+refs = ["nocedal-wright-2006"]
+
+  [[section.diagram]]
+  file = "kkt-tangency.svg"
+  alt = "Level ellipses of f = x² + 2y² and the line x + y = 1; the solid ellipse f = 2/3 touches the line at (2/3, 1/3), where the gradient of f, (4/3, 4/3), and the line's normal, (1, 1), point the same way."
+  caption = "At the optimum the ellipse touches the line, so ∇f is a multiple of ∇h, and that multiple is λ = 4/3."
+
+  [[section.analogy]]
+  title = "A marble against a rail"
+  text = '''
+Put a marble in a tilted tray and lay a straight rail across it that the
+marble must stay against. The marble slides along the rail until the
+downhill pull points straight into the rail. There the rail's push
+cancels the pull, and the size of that push is the **multiplier** `λ`.
+That is stationarity: `∇f = λ ∇h`.
+
+An inequality is a fence on one side only. A fence can push but never
+pull, so its multiplier is `≥ 0` (dual feasibility). If the marble comes to
+rest away from the fence, the fence pushes nothing: `λ = 0`
+(complementarity).
+'''
+  breaks = '''
+A marble only rests at a minimum. The KKT conditions also hold at maxima
+and saddle points along the constraint, where a marble would roll away.
+And a marble finds one resting place, while a nonconvex problem can have
+several, which the conditions cannot tell apart.
+'''
 
   [[section.example]]
   caption = "The KKT system of `min x² + 2y²` subject to `x + y = 1`, solved with `\\`, and the same model in JuMP with Ipopt (values rounded to 6 digits)."
@@ -220,6 +247,30 @@ One dimension shows the whole idea. Minimize `(x - 2)²` subject to
 solves `2(x - 2) + μ / (1 - x) = 0`, found here by Newton's method,
 started inside and damped so that it never leaves `x < 1`.
 '''
+refs = ["fiacco-mccormick-1990", "wachter-biegler-2006", "nocedal-wright-2006"]
+
+  [[section.diagram]]
+  file = "log-barrier.svg"
+  alt = "Plot over x from 0.3 to 1 of f(x) = (x - 2)² and of the barrier functions f - μ log(1 - x) for μ = 1 and μ = 0.1, with their minimizers at x = 0.634 and x = 0.952, the wall x = 1 and the constrained answer x = 1."
+  caption = "As μ shrinks, the barrier minimizer moves toward the wall x = 1 from inside, and never reaches it."
+
+  [[section.analogy]]
+  title = "A parking sensor"
+  text = '''
+A car's parking sensor beeps louder as you get closer to the wall behind
+you. On a nervous setting you stop well before the wall. Turn the setting
+down and you stop closer. The wall itself is never touched.
+
+The term `-μ log c(x)` is that sensor: it grows without bound as the
+constraint value `c(x)` goes to 0. A large `μ` keeps `x(μ)` far inside the
+feasible set; driving `μ` toward 0 lets it approach the constrained minimum.
+'''
+  breaks = '''
+A sensor stops you at a fixed distance. The barrier instead trades its
+term against `f`: here the gap `1 - x(μ)` is about `μ / 2`, set by the
+multiplier `λ = 2`. And the barrier gives something no sensor does: the
+number `μ / c(x(μ))`, an estimate of the multiplier.
+'''
 
   [[section.example]]
   caption = "The log-barrier method by hand for `min (x - 2)²` subject to `x ≤ 1`: for `μ = 1e-0, 1e-2, ..., 1e-8`, Newton's method on `φ_μ'(x) = 0` from the previous `x(μ)`; the gap to the answer `1 - x(μ)` and the multiplier estimate `μ / (1 - x(μ))` (rounded to 3 digits)."
@@ -340,6 +391,23 @@ sign convention that ignores the objective sense, so for a maximization
 it is `-d obj / d b`. `shadow_price(c)` is defined by the objective
 instead: the change in the objective when the constraint is relaxed by
 one unit, in either sense. The second example below shows both.
+'''
+refs = ["nocedal-wright-2006"]
+
+  [[section.analogy]]
+  title = "Paying for one more hour of oven time"
+  text = '''
+A bakery's output is limited by oven time. The multiplier of that limit
+says how much more profit one more hour of oven time would bring. It is
+the most the bakery should pay to rent that extra hour. A limit that is
+not reached (the bakery runs out of flour first) has multiplier 0: more
+oven time is worth nothing.
+'''
+  breaks = '''
+The price holds only for small changes that keep the same constraints
+active. Rent many more hours and flour becomes the limit, and the value of
+an hour falls to 0 at once; unit 42 shows such a jump. In a nonconvex model
+the multiplier also describes one local optimum, not the best one.
 '''
 
   [[section.example]]
@@ -810,3 +878,30 @@ function equality_qp(Q, c, A, b)
 end
 '''
   expect = ["correct"]
+
+[[reference]]
+id = "nocedal-wright-2006"
+authors = "Nocedal, J.; Wright, S. J."
+title = "Numerical Optimization"
+venue = "Springer, 2nd edition"
+year = 2006
+url = "https://doi.org/10.1007/978-0-387-40065-5"
+note = "Textbook source for the KKT conditions and the regularity assumption behind them, for interior-point methods, and for reading multipliers as sensitivities of the optimal value."
+
+[[reference]]
+id = "wachter-biegler-2006"
+authors = "Wächter, A.; Biegler, L. T."
+title = "On the implementation of an interior-point filter line-search algorithm for large-scale nonlinear programming"
+venue = "Mathematical Programming 106(1)"
+year = 2006
+url = "https://doi.org/10.1007/s10107-004-0559-y"
+note = "Describes Ipopt, the solver in every example: a barrier method that applies Newton's method to the perturbed KKT conditions and drives μ to zero."
+
+[[reference]]
+id = "fiacco-mccormick-1990"
+authors = "Fiacco, A. V.; McCormick, G. P."
+title = "Nonlinear Programming: Sequential Unconstrained Minimization Techniques"
+venue = "SIAM Classics in Applied Mathematics (reprint of the 1968 edition)"
+year = 1990
+url = "https://doi.org/10.1137/1.9781611971316"
+note = "Classic account of barrier methods: the log barrier, the path of minimizers x(μ) as μ goes to 0, and multiplier estimates of the form μ / c(x(μ)) used in the one-dimensional example."

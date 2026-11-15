@@ -24,6 +24,24 @@ needs 65 bits, so what is left in 64 bits is `0`.
 Smaller types such as `Int8` (−128 to 127) wrap the same way, just sooner.
 '''
 
+  [[section.analogy]]
+  title = "A car's odometer"
+  text = '''
+An old car's odometer has six digit wheels. After 999999 km it does not grow
+a seventh wheel: it rolls over to 000000. An `Int64` is the same kind of
+counter with 64 binary wheels (bits). When a sum needs more bits than there
+are, the extra part is dropped and the counter starts again from the other
+end of its range. The result is exact arithmetic on a circle of 2^64 values,
+not an approximation.
+'''
+  breaks = '''
+An odometer rolls from its largest value to zero. A signed `Int64` rolls from
+its largest value, `typemax(Int)`, to its most negative one, `typemin(Int)`,
+because half of the circle is used for negative numbers. And the wheels of an
+odometer are decimal, while the dropped part of an `Int64` is a multiple of
+2^64, which is why `2^64` comes out as exactly `0`.
+'''
+
   [[section.example]]
   code = '''
 println(typemax(Int))
@@ -53,6 +71,27 @@ Compare floats with `≈` (type `\approx` then Tab), which is `isapprox`: equal
 within a relative tolerance. Close to zero a *relative* tolerance is useless
 (nothing is relatively close to 0), so pass an absolute one with `atol`.
 `eps()` is the gap between `1.0` and the next float.
+'''
+
+  [[section.analogy]]
+  title = "A ruler with a fixed set of marks"
+  text = '''
+Picture a ruler that has only a fixed set of tick marks. To store a number you
+must put it on the nearest mark: this step is called *rounding*. `0.1` falls
+between two marks, so the ruler keeps the closest one, which is a tiny bit off.
+So do `0.2` and `0.3`. Adding the stored `0.1` and the stored `0.2`, then
+rounding the sum to a mark, lands on a different mark than the stored `0.3`. That is all `0.1 + 0.2 == 0.3` being
+`false` means. `≈` asks "are these on nearby marks?" instead of "the same
+mark?".
+'''
+  breaks = '''
+A real ruler has evenly spaced marks. Float marks are not even: the gap
+doubles at every power of two, so it is `eps()` near 1.0 but about a million
+times wider near 2^20 and far narrower near 0, which is why the tolerance in
+`≈` is relative. The rounding is also not sloppy reading: IEEE 754, the
+standard every language here follows, fixes the exact result of each basic
+operation (`+`, `-`, `*`, `/`, `sqrt`), so the same sequence of those
+operations on the same inputs gives the same bits every time.
 '''
 
   [[section.example]]

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 320" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Floating-point numbers: gaps that grow with size</title>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker>
+<marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker>
+</defs>
+<rect width="720" height="320" fill="#ffffff"/>
+<text x="20.0" y="28.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">Floats near 1, 2 and 4 in a toy format with 2 bits after the binary point</text>
+<text x="20.0" y="48.0" font-size="13" fill="#776f82" text-anchor="start">(Float64 has 52 such bits, so its marks are far denser, but they space out the same way)</text>
+<line x1="30.0" y1="120.0" x2="690.0" y2="120.0" stroke="#776f82" stroke-width="1.5"/>
+<line x1="40.0" y1="106.0" x2="40.0" y2="134.0" stroke="#2b2733" stroke-width="2"/>
+<line x1="62.9" y1="111.0" x2="62.9" y2="129.0" stroke="#3657c8" stroke-width="2"/>
+<line x1="85.7" y1="111.0" x2="85.7" y2="129.0" stroke="#3657c8" stroke-width="2"/>
+<line x1="108.6" y1="111.0" x2="108.6" y2="129.0" stroke="#3657c8" stroke-width="2"/>
+<line x1="131.4" y1="106.0" x2="131.4" y2="134.0" stroke="#2b2733" stroke-width="2"/>
+<line x1="177.1" y1="111.0" x2="177.1" y2="129.0" stroke="#3657c8" stroke-width="2"/>
+<line x1="222.9" y1="111.0" x2="222.9" y2="129.0" stroke="#3657c8" stroke-width="2"/>
+<line x1="268.6" y1="111.0" x2="268.6" y2="129.0" stroke="#3657c8" stroke-width="2"/>
+<line x1="314.3" y1="106.0" x2="314.3" y2="134.0" stroke="#2b2733" stroke-width="2"/>
+<line x1="405.7" y1="111.0" x2="405.7" y2="129.0" stroke="#3657c8" stroke-width="2"/>
+<line x1="497.1" y1="111.0" x2="497.1" y2="129.0" stroke="#3657c8" stroke-width="2"/>
+<line x1="588.6" y1="111.0" x2="588.6" y2="129.0" stroke="#3657c8" stroke-width="2"/>
+<line x1="680.0" y1="106.0" x2="680.0" y2="134.0" stroke="#2b2733" stroke-width="2"/>
+<text x="40.0" y="154.0" font-size="14" fill="#2b2733" text-anchor="middle">1</text>
+<text x="131.4" y="154.0" font-size="14" fill="#2b2733" text-anchor="middle">2</text>
+<text x="314.3" y="154.0" font-size="14" fill="#2b2733" text-anchor="middle">4</text>
+<text x="680.0" y="154.0" font-size="14" fill="#2b2733" text-anchor="middle">8</text>
+<text x="85.7" y="94.0" font-size="13" fill="#3657c8" text-anchor="middle">gap 0.25</text>
+<text x="222.9" y="94.0" font-size="13" fill="#3657c8" text-anchor="middle">gap 0.5</text>
+<text x="497.1" y="94.0" font-size="13" fill="#3657c8" text-anchor="middle">gap 1</text>
+<circle cx="195.4" cy="120.0" r="4" fill="none" stroke="#c0392b" stroke-width="1.5"/>
+<path d="M195.4,128 Q186.3,160 180.1,132" fill="none" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="205.4" y="176.0" font-size="13" fill="#776f82" text-anchor="start">2.7 is not a float here: it is stored as the nearest mark, 2.5</text>
+<text x="20.0" y="220.0" font-size="14" fill="#2b2733" text-anchor="start" font-weight="600">The same pattern in Float64 (from eps):</text>
+<text x="40.0" y="250.0" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">eps(1.0) = 2.2e-16</text>
+<text x="205.0" y="250.0" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">eps(2.0) = 4.4e-16</text>
+<text x="370.0" y="250.0" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">eps(4.0) = 8.9e-16</text>
+<text x="535.0" y="250.0" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">eps(1e16) = 2.0</text>
+<text x="20.0" y="284.0" font-size="13" fill="#776f82" text-anchor="start">The gap doubles at every power of 2, so the relative gap stays about the same:</text>
+<text x="20.0" y="304.0" font-size="13" fill="#776f82" text-anchor="start">each rounding is off by at most half a gap, a relative error of at most u = eps()/2 ≈ 1.1e-16.</text>
+</svg>

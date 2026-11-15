@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 350" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Factor once, solve many</title>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker>
+<marker id="arrowb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3657c8"/></marker>
+</defs>
+<rect width="720" height="350" fill="#ffffff"/>
+<text x="20.0" y="26.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">Factor once (expensive), then solve each right-hand side (cheap)</text>
+<rect x="40.0" y="60.0" width="80.0" height="80.0" rx="0" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<rect x="40" y="60" width="80" height="80" fill="#776f82" fill-opacity="0.18"/>
+<text x="80.0" y="106.0" font-size="18" fill="#2b2733" text-anchor="middle" font-weight="600">A</text>
+<text x="140.0" y="106.0" font-size="18" fill="#2b2733" text-anchor="middle">=</text>
+<rect x="160.0" y="60.0" width="80.0" height="80.0" rx="0" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<polygon points="160,60 160,140 240,140" fill="#3657c8" fill-opacity="0.25" stroke="#3657c8" stroke-width="1.5"/>
+<text x="185.0" y="126.0" font-size="16" fill="#2b2733" text-anchor="middle" font-weight="600">L</text>
+<rect x="260.0" y="60.0" width="80.0" height="80.0" rx="0" fill="none" stroke="#776f82" stroke-width="1.5"/>
+<polygon points="260,60 340,60 340,140" fill="#3657c8" fill-opacity="0.25" stroke="#3657c8" stroke-width="1.5"/>
+<text x="315.0" y="90.0" font-size="16" fill="#2b2733" text-anchor="middle" font-weight="600">U</text>
+<text x="250.0" y="106.0" font-size="16" fill="#2b2733" text-anchor="middle">×</text>
+<text x="40.0" y="168.0" font-size="14" fill="#2b2733" text-anchor="start">F = lu(A): about 2n³/3 operations, done once</text>
+<text x="40.0" y="188.0" font-size="13" fill="#776f82" text-anchor="start">(row swaps from pivoting are stored in F too)</text>
+<text x="400.0" y="70.0" font-size="14" fill="#2b2733" text-anchor="start" font-weight="600">for each new b:</text>
+<text x="400.0" y="100.0" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">1. solve L y = b</text>
+<text x="580.0" y="100.0" font-size="13" fill="#776f82" text-anchor="start">forward, n² ops</text>
+<text x="400.0" y="126.0" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">2. solve U x = y</text>
+<text x="580.0" y="126.0" font-size="13" fill="#776f82" text-anchor="start">backward, n² ops</text>
+<text x="400.0" y="152.0" font-size="14" fill="#3657c8" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">F \ b  or  ldiv!(y, F, b)</text>
+<line x1="345.0" y1="100.0" x2="392.0" y2="100.0" stroke="#776f82" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="40.0" y="230.0" font-size="14" fill="#2b2733" text-anchor="start" font-weight="600">At n = 1000:</text>
+<rect x="140" y="244" width="560.0" height="18" fill="#776f82" fill-opacity="0.5"/>
+<text x="140.0" y="282.0" font-size="13" fill="#2b2733" text-anchor="start">one LU: 6.7e8 operations</text>
+<rect x="140" y="294" width="1.7" height="18" fill="#3657c8"/>
+<text x="150.0" y="308.0" font-size="13" fill="#3657c8" text-anchor="start">one solve with the factors: 2e6 operations (0.3% of an LU)</text>
+<text x="40.0" y="340.0" font-size="13" fill="#776f82" text-anchor="start">So a loop of 100 solves should call lu once, not A \ b a hundred times.</text>
+</svg>
