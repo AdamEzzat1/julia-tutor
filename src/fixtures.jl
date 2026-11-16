@@ -108,7 +108,11 @@ end
 # every real change visible. A last-bit perturbation (~1e-13 relative here)
 # lands across an 8-digit rounding boundary with probability ~1e-5 per value.
 # Only the golden copy is rounded; students see explain's full output.
-const LONG_FLOAT = r"(?<![\w.])-?\d+\.\d+(?:e[-+]?\d+)?(?![\w.])"
+# The imaginary part of a complex number is printed with an `im` suffix
+# (`0.0486 - 0.10425127978960651im`); it is rounded too. Until 2026-11-15 the
+# lookahead refused it, and qsim's apply_gate fixture failed on CI with
+# ...60651im in the golden and ...60655im on the runner.
+const LONG_FLOAT = r"(?<![\w.])-?\d+\.\d+(?:e[-+]?\d+)?(?=im(?![\w.])|(?![\w.]))"
 const GOLDEN_SIGDIGITS = 8
 
 """Explain text with every float of more than $GOLDEN_SIGDIGITS significant digits rounded to that many."""

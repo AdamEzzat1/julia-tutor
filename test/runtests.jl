@@ -284,6 +284,13 @@ end
     @test g("evaluated: 0.85 <= 0.1889902102315128 <= 1.2") == "evaluated: 0.85 <= 0.18899021 <= 1.2"
     @test g("[-0.1367287974337117, 3.0113068229662483]") == "[-0.1367288, 3.0113068]"
     @test g("x = 1.2345678901234e-15") == "x = 1.2345679e-15"
+    # imaginary parts too: the measured local/CI pair from qsim's apply_gate fixture
+    @test g("0.048610734 - 0.10425127978960651im, -0.069703234 + 0.015120536589867214im") ==
+          "0.048610734 - 0.10425128im, -0.069703234 + 0.015120537im"
+    @test g("0.048610734 - 0.10425127978960655im, -0.069703234 + 0.015120536589867239im") ==
+          "0.048610734 - 0.10425128im, -0.069703234 + 0.015120537im"
+    @test g("1.2345678901234e-15im") == "1.2345679e-15im"
+    @test g("0.1234567890123image") == "0.1234567890123image"   # `im` must end the number
     # short floats, integers, versions, paths and Ochiai scores are untouched
     for s in ("atol = 1000.0 * 1.0e-8", "Julia 1.10.13", "src/ODEInt.jl:226", "Ochiai 0.87",
               "0.000123", "14/17 testsets", "x1.234567890123")
