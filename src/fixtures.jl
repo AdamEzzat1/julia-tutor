@@ -115,16 +115,39 @@ end
 const LONG_FLOAT = r"(?<![\w.])-?\d+\.\d+(?:e[-+]?\d+)?(?=im(?![\w.])|(?![\w.]))"
 const GOLDEN_SIGDIGITS = 8
 
-"""Explain text with every float of more than $GOLDEN_SIGDIGITS significant digits rounded to that many."""
-function golden_text(s::AbstractString)
-    return replace(s, LONG_FLOAT => function (m)
+#
+# A failure line longer than 300 characters is cut by the child
+# (`firstline` in src/child/run_tests.jl) and ends in `…`. The cut is made on
+# the unrounded text, and a float's shortest printed form can be a digit
+# longer on one CPU than on another, so the cut moves: on CI (2026-11-16) the
+# apply_gate golden ended `-0.095505807 -…` and the runner's `-0.095505807…`,
+# every rounded value before it equal. Rounding cannot undo that. Everything
+# before a cut line's first long float is the same on every CPU (source text,
+# integers, short floats), so the golden keeps a cut line up to that float and
+# drops the rest. A cut line pins fewer of its values; students still see it whole.
+
+is_long_float(m::AbstractString) =
+    length(lstrip(replace(replace(m, r"e.*$" => ""), r"[-.]" => ""), '0')) > GOLDEN_SIGDIGITS
+
+function golden_line(l::AbstractString)
+    if endswith(l, "…")
+        for m in eachmatch(LONG_FLOAT, l)
+            if is_long_float(m.match) && tryparse(Float64, m.match) !== nothing
+                l = l[1:prevind(l, m.offset)] * "…"
+                break
+            end
+        end
+    end
+    return replace(l, LONG_FLOAT => function (m)
         x = tryparse(Float64, m)
-        x === nothing && return m
-        mantissa = replace(replace(m, r"e.*$" => ""), r"[-.]" => "")
-        length(lstrip(mantissa, '0')) <= GOLDEN_SIGDIGITS && return m
+        (x === nothing || !is_long_float(m)) && return m
         return repr(round(x; sigdigits = GOLDEN_SIGDIGITS))
     end)
 end
+
+"""Explain text with every float of more than $GOLDEN_SIGDIGITS significant digits rounded to that many,
+and every line cut with `…` ended before its first such float."""
+golden_text(s::AbstractString) = join(map(golden_line, split(s, '\n')), '\n')
 
 """Run every fixture (4 at a time; each run is its own processes). Returns name => (text, problems)."""
 function compute_goldens(p::Scaffold.ProjectSpec, fx::Vector{Fixture}; ntasks::Int = 4, log = stdout)

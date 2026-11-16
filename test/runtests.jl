@@ -291,6 +291,16 @@ end
           "0.048610734 - 0.10425128im, -0.069703234 + 0.015120537im"
     @test g("1.2345678901234e-15im") == "1.2345679e-15im"
     @test g("0.1234567890123image") == "0.1234567890123image"   # `im` must end the number
+    # a line the child cut with `…`: the cut moved by one character between a local run and CI
+    # (2026-11-16); both now end before the first long float, the same on every CPU
+    pre = "  FAIL fast ≈ M * ψ  evaluated: ComplexF64[0.048610734 - "
+    local_cut = pre * "0.10425127978960651im, 0.08077944 + 0.03421141437465865im, -0.095505807 -…"
+    ci_cut    = pre * "0.10425127978960655im, 0.08077944 + 0.03421141437465866im, -0.095505807…"
+    @test g(local_cut) == g(ci_cut) == pre * "…"
+    @test g("a\n" * local_cut * "\nx = 0.18899021023137388") == "a\n" * pre * "…" * "\nx = 0.18899021"
+    # a cut line with no long float is kept whole; Julia's own `…` inside a matrix is not a cut
+    @test g("61, 62, 63] == [0, 8, 16, 24…") == "61, 62, 63] == [0, 8, 16, 24…"
+    @test g("[0.1234567891 … 0.5]") == "[0.12345679 … 0.5]"
     # short floats, integers, versions, paths and Ochiai scores are untouched
     for s in ("atol = 1000.0 * 1.0e-8", "Julia 1.10.13", "src/ODEInt.jl:226", "Ochiai 0.87",
               "0.000123", "14/17 testsets", "x1.234567890123")
