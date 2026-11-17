@@ -922,7 +922,7 @@ end
   expect = ["incorrect"]
 
   [[problem.variant]]
-  label = "two bit tests joined by && (b tested first): correct, since CZ is symmetric, but slower than one mask compare"
+  label = "two bit tests joined by && (b tested first): correct, since CZ is symmetric"
   code = '''
 function apply_cz!(ψ, a, b)
     for k in 0:length(ψ)-1
@@ -933,7 +933,7 @@ function apply_cz!(ψ, a, b)
     return ψ
 end
 '''
-  expect = ["correct", "slow"]
+  expect = ["correct"]
 
   [[problem.variant]]
   label = "a ±1 sign vector, broadcast"

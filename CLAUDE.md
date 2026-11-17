@@ -408,7 +408,11 @@ every role above has had the chance to object (recorded in the PR).
   its ratio. Learners are still graded on the thresholds themselves, so on
   such a machine a learner may see "slower" where the unit says "slow". The
   CI ratios of the 2026-11-14 misses were not logged, so whether 1.5 covers
-  them is unknown until the next run prints them.
+  them is unknown until the next run prints them. A claim the runner's CPU
+  contradicts outright is dropped, not widened: unit 54's `mt-apply-cz`
+  variant with two `&&` bit tests was declared `slow` (vs one mask compare)
+  and measured 1.08-1.21x the reference in all three CI measurements on
+  2026-11-16, so it now claims only `correct`.
 * The performance ladder's 2× rung is timed too: near the line a rerun can
   land on either side (the rung's text says so), and the site keeps the best
   climb, so one lucky run counts. Its allocation-free rung is offered only
