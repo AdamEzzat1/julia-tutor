@@ -946,6 +946,703 @@
         "tableau: consistency and quadrature order",
         "verlet_step: the exact map on the harmonic oscillator"
       ]
+    },
+    {
+      "baseline": {
+        "allocations": {
+          "apply!(CX, qubits [7, 2] of 10)": 260,
+          "apply!(H, qubit 3 of 10)": 517,
+          "apply_controlled!(X, controls [0, 5], target [9], 10 qubits)": 136,
+          "run_circuit(qft_circuit(8))": 3491
+        },
+        "inferred": {
+          "apply_controlled": "Vector{ComplexF64}",
+          "apply_gate": "Vector{ComplexF64}",
+          "basis_state": "Vector{ComplexF64}",
+          "bitstring": "String",
+          "bloch": "Vector{Float64}",
+          "grover": "Circuit",
+          "iqft": "Circuit",
+          "kraus": "Matrix{ComplexF64}",
+          "kron_operator": "Matrix{ComplexF64}",
+          "measure_qubit": "Int64",
+          "partial_trace": "Matrix{ComplexF64}",
+          "qft": "Circuit",
+          "qpe": "Circuit",
+          "ry": "Matrix{ComplexF64}",
+          "sample_counts": "Dict{String, Int64}"
+        },
+        "jet": {
+          "status": "not used by this project's measurements"
+        }
+      },
+      "deps": {
+        "apply_controlled": [
+          "QSim/controlled gates"
+        ],
+        "apply_gate": [
+          "QSim/algorithms (structural)",
+          "QSim/controlled gates",
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/Bloch vectors of the six cardinal states",
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/measurement statistics follow the Born rule",
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/rotations rotate the Bloch vector by the stated angle",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/CHSH: classical bound 2 vs quantum 2√2",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/GHZ states on 3-6 qubits",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/half of a Bell pair is maximally mixed",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/the four Bell states",
+          "QSim/lesson 3: teleportation/control: skipping Bob's corrections must fail",
+          "QSim/lesson 3: teleportation/deferred-measurement version",
+          "QSim/lesson 3: teleportation/with mid-circuit measurement",
+          "QSim/lesson 4: Deutsch-Jozsa and Bernstein-Vazirani/all 72 constant and balanced functions on 3 qubits",
+          "QSim/lesson 4: Deutsch-Jozsa and Bernstein-Vazirani/every hidden string s, n = 1...5",
+          "QSim/lesson 4: Deutsch-Jozsa and Bernstein-Vazirani/random balanced functions on 4 and 5 qubits",
+          "QSim/lesson 5: Grover search/small cases you can check by hand",
+          "QSim/lesson 5: Grover search/success probability = sin²((2k+1)θ) for every k",
+          "QSim/lesson 5: Grover search/the state never leaves the plane span{|α>, |β>}",
+          "QSim/lesson 6: the quantum Fourier transform/agreement with an independent classical FFT",
+          "QSim/lesson 6: the quantum Fourier transform/inverse QFT undoes it",
+          "QSim/lesson 6: the quantum Fourier transform/periodic input gives peaks at multiples of N/r",
+          "QSim/lesson 6: the quantum Fourier transform/the circuit's unitary is exactly the DFT matrix",
+          "QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty",
+          "QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate",
+          "QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form",
+          "QSim/lesson 8: noise, density matrices, channels/channels keep ρ physical and lower the purity of a pure state",
+          "QSim/lesson 8: noise, density matrices, channels/entanglement under noise: Bell fidelity and CHSH",
+          "QSim/lesson 8: noise, density matrices, channels/independent method: Monte-Carlo quantum trajectories",
+          "QSim/lesson 9: VQE and the parameter-shift rule/gradient descent reaches the ground energy",
+          "QSim/lesson 9: VQE and the parameter-shift rule/parameter-shift rule == finite differences",
+          "QSim/lesson 9: VQE and the parameter-shift rule/variational principle: E(θ) ≥ E₀ for any θ",
+          "QSim/little-endian convention, concretely",
+          "QSim/measurement: sampler is statistically correct (chi-square)",
+          "QSim/three independent gate-application paths agree (property test)",
+          "QSim/unitarity preserves the norm; inverse undoes"
+        ],
+        "basis_state": [
+          "QSim/algorithms (structural)",
+          "QSim/basics/basis states",
+          "QSim/controlled gates",
+          "QSim/lesson 6: the quantum Fourier transform/inverse QFT undoes it",
+          "QSim/lesson 6: the quantum Fourier transform/the circuit's unitary is exactly the DFT matrix",
+          "QSim/little-endian convention, concretely"
+        ],
+        "bitstring": [
+          "QSim/basics/bit strings",
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/measurement statistics follow the Born rule",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/CHSH: classical bound 2 vs quantum 2√2",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/half of a Bell pair is maximally mixed",
+          "QSim/measurement: sampler is statistically correct (chi-square)"
+        ],
+        "bloch": [
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/Bloch vectors of the six cardinal states",
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/rotations rotate the Bloch vector by the stated angle",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/GHZ states on 3-6 qubits",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/half of a Bell pair is maximally mixed",
+          "QSim/lesson 8: noise, density matrices, channels/each channel moves the Bloch vector as predicted",
+          "QSim/measurement: sampler is statistically correct (chi-square)",
+          "QSim/partial trace and Bloch vectors"
+        ],
+        "grover": [
+          "QSim/lesson 5: Grover search/small cases you can check by hand",
+          "QSim/lesson 5: Grover search/success probability = sin²((2k+1)θ) for every k",
+          "QSim/lesson 5: Grover search/the state never leaves the plane span{|α>, |β>}"
+        ],
+        "iqft": [
+          "QSim/lesson 6: the quantum Fourier transform/inverse QFT undoes it",
+          "QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty",
+          "QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate",
+          "QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form"
+        ],
+        "kraus": [
+          "QSim/lesson 8: noise, density matrices, channels/T1 decay: repeated damping relaxes exponentially",
+          "QSim/lesson 8: noise, density matrices, channels/channels keep ρ physical and lower the purity of a pure state",
+          "QSim/lesson 8: noise, density matrices, channels/each channel moves the Bloch vector as predicted",
+          "QSim/lesson 8: noise, density matrices, channels/entanglement under noise: Bell fidelity and CHSH",
+          "QSim/lesson 8: noise, density matrices, channels/independent method: Monte-Carlo quantum trajectories"
+        ],
+        "kron_operator": [
+          "QSim/little-endian convention, concretely",
+          "QSim/three independent gate-application paths agree (property test)"
+        ],
+        "measure_qubit": [
+          "QSim/lesson 3: teleportation/control: skipping Bob's corrections must fail",
+          "QSim/lesson 3: teleportation/with mid-circuit measurement",
+          "QSim/measurement: sampler is statistically correct (chi-square)"
+        ],
+        "partial_trace": [
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/Bloch vectors of the six cardinal states",
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/rotations rotate the Bloch vector by the stated angle",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/GHZ states on 3-6 qubits",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/half of a Bell pair is maximally mixed",
+          "QSim/lesson 3: teleportation/control: skipping Bob's corrections must fail",
+          "QSim/lesson 3: teleportation/deferred-measurement version",
+          "QSim/lesson 3: teleportation/with mid-circuit measurement",
+          "QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty",
+          "QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate",
+          "QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form",
+          "QSim/measurement: sampler is statistically correct (chi-square)",
+          "QSim/partial trace and Bloch vectors"
+        ],
+        "qft": [
+          "QSim/algorithms (structural)",
+          "QSim/lesson 6: the quantum Fourier transform/agreement with an independent classical FFT",
+          "QSim/lesson 6: the quantum Fourier transform/inverse QFT undoes it",
+          "QSim/lesson 6: the quantum Fourier transform/periodic input gives peaks at multiples of N/r",
+          "QSim/lesson 6: the quantum Fourier transform/the circuit's unitary is exactly the DFT matrix",
+          "QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty",
+          "QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate",
+          "QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form"
+        ],
+        "qpe": [
+          "QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty",
+          "QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate",
+          "QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form"
+        ],
+        "ry": [
+          "QSim/all fixed and parametrised gates are unitary",
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/every gate is unitary",
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/gate identities",
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/measurement statistics follow the Born rule",
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/rotations rotate the Bloch vector by the stated angle",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/CHSH: classical bound 2 vs quantum 2√2",
+          "QSim/lesson 9: VQE and the parameter-shift rule/gradient descent reaches the ground energy",
+          "QSim/lesson 9: VQE and the parameter-shift rule/parameter-shift rule == finite differences",
+          "QSim/lesson 9: VQE and the parameter-shift rule/variational principle: E(θ) ≥ E₀ for any θ",
+          "QSim/measurement: sampler is statistically correct (chi-square)"
+        ],
+        "sample_counts": [
+          "QSim/lesson 1: one qubit, gates, the Bloch sphere/measurement statistics follow the Born rule",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/CHSH: classical bound 2 vs quantum 2√2",
+          "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/half of a Bell pair is maximally mixed",
+          "QSim/measurement: sampler is statistically correct (chi-square)"
+        ]
+      },
+      "fixtures": [
+        {
+          "body": "0 ≤ k ≤ 2^n || throw(ArgumentError(\"basis index $k out of range for $n qubits\"))\nψ = zeros(C64, 2^n)\nψ[k+1] = 1\nreturn ψ\n",
+          "description": "checks 0 <= k <= 2^n, so k = 2^n reaches the array and throws a BoundsError instead of the documented ArgumentError",
+          "expect_start": "basis_state",
+          "golden": "== tutor explain: qsim, stage 1 ==\n\nStart here: hole `basis_state` at src/QSim.jl:86\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.41); 5 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: one-based-indexing.\n\nTests: 45/46 testsets pass\n  FAIL QSim/basics/basis states  [1 failed, 0 errored; depends on: basis_state]\n       test/runtests.jl:197 FAIL basis_state(2, 4)  evaluated: ArgumentError\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. basis_state        0.41  implemented  failing-deps=1 passing-deps=5  src/QSim.jl:86\n  2. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:423\n  3. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n  4. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129\n  5. apply_gate         0.0   implemented  failing-deps=0 passing-deps=35  src/QSim.jl:182\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "basis_state",
+          "misconception": "index-range-off-by-one",
+          "name": "basis_state-inclusive-range",
+          "stage": 1
+        },
+        {
+          "body": "return join(((k >> q) & 1 for q in ndigits(k; base = 2)-1:-1:0))\n",
+          "description": "writes only the significant bits, so |001> on 3 qubits prints as \"1\" and every shorter key is a different Dict key",
+          "expect_start": "bitstring",
+          "golden": "== tutor explain: qsim, stage 1 ==\n\nStart here: hole `bitstring` at src/QSim.jl:423\n  why: 3 of the 3 failing testsets depend on it (Ochiai 0.77); 2 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: little-endian-order.\n\nTests: 43/46 testsets pass\n  FAIL QSim/basics/bit strings  [2 failed, 0 errored; depends on: bitstring]\n       test/runtests.jl:202 FAIL bitstring_of(1, 4) == \"0001\"  evaluated: \"1\" == \"0001\"\n       test/runtests.jl:203 FAIL bitstring_of(0, 3) == \"000\"  evaluated: \"0\" == \"000\"\n  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/half of a Bell pair is maximally mixed  [1 failed, 0 errored; depends on: apply_gate, bitstring]\n       test/runtests.jl:432 FAIL Set(keys(counts)) ⊆ Set([\"00\", \"11\"])  evaluated: Set([\"0\", \"11\"]) ⊆ Set([\"00\", \"11\"])\n  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/CHSH: classical bound 2 vs quantum 2√2  [1 failed, 0 errored; depends on: apply_gate, bitstring, ry]\n       test/runtests.jl:452 FAIL abs(S_sampled - 2 * √2) < 5σS && S_sampled > 2 + 5σS\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. bitstring          0.77  implemented  failing-deps=3 passing-deps=2  src/QSim.jl:423\n  2. apply_gate         0.2   implemented  failing-deps=2 passing-deps=33  src/QSim.jl:182\n  3. ry                 0.18  implemented  failing-deps=1 passing-deps=9  src/QSim.jl:129\n  4. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86\n  5. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "bitstring",
+          "misconception": "leading-zeros-dropped",
+          "name": "bitstring-unpadded",
+          "stage": 1
+        },
+        {
+          "body": "size(U) == (2, 2) || throw(ArgumentError(\"kron path is for single-qubit gates\"))\nreturn kron(Matrix{C64}(I, 2^q, 2^q), U, Matrix{C64}(I, 2^(n-1-q), 2^(n-1-q)))\n",
+          "description": "I(2^q) ⊗ U ⊗ I(2^(n-1-q)): the textbook big-endian layout, which puts U on qubit n-1-q",
+          "expect_start": "kron_operator",
+          "golden": "== tutor explain: qsim, stage 1 ==\n\nStart here: hole `kron_operator` at src/QSim.jl:253\n  why: 2 of the 2 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: little-endian-order.\n\nTests: 44/46 testsets pass\n  FAIL QSim/little-endian convention, concretely  [1 failed, 0 errored; depends on: apply_gate, basis_state, kron_operator]\n       test/runtests.jl:231 FAIL full_operator_kron(X, 0, 2) ≈ kron(I2, X)  evaluated: ComplexF64[0.0 + 0.0im 0.0 + 0.0im 1.0 + 0.0im 0.0 + 0.0im; 0.0 + 0.0im 0.0 + 0.0im 0.0 + 0.0im 1.0 + 0.0im; 1.0 + 0.0im 0.0 + 0.0im 0.0 + 0.0im 0.0 + 0.0im; 0.0 + 0.0im 1.0 + 0.0im 0.0 + 0.0im 0.0 + 0.0im] ≈ ComplexF64[0.0 + 0.0im 1.0 + 0.0im 0.0 + 0.0im 0.0 + 0.0im; 1.0 + 0.0im 0.0 + 0.0im 0.0 + 0…\n  FAIL QSim/three independent gate-application paths agree (property test)  [133 failed, 0 errored; depends on: apply_gate, kron_operator]\n       test/runtests.jl:245 FAIL full_operator_kron(U, qs[1], n) ≈ full_operator(U, qs, n)  evaluated: ComplexF64[…\n       test/runtests.jl:245 FAIL full_operator_kron(U, qs[1], n) ≈ full_operator(U, qs, n)  evaluated: ComplexF64[…\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. kron_operator      1.0   implemented  failing-deps=2 passing-deps=0  src/QSim.jl:253\n  2. basis_state        0.29  implemented  failing-deps=1 passing-deps=5  src/QSim.jl:86\n  3. apply_gate         0.24  implemented  failing-deps=2 passing-deps=33  src/QSim.jl:182\n  4. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:422\n  5. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "kron_operator",
+          "misconception": "big-endian-kron",
+          "name": "kron_operator-big-endian-slots",
+          "stage": 1
+        },
+        {
+          "body": "c, s = cos(θ / 2), sin(θ / 2)\nreturn C64[c -im*s; -im*s c]\n",
+          "description": "RY written with RX's -i·sin entries: still unitary, but a rotation about x",
+          "expect_start": "ry",
+          "golden": "== tutor explain: qsim, stage 1 ==\n\nStart here: hole `ry` at src/QSim.jl:129\n  why: 4 of the 4 failing testsets depend on it (Ochiai 0.63); 6 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: half-angle.\n\nTests: 42/46 testsets pass\n  FAIL QSim/lesson 1: one qubit, gates, the Bloch sphere/gate identities  [1 failed, 0 errored; depends on: ry]\n       test/runtests.jl:380 FAIL equal_up_to_global_phase(vec(U3(0.3, 1.1, -0.4)), vec(RZ(1.1) * RY(0.3) * RZ(-0.4)))\n  FAIL QSim/lesson 1: one qubit, gates, the Bloch sphere/rotations rotate the Bloch vector by the stated angle  [5 failed, 0 errored; depends on: apply_gate, ry]\n       test/runtests.jl:398 FAIL isapprox(bloch_vector(run_circuit(c), 0), [sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ)], atol = 1.0e-12)  evaluated: isapprox([0.55497465, 0.38494402, 0.73744237], [-0.38494402, 0.55497465, 0.73744237]; atol = 1.0e-12)\n       test/runtests.jl:398 FAIL isapprox(bloch_vector(run_circuit(c), 0), [sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ)], atol = 1.0e-12)  evaluated: isapprox([0.041321223, -0.83080372, 0.55502949], [0.83080372, 0.041321223, 0.55502949]; atol = 1.0e-12)\n  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/CHSH: classical bound 2 vs quantum 2√2  [1 failed, 0 errored; depends on: apply_gate, bitstring, ry]\n       test/runtests.jl:452 FAIL abs(S_sampled - 2 * √2) < 5σS && S_sampled > 2 + 5σS\n  FAIL QSim/lesson 9: VQE and the parameter-shift rule/gradient descent reaches the ground energy  [1 failed, 0 errored; depends on: apply_gate, ry]\n       test/runtests.jl:686 FAIL abs(best - E0) < 1.0e-8  evaluated: 0.41421356 < 1.0e-8\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. ry                 0.63  implemented  failing-deps=4 passing-deps=6  src/QSim.jl:129\n  2. apply_gate         0.25  implemented  failing-deps=3 passing-deps=32  src/QSim.jl:182\n  3. bitstring          0.22  implemented  failing-deps=1 passing-deps=4  src/QSim.jl:423\n  4. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86\n  5. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "ry",
+          "misconception": "rotation-axis-confusion",
+          "name": "ry-copied-from-rx",
+          "stage": 1
+        },
+        {
+          "body": "n = nqubits(ψ)\nk = length(qubits)\nsize(U) == (2^k, 2^k) || throw(DimensionMismatch(\"gate is $(size(U)), expected $(2^k)×$(2^k)\"))\nallunique(qubits)     || throw(ArgumentError(\"repeated qubit in $qubits\"))\nall(q -> 0 ≤ q < n, qubits) || throw(ArgumentError(\"qubit out of range in $qubits for n=$n\"))\noffsets = zeros(Int, 2^k)\nfor j in 0:2^k-1, (pos, q) in enumerate(qubits)\n    if (j >> (k - pos)) & 1 == 1\n        offsets[j+1] |= 1 << q\n    end\nend\nmask = sum(1 << q for q in qubits)\nbuf = similar(ψ, 2^k)\nfor base in 0:2^n-1\n    base & mask == 0 || continue\n    for j in 1:2^k\n        buf[j] = ψ[base + offsets[j] + 1]\n    end\n    out = U * buf\n    for j in 1:2^k\n        ψ[base + offsets[j] + 1] = out[j]\n    end\nend\nreturn ψ\n",
+          "description": "treats qubits[1] as the gate's MOST significant bit: every 1-qubit gate is right, every 2-qubit gate acts with its qubits swapped",
+          "expect_start": "apply_gate",
+          "golden": "== tutor explain: qsim, stage 1 ==\n\nStart here: hole `apply_gate` at src/QSim.jl:182\n  why: 13 of the 13 failing testsets depend on it (Ochiai 0.61); 22 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: gather-scatter.\n\nTests: 33/46 testsets pass\n  FAIL QSim/little-endian convention, concretely  [2 failed, 0 errored; depends on: apply_gate, basis_state, kron_operator]\n       test/runtests.jl:228 FAIL apply!(basis_state(2, 0x01), CX, [0, 1]) ≈ basis_state(2, 0x03)  evaluated: ComplexF64[0.0 + 0.0im, 1.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im] ≈ ComplexF64[0.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im, 1.0 + 0.0im]\n       test/runtests.jl:230 FAIL apply!(basis_state(2, 0x01), CX, [1, 0]) ≈ basis_state(2, 0x01)  evaluated: ComplexF64[0.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im, 1.0 + 0.0im] ≈ ComplexF64[0.0 + 0.0im, 1.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im]\n  FAIL QSim/three independent gate-application paths agree (property test)  [179 failed, 0 errored; depends on: apply_gate, kron_operator]\n       test/runtests.jl:243 FAIL fast ≈ full_operator(U, qs, n) * ψ  evaluated: ComplexF64[…\n       test/runtests.jl:243 FAIL fast ≈ full_operator(U, qs, n) * ψ  evaluated: ComplexF64[…\n  FAIL QSim/controlled gates  [53 failed, 0 errored; depends on: apply_gate, basis_state]\n       test/runtests.jl:268 FAIL apply_controlled!(copy(ψ), X, [0, 1], [2]) ≈ apply!(copy(ψ), gate_matrix(Gate(:ccx, [0, 1, 2])), [0, 1, 2])  evaluated: ComplexF64[…\n       test/runtests.jl:268 FAIL apply_controlled!(copy(ψ), X, [0, 1], [2]) ≈ apply!(copy(ψ), gate_matrix(Gate(:ccx, [0, 1, 2])), [0, 1, 2])  evaluated: ComplexF64[…\n  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/the four Bell states  [4 failed, 0 errored; depends on: apply_gate]\n       test/runtests.jl:418 FAIL equal_up_to_global_phase(bell(kind), ComplexF64.(expected[kind]))\n       test/runtests.jl:418 FAIL equal_up_to_global_phase(bell(kind), ComplexF64.(expected[kind]))\n  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/half of a Bell pair is maximally mixed  [4 failed, 0 errored; depends on: apply_gate, bitstring]\n       test/runtests.jl:426 FAIL ρ0 ≈ I2 / 2  evaluated: ComplexF64[0.5 + 0.0im 0.5 + 0.0im; 0.5 + 0.0im 0.5 + 0.0im] ≈ ComplexF64[0.5 + 0.0im 0.0 + 0.0im; 0.0 + 0.0im 0.5 + 0.0im]\n       test/runtests.jl:427 FAIL norm(bloch_vector(ψ, 0)) < 1.0e-12  evaluated: 1.0 < 1.0e-12\n  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/CHSH: classical bound 2 vs quantum 2√2  [3 failed, 0 errored; depends on: apply_gate, bitstring, ry]\n       test/runtests.jl:441 FAIL isapprox(S_quantum, 2 * √2, atol = 1.0e-12)  evaluated: isapprox(0.0, 2.8284271; atol = 1.0e-12)\n       test/runtests.jl:442 FAIL all((isapprox(correlator(ψ, x, y), cos(x - y), atol = 1.0e-12) for x = 0:0.5:3, y = 0:0.7:3))\n  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/GHZ states on 3-6 qubits  [12 failed, 0 errored; depends on: apply_gate]\n       test/runtests.jl:458 FAIL isapprox(p[1], 0.5, atol = 1.0e-12) && (isapprox(p[end], 0.5, atol = 1.0e-12) && isapprox(sum(p[2:end - 1]), 0, atol = 1.0e-12))\n       test/runtests.jl:460 FAIL isapprox(expectation(ψ, reduce(kron, fill(X, n))), 1, atol = 1.0e-12)  evaluated: isapprox(0.0, 1; atol = 1.0e-12)\n  FAIL QSim/lesson 3: teleportation/with mid-circuit measurement  [1 failed, 0 errored; depends on: apply_gate]\n       test/runtests.jl:479 FAIL minimum(fids) > 1 - 1.0e-12  evaluated: 5.5441134e-7 > 1.0\n  FAIL QSim/lesson 3: teleportation/deferred-measurement version  [1 failed, 0 errored; depends on: apply_gate]\n       test/runtests.jl:497 FAIL all((begin\n  FAIL QSim/lesson 4: Deutsch-Jozsa and Bernstein-Vazirani/all 72 constant and balanced functions on 3 qubits  [1 failed, 0 errored; depends on: apply_gate]\n       test/runtests.jl:513 FAIL all((isapprox(real.(hadamard_sandwich(f)), [amplitude_formula(f, y) for y = 0:N - 1], atol = 1.0e-12) for f = vcat(consts, bal)))\n  FAIL QSim/lesson 4: Deutsch-Jozsa and Bernstein-Vazirani/every hidden string s, n = 1...5  [1 failed, 0 errored; depends on: apply_gate]\n       test/runtests.jl:529 FAIL run_circuit(bv_circuit(5, s)) ≈ hadamard_sandwich([count_ones(x & s) % 2 for x = 0:31])  evaluated: ComplexF64[0.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im, 0.0 + 0.0im  …  …\n  FAIL QSim/lesson 8: noise, density matrices, channels/channels keep ρ physical and lower the purity of a pure state  [2 failed, 0 errored; depends on: apply_gate]\n       test/runtests.jl:631 FAIL purity(ρ′) < 1 - 1.0e-6  evaluated: 1.0 < 0.999999\n       test/runtests.jl:631 FAIL purity(ρ′) < 1 - 1.0e-6  evaluated: 1.0 < 0.999999\n  FAIL QSim/lesson 8: noise, density matrices, channels/entanglement under noise: Bell fidelity and CHSH  [6 failed, 0 errored; depends on: apply_gate]\n       test/runtests.jl:640 FAIL isapprox(real(bellψ' * ρp * bellψ), 1 - (3p) / 4, atol = 1.0e-12) && isapprox(chsh(ρp), (2 * √2) * (1 - p), atol = 1.0e-12)\n       test/runtests.jl:640 FAIL isapprox(real(bellψ' * ρp * bellψ), 1 - (3p) / 4, atol = 1.0e-12) && isapprox(chsh(ρp), (2 * √2) * (1 - p), atol = 1.0e-12)\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. apply_gate         0.61  implemented  failing-deps=13 passing-deps=22  src/QSim.jl:182\n  2. kron_operator      0.39  implemented  failing-deps=2 passing-deps=0  src/QSim.jl:249\n  3. bitstring          0.25  implemented  failing-deps=2 passing-deps=3  src/QSim.jl:419\n  4. basis_state        0.23  implemented  failing-deps=2 passing-deps=4  src/QSim.jl:86\n  5. ry                 0.09  implemented  failing-deps=1 passing-deps=9  src/QSim.jl:129\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "apply_gate",
+          "misconception": "gate-local-bit-order",
+          "name": "apply_gate-local-order-reversed",
+          "stage": 1
+        },
+        {
+          "body": "k_t, k_c = length(targets), length(controls)\nd = 2^(k_t + k_c)\nCU = Matrix{C64}(I, d, d)\nlo = 2^k_t\nCU[lo+1:lo+2^k_t, lo+1:lo+2^k_t] = U\nreturn apply!(ψ, CU, vcat(targets, controls))\n",
+          "description": "places U where the FIRST control is 1: right for one control, wrong for a Toffoli",
+          "expect_start": "apply_controlled",
+          "golden": "== tutor explain: qsim, stage 2 ==\n\nStart here: hole `apply_controlled` at src/QSim.jl:224\n  why: 1 of the 1 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: controlled-gates.\n\nTests: 45/46 testsets pass\n  FAIL QSim/controlled gates  [50 failed, 0 errored; depends on: apply_controlled, apply_gate, basis_state]\n       test/runtests.jl:268 FAIL apply_controlled!(copy(ψ), X, [0, 1], [2]) ≈ apply!(copy(ψ), gate_matrix(Gate(:ccx, [0, 1, 2])), [0, 1, 2])  evaluated: ComplexF64[…\n       test/runtests.jl:268 FAIL apply_controlled!(copy(ψ), X, [0, 1], [2]) ≈ apply!(copy(ψ), gate_matrix(Gate(:ccx, [0, 1, 2])), [0, 1, 2])  evaluated: ComplexF64[…\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. apply_controlled   1.0   implemented  failing-deps=1 passing-deps=0  src/QSim.jl:224\n  2. basis_state        0.41  implemented  failing-deps=1 passing-deps=5  src/QSim.jl:86\n  3. apply_gate         0.17  implemented  failing-deps=1 passing-deps=34  src/QSim.jl:182\n  4. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:420\n  5. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:250\n  6. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129\n  7. partial_trace      0.0   implemented  failing-deps=0 passing-deps=12  src/QSim.jl:485\n  8. bloch              0.0   implemented  failing-deps=0 passing-deps=7  src/QSim.jl:508\n  9. sample_counts      0.0   implemented  failing-deps=0 passing-deps=4  src/QSim.jl:433\n  10. measure_qubit      0.0   implemented  failing-deps=0 passing-deps=3  src/QSim.jl:455\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "apply_controlled",
+          "misconception": "one-control-is-enough",
+          "name": "apply_controlled-first-control-only",
+          "stage": 2
+        },
+        {
+          "body": "n = nqubits(ψ)\nrest = [q for q in 0:n-1 if q ∉ keep]\nA = reshape(ψ, ntuple(_ -> 2, n))\nA = permutedims(A, vcat(keep, rest) .+ 1)\nM = reshape(A, 2^length(keep), :)::Matrix{eltype(ψ)}\nreturn M' * M\n",
+          "description": "M' * M instead of M * M': the reduced state of the qubits that should have been traced out",
+          "expect_start": "partial_trace",
+          "golden": "== tutor explain: qsim, stage 2 ==\n\nStart here: hole `partial_trace` at src/QSim.jl:488\n  why: 11 of the 11 failing testsets depend on it (Ochiai 0.96); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: partial-trace.\n\nTests: 35/46 testsets pass\n  FAIL QSim/partial trace and Bloch vectors  [250 failed, 0 errored; depends on: bloch, partial_trace]\n       test/runtests.jl:289 FAIL reduced_density(ψ, 0) ≈ a * a'  evaluated: ComplexF64[…\n       test/runtests.jl:290 FAIL reduced_density(ψ, 1) ≈ b * b'  evaluated: ComplexF64[…\n  FAIL QSim/measurement: sampler is statistically correct (chi-square)  [0 failed, 100 errored; depends on: apply_gate, bitstring, bloch, measure_qubit, partial_trace, ry, sample_counts]\n       test/runtests.jl:336 ERROR DimensionMismatch(\"A has dimensions (4,4) but B has dimensions (2,2)\")\n       test/runtests.jl:336 ERROR DimensionMismatch(\"A has dimensions (4,4) but B has dimensions (2,2)\")\n  FAIL QSim/lesson 1: one qubit, gates, the Bloch sphere/Bloch vectors of the six cardinal states  [0 failed, 6 errored; depends on: apply_gate, bloch, partial_trace]\n       test/runtests.jl:387 ERROR DimensionMismatch(\"A has dimensions (1,1) but B has dimensions (2,2)\")\n       test/runtests.jl:387 ERROR DimensionMismatch(\"A has dimensions (1,1) but B has dimensions (2,2)\")\n  FAIL QSim/lesson 1: one qubit, gates, the Bloch sphere/rotations rotate the Bloch vector by the stated angle  [0 failed, 5 errored; depends on: apply_gate, bloch, partial_trace, ry]\n       test/runtests.jl:398 ERROR DimensionMismatch(\"A has dimensions (1,1) but B has dimensions (2,2)\")\n       test/runtests.jl:398 ERROR DimensionMismatch(\"A has dimensions (1,1) but B has dimensions (2,2)\")\n  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/GHZ states on 3-6 qubits  [0 failed, 4 errored; depends on: apply_gate, bloch, partial_trace]\n       test/runtests.jl:461 ERROR DimensionMismatch(\"A has dimensions (4,4) but B has dimensions (2,2)\")\n       test/runtests.jl:461 ERROR DimensionMismatch(\"A has dimensions (8,8) but B has dimensions (2,2)\")\n  FAIL QSim/lesson 3: teleportation/with mid-circuit measurement  [0 failed, 1 errored; depends on: apply_gate, measure_qubit, partial_trace]\n       test/runtests.jl:467 ERROR DimensionMismatch(\"second dimension of A, 4, does not match length of x, 2\")\n  FAIL QSim/lesson 3: teleportation/control: skipping Bob's corrections must fail  [0 failed, 1 errored; depends on: apply_gate, measure_qubit, partial_trace]\n       test/runtests.jl:485 ERROR DimensionMismatch(\"second dimension of A, 4, does not match length of x, 2\")\n  FAIL QSim/lesson 3: teleportation/deferred-measurement version  [0 failed, 1 errored; depends on: apply_gate, partial_trace]\n       test/runtests.jl:497 ERROR DimensionMismatch(\"dimensions must match: a has dims (Base.OneTo(4), Base.OneTo(4)), b has dims (Base.OneTo(2), Base.OneTo(2)), mismatch at 1\")\n  FAIL QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty  [5 failed, 0 errored; depends on: apply_gate, partial_trace]\n       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))\n       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))\n  FAIL QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form  [0 failed, 9 errored; depends on: apply_gate, partial_trace]\n       test/runtests.jl:604 ERROR DimensionMismatch(\"dimensions must match: a has dims (Base.OneTo(2),), b has dims (Base.OneTo(8),), mismatch at 1\")\n       test/runtests.jl:604 ERROR DimensionMismatch(\"dimensions must match: a has dims (Base.OneTo(2),), b has dims (Base.OneTo(8),), mismatch at 1\")\n  FAIL QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate  [1 failed, 0 errored; depends on: apply_gate, partial_trace]\n       test/runtests.jl:610 FAIL all((errs[i] ≤ 1 / 2 ^ (i + 2) + 1.0e-12 for i = eachindex(errs)))\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. partial_trace      0.96  implemented  failing-deps=11 passing-deps=1  src/QSim.jl:488\n  2. bloch              0.57  implemented  failing-deps=5 passing-deps=2  src/QSim.jl:507\n  3. measure_qubit      0.52  implemented  failing-deps=3 passing-deps=0  src/QSim.jl:458\n  4. apply_gate         0.51  implemented  failing-deps=10 passing-deps=25  src/QSim.jl:182\n  5. ry                 0.19  implemented  failing-deps=2 passing-deps=8  src/QSim.jl:129\n  6. sample_counts      0.15  implemented  failing-deps=1 passing-deps=3  src/QSim.jl:436\n  7. bitstring          0.13  implemented  failing-deps=1 passing-deps=4  src/QSim.jl:423\n  8. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86\n  9. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n  10. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "partial_trace",
+          "misconception": "trace-over-the-wrong-factor",
+          "name": "partial_trace-wrong-side",
+          "stage": 2
+        },
+        {
+          "body": "return real.([tr(ρ * X), tr(ρ * Y), -tr(ρ * Z)])\n",
+          "description": "negates z, putting |0> at the south pole: x and y are right, so only z-checks fail",
+          "expect_start": "bloch",
+          "golden": "== tutor explain: qsim, stage 2 ==\n\nStart here: hole `bloch` at src/QSim.jl:511\n  why: 4 of the 4 failing testsets depend on it (Ochiai 0.76); 3 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: bloch-sphere.\n\nTests: 42/46 testsets pass\n  FAIL QSim/measurement: sampler is statistically correct (chi-square)  [100 failed, 0 errored; depends on: apply_gate, bitstring, bloch, measure_qubit, partial_trace, ry, sample_counts]\n       test/runtests.jl:336 FAIL (bloch_vector(φ, 1))[3] ≈ if m == 0  evaluated: 1.0 ≈ -1\n       test/runtests.jl:336 FAIL (bloch_vector(φ, 1))[3] ≈ if m == 0  evaluated: -1.0 ≈ 1\n  FAIL QSim/lesson 1: one qubit, gates, the Bloch sphere/Bloch vectors of the six cardinal states  [2 failed, 0 errored; depends on: apply_gate, bloch, partial_trace]\n       test/runtests.jl:387 FAIL isapprox(bloch_vector(ψ, 0), r, atol = 1.0e-12)  evaluated: isapprox([0.0, 0.0, -1.0], [0, 0, 1]; atol = 1.0e-12)\n       test/runtests.jl:387 FAIL isapprox(bloch_vector(ψ, 0), r, atol = 1.0e-12)  evaluated: isapprox([0.0, 0.0, 1.0], [0, 0, -1]; atol = 1.0e-12)\n  FAIL QSim/lesson 1: one qubit, gates, the Bloch sphere/rotations rotate the Bloch vector by the stated angle  [5 failed, 0 errored; depends on: apply_gate, bloch, partial_trace, ry]\n       test/runtests.jl:398 FAIL isapprox(bloch_vector(run_circuit(c), 0), [sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ)], atol = 1.0e-12)  evaluated: isapprox([-0.38494402, 0.55497465, -0.73744237], [-0.38494402, 0.55497465, 0.73744237]; atol = 1.0e-12)\n       test/runtests.jl:398 FAIL isapprox(bloch_vector(run_circuit(c), 0), [sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ)], atol = 1.0e-12)  evaluated: isapprox([0.83080372, 0.041321223, -0.55502949], [0.83080372, 0.041321223, 0.55502949]; atol = 1.0e-12)\n  FAIL QSim/lesson 8: noise, density matrices, channels/each channel moves the Bloch vector as predicted  [5 failed, 0 errored; depends on: bloch]\n       test/runtests.jl:622 FAIL bloch_vector(apply_kraus(ρ, amp_damping(γ), 0)) ≈ [sqrt(1 - γ) * r[1], sqrt(1 - γ) * r[2], γ + (1 - γ) * r[3]]  evaluated: [0.15811896, -0.15924182, -0.89145782] ≈ [0.15811896, -0.15924182, 0.96721462]\n       test/runtests.jl:622 FAIL bloch_vector(apply_kraus(ρ, amp_damping(γ), 0)) ≈ [sqrt(1 - γ) * r[1], sqrt(1 - γ) * r[2], γ + (1 - γ) * r[3]]  evaluated: [-0.059672861, 0.54496414, -0.065950993] ≈ [-0.059672861, 0.54496414, 0.82091468]\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. bloch              0.76  implemented  failing-deps=4 passing-deps=3  src/QSim.jl:511\n  2. partial_trace      0.43  implemented  failing-deps=3 passing-deps=9  src/QSim.jl:488\n  3. ry                 0.32  implemented  failing-deps=2 passing-deps=8  src/QSim.jl:129\n  4. measure_qubit      0.29  implemented  failing-deps=1 passing-deps=2  src/QSim.jl:458\n  5. apply_gate         0.25  implemented  failing-deps=3 passing-deps=32  src/QSim.jl:182\n  6. sample_counts      0.25  implemented  failing-deps=1 passing-deps=3  src/QSim.jl:436\n  7. bitstring          0.22  implemented  failing-deps=1 passing-deps=4  src/QSim.jl:423\n  8. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86\n  9. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n  10. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "bloch",
+          "misconception": "bloch-z-sign",
+          "name": "bloch-zero-at-south-pole",
+          "stage": 2
+        },
+        {
+          "body": "n = nqubits(ψ)\ncdf = cumsum(probabilities(ψ))\ncdf ./= cdf[end]\ncounts = Dict{String,Int}()\nfor _ in 1:shots\n    k = searchsortedfirst(cdf, rand(rng))\n    key = bitstring_of(k, n)\n    counts[key] = get(counts, key, 0) + 1\nend\nreturn counts\n",
+          "description": "forgets the -1 after searchsortedfirst, so every outcome k is reported as k+1",
+          "expect_start": "sample_counts",
+          "golden": "== tutor explain: qsim, stage 2 ==\n\nStart here: hole `sample_counts` at src/QSim.jl:436\n  why: 4 of the 4 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: born-rule-sampling.\n\nTests: 42/46 testsets pass\n  FAIL QSim/measurement: sampler is statistically correct (chi-square)  [1 failed, 0 errored; depends on: apply_gate, bitstring, bloch, measure_qubit, partial_trace, ry, sample_counts]\n       test/runtests.jl:320 FAIL χ2 < 24.3  evaluated: 196764.51 < 24.3\n  FAIL QSim/lesson 1: one qubit, gates, the Bloch sphere/measurement statistics follow the Born rule  [1 failed, 0 errored; depends on: apply_gate, bitstring, ry, sample_counts]\n       test/runtests.jl:408 FAIL abs(f1 - p1) < 5 * sqrt((p1 * (1 - p1)) / N)  evaluated: 0.500465 < 0.0048412292\n  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/half of a Bell pair is maximally mixed  [1 failed, 0 errored; depends on: apply_gate, bitstring, bloch, partial_trace, sample_counts]\n       test/runtests.jl:432 FAIL Set(keys(counts)) ⊆ Set([\"00\", \"11\"])  evaluated: Set([\"00\", \"01\"]) ⊆ Set([\"00\", \"11\"])\n  FAIL QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/CHSH: classical bound 2 vs quantum 2√2  [1 failed, 0 errored; depends on: apply_gate, bitstring, ry, sample_counts]\n       test/runtests.jl:452 FAIL abs(S_sampled - 2 * √2) < 5σS && S_sampled > 2 + 5σS\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. sample_counts      1.0   implemented  failing-deps=4 passing-deps=0  src/QSim.jl:436\n  2. bitstring          0.89  implemented  failing-deps=4 passing-deps=1  src/QSim.jl:423\n  3. ry                 0.47  implemented  failing-deps=3 passing-deps=7  src/QSim.jl:129\n  4. bloch              0.38  implemented  failing-deps=2 passing-deps=5  src/QSim.jl:511\n  5. apply_gate         0.34  implemented  failing-deps=4 passing-deps=31  src/QSim.jl:182\n  6. partial_trace      0.29  implemented  failing-deps=2 passing-deps=10  src/QSim.jl:488\n  7. measure_qubit      0.29  implemented  failing-deps=1 passing-deps=2  src/QSim.jl:458\n  8. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86\n  9. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n  10. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "sample_counts",
+          "misconception": "one-based-indexing",
+          "name": "sample_counts-one-based-outcome",
+          "stage": 2
+        },
+        {
+          "body": "p1 = sum(abs2(ψ[k+1]) for k in 0:length(ψ)-1 if (k >> q) & 1 == 1; init=0.0)\nreturn rand(rng) < p1 ? 1 : 0\n",
+          "description": "draws the outcome with the right probability but leaves ψ unchanged",
+          "expect_start": "measure_qubit",
+          "golden": "== tutor explain: qsim, stage 2 ==\n\nStart here: hole `measure_qubit` at src/QSim.jl:458\n  why: 2 of the 2 failing testsets depend on it (Ochiai 0.82); 1 of its dependent testsets pass.\n  finding inside it: JT004 `measure!` ends in `!` but no method of it in this file mutates anything (line 458)\n  Read its docstring: it is the specification. Knowledge component: measurement-collapse.\n\nTests: 44/46 testsets pass\n  FAIL QSim/measurement: sampler is statistically correct (chi-square)  [100 failed, 0 errored; depends on: apply_gate, bitstring, bloch, measure_qubit, partial_trace, ry, sample_counts]\n       test/runtests.jl:336 FAIL (bloch_vector(φ, 1))[3] ≈ if m == 0  evaluated: -0.012773636 ≈ -1\n       test/runtests.jl:336 FAIL (bloch_vector(φ, 1))[3] ≈ if m == 0  evaluated: 0.14413767 ≈ 1\n  FAIL QSim/lesson 3: teleportation/with mid-circuit measurement  [1 failed, 0 errored; depends on: apply_gate, measure_qubit, partial_trace]\n       test/runtests.jl:479 FAIL minimum(fids) > 1 - 1.0e-12  evaluated: 0.5 > 1.0\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. measure_qubit      0.82  implemented  failing-deps=2 passing-deps=1  src/QSim.jl:458\n  2. partial_trace      0.41  implemented  failing-deps=2 passing-deps=10  src/QSim.jl:481\n  3. sample_counts      0.35  implemented  failing-deps=1 passing-deps=3  src/QSim.jl:436\n  4. bitstring          0.32  implemented  failing-deps=1 passing-deps=4  src/QSim.jl:423\n  5. bloch              0.27  implemented  failing-deps=1 passing-deps=6  src/QSim.jl:504\n  6. apply_gate         0.24  implemented  failing-deps=2 passing-deps=33  src/QSim.jl:182\n  7. ry                 0.22  implemented  failing-deps=1 passing-deps=9  src/QSim.jl:129\n  8. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86\n  9. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n  10. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224\n\nStatic findings (1):\n  src/QSim.jl:458:1: ADVICE JT004 `measure!` ends in `!` but no method of it in this file mutates anything\n      hint 1: What does the trailing `!` in a Julia function name promise its callers?\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "measure_qubit",
+          "misconception": "measurement-does-not-disturb",
+          "name": "measure_qubit-no-collapse",
+          "stage": 2
+        },
+        {
+          "body": "n = nqubits(view(ρ, :, 1))\nisapprox(sum(K' * K for K in kraus), I2, atol=1e-12) ||\n    throw(ArgumentError(\"Kraus operators are not trace preserving\"))\nKf = full_operator(kraus[1], [q], n)\nreturn Kf * ρ * Kf'\n",
+          "description": "applies only the first Kraus operator, so the channel loses trace",
+          "expect_start": "kraus",
+          "golden": "== tutor explain: qsim, stage 3 ==\n\nStart here: hole `kraus` at src/QSim.jl:527\n  why: 4 of the 4 failing testsets depend on it (Ochiai 0.89); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: kraus-channels.\n\nTests: 42/46 testsets pass\n  FAIL QSim/lesson 8: noise, density matrices, channels/each channel moves the Bloch vector as predicted  [15 failed, 0 errored; depends on: bloch, kraus]\n       test/runtests.jl:621 FAIL bloch_vector(apply_kraus(ρ, depolarizing(p), 0)) ≈ (1 - p) * r  evaluated: [0.18257845, -0.183875, -0.16453517] ≈ [0.045164624, -0.045485355, -0.040701239]\n       test/runtests.jl:622 FAIL bloch_vector(apply_kraus(ρ, amp_damping(γ), 0)) ≈ [sqrt(1 - γ) * r[1], sqrt(1 - γ) * r[2], γ + (1 - γ) * r[3]]  evaluated: [0.15811896, -0.15924182, 0.17771043] ≈ [0.15811896, -0.15924182, 0.89145782]\n  FAIL QSim/lesson 8: noise, density matrices, channels/channels keep ρ physical and lower the purity of a pure state  [3 failed, 0 errored; depends on: apply_gate, kraus]\n       test/runtests.jl:630 FAIL is_valid_density(ρ′)\n       test/runtests.jl:630 FAIL is_valid_density(ρ′)\n  FAIL QSim/lesson 8: noise, density matrices, channels/entanglement under noise: Bell fidelity and CHSH  [5 failed, 0 errored; depends on: apply_gate, kraus]\n       test/runtests.jl:640 FAIL isapprox(real(bellψ' * ρp * bellψ), 1 - (3p) / 4, atol = 1.0e-12) && isapprox(chsh(ρp), (2 * √2) * (1 - p), atol = 1.0e-12)\n       test/runtests.jl:640 FAIL isapprox(real(bellψ' * ρp * bellψ), 1 - (3p) / 4, atol = 1.0e-12) && isapprox(chsh(ρp), (2 * √2) * (1 - p), atol = 1.0e-12)\n  FAIL QSim/lesson 8: noise, density matrices, channels/independent method: Monte-Carlo quantum trajectories  [1 failed, 0 errored; depends on: apply_gate, kraus]\n       test/runtests.jl:653 FAIL maximum(abs.(ρ_mc - ρ_exact)) < 5 / sqrt(R)  evaluated: 0.133925 < 0.025\n\nHoles at stage 3 (ranked by Ochiai over the measured test-to-hole map):\n  1. kraus              0.89  implemented  failing-deps=4 passing-deps=1  src/QSim.jl:527\n  2. apply_gate         0.25  implemented  failing-deps=3 passing-deps=32  src/QSim.jl:182\n  3. bloch              0.19  implemented  failing-deps=1 passing-deps=6  src/QSim.jl:511\n  4. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86\n  5. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:423\n  6. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n  7. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129\n  8. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224\n  9. partial_trace      0.0   implemented  failing-deps=0 passing-deps=12  src/QSim.jl:488\n  10. sample_counts      0.0   implemented  failing-deps=0 passing-deps=4  src/QSim.jl:436\n  11. measure_qubit      0.0   implemented  failing-deps=0 passing-deps=3  src/QSim.jl:458\n  12. grover             0.0   implemented  failing-deps=0 passing-deps=3  src/Algorithms.jl:101\n  13. qft                0.0   implemented  failing-deps=0 passing-deps=8  src/Algorithms.jl:42\n  14. iqft               0.0   implemented  failing-deps=0 passing-deps=4  src/Algorithms.jl:63\n  15. qpe                0.0   implemented  failing-deps=0 passing-deps=3  src/Algorithms.jl:142\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "kraus",
+          "misconception": "a-channel-is-one-operator",
+          "name": "kraus-first-operator-only",
+          "stage": 3
+        },
+        {
+          "body": "c = Circuit(n)\nfor _ in 1:k\n    for w in marked; _flip_basis_state!(c, w); end\n    for q in 0:n-1; add!(c, :h, q); end\n    _flip_basis_state!(c, 0)\n    for q in 0:n-1; add!(c, :h, q); end\nend\nreturn c\n",
+          "description": "starts the iterations from |0...0> instead of the uniform superposition",
+          "expect_start": "grover",
+          "golden": "== tutor explain: qsim, stage 3 ==\n\nStart here: hole `grover` at src/Algorithms.jl:101\n  why: 3 of the 3 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: grover-rotation.\n\nTests: 43/46 testsets pass\n  FAIL QSim/lesson 5: Grover search/success probability = sin²((2k+1)θ) for every k  [19 failed, 0 errored; depends on: apply_gate, grover]\n       test/runtests.jl:542 FAIL worst < 1.0e-10  evaluated: 0.75 < 1.0e-10\n       test/runtests.jl:542 FAIL worst < 1.0e-10  evaluated: 0.8046875 < 1.0e-10\n  FAIL QSim/lesson 5: Grover search/the state never leaves the plane span{|α>, |β>}  [9 failed, 0 errored; depends on: apply_gate, grover]\n       test/runtests.jl:551 FAIL all(≈(a_m[1]; atol = 1.0e-12), a_m) && all(≈(a_u[1]; atol = 1.0e-12), a_u)\n       test/runtests.jl:551 FAIL all(≈(a_m[1]; atol = 1.0e-12), a_m) && all(≈(a_u[1]; atol = 1.0e-12), a_u)\n  FAIL QSim/lesson 5: Grover search/small cases you can check by hand  [1 failed, 0 errored; depends on: apply_gate, grover]\n       test/runtests.jl:555 FAIL isapprox((probabilities(run_circuit(grover_circuit(2, [3], 1))))[4], 1, atol = 1.0e-12)  evaluated: isapprox(0.25, 1; atol = 1.0e-12)\n\nHoles at stage 3 (ranked by Ochiai over the measured test-to-hole map):\n  1. grover             1.0   implemented  failing-deps=3 passing-deps=0  src/Algorithms.jl:101\n  2. apply_gate         0.29  implemented  failing-deps=3 passing-deps=32  src/QSim.jl:182\n  3. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86\n  4. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:423\n  5. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n  6. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129\n  7. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224\n  8. partial_trace      0.0   implemented  failing-deps=0 passing-deps=12  src/QSim.jl:488\n  9. bloch              0.0   implemented  failing-deps=0 passing-deps=7  src/QSim.jl:511\n  10. sample_counts      0.0   implemented  failing-deps=0 passing-deps=4  src/QSim.jl:436\n  11. measure_qubit      0.0   implemented  failing-deps=0 passing-deps=3  src/QSim.jl:458\n  12. kraus              0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:527\n  13. qft                0.0   implemented  failing-deps=0 passing-deps=8  src/Algorithms.jl:42\n  14. iqft               0.0   implemented  failing-deps=0 passing-deps=4  src/Algorithms.jl:63\n  15. qpe                0.0   implemented  failing-deps=0 passing-deps=3  src/Algorithms.jl:141\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "grover",
+          "misconception": "oracle-makes-the-superposition",
+          "name": "grover-no-superposition",
+          "stage": 3
+        },
+        {
+          "body": "m = length(qubits)\nfor j in m:-1:1\n    for k in j-1:-1:1\n        add!(c, :cp, qubits[k], qubits[j]; λ = π / 2^(j - k))\n    end\n    add!(c, :h, qubits[j])\nend\nfor i in 1:m÷2\n    add!(c, :swap, qubits[i], qubits[m+1-i])\nend\nreturn c\n",
+          "description": "applies each qubit's controlled phases before its Hadamard instead of after",
+          "expect_start": "qft",
+          "golden": "== tutor explain: qsim, stage 3 ==\n\nStart here: hole `qft` at src/Algorithms.jl:42\n  why: 7 of the 7 failing testsets depend on it (Ochiai 0.94); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: qft-circuit.\n\nTests: 39/46 testsets pass\n  FAIL QSim/algorithms (structural)  [5 failed, 0 errored; depends on: apply_gate, basis_state, qft]\n       test/runtests.jl:355 FAIL circuit_unitary(qft_circuit(n)) ≈ [cis(((2π) * x * y) / N) for y = 0:N - 1, x = 0:N - 1] / √N  evaluated: ComplexF64[…\n       test/runtests.jl:355 FAIL circuit_unitary(qft_circuit(n)) ≈ [cis(((2π) * x * y) / N) for y = 0:N - 1, x = 0:N - 1] / √N  evaluated: ComplexF64[…\n  FAIL QSim/lesson 6: the quantum Fourier transform/the circuit's unitary is exactly the DFT matrix  [6 failed, 0 errored; depends on: apply_gate, basis_state, qft]\n       test/runtests.jl:565 FAIL maximum(abs.(circuit_unitary(qft_circuit(n)) - dft_matrix(2 ^ n))) < 1.0e-12  evaluated: 0.70710678 < 1.0e-12\n       test/runtests.jl:565 FAIL maximum(abs.(circuit_unitary(qft_circuit(n)) - dft_matrix(2 ^ n))) < 1.0e-12  evaluated: 0.65328148 < 1.0e-12\n  FAIL QSim/lesson 6: the quantum Fourier transform/agreement with an independent classical FFT  [2 failed, 0 errored; depends on: apply_gate, qft]\n       test/runtests.jl:578 FAIL isapprox(run_circuit(qft_circuit(n), v), fft_plus(v), atol = 1.0e-12)  evaluated: isapprox(ComplexF64[…\n       test/runtests.jl:578 FAIL isapprox(run_circuit(qft_circuit(n), v), fft_plus(v), atol = 1.0e-12)  evaluated: isapprox(ComplexF64[…\n  FAIL QSim/lesson 6: the quantum Fourier transform/periodic input gives peaks at multiples of N/r  [2 failed, 0 errored; depends on: apply_gate, qft]\n       test/runtests.jl:587 FAIL peaks == collect(0:N ÷ r:N - 1)  evaluated: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9  …  54, 55, 56, 57, 58, 59, 60, 61, 62, 63] == [0, 8, 16, 24, 32, 40, 48, 56]\n       test/runtests.jl:588 FAIL all((isapprox(p[y + 1], 1 / r, atol = 1.0e-12) for y = peaks))\n  FAIL QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty  [5 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]\n       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))\n       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))\n  FAIL QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form  [9 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]\n       test/runtests.jl:604 FAIL maximum(abs.(d - qpe_formula(t, φ))) < 1.0e-12 && d[ybest + 1] ≥ 4 / π ^ 2 - 1.0e-12\n       test/runtests.jl:604 FAIL maximum(abs.(d - qpe_formula(t, φ))) < 1.0e-12 && d[ybest + 1] ≥ 4 / π ^ 2 - 1.0e-12\n  FAIL QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate  [1 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]\n       test/runtests.jl:610 FAIL all((errs[i] ≤ 1 / 2 ^ (i + 2) + 1.0e-12 for i = eachindex(errs)))\n\nHoles at stage 3 (ranked by Ochiai over the measured test-to-hole map):\n  1. qft                0.94  implemented  failing-deps=7 passing-deps=1  src/Algorithms.jl:42\n  2. qpe                0.65  implemented  failing-deps=3 passing-deps=0  src/Algorithms.jl:142\n  3. iqft               0.57  implemented  failing-deps=3 passing-deps=1  src/Algorithms.jl:63\n  4. apply_gate         0.45  implemented  failing-deps=7 passing-deps=28  src/QSim.jl:182\n  5. partial_trace      0.33  implemented  failing-deps=3 passing-deps=9  src/QSim.jl:488\n  6. basis_state        0.31  implemented  failing-deps=2 passing-deps=4  src/QSim.jl:86\n  7. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:423\n  8. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n  9. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129\n  10. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224\n  11. bloch              0.0   implemented  failing-deps=0 passing-deps=7  src/QSim.jl:511\n  12. sample_counts      0.0   implemented  failing-deps=0 passing-deps=4  src/QSim.jl:436\n  13. measure_qubit      0.0   implemented  failing-deps=0 passing-deps=3  src/QSim.jl:458\n  14. kraus              0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:527\n  15. grover             0.0   implemented  failing-deps=0 passing-deps=3  src/Algorithms.jl:101\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "qft",
+          "misconception": "gate-order-within-a-qubit",
+          "name": "qft-phases-before-hadamard",
+          "stage": 3
+        },
+        {
+          "body": "return qft!(c, reverse(qubits))\n",
+          "description": "the QFT on the qubits in reverse order: that conjugates the QFT by a bit reversal, it does not invert it",
+          "expect_start": "iqft",
+          "golden": "== tutor explain: qsim, stage 3 ==\n\nStart here: hole `iqft` at src/Algorithms.jl:63\n  why: 4 of the 4 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: inverse-circuit.\n\nTests: 42/46 testsets pass\n  FAIL QSim/lesson 6: the quantum Fourier transform/inverse QFT undoes it  [2 failed, 0 errored; depends on: apply_gate, basis_state, iqft, qft]\n       test/runtests.jl:571 FAIL circuit_unitary(c) ≈ I  evaluated: ComplexF64[…\n       test/runtests.jl:571 FAIL circuit_unitary(c) ≈ I  evaluated: ComplexF64[…\n  FAIL QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty  [5 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]\n       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))\n       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))\n  FAIL QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form  [9 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]\n       test/runtests.jl:604 FAIL maximum(abs.(d - qpe_formula(t, φ))) < 1.0e-12 && d[ybest + 1] ≥ 4 / π ^ 2 - 1.0e-12\n       test/runtests.jl:604 FAIL maximum(abs.(d - qpe_formula(t, φ))) < 1.0e-12 && d[ybest + 1] ≥ 4 / π ^ 2 - 1.0e-12\n  FAIL QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate  [1 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]\n       test/runtests.jl:610 FAIL all((errs[i] ≤ 1 / 2 ^ (i + 2) + 1.0e-12 for i = eachindex(errs)))\n\nHoles at stage 3 (ranked by Ochiai over the measured test-to-hole map):\n  1. iqft               1.0   implemented  failing-deps=4 passing-deps=0  src/Algorithms.jl:63\n  2. qpe                0.87  implemented  failing-deps=3 passing-deps=0  src/Algorithms.jl:138\n  3. qft                0.71  implemented  failing-deps=4 passing-deps=4  src/Algorithms.jl:42\n  4. partial_trace      0.43  implemented  failing-deps=3 passing-deps=9  src/QSim.jl:488\n  5. apply_gate         0.34  implemented  failing-deps=4 passing-deps=31  src/QSim.jl:182\n  6. basis_state        0.2   implemented  failing-deps=1 passing-deps=5  src/QSim.jl:86\n  7. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:423\n  8. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n  9. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129\n  10. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224\n  11. bloch              0.0   implemented  failing-deps=0 passing-deps=7  src/QSim.jl:511\n  12. sample_counts      0.0   implemented  failing-deps=0 passing-deps=4  src/QSim.jl:436\n  13. measure_qubit      0.0   implemented  failing-deps=0 passing-deps=3  src/QSim.jl:458\n  14. kraus              0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:527\n  15. grover             0.0   implemented  failing-deps=0 passing-deps=3  src/Algorithms.jl:97\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "iqft",
+          "misconception": "reversing-qubits-inverts",
+          "name": "iqft-reversed-qubits",
+          "stage": 3
+        },
+        {
+          "body": "c = Circuit(t + 1)\nadd!(c, :x, t)\nfor j in 0:t-1\n    add!(c, :h, j)\n    add!(c, :cp, j, t; λ = 2π * φ * 2^j)\nend\nqft!(c, collect(0:t-1))\nreturn c\n",
+          "description": "reads out with the QFT instead of its inverse, so φ·2^t comes out as -φ·2^t mod 2^t",
+          "expect_start": "qpe",
+          "golden": "== tutor explain: qsim, stage 3 ==\n\nStart here: hole `qpe` at src/Algorithms.jl:142\n  why: 3 of the 3 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: phase-kickback.\n\nTests: 43/46 testsets pass\n  FAIL QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty  [5 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]\n       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))\n       test/runtests.jl:595 FAIL all((isapprox((counting_distribution(t, j / 2 ^ t))[j + 1], 1, atol = 1.0e-12) for j = 0:2 ^ t - 1))\n  FAIL QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form  [9 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]\n       test/runtests.jl:604 FAIL maximum(abs.(d - qpe_formula(t, φ))) < 1.0e-12 && d[ybest + 1] ≥ 4 / π ^ 2 - 1.0e-12\n       test/runtests.jl:604 FAIL maximum(abs.(d - qpe_formula(t, φ))) < 1.0e-12 && d[ybest + 1] ≥ 4 / π ^ 2 - 1.0e-12\n  FAIL QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate  [1 failed, 0 errored; depends on: apply_gate, iqft, partial_trace, qft, qpe]\n       test/runtests.jl:610 FAIL all((errs[i] ≤ 1 / 2 ^ (i + 2) + 1.0e-12 for i = eachindex(errs)))\n\nHoles at stage 3 (ranked by Ochiai over the measured test-to-hole map):\n  1. qpe                1.0   implemented  failing-deps=3 passing-deps=0  src/Algorithms.jl:142\n  2. iqft               0.87  implemented  failing-deps=3 passing-deps=1  src/Algorithms.jl:63\n  3. qft                0.61  implemented  failing-deps=3 passing-deps=5  src/Algorithms.jl:42\n  4. partial_trace      0.5   implemented  failing-deps=3 passing-deps=9  src/QSim.jl:488\n  5. apply_gate         0.29  implemented  failing-deps=3 passing-deps=32  src/QSim.jl:182\n  6. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86\n  7. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:423\n  8. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253\n  9. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129\n  10. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224\n  11. bloch              0.0   implemented  failing-deps=0 passing-deps=7  src/QSim.jl:511\n  12. sample_counts      0.0   implemented  failing-deps=0 passing-deps=4  src/QSim.jl:436\n  13. measure_qubit      0.0   implemented  failing-deps=0 passing-deps=3  src/QSim.jl:458\n  14. kraus              0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:527\n  15. grover             0.0   implemented  failing-deps=0 passing-deps=3  src/Algorithms.jl:101\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)\n  allocations apply!(H, qubit 3 of 10): 517  (reference 517)\n  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)\n  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)\n  JET: not used by this project's measurements\n",
+          "hole": "qpe",
+          "misconception": "readout-uses-the-qft",
+          "name": "qpe-forward-qft",
+          "stage": 3
+        }
+      ],
+      "holes": [
+        {
+          "file": "src/QSim.jl",
+          "id": "basis_state",
+          "kc": "one-based-indexing",
+          "spec": "    basis_state(n, k)\n\nComputational basis state |k> for integer k (0 ≤ k < 2^n): amplitude 1 on basis\nstate k, zero elsewhere. Example: `basis_state(3, 0b110)` is |110> = qubits 1\nand 2 set, qubit 0 clear. Throws `ArgumentError` if k is out of range.",
+          "stage": 1,
+          "summary": "basis_state(n, k): the vector with a 1 on basis state k (0-based k, 1-based Julia)",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/QSim.jl",
+          "id": "bitstring",
+          "kc": "little-endian-order",
+          "spec": "    bitstring_of(k, n)\n\nThe n-character bitstring of basis index k, qubit n-1 on the LEFT and qubit 0\non the right (Qiskit's display order): `bitstring_of(6, 3) == \"110\"`,\n`bitstring_of(1, 4) == \"0001\"`.",
+          "stage": 1,
+          "summary": "bitstring_of(k, n): qubit n-1 on the left, qubit 0 on the right",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/QSim.jl",
+          "id": "kron_operator",
+          "kc": "little-endian-order",
+          "spec": "    full_operator_kron(U, q, n)\n\nTextbook construction for a SINGLE-qubit gate on qubit q of n:\nI ⊗ ... ⊗ U ⊗ ... ⊗ I, as a 2^n × 2^n matrix. In little-endian order the\nleftmost kron factor is qubit n-1, so U sits in slot n-1-q from the left.\nThrows `ArgumentError` if U is not 2×2.",
+          "stage": 1,
+          "summary": "full_operator_kron(U, q, n): I ⊗ ... ⊗ U ⊗ ... ⊗ I with qubit n-1 leftmost",
+          "trivial_bodies": 1
+        },
+        {
+          "file": "src/QSim.jl",
+          "id": "ry",
+          "kc": "half-angle",
+          "spec": "    RY(θ)\n\nRotation of the Bloch sphere by angle θ about the y axis:\n\n    RY(θ) = exp(-i θ Y/2) = cos(θ/2) I - i sin(θ/2) Y\n\nApplied to |0>, it gives cos(θ/2)|0> + sin(θ/2)|1>: the Bloch vector tips from\nthe north pole towards +x by θ. Its entries are real.",
+          "stage": 1,
+          "summary": "RY(θ) = exp(-iθY/2): the y rotation, with its half angle",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/QSim.jl",
+          "id": "apply_gate",
+          "kc": "gather-scatter",
+          "spec": "    apply!(ψ, U, qubits)\n\nApply a k-qubit unitary `U` (2^k × 2^k) to the listed `qubits` of state ψ,\nin place, and return ψ. `qubits[1]` is the least significant bit of U's local\nindex (Qiskit convention), so `apply!(ψ, CX, [c, t])` is CNOT with control c.\nThrows `DimensionMismatch` if `U` has the wrong size and `ArgumentError` for a\nrepeated or out-of-range qubit.\n\nHow it works: the gate only mixes amplitudes whose indices agree on every\nqubit *not* in `qubits`. So iterate over all settings of the other n-k bits\n(\"spectator\" bits); for each, gather the 2^k amplitudes it touches, multiply\nby U, and scatter them back. Cost: O(2^n · 2^k), memory O(2^k).",
+          "stage": 1,
+          "summary": "apply!(ψ, U, qubits): apply a k-qubit gate in place, without a 2^n × 2^n matrix",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/QSim.jl",
+          "id": "apply_controlled",
+          "kc": "controlled-gates",
+          "spec": "    apply_controlled!(ψ, U, controls, targets)\n\nApply U to `targets` only on the branch where every control qubit is |1>, in\nplace, and return ψ. Mathematically: C-U = |0><0| ⊗ I + |1><1| ⊗ U\n(generalised to many controls). Toffoli = `apply_controlled!(ψ, X, [c1, c2], [t])`.\nHint: build one matrix on the targets and the controls together and hand it\nto `apply!`.",
+          "stage": 2,
+          "summary": "apply_controlled!(ψ, U, controls, targets): U only where every control is |1>",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/QSim.jl",
+          "id": "partial_trace",
+          "kc": "partial-trace",
+          "spec": "    reduced_density(ψ, keep)\n\nReduced density matrix (2^|keep| × 2^|keep|) of the qubits in `keep`\n(keep[1] = least significant), obtained by tracing out all the others.\n\nTrick: reshape ψ to a 2×2×...×2 tensor (dimension d ↔ qubit d-1, thanks to\ncolumn-major + little-endian), permute so the kept qubits come first, then\nflatten to a matrix M of size 2^|keep| × 2^(rest). Then ρ_keep = M M†,\nbecause summing over the traced-out index is exactly the matrix product.",
+          "stage": 2,
+          "summary": "reduced_density(ψ, keep): trace out every qubit not in keep",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/QSim.jl",
+          "id": "bloch",
+          "kc": "bloch-sphere",
+          "spec": "    bloch_vector(ρ)\n    bloch_vector(ψ, q)\n\nBloch vector r = (<X>, <Y>, <Z>) of a single-qubit density matrix, a real\n3-vector, using ρ = (I + r·σ)/2. |r| = 1 for a pure qubit; |r| < 1 means the\nqubit is mixed, e.g. because it is entangled with others (|r| = 0 for half a\nBell pair). The second form is the Bloch vector of qubit q of state ψ.",
+          "stage": 2,
+          "summary": "bloch_vector(ρ): (<X>, <Y>, <Z>) of a single-qubit density matrix",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/QSim.jl",
+          "id": "sample_counts",
+          "kc": "born-rule-sampling",
+          "spec": "    sample_counts(ψ, shots; rng)\n\nSimulate `shots` measurements of all qubits and return a `Dict` from bitstring\n(as `bitstring_of` writes it) to count. Each shot draws k with probability\n|ψ_k|² by inverse-CDF sampling: pick u ~ Uniform(0,1) and return the first k\nwhose cumulative probability exceeds u. A seeded `rng` makes the counts\nreproducible.",
+          "stage": 2,
+          "summary": "sample_counts(ψ, shots; rng): Born-rule samples, as bitstring => count",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/QSim.jl",
+          "id": "measure_qubit",
+          "kc": "measurement-collapse",
+          "spec": "    measure!(ψ, q; rng) -> outcome::Int\n\nProjective measurement of ONE qubit, with collapse:\n  P(1) = Σ_{k with bit q = 1} |ψ_k|².\nDraw the outcome (1 with probability P(1)), zero every amplitude inconsistent\nwith it, renormalise ψ in place, and return the outcome. This is what makes\nmid-circuit measurement (e.g. teleportation) work.",
+          "stage": 2,
+          "summary": "measure!(ψ, q; rng): draw one qubit's outcome, collapse and renormalise ψ",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/QSim.jl",
+          "id": "kraus",
+          "kc": "kraus-channels",
+          "spec": "    apply_kraus(ρ, kraus, q)\n\nApply a single-qubit noise channel, given by its Kraus operators (2×2\nmatrices), to qubit q of an n-qubit density matrix, and return the new ρ:\n    ρ ↦ Σ_i K_i ρ K_i†,   with Σ_i K_i† K_i = I (trace preservation).\nThrows `ArgumentError` if the Kraus operators are not trace preserving.",
+          "stage": 3,
+          "summary": "apply_kraus(ρ, kraus, q): ρ ↦ Σ K ρ K† on one qubit, checking trace preservation",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/Algorithms.jl",
+          "id": "grover",
+          "kc": "grover-rotation",
+          "spec": "    grover_circuit(n, marked, k)\n\nGrover search on n qubits: the uniform superposition, then k rounds of\n   oracle   O = I - 2 Σ_{w∈marked} |w><w|         (flip the marked phases)\n   diffuser D = 2|s><s| - I                        (inversion about the mean)\nReturns the `Circuit`. D can be built as H^n · (flip of |0...0>) · H^n, which\nequals -(2|s><s| - I); the overall -1 is a global phase and changes no\nprobability. `_flip_basis_state!(c, w)` appends the phase flip of |w>.",
+          "stage": 3,
+          "summary": "grover_circuit(n, marked, k): k rounds of oracle then diffuser",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/Algorithms.jl",
+          "id": "qft",
+          "kc": "qft-circuit",
+          "spec": "    qft!(c, qubits)\n\nAppend the quantum Fourier transform on `qubits` (qubits[1] = least\nsignificant) to circuit `c`, and return `c`:\n\n    QFT |x> = (1/√N) Σ_y  e^{2πi·x·y/N} |y> ,   N = 2^m.\n\nConstruction (same as Qiskit's QFT with swaps): working from the most\nsignificant qubit down, apply H, then controlled phases `:cp` with\nλ = π/2^d from each lower qubit at distance d. This builds the product form\n\n    QFT|x> = ⊗_j (|0> + e^{2πi·x/2^{j+1}} |1>)/√2 ,\n\nbut with the bit order reversed, hence a final layer of SWAPs.",
+          "stage": 3,
+          "summary": "qft!(c, qubits): H and controlled phases, then the swap layer",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/Algorithms.jl",
+          "id": "iqft",
+          "kc": "inverse-circuit",
+          "spec": "    iqft!(c, qubits)\n\nAppend the inverse QFT on `qubits` to `c`, and return `c`. QFT† is the same\ngates in REVERSE order, each inverted. H and SWAP are their own inverses;\nCP(λ)† = CP(-λ).",
+          "stage": 3,
+          "summary": "iqft!(c, qubits): the QFT's gates reversed, each inverted",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/Algorithms.jl",
+          "id": "qpe",
+          "kc": "phase-kickback",
+          "spec": "    qpe_circuit(t, φ)\n\nQuantum phase estimation of U = P(2πφ) on its eigenstate |1> (U|1> = e^{2πiφ}|1>),\nreturned as a `Circuit` on t + 1 qubits: counting qubits 0...t-1, eigenstate\nqubit t.\n  1. X on qubit t prepares the eigenstate.\n  2. H on each counting qubit j, then controlled-U^{2^j} = CP(2πφ·2^j).\n     Phase kickback leaves the counting register in (1/√N)Σ_x e^{2πiφx}|x>,\n     which is exactly QFT|φN> when φN is an integer.\n  3. Inverse QFT on the counting register → read out y ≈ φ·2^t.",
+          "stage": 3,
+          "summary": "qpe_circuit(t, φ): prepare |1>, controlled-U^(2^j) on each counting qubit, inverse QFT",
+          "trivial_bodies": 2
+        }
+      ],
+      "mutants": {
+        "apply_controlled": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          }
+        ],
+        "apply_gate": [
+          {
+            "caught": true,
+            "failing_testsets": 19,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 5,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 27,
+            "trivial": 3
+          }
+        ],
+        "basis_state": [
+          {
+            "caught": true,
+            "failing_testsets": 6,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          }
+        ],
+        "bitstring": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 2
+          }
+        ],
+        "bloch": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 7,
+            "trivial": 2
+          }
+        ],
+        "grover": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          }
+        ],
+        "iqft": [
+          {
+            "caught": true,
+            "failing_testsets": 4,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 4,
+            "trivial": 2
+          }
+        ],
+        "kraus": [
+          {
+            "caught": true,
+            "failing_testsets": 4,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          }
+        ],
+        "kron_operator": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          }
+        ],
+        "measure_qubit": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          }
+        ],
+        "partial_trace": [
+          {
+            "caught": true,
+            "failing_testsets": 9,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 7,
+            "trivial": 2
+          }
+        ],
+        "qft": [
+          {
+            "caught": true,
+            "failing_testsets": 5,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 7,
+            "trivial": 2
+          }
+        ],
+        "qpe": [
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 2
+          }
+        ],
+        "ry": [
+          {
+            "caught": true,
+            "failing_testsets": 6,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          }
+        ],
+        "sample_counts": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 2
+          }
+        ]
+      },
+      "name": "qsim",
+      "package": "QSim",
+      "problems": [],
+      "stages": [
+        1,
+        2,
+        3
+      ],
+      "testsets": [
+        "QSim/algorithms (structural)",
+        "QSim/all fixed and parametrised gates are unitary",
+        "QSim/basics",
+        "QSim/basics/basis states",
+        "QSim/basics/bit strings",
+        "QSim/circuit text format round-trips exactly",
+        "QSim/controlled gates",
+        "QSim/lesson 1: one qubit, gates, the Bloch sphere/Bloch vectors of the six cardinal states",
+        "QSim/lesson 1: one qubit, gates, the Bloch sphere/every gate is unitary",
+        "QSim/lesson 1: one qubit, gates, the Bloch sphere/gate identities",
+        "QSim/lesson 1: one qubit, gates, the Bloch sphere/measurement statistics follow the Born rule",
+        "QSim/lesson 1: one qubit, gates, the Bloch sphere/rotations rotate the Bloch vector by the stated angle",
+        "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/CHSH: classical bound 2 vs quantum 2√2",
+        "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/GHZ states on 3-6 qubits",
+        "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/half of a Bell pair is maximally mixed",
+        "QSim/lesson 2: entanglement, Bell states, CHSH, GHZ/the four Bell states",
+        "QSim/lesson 3: teleportation/control: skipping Bob's corrections must fail",
+        "QSim/lesson 3: teleportation/deferred-measurement version",
+        "QSim/lesson 3: teleportation/with mid-circuit measurement",
+        "QSim/lesson 4: Deutsch-Jozsa and Bernstein-Vazirani/all 72 constant and balanced functions on 3 qubits",
+        "QSim/lesson 4: Deutsch-Jozsa and Bernstein-Vazirani/every hidden string s, n = 1...5",
+        "QSim/lesson 4: Deutsch-Jozsa and Bernstein-Vazirani/random balanced functions on 4 and 5 qubits",
+        "QSim/lesson 5: Grover search/small cases you can check by hand",
+        "QSim/lesson 5: Grover search/success probability = sin²((2k+1)θ) for every k",
+        "QSim/lesson 5: Grover search/the state never leaves the plane span{|α>, |β>}",
+        "QSim/lesson 6: the quantum Fourier transform/agreement with an independent classical FFT",
+        "QSim/lesson 6: the quantum Fourier transform/inverse QFT undoes it",
+        "QSim/lesson 6: the quantum Fourier transform/periodic input gives peaks at multiples of N/r",
+        "QSim/lesson 6: the quantum Fourier transform/the circuit's unitary is exactly the DFT matrix",
+        "QSim/lesson 7: quantum phase estimation/exact phases j/2^t are read out with certainty",
+        "QSim/lesson 7: quantum phase estimation/more counting qubits give a sharper estimate",
+        "QSim/lesson 7: quantum phase estimation/non-dyadic phases: distribution matches the closed form",
+        "QSim/lesson 8: noise, density matrices, channels/T1 decay: repeated damping relaxes exponentially",
+        "QSim/lesson 8: noise, density matrices, channels/channels keep ρ physical and lower the purity of a pure state",
+        "QSim/lesson 8: noise, density matrices, channels/each channel moves the Bloch vector as predicted",
+        "QSim/lesson 8: noise, density matrices, channels/entanglement under noise: Bell fidelity and CHSH",
+        "QSim/lesson 8: noise, density matrices, channels/independent method: Monte-Carlo quantum trajectories",
+        "QSim/lesson 9: VQE and the parameter-shift rule/gradient descent reaches the ground energy",
+        "QSim/lesson 9: VQE and the parameter-shift rule/parameter-shift rule == finite differences",
+        "QSim/lesson 9: VQE and the parameter-shift rule/the Hamiltonian and its exact ground state",
+        "QSim/lesson 9: VQE and the parameter-shift rule/variational principle: E(θ) ≥ E₀ for any θ",
+        "QSim/little-endian convention, concretely",
+        "QSim/measurement: sampler is statistically correct (chi-square)",
+        "QSim/partial trace and Bloch vectors",
+        "QSim/three independent gate-application paths agree (property test)",
+        "QSim/unitarity preserves the norm; inverse undoes"
+      ]
     }
   ],
   "rules": [

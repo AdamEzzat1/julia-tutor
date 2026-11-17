@@ -1,0 +1,42 @@
+== tutor explain: qsim, stage 3 ==
+
+Start here: hole `grover` at src/Algorithms.jl:101
+  why: 3 of the 3 failing testsets depend on it (Ochiai 1.0).
+  Read its docstring: it is the specification. Knowledge component: grover-rotation.
+
+Tests: 43/46 testsets pass
+  FAIL QSim/lesson 5: Grover search/success probability = sin²((2k+1)θ) for every k  [19 failed, 0 errored; depends on: apply_gate, grover]
+       test/runtests.jl:542 FAIL worst < 1.0e-10  evaluated: 0.75 < 1.0e-10
+       test/runtests.jl:542 FAIL worst < 1.0e-10  evaluated: 0.8046875 < 1.0e-10
+  FAIL QSim/lesson 5: Grover search/the state never leaves the plane span{|α>, |β>}  [9 failed, 0 errored; depends on: apply_gate, grover]
+       test/runtests.jl:551 FAIL all(≈(a_m[1]; atol = 1.0e-12), a_m) && all(≈(a_u[1]; atol = 1.0e-12), a_u)
+       test/runtests.jl:551 FAIL all(≈(a_m[1]; atol = 1.0e-12), a_m) && all(≈(a_u[1]; atol = 1.0e-12), a_u)
+  FAIL QSim/lesson 5: Grover search/small cases you can check by hand  [1 failed, 0 errored; depends on: apply_gate, grover]
+       test/runtests.jl:555 FAIL isapprox((probabilities(run_circuit(grover_circuit(2, [3], 1))))[4], 1, atol = 1.0e-12)  evaluated: isapprox(0.25, 1; atol = 1.0e-12)
+
+Holes at stage 3 (ranked by Ochiai over the measured test-to-hole map):
+  1. grover             1.0   implemented  failing-deps=3 passing-deps=0  src/Algorithms.jl:101
+  2. apply_gate         0.29  implemented  failing-deps=3 passing-deps=32  src/QSim.jl:182
+  3. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86
+  4. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:423
+  5. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253
+  6. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129
+  7. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224
+  8. partial_trace      0.0   implemented  failing-deps=0 passing-deps=12  src/QSim.jl:488
+  9. bloch              0.0   implemented  failing-deps=0 passing-deps=7  src/QSim.jl:511
+  10. sample_counts      0.0   implemented  failing-deps=0 passing-deps=4  src/QSim.jl:436
+  11. measure_qubit      0.0   implemented  failing-deps=0 passing-deps=3  src/QSim.jl:458
+  12. kraus              0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:527
+  13. qft                0.0   implemented  failing-deps=0 passing-deps=8  src/Algorithms.jl:42
+  14. iqft               0.0   implemented  failing-deps=0 passing-deps=4  src/Algorithms.jl:63
+  15. qpe                0.0   implemented  failing-deps=0 passing-deps=3  src/Algorithms.jl:141
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)
+  allocations apply!(H, qubit 3 of 10): 517  (reference 517)
+  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)
+  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)
+  JET: not used by this project's measurements

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 420" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Five layers of evidence</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker></defs>
+<rect width="780" height="420" fill="#ffffff"/>
+<text x="20.0" y="28.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">Five layers of evidence, and what each one cannot see</text>
+<text x="300.0" y="62.0" font-size="13" fill="#2e7d4f" text-anchor="start" font-weight="600">catches</text>
+<text x="545.0" y="62.0" font-size="13" fill="#b3261e" text-anchor="start" font-weight="600">cannot see</text>
+<rect x="20" y="74" width="740" height="56" rx="8" fill="#ffffff" stroke="#3657c8" stroke-width="1.6"/>
+<text x="36.0" y="107.0" font-size="14" fill="#3657c8" text-anchor="start" font-weight="600">1  Redundant implementations</text>
+<text x="300.0" y="107.0" font-size="13" fill="#2b2733" text-anchor="start" >kernel vs dense kron</text>
+<text x="545.0" y="107.0" font-size="13" fill="#776f82" text-anchor="start" >a wrong gate matrix both use</text>
+<rect x="20" y="138" width="740" height="56" rx="8" fill="#ffffff" stroke="#3657c8" stroke-width="1.6"/>
+<text x="36.0" y="171.0" font-size="14" fill="#3657c8" text-anchor="start" font-weight="600">2  Theory checks</text>
+<text x="300.0" y="171.0" font-size="13" fill="#2b2733" text-anchor="start" >cos², sin²((2k+1)θ), 2√2</text>
+<text x="545.0" y="171.0" font-size="13" fill="#776f82" text-anchor="start" >anything with no closed form</text>
+<rect x="20" y="202" width="740" height="56" rx="8" fill="#ffffff" stroke="#2e7d4f" stroke-width="1.6"/>
+<text x="36.0" y="235.0" font-size="14" fill="#2e7d4f" text-anchor="start" font-weight="600">3  Independent reference</text>
+<text x="300.0" y="235.0" font-size="13" fill="#2b2733" text-anchor="start" >Qiskit: 17 of 22 mutants</text>
+<text x="545.0" y="235.0" font-size="13" fill="#776f82" text-anchor="start" >sampling, measurement, ptrace</text>
+<rect x="20" y="266" width="740" height="56" rx="8" fill="#ffffff" stroke="#7b4bb8" stroke-width="1.6"/>
+<text x="36.0" y="299.0" font-size="14" fill="#7b4bb8" text-anchor="start" font-weight="600">4  Controls that must fail</text>
+<text x="300.0" y="299.0" font-size="13" fill="#2b2733" text-anchor="start" >classical S = 2, product -1.25</text>
+<text x="545.0" y="299.0" font-size="13" fill="#776f82" text-anchor="start" >a check that cannot fail</text>
+<rect x="20" y="330" width="740" height="56" rx="8" fill="#ffffff" stroke="#7b4bb8" stroke-width="1.6"/>
+<text x="36.0" y="363.0" font-size="14" fill="#7b4bb8" text-anchor="start" font-weight="600">5  Mutation testing</text>
+<text x="300.0" y="363.0" font-size="13" fill="#2b2733" text-anchor="start" >22 seeded bugs, all killed</text>
+<text x="545.0" y="363.0" font-size="13" fill="#776f82" text-anchor="start" >bugs unlike any mutant</text>
+<text x="20.0" y="408.0" font-size="13" fill="#776f82" text-anchor="start" >In the original simulator no layer alone caught all 22 mutants; together they did.</text>
+</svg>

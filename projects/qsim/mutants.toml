@@ -1,0 +1,165 @@
+# The 22 mutants of the original simulator (its verify/mutation_test.py),
+# ported: each is one realistic bug injected into the reference by replacing
+# `find` (which must occur exactly once in src/<file>) with `replace`.
+#
+# `tutor holemap qsim --check` runs the reference tests on every mutant and
+# requires each to make at least one test fail. Unlike holes.toml's trivial
+# bodies these are not tied to a hole: several are in gate constants, which no
+# starter opens. The original also ran its lesson scripts and a Qiskit diff on
+# each; here the lesson checks are testsets of test/runtests.jl, and the Qiskit
+# diff is the author-side cross-check, so the tests alone must kill all 22.
+# The original's table of which layer killed which mutant is in README.md.
+
+[[mutant]]
+id = "H-sign"
+description = "Hadamard with the minus sign in the wrong place (still unitary)"
+file = "QSim.jl"
+find = 'const H   = C64[1 1; 1 -1] / sqrt(2)'
+replace = 'const H   = C64[1 1; -1 1] / sqrt(2)'
+
+[[mutant]]
+id = "S-conj"
+description = "S replaced by S† (i and -i swapped)"
+file = "QSim.jl"
+find = 'const S   = C64[1 0; 0 im]'
+replace = 'const S   = C64[1 0; 0 -im]'
+
+[[mutant]]
+id = "T-angle"
+description = "T gate with π/8 instead of π/4"
+file = "QSim.jl"
+find = 'const T   = C64[1 0; 0 cis(π/4)]'
+replace = 'const T   = C64[1 0; 0 cis(π/8)]'
+
+[[mutant]]
+id = "SX-dagger"
+description = "√X replaced by its inverse (whose square is also X)"
+file = "QSim.jl"
+find = 'const SX  = C64[1+im 1-im; 1-im 1+im] / 2'
+replace = 'const SX  = C64[1-im 1+im; 1+im 1-im] / 2'
+
+[[mutant]]
+id = "RX-halfangle"
+description = "RX missing the θ/2 (rotates twice as far)"
+file = "QSim.jl"
+find = 'RX(θ) = C64[cos(θ/2) -im*sin(θ/2); -im*sin(θ/2) cos(θ/2)]'
+replace = 'RX(θ) = C64[cos(θ) -im*sin(θ); -im*sin(θ) cos(θ)]'
+
+[[mutant]]
+id = "RY-sign"
+description = "RY rotating the wrong way"
+file = "QSim.jl"
+find = 'return C64[c -s; s c]'
+replace = 'return C64[c s; -s c]'
+
+[[mutant]]
+id = "RZ-sign"
+description = "RZ phases swapped"
+file = "QSim.jl"
+find = 'RZ(θ) = C64[cis(-θ/2) 0; 0 cis(θ/2)]'
+replace = 'RZ(θ) = C64[cis(θ/2) 0; 0 cis(-θ/2)]'
+
+[[mutant]]
+id = "U-phase"
+description = "U(θ,φ,λ) with e^{i(φ-λ)} instead of e^{i(φ+λ)}"
+file = "QSim.jl"
+find = 'cis(φ)*sin(θ/2)    cis(φ+λ)*cos(θ/2)]'
+replace = 'cis(φ)*sin(θ/2)    cis(φ-λ)*cos(θ/2)]'
+
+[[mutant]]
+id = "CX-endian"
+description = "CNOT matrix written in big-endian order (control and target swapped)"
+file = "QSim.jl"
+find = "const CX = C64[1 0 0 0;\n               0 0 0 1;\n               0 0 1 0;\n               0 1 0 0]"
+replace = "const CX = C64[1 0 0 0;\n               0 1 0 0;\n               0 0 0 1;\n               0 0 1 0]"
+
+[[mutant]]
+id = "CP-sign"
+description = "controlled phase with e^{-iλ}"
+file = "QSim.jl"
+find = 'CP(λ) = Diagonal(C64[1, 1, 1, cis(λ)])'
+replace = 'CP(λ) = Diagonal(C64[1, 1, 1, cis(-λ)])'
+
+[[mutant]]
+id = "CCX-control"
+description = "Toffoli triggering on the wrong control pattern"
+file = "QSim.jl"
+find = 'M[4, 4] = M[8, 8] = 0; M[4, 8] = M[8, 4] = 1'
+replace = 'M[2, 2] = M[6, 6] = 0; M[2, 6] = M[6, 2] = 1'
+
+[[mutant]]
+id = "apply-endian"
+description = "apply! indexing qubits big-endian (the most common real-world bug)"
+file = "QSim.jl"
+find = 'offsets[j+1] |= 1 << q'
+replace = 'offsets[j+1] |= 1 << (n - 1 - q)'
+
+[[mutant]]
+id = "sampler-bias"
+description = "biased random numbers in the measurement sampler"
+file = "QSim.jl"
+find = 'k = searchsortedfirst(cdf, rand(rng)) - 1'
+replace = 'k = searchsortedfirst(cdf, rand(rng)^1.05) - 1'
+
+[[mutant]]
+id = "measure-flip"
+description = "mid-circuit measurement reports the opposite outcome"
+file = "QSim.jl"
+find = 'outcome = rand(rng) < p1 ? 1 : 0'
+replace = 'outcome = rand(rng) < p1 ? 0 : 1'
+
+[[mutant]]
+id = "ptrace-conj"
+description = "partial trace using transpose instead of the conjugate transpose"
+file = "QSim.jl"
+find = "return M * M'"
+replace = 'return M * transpose(M)'
+
+[[mutant]]
+id = "bloch-y"
+description = "Bloch vector y component with the wrong sign"
+file = "QSim.jl"
+find = 'real.([tr(ρ * X), tr(ρ * Y), tr(ρ * Z)])'
+replace = 'real.([tr(ρ * X), -tr(ρ * Y), tr(ρ * Z)])'
+
+[[mutant]]
+id = "kraus-transpose"
+description = "noise channel using K^T instead of K†"
+file = "QSim.jl"
+find = "out .+= Kf * ρ * Kf'"
+replace = 'out .+= Kf * ρ * transpose(Kf)'
+
+[[mutant]]
+id = "QFT-angle"
+description = "QFT controlled phases off by a factor 2"
+file = "Algorithms.jl"
+find = 'λ = π / 2^(j - k))'
+replace = 'λ = π / 2^(j - k + 1))'
+
+[[mutant]]
+id = "QFT-noswap"
+description = "QFT missing the final swap layer"
+file = "Algorithms.jl"
+find = 'for i in 1:m÷2'
+replace = 'for i in 1:0'
+
+[[mutant]]
+id = "iQFT-sign"
+description = "inverse QFT forgetting to negate the phases"
+file = "Algorithms.jl"
+find = 'push!(c.gates, Gate(g.name, g.qubits, -g.params))'
+replace = 'push!(c.gates, Gate(g.name, g.qubits, g.params))'
+
+[[mutant]]
+id = "Grover-nodiff"
+description = "Grover diffuser missing its reflection"
+file = "Algorithms.jl"
+find = "        _flip_basis_state!(c, 0)\n"
+replace = "        nothing\n"
+
+[[mutant]]
+id = "QPE-power"
+description = "QPE using U^(j+1) instead of U^(2^j)"
+file = "Algorithms.jl"
+find = 'add!(c, :cp, j, t; λ = 2π * φ * 2^j)'
+replace = 'add!(c, :cp, j, t; λ = 2π * φ * (j + 1))'

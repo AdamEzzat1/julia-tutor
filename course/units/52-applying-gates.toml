@@ -2,14 +2,850 @@ id = "52-applying-gates"
 title = "Applying gates without the big matrix"
 track = "quantum"
 env = "base"
-status = "planned"
-summary = "Three implementations of the same operation: bit manipulation in place, the element-by-element definition, and Kronecker products, with tests that they agree."
+status = "ready"
+summary = "Three implementations of one operation: a single-qubit gate applied in place to pairs of amplitudes found with bit masks, the same operator built from its definition, and the textbook Kronecker product. Property tests over random unitaries, qubits and states show they agree to a derived tolerance, and a deliberately wrong version shows the test can fail; then the in-place version is measured: no allocation, and three orders of magnitude faster than the dense product at 11 qubits, as the operation counts predict."
 kcs = ["gate-application", "property-testing"]
 prerequisites = ["51-gates-bloch"]
-outline = [
-  "The question: a 20-qubit full operator has 2^40 entries; how do you apply a gate without it?",
-  "apply! by strided pairs of amplitudes and bit masks, in place",
-  "full_operator from the definition, and full_operator_kron from textbook Kronecker products",
-  "Property tests: the three agree on random unitaries, qubit subsets and states",
-  "Measured: allocations and time of apply! against the dense product",
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit puts the pieces of units 49 to 51 together: a gate `U` (a `2×2`
+unitary, unit 51) acting on qubit `q` (bit `q` of every outcome, unit 50) of
+an `n`-qubit state stored as `2^n` amplitudes (unit 49). It also uses:
+
+* the bit operations of unit 50: `1 << q`, `k & m` (bits set in both),
+  `k | m` (bits set in either);
+* `kron` for the textbook operator `kron(op_{n-1}, ..., op_0)` (unit 50);
+* `@allocated f(x)`, which reports the bytes a call allocates; measure it
+  after a first call, which compiles (Core Julia unit 14, "Performance");
+* `qr` from `LinearAlgebra`, which factors a matrix into an orthonormal `Q`
+  and a triangular `R` (used here to make random unitary matrices).
+'''
+
+  [[section.example]]
+  caption = "Bit masks on the outcome 5 = binary 101."
+  code = '''
+k, m = 5, 1 << 1                      # m = 2 = binary 010: bit 1
+println("k & m = ", k & m, ",  k | m = ", k | m, ",  qubit 1 of 5 is ", (k & m) == 0 ? 0 : 1)
+'''
+
+[[section]]
+title = "The question: a 20-qubit operator has 2^40 entries; how do you apply a gate without it?"
+body = '''
+Unit 50 built the operator of a gate on qubit `q` as a `2^n × 2^n` matrix,
+`kron(I, ..., U, ..., I)`, and applying it is a matrix-vector product. That
+costs `4^n` multiplications and `16 · 4^n` bytes of memory. At 20 qubits the
+state is 16 MiB, but the matrix would be 16 TiB, and nearly all of it zeros.
+
+Most of those zeros are known in advance. A gate on qubit `q` never changes
+the other qubits, so it only mixes the amplitudes of two outcomes that agree
+on every other bit: `k` with qubit `q` equal to 0, and its partner
+`k + 2^q`, with qubit `q` equal to 1. Each of the `2^(n-1)` such pairs is
+multiplied by the same `2×2` matrix `U`:
+
+```
+(ψ[k], ψ[k + 2^q])  ←  U * (ψ[k], ψ[k + 2^q])      for every k with qubit q = 0
+```
+
+That is `2 · 2^n` multiplications and no extra memory, and it is how
+state-vector simulators apply gates; QuEST, for example, describes exactly
+this update with pairs `2^q` apart. The rest of this unit writes it, builds
+two independent versions of the same operator to test it against, and
+measures what is gained.
+'''
+refs = ["jones-2019"]
+
+  [[section.example]]
+  caption = "Entries and memory of the full operator against the state itself, `16 · 4^n` and `16 · 2^n` bytes."
+  code = '''
+for n in (10, 20, 30)
+    println("n = ", n, ": state ", Base.format_bytes(16 * big(2)^n), ", full operator ", Base.format_bytes(16 * big(4)^n),
+            " (", big(4)^n, " entries, of which ", 2 * big(2)^n, " are not zero)")
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A gate on qubit `q` of `n` qubits: how many entries of its `2^n × 2^n` operator can be nonzero?"
+  choices = [
+    "`4^n`: every outcome can feed into every other",
+    "`2 · 2^n`: two in each row",
+    "`4`: only the four entries of `U` itself",
+  ]
+  answer = 2
+  explain = "Each row `k` of the operator has at most two nonzero entries, in the columns of `k` and of its partner `k ⊻ 2^q` (the other outcomes differ in a qubit the gate does not touch). That gives `2 · 2^n`, each a copy of one of `U`'s four entries."
+  misconceptions = [
+    "A gate on one qubit cannot change the others, so it cannot mix two outcomes that differ in another qubit: those entries are zero.",
+    "",
+    "The four entries of `U` are repeated once for every setting of the other `n - 1` qubits, `2^(n-1)` times each.",
+  ]
+
+[[section]]
+title = "apply! by strided pairs of amplitudes and bit masks, in place"
+body = '''
+The update needs two decisions, both about bits.
+
+**Which outcomes start a pair?** Those whose bit `q` is 0: `k & (1 << q) ==
+0`. Each pair is then visited exactly once, from its lower member. Visiting
+every `k` and updating its pair would apply `U` twice, or, for a gate such
+as `X`, undo the first application with the second.
+
+**Where is the partner?** `k | (1 << q)`, which is `k + 2^q` because bit `q`
+of `k` is 0. In Julia indices the pair is `ψ[k + 1]` and `ψ[k + 2^q + 1]`.
+The pairs are `2^q` apart, a **stride** of `2^q`, which is where the name
+"strided pairs" comes from.
+
+The update has to read both old amplitudes before writing either:
+`a, b = ψ[i], ψ[j]`, then `ψ[i] = u₁₁a + u₁₂b` and `ψ[j] = u₂₁a + u₂₂b`.
+Writing `ψ[i]` first and then reading it for `ψ[j]` uses the new value.
+
+The function changes `ψ` and returns it, so by Julia's convention its name
+ends in `!`. It allocates nothing: the four entries of `U` and the two
+amplitudes are local variables.
+'''
+refs = ["jones-2019"]
+
+  [[section.diagram]]
+  file = "strided-pairs.svg"
+  alt = "The eight amplitudes of a 3-qubit state, outcomes 0 to 7 in binary, with arcs joining the pairs that a gate on qubit 1 mixes: 0 with 2, 1 with 3, 4 with 6 and 5 with 7. Each pair differs only in the middle bit and is 2 apart."
+  caption = "A gate on qubit 1 mixes outcomes that differ only in bit 1: four pairs, each 2^1 = 2 apart, each multiplied by the same 2×2 matrix."
+
+  [[section.analogy]]
+  title = "A railway yard of independent crossings"
+  text = '''
+Picture `2^n` tracks, one per outcome, and a gate on qubit `q` as a set of
+small crossings, each joining two tracks `2^q` apart. Each crossing works
+on its own two tracks and nothing else, and they are all built from the same
+blueprint `U`. The full operator is a table of how every track connects to
+every other one: `4^n` cells, almost all of them saying "not connected".
+`apply!` builds only the crossings.
+'''
+  breaks = '''
+A crossing routes a train onto one track or the other. A gate *combines*
+the two amplitudes: each output is a weighted sum of both inputs, with
+complex weights that can cancel, and nothing is conserved the way trains
+are, except the total `|a|² + |b|²`. The yard also suggests that the order of
+the crossings matters; for one gate it does not, because the pairs are
+disjoint, but two gates on different qubits share tracks, which is why a
+circuit applies them one after the other.
+'''
+
+  [[section.example]]
+  caption = "`apply_1q!` in full, the pairs it visits for qubit 1 of 3, and `H` applied to qubit 1 of `|000⟩`."
+  notice = "Notice that the result has amplitude `1/√2` on outcomes 0 and 2, `|000⟩` and `|010⟩`: only qubit 1 changed, as the pairs say."
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q                                   # stride: partner of k is k + s
+    u11, u21, u12, u22 = U[1, 1], U[2, 1], U[1, 2], U[2, 2]
+    for k in 0:length(ψ)-1
+        if k & s == 0                            # k starts a pair (its qubit q is 0)
+            a, b = ψ[k + 1], ψ[k + s + 1]        # read both before writing either
+            ψ[k + 1]     = u11 * a + u12 * b
+            ψ[k + s + 1] = u21 * a + u22 * b
+        end
+    end
+    return ψ
+end
+println("pairs for qubit 1 of 3: ", [(k, k | 2) for k in 0:7 if k & 2 == 0])
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+ψ = zeros(ComplexF64, 8); ψ[1] = 1
+apply_1q!(ψ, H, 1)
+println("H on qubit 1 of |000⟩: nonzero outcomes ", [k for k in 0:7 if abs(ψ[k + 1]) > 0], ", amplitudes ", round.(real.(ψ[[1, 3]]); digits = 6))
+'''
+
+  [[section.example]]
+  caption = "The partner of outcome 5 for a gate on qubit 1 of three qubits."
+  code = '''
+k, q = 5, 1
+println("partner of ", k, ": ", k ⊻ (1 << q))
+'''
+
+    [section.example.predict]
+    kc = "gate-application"
+    prompt = "Outcome 5 is binary `101`. A gate on qubit 1 mixes its amplitude with one other outcome. Before the output is shown: which one?"
+    choices = ["4", "7", "1"]
+    measure = 'partner of 5: (\d+)'
+    values = ["4", "7", "1"]
+    answer = 2
+    explain = "The partner differs from `101` only in bit 1, the middle bit: `111`, which is 7. Outcome 4 (`100`) differs in bit 0, a partner for a gate on qubit 0; outcome 1 (`001`) differs in bit 2, a partner for qubit 2."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "This loop applies `U` to qubit `q`. What is wrong with it?\n\n```julia\nfor k in 0:length(ψ)-1\n    j = k ⊻ (1 << q)\n    a, b = ψ[k + 1], ψ[j + 1]\n    ψ[k + 1], ψ[j + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b\nend\n```"
+  choices = [
+    "It updates each pair twice, once from each member",
+    "`⊻` flips every bit of `k`, not only bit `q`",
+    "It reads `ψ[j + 1]` after the assignment has written it",
+  ]
+  answer = 1
+  explain = "Both `k` and its partner `j` run through the loop, so each pair is updated twice, and from the upper member the roles of `a` and `b` are swapped as well. Restrict the loop to `k & (1 << q) == 0`."
+  misconceptions = [
+    "",
+    "`k ⊻ m` flips only the bits that are set in `m`, and `1 << q` has only bit `q` set: the partner is right.",
+    "Both amplitudes are read into `a` and `b` before the tuple assignment writes either, so each update itself is correct.",
+  ]
+
+[[section]]
+title = "full_operator from the definition, and full_operator_kron from textbook Kronecker products"
+body = '''
+To test `apply_1q!`, compare it with something that shares none of its
+code. Two such references build the full operator, so they only work for
+small `n`, which is all a test needs.
+
+**From the definition.** The operator `O` of a gate on qubit `q` maps
+`|k_in⟩` to `|k_out⟩` with the amplitude `U[b_out + 1, b_in + 1]` when the two
+outcomes agree on every bit except `q` (`b_in`, `b_out` are their bits `q`),
+and 0 otherwise. Building `O` entry by entry from that sentence loops over
+all `4^n` pairs of outcomes and uses no strides or pairs at all.
+
+**From the textbook.** `kron(op_{n-1}, ..., op_0)` with `U` in the slot of
+qubit `q` (unit 50).
+
+If `apply_1q!`, `O * ψ` and `kron(...) * ψ` agree, a bug would have to be
+in all three in the same way to go unnoticed. The `qsim` project uses this
+triple for its gates (`apply!`, `full_operator`, `full_operator_kron`).
+
+**How closely must they agree?** In the dense products, the zero entries
+contribute exact zeros, so each output amplitude is computed from the same
+two products `u_{r1} a + u_{r2} b` as in `apply_1q!`, only possibly in another
+order or with a fused multiply-add. A complex product `xy` is computed
+with an error of at most `√2 γ₂ |xy|`, with `γ₂ = 2u / (1 - 2u) ≈ 2u`
+(Higham, section 3.6), and the complex sum of the two products adds at most
+`u` relative. So each way has an error of at most about
+`(2√2 + 1) u (|u_{r1} a| + |u_{r2} b|)`, and `|u_{r1} a| + |u_{r2} b| ≤ √2`
+for a unitary row and a normalised state (Cauchy-Schwarz). Two such results
+differ by at most `2 · (2√2 + 1) · √2 · u ≈ 10.8u`, about `5.4 · eps()`.
+The tests use `atol = 8 · eps()`, half as much again.
+'''
+refs = ["higham-2002", "nielsen-chuang-2010"]
+
+  [[section.example]]
+  caption = "The three constructions for a random gate on qubit 2 of 4 qubits."
+  notice = "Notice that the two dense matrices are exactly equal (`==` counts `0.0` and `-0.0` as equal; `kron` only multiplies by exact 0s and 1s, which does not round), and that `apply_1q!` agrees with them to within the derived `8 · eps()`."
+  code = '''
+using LinearAlgebra, Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function full_operator(U, q, n)                  # from the definition, entry by entry
+    O = zeros(ComplexF64, 2^n, 2^n)
+    for kin in 0:2^n-1, kout in 0:2^n-1
+        if kin & ~(1 << q) == kout & ~(1 << q)   # agree on every bit except q
+            O[kout + 1, kin + 1] = U[((kout >> q) & 1) + 1, ((kin >> q) & 1) + 1]
+        end
+    end
+    return O
+end
+full_operator_kron(U, q, n) = reduce(kron, [i == q ? U : Matrix{ComplexF64}(I, 2, 2) for i in n-1:-1:0])
+rng = Xoshiro(3)
+U = Matrix(qr(randn(rng, ComplexF64, 2, 2)).Q)
+ψ = normalize(randn(rng, ComplexF64, 16))
+O, K = full_operator(U, 2, 4), full_operator_kron(U, 2, 4)
+println("full_operator == full_operator_kron: ", O == K)
+println("apply_1q! within 8eps of O * ψ: ", maximum(abs, apply_1q!(copy(ψ), U, 2) - O * ψ) <= 8 * eps())
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why is `full_operator`, built from the definition, a better reference for testing `apply_1q!` than a copy of `apply_1q!` written more carefully?"
+  choices = [
+    "It is faster, so the test runs on more qubits",
+    "It shares no code, and no idea, with `apply_1q!`",
+    "It needs no tolerance, since it does no arithmetic",
+  ]
+  answer = 2
+  explain = "A second copy of the pair loop would repeat the same choice of pairs and strides, so it would share any misunderstanding of them. The definition loops over all outcome pairs and checks one sentence; for a bug to pass, both readings of the gate would have to be wrong the same way."
+  misconceptions = [
+    "It is far slower (`4^n` entries), and usable only for small `n`; its value is independence, not speed.",
+    "",
+    "Building `O` copies entries without arithmetic, but `O * ψ` multiplies and adds, so comparing results still needs the tolerance derived above.",
+  ]
+
+[[section]]
+title = "Property tests: the three agree on random unitaries, qubits and states"
+body = '''
+One example tests one case. A **property test** states a property that must
+hold for *all* inputs ("`apply_1q!` equals the dense product") and checks
+it on many random ones, drawn from a seeded RNG so that a failure can be
+reproduced. QuickCheck made this style popular; here it needs only a loop.
+
+The inputs must cover what can go wrong: every qubit position (an order bug
+hides on the middle qubit of an odd `n`, where `n - 1 - q = q`), small and
+larger `n`, and gates that are not special. A Haar-random unitary, the
+uniform distribution over all unitaries, has no special structure. The usual
+recipe is the QR factorization of a matrix of complex Gaussians, but QR
+alone does not give the uniform distribution: the phases of `R`'s diagonal
+must be moved into `Q`, `U = Q · diag(R_ii / |R_ii|)` (Mezzadri, section 5).
+
+A test that cannot fail proves nothing, so the example also runs a
+**control**: a deliberately wrong version (qubit order reversed, the bug of
+unit 50) that the same test must catch.
+'''
+refs = ["claessen-hughes-2000", "mezzadri-2007"]
+
+  [[section.example]]
+  caption = "1000 random trials: `n` from 1 to 6, a random qubit, a Haar-random gate and a random state. The control applies the gate with the qubit order reversed."
+  notice = "Notice that the correct version passes every trial with a wide margin, and that the reversed version fails 732 of 1000. The trials it passes are those where reversing the order changes nothing (`n = 1`, or the middle qubit of an odd `n`): a test on the middle qubit of 3 alone would have missed the bug."
+  code = '''
+using LinearAlgebra, Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+apply_reversed!(ψ, U, q) = apply_1q!(ψ, U, trailing_zeros(length(ψ)) - 1 - q)    # the control
+full_operator_kron(U, q, n) = reduce(kron, [i == q ? U : Matrix{ComplexF64}(I, 2, 2) for i in n-1:-1:0])
+function haar_unitary(rng)                       # Mezzadri: fix the phases of R's diagonal
+    F = qr(randn(rng, ComplexF64, 2, 2))
+    return Matrix(F.Q) * Diagonal(sign.(diag(F.R)))
+end
+rng = Xoshiro(7)
+worst, control_failures = 0.0, 0
+for trial in 1:1000
+    n = rand(rng, 1:6); q = rand(rng, 0:n-1)
+    U = haar_unitary(rng); ψ = normalize(randn(rng, ComplexF64, 2^n))
+    expected = full_operator_kron(U, q, n) * ψ
+    global worst = max(worst, maximum(abs, apply_1q!(copy(ψ), U, q) - expected))
+    global control_failures += maximum(abs, apply_reversed!(copy(ψ), U, q) - expected) > 8 * eps()
+end
+println("apply_1q!: all 1000 within 8eps: ", worst <= 8 * eps(), ",  worst below a quarter of it: ", worst < 2 * eps())
+println("control (qubit order reversed) fails ", control_failures, " of 1000 trials")
+'''
+
+    [section.example.predict]
+    kc = "property-testing"
+    prompt = "The control reverses the qubit order. `n` is drawn from 1 to 6 and `q` from `0:n-1`. Before the output is shown: about how many of the 1000 trials does the control fail?"
+    choices = ["All 1000", "Between 600 and 900", "Between 100 and 600", "Fewer than 100"]
+    measure = 'control \(qubit order reversed\) fails (\d+) of 1000'
+    ranges = [[1000, 1001], [600, 900], [100, 600], [-inf, 100]]
+    answer = 2
+    explain = "Reversing the order changes nothing when `n - 1 - q = q`: for `n = 1` (one qubit), and for the middle qubit when `n` is odd. With `n` uniform on 1 to 6, that is `1/6 · (1 + 1/3 + 1/5) ≈ 0.26` of the trials, so the control should fail about 74%; it failed 732 times. A failure count below 1000 is the point: some inputs cannot see this bug."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A property test of `apply_1q!` always uses `n = 3` and `q = 1`, with random gates and states. Which bug can it not catch?"
+  choices = [
+    "Writing `ψ[k + 1]` before reading it for the partner",
+    "Reversing the qubit order, `q ↦ n - 1 - q`",
+    "Using `U'` instead of `U`",
+  ]
+  answer = 2
+  explain = "On 3 qubits the middle qubit maps to itself under reversal, `3 - 1 - 1 = 1`, so the reversed code does exactly the right thing for every gate and state the test draws. Drawing `q` and `n` at random is what exposes it."
+  misconceptions = [
+    "Overwriting an amplitude before it is read changes the result for almost any random gate and state, so this test catches it.",
+    "",
+    "A random unitary is almost never equal to its conjugate transpose, so `U'` gives a different state and the test fails, as it should.",
+  ]
+
+[[section]]
+title = "Measured: allocations and time of apply! against the dense product"
+body = '''
+The pair loop saves memory by construction; how much time it saves is a
+measurement. Two numbers, measured differently:
+
+* **Allocations** are counted, not timed, and do not vary: `@allocated`
+  after a first call reports what one call allocates. The loop allocates
+  nothing; the dense product allocates its result vector (and the operator
+  itself had to be built first).
+* **Time** varies from run to run and machine to machine, so that example
+  is recorded but not checked (`check = false`), and takes the best of 5
+  runs. On 11 qubits the dense product does `4^11 ≈ 4.2` million
+  multiply-adds against `2 · 2^11 = 4096` for the loop, a ratio of 1024. The
+  measured ratio is of that order, not equal to it: reading the 64 MiB
+  matrix from memory slows the dense product, and the loop's branch per
+  outcome slows the loop. Two runs on the same laptop gave 1004 and 1580.
+
+For two-qubit gates the same idea needs groups of four amplitudes instead of
+pairs (the `qsim` project's `apply!` gathers `2^k` amplitudes for a `k`-qubit
+gate). The measured cost of that general version is in the project's
+`measure_baseline.toml`; it allocates a small table and buffer per call,
+which this unit's specialised loop avoids.
+'''
+refs = ["jones-2019"]
+
+  [[section.example]]
+  caption = "Bytes allocated by one call of `apply_1q!` on 16 qubits, after a first call to compile it."
+  code = '''
+using LinearAlgebra, Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    u11, u21, u12, u22 = U[1, 1], U[2, 1], U[1, 2], U[2, 2]
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1]     = u11 * a + u12 * b
+            ψ[k + s + 1] = u21 * a + u22 * b
+        end
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+ψ = normalize(randn(Xoshiro(1), ComplexF64, 2^16))
+apply_1q!(ψ, H, 3)                               # compile first
+println("apply_1q! on 16 qubits allocated ", @allocated(apply_1q!(ψ, H, 3)), " bytes")
+'''
+
+    [section.example.predict]
+    kc = "gate-application"
+    prompt = "The state has `2^16` amplitudes (1 MiB). Before the output is shown: how many bytes does one call of `apply_1q!` allocate?"
+    choices = ["0", "Between 1 and 1000", "About 1 MiB, a copy of the state"]
+    measure = 'allocated (\d+) bytes'
+    ranges = [[0, 1], [1, 1000], [1000, inf]]
+    answer = 1
+    explain = "Everything the loop needs is a local variable: four entries of `U`, two amplitudes, the stride and `k`. The compiler keeps them in registers, so the call allocates nothing; the state is changed where it is. A version that wrote `out = U * [a, b]` would allocate two small vectors per pair, `2^15` times."
+
+  [[section.example]]
+  caption = "Time of the pair loop and of the dense product on 11 qubits, best of 5. Recorded, not checked: timings vary from run to run and machine to machine."
+  check = false
+  notice = "Notice that the ratio is of the same order as the 1024 that the operation counts predict (it moves from run to run), and that the dense product allocates its result (the 64 MiB operator was built before timing)."
+  code = '''
+using LinearAlgebra, Random
+BLAS.set_num_threads(1)
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    u11, u21, u12, u22 = U[1, 1], U[2, 1], U[1, 2], U[2, 2]
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1]     = u11 * a + u12 * b
+            ψ[k + s + 1] = u21 * a + u22 * b
+        end
+    end
+    return ψ
+end
+n, q = 11, 4
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+O = reduce(kron, [i == q ? H : Matrix{ComplexF64}(I, 2, 2) for i in n-1:-1:0])
+ψ = normalize(randn(Xoshiro(1), ComplexF64, 2^n))
+apply_1q!(ψ, H, q); O * ψ                        # compile first
+t_loop  = minimum(@elapsed(apply_1q!(ψ, H, q)) for _ in 1:5)
+t_dense = minimum(@elapsed(O * ψ) for _ in 1:5)
+println("pair loop: ", round(t_loop * 1e6; digits = 1), " μs,  dense O * ψ: ", round(t_dense * 1e3; digits = 2), " ms,  ratio ≈ ", round(Int, t_dense / t_loop))
+println("allocated: pair loop ", @allocated(apply_1q!(ψ, H, q)), " bytes,  dense ", @allocated(O * ψ), " bytes")
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "On 11 qubits the measured speed-up of the pair loop over the dense product is of order 1000. What would you expect on 12 qubits?"
+  choices = [
+    "About 1000 again: the ratio is a property of the method",
+    "About 2000: the ratio doubles per qubit",
+    "About 4000: the dense product grows like `4^n`",
+  ]
+  answer = 2
+  explain = "The dense product does `4^n` multiply-adds and the loop `2 · 2^n`, so their ratio is `2^(n-1)`: 1024 at 11 qubits, 2048 at 12. (At 12 qubits the operator is 256 MiB, and memory traffic may move the measured ratio; the count gives the trend.)"
+  misconceptions = [
+    "The ratio of operation counts is `4^n / (2 · 2^n) = 2^(n-1)`, which doubles with every qubit.",
+    "",
+    "The dense product's cost grows by 4 per qubit, but so does nothing in the ratio's denominator: the loop's cost doubles too, and `4 / 2 = 2`.",
+  ]
+
+[[problem]]
+id = "ag-apply-1q"
+title = "Apply a single-qubit gate in place"
+difficulty = "core"
+kcs = ["gate-application"]
+entry = "apply_1q!"
+packages = []
+prompt = '''
+Write `apply_1q!(ψ, U, q)` that applies the `2×2` gate `U` to qubit `q` of
+the state `ψ` (little-endian, as in unit 50), **in place**, and returns `ψ`.
+Update each pair of amplitudes whose outcomes differ only in bit `q`, and do
+not build the `2^n × 2^n` operator.
+
+```julia
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+apply_1q!(ComplexF64[1, 0, 0, 0], H, 0)     # (|00⟩ + |01⟩)/√2: entries 1 and 2 are 1/√2
+apply_1q!(ComplexF64[1, 0, 0, 0], H, 1)     # (|00⟩ + |10⟩)/√2: entries 1 and 3 are 1/√2
+```
+
+Results are compared as whole vectors with `rtol = 1e-12`. Two correct
+versions compute each amplitude from the same two products, so they differ
+by a few `u` at most (section "full_operator from the definition"); `1e-12`
+is far above that and far below the difference any wrong pairing makes.
+Speed and allocations are graded against the reference, which allocates
+nothing.
+'''
+starter = '''
+function apply_1q!(ψ, U, q)
+    # your code here
+end
+'''
+reference = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q                                   # partner of k is k + s
+    u11, u21, u12, u22 = U[1, 1], U[2, 1], U[1, 2], U[2, 2]
+    for k in 0:length(ψ)-1
+        if k & s == 0                            # visit each pair once, from its qubit-q = 0 member
+            a, b = ψ[k + 1], ψ[k + s + 1]        # read both before writing either
+            ψ[k + 1]     = u11 * a + u12 * b
+            ψ[k + s + 1] = u21 * a + u22 * b
+        end
+    end
+    return ψ
+end
+'''
+cases = [
+  "ComplexF64[1, 0, 0, 0], ComplexF64[1 1; 1 -1] / sqrt(2), 0",
+  "ComplexF64[1, 0, 0, 0], ComplexF64[1 1; 1 -1] / sqrt(2), 1",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8] / sqrt(204), ComplexF64[0 1; 1 0], 2",
+  "ComplexF64[0.6, 0.8im], ComplexF64[1 0; 0 im], 0",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8] / sqrt(204), ComplexF64[cos(0.3) -cis(0.5)*sin(0.3); cis(1.1)*sin(0.3) cis(1.6)*cos(0.3)], 1",
 ]
+gen = "rng -> [(n = rand(rng, 1:7); v = randn(rng, ComplexF64, 2^n); a = 2pi .* rand(rng, 3); (v ./ sqrt(sum(abs2, v)), ComplexF64[cos(a[1]/2) -cis(a[3])*sin(a[1]/2); cis(a[2])*sin(a[1]/2) cis(a[2]+a[3])*cos(a[1]/2)], rand(rng, 0:n-1))) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "A gate on qubit `q` mixes only two outcomes at a time, those that differ in bit `q` alone. How do you visit each such pair exactly once?",
+  "Loop over `k` with `k & (1 << q) == 0`; the partner is `k + (1 << q)`. Read both amplitudes into locals, then write `U[1,1]a + U[1,2]b` and `U[2,1]a + U[2,2]b`.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, n); v ./ sqrt(sum(abs2, v))), ComplexF64[1 1; 1 -1] / sqrt(2), 5"
+  sizes = [65536]
+  mutates = true
+
+  [[problem.variant]]
+  label = "textbook qubit order (bit n - 1 - q)"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << (trailing_zeros(length(ψ)) - 1 - q)
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "overwrites ψ[k + 1] before reading it for the partner"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            ψ[k + 1] = U[1, 1] * ψ[k + 1] + U[1, 2] * ψ[k + s + 1]
+            ψ[k + s + 1] = U[2, 1] * ψ[k + 1] + U[2, 2] * ψ[k + s + 1]
+        end
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "uses the transpose of U (rows for columns)"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[2, 1] * b, U[1, 2] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a 2-vector product U * [a, b] for every pair"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            out = U * [ψ[k + 1], ψ[k + s + 1]]
+            ψ[k + 1], ψ[k + s + 1] = out[1], out[2]
+        end
+    end
+    return ψ
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "blocks of 2^(q+1), pairs inside each block"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for base in 0:2s:length(ψ)-1, k in base:base+s-1
+        a, b = ψ[k + 1], ψ[k + s + 1]
+        ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+    end
+    return ψ
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "ag-kron-operator"
+title = "The textbook operator with kron"
+difficulty = "warm-up"
+kcs = ["gate-application"]
+entry = "kron_operator"
+packages = []
+prompt = '''
+Write `kron_operator(U, q, n)` that returns the `2^n × 2^n` operator (a
+`Matrix{ComplexF64}`) of the `2×2` gate `U` on qubit `q` of `n` qubits,
+as the Kronecker product of `n` factors: `U` for qubit `q`, the identity for
+every other qubit, in this course's order (the leftmost factor is qubit
+`n - 1`, unit 50).
+
+```julia
+X = ComplexF64[0 1; 1 0]
+kron_operator(X, 0, 2) == kron(ComplexF64[1 0; 0 1], X)    # true
+kron_operator(X, 1, 2) == kron(X, ComplexF64[1 0; 0 1])    # true
+```
+
+`kron` multiplies entries of the factors, and every entry of an identity is
+an exact 0 or 1, so every entry of the result is exact. Exact does not mean
+`isequal`, though: `0 * x` is `-0.0` when `x` is negative, so two correct
+versions that multiply in a different order can disagree on the *sign* of a
+zero, and `isequal(0.0, -0.0)` is `false`. Results are therefore compared
+with `isapprox` at `rtol = 1e-14`, which treats `0.0` and `-0.0` as equal
+and still leaves no room for a wrong entry. Speed is graded against the
+reference.
+'''
+starter = '''
+using LinearAlgebra
+
+function kron_operator(U, q, n)
+    # your code here
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function kron_operator(U, q, n)
+    I2 = Matrix{ComplexF64}(I, 2, 2)
+    return reduce(kron, [i == q ? ComplexF64.(U) : I2 for i in n-1:-1:0])   # qubit n-1 first
+end
+'''
+cases = [
+  "ComplexF64[0 1; 1 0], 0, 2",
+  "ComplexF64[0 1; 1 0], 1, 2",
+  "ComplexF64[1 1; 1 -1] / sqrt(2), 1, 3",
+  "ComplexF64[1 0; 0 im], 0, 1",
+  "ComplexF64[0 -im; im 0], 2, 4",
+]
+gen = "rng -> [(n = rand(rng, 1:5); (randn(rng, ComplexF64, 2, 2), rand(rng, 0:n-1), n)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-14
+check_type = true
+hints = [
+  "The order of the `kron` factors is the order of the bits, most significant first. Which qubit is the most significant?",
+  "Make the list of `n` factors for `i = n-1, n-2, …, 0`, with `U` where `i == q` and the identity elsewhere, and combine them with `reduce(kron, factors)`.",
+]
+
+  [problem.perf]
+  args = "randn(rng, ComplexF64, 2, 2), 3, 8"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "qubit 0 as the leftmost factor"
+  code = '''
+using LinearAlgebra
+kron_operator(U, q, n) = reduce(kron, [i == q ? ComplexF64.(U) : Matrix{ComplexF64}(I, 2, 2) for i in 0:n-1])
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "identities of Int: the list of factors mixes two matrix types (type-unstable)"
+  code = '''
+using LinearAlgebra
+kron_operator(U, q, n) = reduce(kron, [i == q ? U : [1 0; 0 1] for i in n-1:-1:0])
+'''
+  expect = ["correct", "unstable"]
+
+  [[problem.variant]]
+  label = "identities on both sides, I(2^(n-1-q)) ⊗ U ⊗ I(2^q)"
+  code = '''
+using LinearAlgebra
+function kron_operator(U, q, n)
+    left = Matrix{ComplexF64}(I, 2^(n - 1 - q), 2^(n - 1 - q))
+    right = Matrix{ComplexF64}(I, 2^q, 2^q)
+    return kron(left, ComplexF64.(U), right)
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "ag-apply-cx"
+title = "CNOT in place"
+difficulty = "core"
+kcs = ["gate-application"]
+entry = "apply_cx!"
+packages = []
+prompt = '''
+Write `apply_cx!(ψ, c, t)` that applies CNOT, the controlled NOT, with
+control qubit `c` and target qubit `t` (`c ≠ t`) to the state `ψ` in place,
+and returns `ψ`. CNOT flips the target when the control is 1: it swaps the
+amplitudes of each pair of outcomes that have bit `c` equal to 1 and differ
+only in bit `t`, and leaves every outcome with bit `c` equal to 0 alone.
+
+```julia
+apply_cx!(ComplexF64[0, 1, 0, 0], 0, 1)     # |01⟩ → |11⟩: control qubit 0 is 1, so qubit 1 flips
+apply_cx!(ComplexF64[0, 0, 1, 0], 0, 1)     # |10⟩ stays: control qubit 0 is 0
+```
+
+A swap moves amplitudes without arithmetic, so results are compared
+exactly. Speed and allocations are graded against the reference, which
+allocates nothing.
+'''
+starter = '''
+function apply_cx!(ψ, c, t)
+    # your code here
+end
+'''
+reference = '''
+function apply_cx!(ψ, c, t)
+    mc, mt = 1 << c, 1 << t
+    for k in 0:length(ψ)-1
+        if k & mc != 0 && k & mt == 0           # control 1, and the pair's lower member
+            j = k | mt
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+'''
+cases = [
+  "ComplexF64[0, 1, 0, 0], 0, 1",
+  "ComplexF64[0, 0, 1, 0], 0, 1",
+  "ComplexF64[0, 0, 1, 0], 1, 0",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 2, 0",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 0, 2",
+]
+gen = "rng -> [(n = rand(rng, 2:7); ct = randperm(rng, n) .- 1; (randn(rng, ComplexF64, 2^n), ct[1], ct[2])) for _ in 1:25]"
+compare = "isequal"
+check_type = true
+hints = [
+  "CNOT is the bit flip of unit 50 applied only on the half of the outcomes where the control bit is 1. Which pairs does it swap?",
+  "Loop over `k` with bit `c` set and bit `t` clear, and swap `ψ[k + 1]` with `ψ[(k | (1 << t)) + 1]`.",
+]
+
+  [problem.perf]
+  args = "randn(rng, ComplexF64, n), 3, 9"
+  sizes = [65536]
+  mutates = true
+
+  [[problem.variant]]
+  label = "flips the target when the control is 0"
+  code = '''
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) == 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "control and target swapped"
+  code = '''
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << t) != 0 && k & (1 << c) == 0
+            j = k | (1 << c)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "swaps each pair twice (no lower-member test)"
+  code = '''
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0
+            j = k ⊻ (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a permutation of all indices, then a copy"
+  code = '''
+function apply_cx!(ψ, c, t)
+    src = [k & (1 << c) != 0 ? k ⊻ (1 << t) : k for k in 0:length(ψ)-1]
+    ψ .= ψ[src .+ 1]
+    return ψ
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[reference]]
+id = "jones-2019"
+authors = "Jones, T.; Brown, A.; Bush, I.; Benjamin, S. C."
+title = "QuEST and High Performance Simulation of Quantum Computers"
+venue = "Scientific Reports 9, 10736"
+year = 2019
+url = "https://doi.org/10.1038/s41598-019-47174-9"
+note = "Equation 1 applies a single-qubit gate on qubit q by updating pairs of amplitudes 2^q apart, with no full 2^N × 2^N matrix, the update of sections 2, 3 and 6; the paper also gives the 16 · 2^n bytes of a state. An arXiv copy is at https://arxiv.org/abs/1802.08032."
+
+[[reference]]
+id = "higham-2002"
+authors = "Higham, N. J."
+title = "Accuracy and Stability of Numerical Algorithms"
+venue = "SIAM, second edition"
+year = 2002
+url = "https://doi.org/10.1137/1.9780898718027"
+note = "The rounding-error bounds for complex multiplication (`√2 γ₂` relative, section 3.6) and for sums (chapter 3), used in section 4 to derive the `8 · eps()` tolerance."
+
+[[reference]]
+id = "nielsen-chuang-2010"
+authors = "Nielsen, M. A.; Chuang, I. L."
+title = "Quantum Computation and Quantum Information"
+venue = "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)"
+year = 2012
+url = "https://doi.org/10.1017/CBO9780511976667"
+note = "The tensor-product construction of an operator on one qubit of several (section 2.1.7) and CNOT (section 1.3.2), the textbook references that section 4 and the CNOT problem test against."
+
+[[reference]]
+id = "claessen-hughes-2000"
+authors = "Claessen, K.; Hughes, J."
+title = "QuickCheck: a lightweight tool for random testing of Haskell programs"
+venue = "Proceedings of the Fifth ACM SIGPLAN International Conference on Functional Programming (ICFP), 268-279"
+year = 2000
+url = "https://doi.org/10.1145/351240.351266"
+note = "Introduced testing programs against stated properties on many random inputs, the style of section 5."
+
+[[reference]]
+id = "mezzadri-2007"
+authors = "Mezzadri, F."
+title = "How to generate random matrices from the classical compact groups"
+venue = "Notices of the American Mathematical Society 54, 592-604"
+year = 2007
+url = "https://arxiv.org/abs/math-ph/0609050"
+note = "Shows that the QR factorization of a complex Gaussian matrix is not Haar-distributed as computed, and that multiplying Q by the phases of R's diagonal makes it so (sections 4 and 5): the `haar_unitary` of section 5."

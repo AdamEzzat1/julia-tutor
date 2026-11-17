@@ -2,13 +2,697 @@ id = "56-grover"
 title = "Grover search"
 track = "quantum"
 env = "base"
-status = "planned"
-summary = "Amplitude amplification as a rotation in a plane, with the success probability checked against sin^2((2k+1) theta) for every iteration count."
+status = "ready"
+summary = "Finding one marked item among N by asking an oracle takes about N/2 queries classically. Grover's algorithm alternates the phase oracle with an inversion about the mean, two reflections whose product rotates the state by a fixed angle in a plane; after about (π/4)√N rotations a measurement finds a marked item with probability close to 1. The unit checks the success probability against sin²((2k+1)θ) for n = 2 to 8 qubits, 1 to 3 marked items and every iteration count up to past the peak, derives the iteration count ⌊π/(4θ)⌋ with its guarantee P ≥ 1 - M/N, and shows that running longer makes the result worse."
 kcs = ["amplitude-amplification"]
 prerequisites = ["55-oracles"]
-outline = [
-  "The question: how many oracle calls find one marked item among N?",
-  "Oracle and diffuser as two reflections; diagram of the 2-D rotation picture",
-  "P(success) = sin^2((2k+1) theta) exactly, n = 2 to 8, M = 1 to 3 marked items",
-  "Overshooting: what happens past the optimal number of iterations",
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit uses the phase oracle of unit 55, which multiplies the amplitude
+of every marked input by `-1`, and the uniform superposition
+`|s⟩ = H⊗n |0…0⟩`, every amplitude `1/√N` with `N = 2^n`. Each example
+defines what it needs.
+
+One new operation, the **inversion about the mean**: replace every
+amplitude `a` by `2μ - a`, where `μ = sum(ψ) / N` is the mean amplitude. An
+amplitude below the mean ends as far above it as it was below, and the
+reverse. As a matrix it is `D = 2|s⟩⟨s| - I`: `|s⟩⟨s|` maps `ψ` to
+`(s'ψ) s`, and since every entry of `s` is `1/√N`, that is the vector with
+`μ` in every entry. It is unitary because it is a reflection: it keeps `|s⟩` and negates every
+vector orthogonal to `|s⟩`.
+'''
+
+  [[section.example]]
+  caption = "Inversion about the mean on 4 amplitudes, one of them negated by an oracle."
+  notice = "Notice that the negated amplitude, far below the mean, ends far above it, and the other three shrink to 0."
+  code = '''
+ψ = fill(0.5, 4)                  # the uniform superposition on 2 qubits
+ψ[3] = -ψ[3]                      # the oracle marks item 2 (index 3)
+μ = sum(ψ) / length(ψ)
+println("after the oracle: ", ψ, ",  mean ", μ)
+ψ .= 2μ .- ψ
+println("after inversion about the mean: ", ψ)
+'''
+
+[[section]]
+title = "The question: how many oracle calls find one marked item among N?"
+body = '''
+An oracle answers whether an item `x` in `0:N-1` is marked, and nothing
+else: there is no order or structure to exploit. With `M = 1` marked item,
+a classical algorithm that queries items in a random order without
+repetition finds it at each position with probability `1/N`, so the mean
+number of queries is `(1 + 2 + … + N)/N = (N + 1)/2`. Any classical method
+needs a number of queries proportional to `N`, since each query rules out
+one item.
+
+Grover showed that a quantum computer with a phase oracle needs only about
+`(π/4)√N` queries. For `N = 2^40` that is about 820 000 calls instead of
+about 5.5 · 10^11. The speed-up is quadratic, not exponential, and Boyer,
+Brassard, Høyer and Tapp work out the exact number of iterations, also for
+`M > 1` marked items, which this unit follows.
+'''
+refs = ["grover-1996", "boyer-1998"]
+
+  [[section.example]]
+  caption = "Classical search in a random order for item 17 among 64, repeated 10 000 times."
+  code = '''
+using Random
+rng = Xoshiro(56)
+N, target = 64, 17
+queries = [findfirst(==(target), randperm(rng, N)) for _ in 1:10_000]   # position of the target in the order
+println("average queries: ", round(sum(queries) / length(queries); digits = 2), "  ((N + 1)/2 = ", (N + 1) / 2, ")")
+'''
+
+    [section.example.predict]
+    kc = "amplitude-amplification"
+    prompt = "Items are queried in a random order until the marked one turns up. Before the output is shown: how many queries does that take on average for N = 64?"
+    choices = ["About 8, the square root of 64", "About 32", "About 64"]
+    measure = 'average queries: ([0-9.]+)'
+    ranges = [[0, 16], [24, 40], [56, 72]]
+    answer = 2
+    explain = "The target is equally likely at each of the 64 positions, so the mean position is `(N + 1)/2 = 32.5`. About `√N = 8` is the scale of Grover's quantum algorithm, not of any classical one; about 64 is the worst case, when the target comes last."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Grover search on `N = 2^40` items, one of them marked: about how many oracle calls does it need?"
+  choices = [
+    "About 5.5 · 10^11, half of N, like a classical search",
+    "About 820 000, that is (π/4)·√N",
+    "About 40, one per qubit",
+  ]
+  answer = 2
+  explain = "`√(2^40) = 2^20 ≈ 1.05 · 10^6`, and `π/4` of that is about 823 550. The speed-up over the classical `N/2` is the factor `2√N/π ≈ 670 000`: large, but it grows like `√N`, so Grover's cost still grows exponentially with the number of qubits."
+  misconceptions = [
+    "Half of N is the classical mean. The quantum algorithm needs about the square root of that many calls.",
+    "",
+    "One query per qubit would be an exponential speed-up. Grover's algorithm needs about `√N` calls, which for `N = 2^40` is `2^20`, not 40.",
+  ]
+
+[[section]]
+title = "Two reflections make a rotation"
+body = '''
+One **Grover iteration** is the phase oracle `O` followed by the inversion
+about the mean `D`. Both are reflections:
+
+* `O` negates the marked basis states and keeps the unmarked ones: a
+  reflection about the subspace of unmarked states.
+* `D = 2|s⟩⟨s| - I` keeps `|s⟩` and negates what is orthogonal to it: a
+  reflection about `|s⟩`.
+
+Write `|good⟩` for the normalised sum of the `M` marked basis states and
+`|bad⟩` for that of the `N - M` unmarked ones. The start state lies in their
+plane,
+
+```
+|s⟩ = sin θ |good⟩ + cos θ |bad⟩,     sin²θ = M / N
+```
+
+and both reflections map that plane to itself, so the state never leaves
+it. In a plane, a reflection about one line followed by a reflection about
+another line at angle `θ` to it is a rotation by `2θ`. Each iteration
+therefore turns the state by `2θ` toward `|good⟩`, and after `k` iterations
+
+```
+G^k |s⟩ = sin((2k + 1)θ) |good⟩ + cos((2k + 1)θ) |bad⟩
+P(measure a marked item) = sin²((2k + 1)θ)
+```
+
+This is the analysis of Boyer et al. (their Section 3); Brassard, Høyer,
+Mosca and Tapp state it for any starting algorithm as amplitude
+amplification, with the iterate as a product of two reflections whose
+eigenvalues are `e^(±2iθ)`.
+
+On hardware, `D` is built from gates as `H⊗n`, a sign flip on every basis
+state except `|0…0⟩`, then `H⊗n` again. The simulator
+here applies it directly as `2μ - a`.
+'''
+refs = ["boyer-1998", "brassard-2002", "grover-1996"]
+
+  [[section.diagram]]
+  file = "grover-rotation.svg"
+  alt = "A plane with a horizontal axis labelled |bad⟩ and a vertical axis labelled |good⟩. The start vector |s⟩ is at a small angle θ above the bad axis. The oracle reflects it to an angle θ below the bad axis. The inversion about the mean reflects that about |s⟩, to an angle 3θ above the bad axis. Further iterations continue the rotation by 2θ each, toward the good axis."
+  caption = "One Grover iteration: the oracle reflects about `|bad⟩`, the inversion about the mean reflects about `|s⟩`, and the two together rotate by `2θ`. The marked probability is the squared height on the `|good⟩` axis."
+
+  [[section.analogy]]
+  title = "Two mirrors at an angle"
+  text = '''
+Stand between two mirrors that meet at an angle `θ`. Your reflection in the
+first mirror, reflected again in the second, is you turned by `2θ` around
+the line where they meet. Grover's two reflections do the same to the
+state: neither reflection alone gets anywhere, and the pair turns the state
+a fixed step each time.
+'''
+  breaks = '''
+Real mirrors work in three dimensions on objects; here the "mirrors" are
+lines in a two-dimensional plane inside a space of `N` dimensions, and the
+picture holds only because the start state lies in that plane. A pair of
+mirrors also turns you by the same `2θ` whatever you hold; the state's
+angle `θ` depends on the fraction `M/N` of marked items, which an unknown
+`M` leaves unknown.
+'''
+
+  [[section.example]]
+  caption = "One Grover iteration on 2 qubits with one marked item, and the inversion about the mean checked against its gate form `H⊗n`, sign flip, `H⊗n`."
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+n = 2; N = 2^n
+ψ = fill(ComplexF64(1 / sqrt(N)), N)
+ψ[3] = -ψ[3]                                       # oracle: item 2 is marked
+μ = sum(ψ) / N
+ψ .= 2μ .- ψ                                       # inversion about the mean
+println("P(item 2) after one iteration: ", round(abs2(ψ[3]); digits = 12))
+# the gate form of D on a random state: H⊗n, -1 on every basis state but 0…0, H⊗n
+using Random
+v = randn(Xoshiro(7), ComplexF64, 8); v ./= sqrt(sum(abs2, v))
+w = copy(v)
+for q in 0:2; apply_1q!(w, H, q); end
+w[2:end] .= .-w[2:end]
+for q in 0:2; apply_1q!(w, H, q); end
+println("gate form equals 2μ - a: ", maximum(abs.(w .- (2 * sum(v) / 8 .- v))) < 1e-14)
+'''
+
+    [section.example.predict]
+    kc = "amplitude-amplification"
+    prompt = "Two qubits, so `N = 4`, with one marked item. Before the output is shown: what is the probability of measuring the marked item after a single Grover iteration?"
+    choices = ["1/4, as before", "1/2", "1"]
+    measure = 'P\(item 2\) after one iteration: ([0-9.]+)'
+    ranges = [[0.2, 0.3], [0.45, 0.55], [0.99, 1.01]]
+    answer = 3
+    explain = "`sin²θ = 1/4` gives `θ = 30°`, and one iteration takes the angle to `3θ = 90°`: the state is exactly `|good⟩`. In amplitudes: after the oracle they are `1/2, 1/2, -1/2, 1/2` with mean `1/4`, and `2μ - a` gives `0, 0, 1, 0`."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "What does the phase oracle do to the amplitude of a marked item?"
+  choices = [
+    "Sets it to 1 and the others to 0",
+    "Negates it, leaving its size unchanged",
+    "Doubles it, so the item is more likely to be measured",
+  ]
+  answer = 2
+  explain = "The oracle multiplies the marked amplitudes by `-1`. Every probability is unchanged after the oracle alone; the gain comes from the inversion about the mean, which turns the sign difference into a difference in size."
+  misconceptions = [
+    "An oracle that returned the answer state directly would make the search one query long. It only marks, by a sign, and measuring right after it gives a uniformly random item.",
+    "",
+    "Doubling an amplitude is not unitary (it changes the norm). The oracle is a reflection, and only the following inversion changes sizes.",
+  ]
+
+[[section]]
+title = "P(success) = sin²((2k + 1)θ), checked"
+body = '''
+The formula is checked here against the simulation for `n = 2` to 8 qubits,
+`M = 1` to 3 marked items and every `k` from 0 to 3 past the peak, 163 cases.
+The tolerance is `1e-12`: each iteration sums `N` amplitudes once, and
+unit 49's summation bound gives an error of about `N · eps` per sum, so
+after `k ≤ 15` iterations with `N ≤ 256` about `15 · 256 · 2.2e-16 ≈ 8.5e-13`.
+
+**How many iterations.** The probability is largest when `(2k + 1)θ` is
+closest to `π/2`. Boyer et al. take `k = ⌊π/(4θ)⌋`. Since
+`π/(4θ) - 1 < k ≤ π/(4θ)`, the angle `(2k + 1)θ` lies within `θ` of `π/2`,
+so
+
+```
+P ≥ sin²(π/2 - θ) = cos²θ = 1 - M/N
+```
+
+For small `M/N`, `θ ≈ √(M/N)` and `k ≈ (π/4)√(N/M)`: with `M = 1` this is
+the `(π/4)√N` of the question.
+'''
+refs = ["boyer-1998"]
+
+  [[section.example]]
+  caption = "The simulated success probability against `sin²((2k + 1)θ)`, and the probability at `k = ⌊π/(4θ)⌋`."
+  code = '''
+function grover_probability(n, marked, k)
+    N = 2^n
+    ψ = fill(ComplexF64(1 / sqrt(N)), N)
+    for _ in 1:k
+        for m in marked; ψ[m + 1] = -ψ[m + 1]; end       # the oracle
+        μ = sum(ψ) / N
+        ψ .= 2μ .- ψ                                     # inversion about the mean
+    end
+    return sum(abs2(ψ[m + 1]) for m in marked)
+end
+worst, cases, above_bound = 0.0, 0, true
+for n in 2:8, M in 1:3
+    N = 2^n; marked = [(3j) % N for j in 0:M-1]          # M distinct items
+    θ = asin(sqrt(M / N)); kbest = floor(Int, π / (4θ))
+    for k in 0:kbest + 3
+        global worst = max(worst, abs(grover_probability(n, marked, k) - sin((2k + 1) * θ)^2))
+        global cases += 1
+    end
+    global above_bound &= grover_probability(n, marked, kbest) >= 1 - M / N - 1e-12
+end
+println(cases, " cases, largest |simulated - formula| below 1e-12: ", worst < 1e-12)
+println("P at ⌊π/(4θ)⌋ ≥ 1 - M/N in every case: ", above_bound)
+for n in (4, 6, 8, 10)
+    θ = asin(sqrt(1 / 2^n)); k = floor(Int, π / (4θ))
+    println("n = ", n, ": ", k, " iterations, P = ", round(grover_probability(n, [5], k); digits = 4))
+end
+'''
+
+    [section.example.predict]
+    kc = "amplitude-amplification"
+    prompt = "Ten qubits, `N = 1024`, one marked item. Before the output is shown: how many iterations does `⌊π/(4θ)⌋` give?"
+    choices = ["10, one per qubit", "25", "512, half of N"]
+    measure = 'n = 10: (\d+) iterations'
+    ranges = [[10, 11], [25, 26], [512, 513]]
+    answer = 2
+    explain = "`θ = asin(1/32) ≈ 0.03125`, and `π/(4θ) ≈ 25.13`, so 25 iterations, close to `(π/4)√1024 ≈ 25.1`. The success probability there is about 0.9995."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Three qubits, `N = 8`, with `M = 4` items marked. What is the success probability after one Grover iteration?"
+  choices = [
+    "1, as for N = 4 with one marked item",
+    "1/2, the same as before the iteration",
+    "0, since the rotation overshoots every marked item",
+  ]
+  answer = 2
+  explain = "`sin²θ = 4/8` gives `θ = 45°`, and one iteration moves the state to `3θ = 135°`, where `sin² = 1/2` again. With half the items marked, Grover's iteration gains nothing; a random guess already succeeds half the time."
+  misconceptions = [
+    "One iteration reaches certainty only when `3θ = 90°`, that is `M/N = 1/4`. Here `M/N = 1/2`.",
+    "",
+    "The state passes `|good⟩` (at 90°) and lands at 135°, which still has `sin² = 1/2`; overshooting reduces the probability, it does not make it 0 in one step.",
+  ]
+
+[[section]]
+title = "Overshooting: more iterations can make it worse"
+body = '''
+The rotation does not stop at `|good⟩`. Past `k = ⌊π/(4θ)⌋` the state keeps
+turning, and the success probability falls, reaching about 0 near twice
+the best count, when the angle `(2k + 1)θ` is near `π` and the state is
+back near `|bad⟩` (with a minus sign). Then it climbs again, with period
+about `π/θ` in `k`.
+
+So Grover search is not like a classical search, where more queries never
+hurt. The number of iterations has to be chosen from `M/N` in advance, and
+a measurement in between would collapse the state and start the search
+over.
+'''
+refs = ["boyer-1998"]
+
+  [[section.example]]
+  caption = "The success probability for 6 qubits and one marked item, for `k = 0` to 14."
+  code = '''
+function grover_probability(n, marked, k)
+    N = 2^n
+    ψ = fill(ComplexF64(1 / sqrt(N)), N)
+    for _ in 1:k
+        for m in marked; ψ[m + 1] = -ψ[m + 1]; end
+        μ = sum(ψ) / N
+        ψ .= 2μ .- ψ
+    end
+    return sum(abs2(ψ[m + 1]) for m in marked)
+end
+for k in 0:14
+    p = grover_probability(6, [5], k)
+    println(lpad(k, 2), "  ", rpad(round(p; digits = 4), 6), "  ", "#"^round(Int, 40p))
+end
+println("P at k = 12: ", round(grover_probability(6, [5], 12); digits = 4))
+'''
+
+    [section.example.predict]
+    kc = "amplitude-amplification"
+    prompt = "For `N = 64` and one marked item, the best count is `k = 6`, with `P ≈ 0.997`. Before the output is shown: what is the success probability at `k = 12`?"
+    choices = ["Close to 0", "About 1/2", "Close to 1, it stays there"]
+    measure = 'P at k = 12: ([0-9.]+)'
+    ranges = [[0, 0.05], [0.4, 0.6], [0.95, 1.01]]
+    answer = 1
+    explain = "`θ = asin(1/8) ≈ 7.2°`, and at `k = 12` the angle is `25θ ≈ 179.6°`: nearly `π`, so the state is almost `-|bad⟩` and the marked items are almost never measured (`P ≈ 7e-5`). The probability does not plateau, because the iteration is a rotation, not a convergence."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does running twice the best number of iterations almost never find a marked item?"
+  choices = [
+    "The state has turned by about π in total, back near the unmarked states",
+    "Each extra iteration adds noise that wipes out the amplitudes",
+    "The oracle stops marking items after they have been found once",
+  ]
+  answer = 1
+  explain = "Each iteration is the same rotation by `2θ`. After about `π/(2θ)` of them the total angle is about `π`, where `sin²` is near 0. The simulation has no noise and the oracle is the same at every call; the drop comes from the geometry alone."
+  misconceptions = [
+    "",
+    "The simulation is exact up to rounding of about `1e-15`; there is no noise to accumulate. The probability rises again after the minimum, which noise would not do.",
+    "The oracle is a fixed unitary and keeps no record of earlier calls. It negates the marked amplitudes every time, and that is what keeps the rotation going.",
+  ]
+
+[[problem]]
+id = "gr-diffuser"
+title = "Inversion about the mean in place"
+difficulty = "warm-up"
+kcs = ["amplitude-amplification"]
+entry = "apply_diffuser!"
+packages = []
+prompt = '''
+Write `apply_diffuser!(ψ)` that applies the inversion about the mean to the
+state `ψ` in place and returns `ψ`: with `μ = sum(ψ) / length(ψ)`, every
+amplitude `a` becomes `2μ - a`. Amplitudes are complex.
+
+```julia
+apply_diffuser!(ComplexF64[0.5, 0.5, -0.5, 0.5])     # [0, 0, 1, 0]
+```
+
+Results are compared with `isapprox` at `rtol = 1e-12` (norm of the
+difference over the norm of the reference): a different order of summation
+changes `μ` by about `N · eps` relative to the largest amplitude. Speed and
+allocations are graded against the reference, which allocates nothing.
+'''
+starter = '''
+function apply_diffuser!(ψ)
+    # your code here
+end
+'''
+reference = '''
+function apply_diffuser!(ψ)
+    μ = sum(ψ) / length(ψ)
+    for k in eachindex(ψ)
+        ψ[k] = 2μ - ψ[k]
+    end
+    return ψ
+end
+'''
+cases = [
+  "ComplexF64[0.5, 0.5, -0.5, 0.5]",
+  "fill(ComplexF64(1 / sqrt(8)), 8)",
+  "ComplexF64[1, 0]",
+  "ComplexF64[0.6, 0.8im, 0, 0]",
 ]
+gen = "rng -> [(n = rand(rng, 1:10); v = randn(rng, ComplexF64, 2^n); (v ./ sqrt(sum(abs2, v)),)) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "Two passes over the vector: one to find the mean, one to replace each amplitude. The mean must come from the amplitudes before any of them changes.",
+  "Compute `μ = sum(ψ) / length(ψ)` first, then set `ψ[k] = 2μ - ψ[k]` for every `k`.",
+]
+
+  [problem.perf]
+  args = "randn(rng, ComplexF64, n)"
+  sizes = [1024]
+  mutates = true
+
+  [[problem.variant]]
+  label = "μ - a instead of 2μ - a"
+  code = '''
+function apply_diffuser!(ψ)
+    μ = sum(ψ) / length(ψ)
+    ψ .= μ .- ψ
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the mean recomputed inside the loop, after earlier entries changed"
+  code = '''
+function apply_diffuser!(ψ)
+    for k in eachindex(ψ)
+        ψ[k] = 2 * sum(ψ) / length(ψ) - ψ[k]
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the mean of the real parts only"
+  code = '''
+function apply_diffuser!(ψ)
+    μ = sum(real, ψ) / length(ψ)
+    ψ .= 2μ .- ψ
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the dense matrix 2|s⟩⟨s| - I"
+  code = '''
+using LinearAlgebra
+function apply_diffuser!(ψ)
+    N = length(ψ)
+    D = fill(ComplexF64(2 / N), N, N) - I
+    ψ .= D * ψ
+    return ψ
+end
+'''
+  expect = ["correct", "slow", "allocates"]
+
+[[problem]]
+id = "gr-success-probability"
+title = "Simulate Grover and measure the success probability"
+difficulty = "core"
+kcs = ["amplitude-amplification"]
+entry = "grover_success"
+packages = []
+prompt = '''
+Write `grover_success(n, marked, k)` that starts from the uniform
+superposition on `n` qubits, applies `k` Grover iterations (the phase
+oracle that negates the amplitudes of the items in `marked`, then the
+inversion about the mean), and returns the probability that a measurement
+gives one of the marked items, as a `Float64`. `marked` is a vector of
+distinct items in `0:2^n-1`, with fewer than `2^n` of them.
+
+```julia
+grover_success(2, [2], 1)        # 1.0 (up to rounding)
+grover_success(6, [5], 6)        # 0.99658...
+grover_success(3, [0, 1, 2, 3], 1)   # 0.5
+```
+
+Results are compared with an absolute tolerance of `1e-10`. The tested sizes
+(`n ≤ 8`, `k ≤ 15`) give rounding errors below about `15 · 256 · eps ≈
+8.5e-13` by the bound of section 4, so the tolerance leaves room for any
+order of summation, and the closed form `sin²((2k + 1)θ)` also passes.
+'''
+starter = '''
+function grover_success(n, marked, k)
+    # your code here
+end
+'''
+reference = '''
+function grover_success(n, marked, k)
+    N = 2^n
+    ψ = fill(ComplexF64(1 / sqrt(N)), N)
+    for _ in 1:k
+        for m in marked
+            ψ[m + 1] = -ψ[m + 1]
+        end
+        μ = sum(ψ) / N
+        for j in eachindex(ψ)
+            ψ[j] = 2μ - ψ[j]
+        end
+    end
+    return sum(m -> abs2(ψ[m + 1]), marked)
+end
+'''
+cases = [
+  "2, [2], 1",
+  "6, [5], 6",
+  "3, [0, 1, 2, 3], 1",
+  "5, [7], 0",
+  "4, [1, 9, 14], 2",
+  "6, [5], 12",
+]
+gen = "rng -> [(n = rand(rng, 1:8); M = rand(rng, 1:min(3, 2^n - 1)); (n, randperm(rng, 2^n)[1:M] .- 1, rand(rng, 0:15))) for _ in 1:30]"
+compare = "custom"
+checker = '''
+(got, expected) -> got isa Float64 && abs(got - expected) <= 1e-10
+'''
+check_type = true
+hints = [
+  "Keep the whole state vector. Each iteration has two steps that both act on it: a sign flip at the marked items, then every amplitude reflected about the mean.",
+  "Start from `fill(ComplexF64(1 / sqrt(2^n)), 2^n)`; in each of the `k` iterations negate `ψ[m + 1]` for `m` in `marked`, then set every entry to `2μ - ψ[j]` with `μ` computed first. Return the sum of `abs2(ψ[m + 1])` over `marked`.",
+]
+
+  [problem.perf]
+  args = "trailing_zeros(n), [1, 2, 3], 6"
+  sizes = [4096]
+
+  [[problem.variant]]
+  label = "the inversion first, then the oracle (one iteration short)"
+  code = '''
+function grover_success(n, marked, k)
+    N = 2^n
+    ψ = fill(ComplexF64(1 / sqrt(N)), N)
+    for _ in 1:k
+        μ = sum(ψ) / N
+        ψ .= 2μ .- ψ
+        for m in marked; ψ[m + 1] = -ψ[m + 1]; end
+    end
+    return sum(m -> abs2(ψ[m + 1]), marked)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the oracle applied once, before the loop"
+  code = '''
+function grover_success(n, marked, k)
+    N = 2^n
+    ψ = fill(ComplexF64(1 / sqrt(N)), N)
+    for m in marked; ψ[m + 1] = -ψ[m + 1]; end
+    for _ in 1:k
+        μ = sum(ψ) / N
+        ψ .= 2μ .- ψ
+    end
+    return sum(m -> abs2(ψ[m + 1]), marked)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "items used as 1-based indices"
+  code = '''
+function grover_success(n, marked, k)
+    N = 2^n
+    ψ = fill(ComplexF64(1 / sqrt(N)), N)
+    for _ in 1:k
+        for m in marked; m >= 1 && (ψ[m] = -ψ[m]); end
+        μ = sum(ψ) / N
+        ψ .= 2μ .- ψ
+    end
+    return sum(m -> m >= 1 ? abs2(ψ[m]) : 0.0, marked)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "closed form sin²((2k + 1)θ) with sin²θ = M/N"
+  code = '''
+function grover_success(n, marked, k)
+    θ = asin(sqrt(length(marked) / 2^n))
+    return sin((2k + 1) * θ)^2
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "closed form with sinθ = M/N (square root forgotten)"
+  code = '''
+function grover_success(n, marked, k)
+    θ = asin(length(marked) / 2^n)
+    return sin((2k + 1) * θ)^2
+end
+'''
+  expect = ["incorrect"]
+
+[[problem]]
+id = "gr-iterations"
+title = "How many Grover iterations"
+difficulty = "core"
+kcs = ["amplitude-amplification"]
+entry = "grover_iterations"
+packages = []
+prompt = '''
+Write `grover_iterations(N, M)` that returns, as an `Int`, the smallest
+`k ≥ 0` that maximises the success probability `sin²((2k + 1)θ)` with
+`sin²θ = M/N`, for `1 ≤ M ≤ N/4`.
+
+```julia
+grover_iterations(4, 1)       # 1: P = 1
+grover_iterations(64, 1)      # 6
+grover_iterations(1024, 1)    # 25
+```
+
+Results are compared with `isequal`. (With `M ≤ N/4` the best `k` is
+never a tie; at `M/N = 1/2` the counts 0 and 1 both give `1/2`.)
+'''
+starter = '''
+function grover_iterations(N, M)
+    # your code here
+end
+'''
+reference = '''
+function grover_iterations(N, M)
+    θ = asin(sqrt(M / N))
+    return floor(Int, π / (4θ))
+end
+'''
+cases = [
+  "4, 1",
+  "64, 1",
+  "1024, 1",
+  "256, 3",
+  "16, 4",
+  "2^20, 5",
+  "128, 19",
+]
+gen = "rng -> [(N = 2^rand(rng, 2:20); (N, rand(rng, 1:N ÷ 4))) for _ in 1:40]"
+compare = "isequal"
+check_type = true
+hints = [
+  "The probability is largest when the angle `(2k + 1)θ` is closest to `π/2`. Solve `(2k + 1)θ = π/2` for `k` and think about which integer is closest.",
+  "`θ = asin(sqrt(M / N))`; the best count is `floor(Int, π / (4θ))`, since `(2k + 1)θ` is then within `θ` of `π/2`.",
+]
+
+  [problem.perf]
+  args = "n, 3"
+  sizes = [1048576]
+
+  [[problem.variant]]
+  label = "round instead of floor"
+  code = '''
+function grover_iterations(N, M)
+    θ = asin(sqrt(M / N))
+    return round(Int, π / (4θ))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "θ ≈ √(M/N), the small-angle approximation"
+  code = '''
+function grover_iterations(N, M)
+    return floor(Int, π / 4 * sqrt(N / M))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "searches k over the first rise of the probability"
+  code = '''
+function grover_iterations(N, M)
+    θ = asin(sqrt(M / N))
+    return argmax(k -> sin((2k + 1) * θ)^2, 0:ceil(Int, π / (4θ)))
+end
+'''
+  expect = ["correct", "slow"]
+
+[[reference]]
+id = "grover-1996"
+authors = "Grover, L. K."
+title = "A fast quantum mechanical algorithm for database search"
+venue = "Proceedings of the 28th Annual ACM Symposium on Theory of Computing (STOC), 212-219"
+year = 1996
+url = "https://doi.org/10.1145/237814.237866"
+note = "The search algorithm with O(√N) queries (abstract), and the inversion about average as the step that amplifies the marked amplitude (Section 4, Fig. 1). Also arXiv:quant-ph/9605043."
+
+[[reference]]
+id = "boyer-1998"
+authors = "Boyer, M.; Brassard, G.; Høyer, P.; Tapp, A."
+title = "Tight bounds on quantum searching"
+venue = "Fortschritte der Physik 46, 493-505"
+year = 1998
+url = "https://doi.org/10.1002/(SICI)1521-3978(199806)46:4/5<493::AID-PROP493>3.0.CO;2-P"
+note = "Section 3: sin²θ = t/N for t marked items, the amplitudes after j iterations (Eq. 3, the marked ones sin((2j + 1)θ)/√t each) and the iteration count m = ⌊π/(4θ)⌋; Section 2 gives (π/4)√N for one item; the success probability sin²((2j + 1)θ) appears in the proof of Lemma 2 (Section 4). Also arXiv:quant-ph/9605034."
+
+[[reference]]
+id = "brassard-2002"
+authors = "Brassard, G.; Høyer, P.; Mosca, M.; Tapp, A."
+title = "Quantum amplitude amplification and estimation"
+venue = "Contemporary Mathematics 305, 53-74"
+year = 2002
+url = "https://doi.org/10.1090/conm/305/05215"
+note = "Section 2, Lemma 1 and Eqs. 2 to 5: the amplification iterate as a product of two reflections, acting as a rotation with eigenvalues e^(±i2θ) in a two-dimensional subspace. Also arXiv:quant-ph/0005055."

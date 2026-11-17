@@ -2,15 +2,737 @@ id = "51-gates-bloch"
 title = "Gates and the Bloch sphere"
 track = "quantum"
 env = "base"
-status = "planned"
-summary = "Single-qubit gates as 2x2 unitaries, rotations with their half angles, the Bloch vector, and sampling measurement outcomes."
+status = "ready"
+summary = "Single-qubit gates as 2×2 unitary matrices checked by `U'U ≈ I` with a derived tolerance; the identities a simulator must satisfy; rotations with their half angle, and why a full turn gives `-I`; the Bloch vector as the picture of one qubit, blind to global phase; and Born-rule sampling checked against the exact probability within 5 standard errors."
 kcs = ["unitary-gates", "bloch-sphere", "born-rule"]
 prerequisites = ["50-qubit-order"]
-outline = [
-  "The question: what does a gate do to the point that represents a qubit?",
-  "Pauli, Hadamard, S, T and sqrt(X) matrices; checking U'U = I",
-  "Rotations R_a(theta) = exp(-i theta a/2): the half angle, and why 2 pi gives -I",
-  "Diagram: the Bloch sphere with the six cardinal states",
-  "bloch_vector from the density matrix; global phase is unobservable",
-  "Born-rule sampling, checked against exact probabilities within 5 sigma",
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+Units 49 and 50 built the state: `2^n` complex amplitudes, outcome `k` at
+`ψ[k + 1]`, qubit `q` as bit `q` of `k`. This unit stays with **one qubit**,
+a state `ψ = [α, β]` meaning `α|0⟩ + β|1⟩` with `|α|² + |β|² = 1`, and asks
+how it changes. You need:
+
+* matrix-vector products `U * ψ` and the conjugate transpose `U'`
+  (`LinearAlgebra`, Core Julia unit 20);
+* `tr(A)`, the trace (sum of the diagonal), also from `LinearAlgebra`;
+* the Born rule of unit 49: outcome `k` has probability `|ψ_k|²`;
+* comparing floating-point results with a tolerance: `isapprox(a, b;
+  atol = t)` (or `a ≈ b`, which uses a relative tolerance of about
+  `sqrt(eps())` and no absolute one).
+'''
+
+  [[section.example]]
+  caption = "A 2×2 complex matrix acting on a one-qubit state, and the comparison operators this unit uses."
+  code = '''
+using LinearAlgebra
+U = ComplexF64[0 1; 1 0]
+ψ = ComplexF64[0.6, 0.8im]
+println("U * ψ = ", U * ψ)
+println("U' == U: ", U' == U, ",  tr(U) = ", tr(U))
+println("0.1 + 0.2 ≈ 0.3: ", 0.1 + 0.2 ≈ 0.3, ",  isapprox(1e-20, 0.0): ", isapprox(1e-20, 0.0), ",  with atol = 1e-15: ", isapprox(1e-20, 0.0; atol = 1e-15))
+'''
+
+[[section]]
+title = "The question: what does a gate do to the point that represents a qubit?"
+body = '''
+A **gate** is an operation on qubits; on one qubit it is a `2×2` complex
+matrix `U`, and applying it is `ψ ↦ U ψ`. Column `j` of `U` is the image of
+`|j⟩`: the bit flip `X` maps `|0⟩` to `|1⟩` and back, so its columns are
+`(0, 1)` and `(1, 0)`.
+
+Not every matrix is a gate. The new state must still be normalised for
+every `ψ`, which holds exactly when `U` is **unitary**: `U'U = I`, so
+`U⁻¹ = U'`. Every gate can be undone by its conjugate transpose.
+
+The question this unit answers is geometric. A qubit's state, once two
+redundancies are removed (normalisation and a global phase, section 5), is
+a point on a sphere, the **Bloch sphere**, and every single-qubit gate turns
+that sphere. Knowing which turn each gate is lets you predict what a circuit
+does before running it, and gives a simulator a set of exact facts to be
+tested against.
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why must a single-qubit gate be unitary, `U'U = I`?"
+  choices = [
+    "So that `U` is Hermitian, `U' = U`, like an observable",
+    "So that every normalised state stays normalised",
+    "So that `U` has only real eigenvalues, like a measurement",
+  ]
+  answer = 2
+  explain = "`‖Uψ‖² = ψ'U'Uψ`, which equals `ψ'ψ = 1` for every `ψ` exactly when `U'U = I`. Probabilities then still add up to 1 after the gate."
+  misconceptions = [
+    "Hermitian (`U' = U`) is a different property: observables are Hermitian. Some gates are both (`X`, `H`), but `S = diag(1, i)` is unitary and not Hermitian.",
+    "",
+    "Unitary matrices have eigenvalues of magnitude 1, usually complex (`S` has `1` and `i`). Real eigenvalues belong to Hermitian matrices.",
+  ]
+
+[[section]]
+title = "Pauli, Hadamard, S, T and √X, and checking U'U = I"
+body = '''
+Seven fixed gates cover most circuits:
+
+* the **Pauli** gates `X = [0 1; 1 0]` (bit flip), `Z = [1 0; 0 -1]` (phase
+  flip, `|1⟩ ↦ -|1⟩`) and `Y = [0 -i; i 0]` (both, `Y = iXZ`);
+* the **Hadamard** gate `H = [1 1; 1 -1]/√2`, which maps `|0⟩` to
+  `|+⟩ = (|0⟩ + |1⟩)/√2` and `|1⟩` to `|−⟩ = (|0⟩ − |1⟩)/√2`;
+* the **phase** gates `S = diag(1, i)` and `T = diag(1, e^{iπ/4})`;
+* **√X** (Qiskit's `sx`), `[1+i 1-i; 1-i 1+i]/2`, whose square is `X`.
+
+A test of `U'U = I` needs a tolerance, and it follows from how the entries
+were computed. Each entry of a gate is exact or rounded once (`1/√2` and
+`e^{iπ/4}` have relative error at most `u = eps()/2`; Julia's `cos` and
+`sin` are within about one unit in the last place, so at most `2u`). An
+entry of `U'U` adds two products of such entries, each of magnitude at most
+1: about `2 · (2u + 2u + u) + u ≈ 11u`. The check uses `atol = 16 · eps() =
+32u`, three times that bound. An absolute tolerance is right here because
+the entries of `I` are 0 and 1, and a relative one would demand exact zeros.
+
+These identities follow from the matrices and are what a simulator's gate
+definitions are tested against:
+
+```
+H X H = Z      H Z H = X      S² = Z      T² = S      (√X)² = X      X Y = iZ
+```
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.example]]
+  caption = "Every fixed gate passes `U'U ≈ I` with the derived tolerance, and the six identities hold."
+  notice = "Notice that the identities are tested with `≈` (relative tolerance), which is right for them: both sides are matrices with entries of size about 1."
+  code = '''
+using LinearAlgebra
+X  = ComplexF64[0 1; 1 0];  Y = ComplexF64[0 -im; im 0];  Z = ComplexF64[1 0; 0 -1]
+H  = ComplexF64[1 1; 1 -1] / sqrt(2)
+S  = ComplexF64[1 0; 0 im];  T = ComplexF64[1 0; 0 cis(pi / 4)]
+SX = ComplexF64[1+im 1-im; 1-im 1+im] / 2
+is_unitary(U) = isapprox(U' * U, I; atol = 16 * eps())
+println("unitary: ", join((string(name, " ", is_unitary(U)) for (name, U) in (("X", X), ("Y", Y), ("Z", Z), ("H", H), ("S", S), ("T", T), ("SX", SX))), ", "))
+for (claim, ok) in (("H X H = Z", H * X * H ≈ Z), ("H Z H = X", H * Z * H ≈ X), ("S² = Z", S * S ≈ Z),
+                    ("T² = S", T * T ≈ S), ("SX² = X", SX * SX ≈ X), ("X Y = iZ", X * Y ≈ im * Z))
+    println(rpad(claim, 10), ok)
+end
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A test checks `U' * U == I` for `H = [1 1; 1 -1] / sqrt(2)`. What happens?"
+  choices = [
+    "It passes: `H` is unitary, so the product is exactly `I`",
+    "It fails: the rounded entries miss `I` by about `eps()`",
+    "It throws: `==` cannot compare a matrix with `I`",
+  ]
+  answer = 2
+  explain = "`1/√2` is not a binary fraction, so `(1/√2)² + (1/√2)²` comes out as `0.9999999999999998` (unit 49 measured it). A correct unitary fails an exact test; the check needs the tolerance derived above."
+  misconceptions = [
+    "`H` is unitary in exact arithmetic, but the computed matrix has rounded entries; the product misses `I` in the last bits.",
+    "",
+    "`==` with `I` (the `UniformScaling` from `LinearAlgebra`) works and compares entry by entry; the problem is rounding, not the operator.",
+  ]
+
+[[section]]
+title = "Rotations: the half angle, and why a full turn gives -I"
+body = '''
+Each Pauli matrix generates a family of rotations of the Bloch sphere. The
+rotation by an angle `θ` about axis `a ∈ {X, Y, Z}` is
+
+```
+R_a(θ) = exp(-i θ a / 2) = cos(θ/2) I − i sin(θ/2) a
+```
+
+The **half angle** `θ/2` is not a convention you can drop. The Bloch sphere
+turns by `θ`, but the matrix entries move by `θ/2`, because a state vector's
+direction and its point on the sphere are related by a factor of 2 (two
+orthogonal states, at 90° as vectors, are opposite points on the sphere,
+180° apart). So `R_y(θ)|0⟩ = cos(θ/2)|0⟩ + sin(θ/2)|1⟩`, and a full turn,
+`θ = 2π`, gives `cos(π) I = -I`, not `I`. Only a turn of `4π` returns the
+matrix to `I`.
+
+The `-I` multiplies every amplitude by the same factor, a **global phase**,
+which no measurement of this qubit alone can detect (section 5). It does
+show once the rotation is applied only when another qubit is 1 (a
+controlled gate, later in this course): then the `-1` lands on one branch
+of the state and not the other.
+
+Two more facts a simulator relies on: `R_x(π) = -iX`, the bit flip up to a
+global phase, and the phase gate `P(λ) = diag(1, e^{iλ})` equals
+`e^{iλ/2} R_z(λ)`, again up to a global phase. Every single-qubit gate is a
+global phase times `R_z(α) R_y(θ) R_z(β)` for some angles (Barenco et al.,
+Lemma 4.1); Qiskit's general gate `U(θ, φ, λ)` is built that way.
+'''
+refs = ["barenco-1995", "nielsen-chuang-2010"]
+
+  [[section.analogy]]
+  title = "Dirac's belt trick"
+  text = '''
+Hold one end of a belt fixed and turn the buckle a full turn, 360°: the belt
+is twisted, and no sliding of the buckle without turning it removes the
+twist. Turn it a second full turn, 720°, and the twist can be undone without
+any further turning, by passing the belt around the buckle. A qubit behaves
+the same way under rotation: after one full turn its state has picked up a
+sign, `R(2π) = -I`, and after two it is back, `R(4π) = I`.
+'''
+  breaks = '''
+The belt is an ordinary object, and its twist can be seen; the qubit's sign
+after one full turn cannot, on the qubit alone, because it is a global
+phase. The analogy shows only that "one turn" and "two turns" can differ for
+a rotation that is attached to something, not why amplitudes move by half
+the angle, which is the algebra of `exp(-i θ a / 2)` above.
+'''
+
+  [[section.example]]
+  caption = "Rotations about `Z` at a full turn and at two full turns, the bit flip as a rotation, and the phase gate."
+  code = '''
+using LinearAlgebra
+X = ComplexF64[0 1; 1 0]
+RX(θ) = ComplexF64[cos(θ/2) -im*sin(θ/2); -im*sin(θ/2) cos(θ/2)]
+RZ(θ) = ComplexF64[cis(-θ/2) 0; 0 cis(θ/2)]
+P(λ)  = ComplexF64[1 0; 0 cis(λ)]
+name(U) = U ≈ I ? "I" : U ≈ -I ? "-I" : "neither"
+println("RZ(2π) = ", name(RZ(2pi)), ",  RZ(4π) = ", name(RZ(4pi)))
+println("RX(π) ≈ -iX: ", RX(pi) ≈ -im * X, ",  P(0.9) ≈ e^{0.45i} RZ(0.9): ", P(0.9) ≈ cis(0.45) * RZ(0.9))
+'''
+
+    [section.example.predict]
+    kc = "unitary-gates"
+    prompt = "`RZ(θ) = diag(e^{-iθ/2}, e^{iθ/2})`. Before the output is shown: what is `RZ(2π)`, a full turn?"
+    choices = ["I: a full turn changes nothing", "-I", "neither I nor -I"]
+    measure = 'RZ\(2π\) = (\S+),'
+    values = ["I", "-I", "neither"]
+    answer = 2
+    explain = "With the half angle, both diagonal entries are `e^{∓iπ} = -1`, so `RZ(2π) = -I`; `RZ(4π)` is `I`. The point on the Bloch sphere is back where it started after `2π`, but the state vector carries the global phase `-1`."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`RY(θ)` is written with `cos(θ)` and `sin(θ)` instead of `cos(θ/2)` and `sin(θ/2)`. What does `RY(π)|0⟩` give then, and what should it give?"
+  choices = [
+    "`|1⟩` both ways: the factor only changes the global phase",
+    "`-|0⟩` with the bug, while the correct gate gives `|1⟩`",
+    "`|+⟩` with the bug, while the correct gate gives `|1⟩`",
+  ]
+  answer = 2
+  explain = "Correctly, `RY(π)|0⟩ = cos(π/2)|0⟩ + sin(π/2)|1⟩ = |1⟩`: a half turn about `y` takes the north pole to the south pole. With the full angle, `cos(π)|0⟩ + sin(π)|1⟩ = -|0⟩`: the qubit has gone all the way around and never left `|0⟩` as far as measurement can tell. The `qsim` project tests this half angle."
+  misconceptions = [
+    "The half angle changes which state you get, not only a phase: `cos` and `sin` at `π` and at `π/2` are different numbers.",
+    "",
+    "`|+⟩` is `RY(π/2)|0⟩` with the correct half angle, a quarter of the way around the sphere.",
+  ]
+
+[[section]]
+title = "The Bloch sphere: one qubit as a point"
+body = '''
+A one-qubit state `α|0⟩ + β|1⟩` has four real numbers. Normalisation
+removes one, and the **global phase** (multiplying both amplitudes by the
+same `e^{iγ}`) removes another, because it changes no probability of any
+measurement. Two remain, two angles on a sphere:
+
+```
+|ψ⟩ = cos(θ/2)|0⟩ + e^{iφ} sin(θ/2)|1⟩   ↔   r = (sin θ cos φ, sin θ sin φ, cos θ)
+```
+
+The **Bloch vector** `r` has a formula that needs no angles. With the
+**density matrix** `ρ = ψψ'` (a `2×2` matrix; unit 59 uses it for noisy
+states), `r = (tr(ρX), tr(ρY), tr(ρZ))`, the expected values of the three
+Pauli measurements. Multiplying `ψ` by `e^{iγ}` multiplies `ψψ'` by
+`e^{iγ} e^{-iγ} = 1`, so `ρ`, and with it `r`, does not see a global phase.
+
+Six points are worth knowing by heart: `|0⟩` is the north pole `+z`, `|1⟩`
+the south pole, `|±⟩` sit on `±x` and `|±i⟩ = (|0⟩ ± i|1⟩)/√2` on `±y`.
+Antipodal points are orthogonal states.
+
+A *relative* phase, unlike a global one, moves the point: `|+⟩` and `|−⟩`
+give the same probabilities (0.5 and 0.5) but sit on opposite sides of the
+sphere, and `H` sends them to different poles. This is the example unit 49
+promised: equal probabilities, different states.
+'''
+refs = ["bloch-1946", "nielsen-chuang-2010"]
+
+  [[section.diagram]]
+  file = "bloch-sphere.svg"
+  alt = "The Bloch sphere drawn as a circle with three axes: the north pole +z labelled |0⟩, the south pole labelled |1⟩, +x and -x labelled |+⟩ and |−⟩, +y and -y labelled |+i⟩ and |−i⟩, and a state vector r at polar angle θ from +z and azimuth φ from +x."
+  caption = "The polar angle θ appears as θ/2 in the amplitudes; orthogonal states are opposite points."
+
+  [[section.analogy]]
+  title = "Latitude and longitude on a globe"
+  text = '''
+The Bloch sphere is a globe for one qubit. `θ` is the angle down from the
+north pole (90° minus the latitude) and says how the probability is shared:
+`P(0) = cos²(θ/2)`, so the north pole is certainly `0`, the south pole
+certainly `1`, and the equator is a fair coin. `φ` is the longitude, the
+relative phase between the two amplitudes, which no measurement in the
+`0`/`1` basis can see, but which decides where a later gate sends the state.
+'''
+  breaks = '''
+On a globe, opposite points are as different as two places can be; on the
+Bloch sphere opposite points are *orthogonal* states, and the angle between
+two state vectors is half the angle between their points (the `θ/2` of the
+formula). The globe also stops at one qubit: two qubits do not have two
+Bloch vectors in general, because entangled states (unit 53) have no point
+on any sphere for each qubit.
+'''
+
+  [[section.example]]
+  caption = "Bloch vectors of the six cardinal states, the effect of a global phase, and `H` applied to `|+⟩` and `|−⟩`."
+  notice = "Notice that `e^{0.7i}ψ` has the same Bloch vector as `ψ`, while `|+⟩` and `|−⟩`, with identical probabilities, are opposite points and come out of `H` as different basis states."
+  code = '''
+using LinearAlgebra
+X = ComplexF64[0 1; 1 0];  Y = ComplexF64[0 -im; im 0];  Z = ComplexF64[1 0; 0 -1]
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+bloch(ψ) = (ρ = ψ * ψ'; real.([tr(ρ * X), tr(ρ * Y), tr(ρ * Z)]))
+show_r(r) = round.(r; digits = 12) .+ 0.0                     # .+ 0.0 turns -0.0 into 0.0
+a = 1 / sqrt(2)
+for (label, ψ) in (("|0⟩", [1, 0]), ("|1⟩", [0, 1]), ("|+⟩", [a, a]), ("|−⟩", [a, -a]), ("|+i⟩", [a, a * im]), ("|−i⟩", [a, -a * im]))
+    println(rpad(label, 5), show_r(bloch(ComplexF64.(ψ))))
+end
+ψ = ComplexF64[cos(0.55), sin(0.55)]
+println("global phase e^{0.7i}: same Bloch vector: ", bloch(cis(0.7) * ψ) ≈ bloch(ψ))
+plus, minus = ComplexF64[a, a], ComplexF64[a, -a]
+println("probabilities |+⟩: ", abs2.(plus), ",  |−⟩: ", abs2.(minus))
+println("H|+⟩ probabilities: ", round.(abs2.(H * plus); digits = 12), ",  H|−⟩: ", round.(abs2.(H * minus); digits = 12))
+'''
+
+  [[section.example]]
+  caption = "Where `S H |0⟩` sits on the sphere: `H` first, then `S`."
+  code = '''
+using LinearAlgebra
+X = ComplexF64[0 1; 1 0];  Y = ComplexF64[0 -im; im 0];  Z = ComplexF64[1 0; 0 -1]
+H = ComplexF64[1 1; 1 -1] / sqrt(2);  S = ComplexF64[1 0; 0 im]
+bloch(ψ) = (ρ = ψ * ψ'; real.([tr(ρ * X), tr(ρ * Y), tr(ρ * Z)]))
+r = bloch(S * H * ComplexF64[1, 0])
+axes = ["+x" => [1, 0, 0], "-x" => [-1, 0, 0], "+y" => [0, 1, 0], "-y" => [0, -1, 0], "+z" => [0, 0, 1], "-z" => [0, 0, -1]]
+println("S H|0⟩ points along ", first(a for (a, v) in axes if isapprox(r, v; atol = 1e-12)))
+'''
+
+    [section.example.predict]
+    kc = "bloch-sphere"
+    prompt = "`H` takes `|0⟩` to `|+⟩` on the `+x` axis, and `S = diag(1, i)` is a quarter turn about `z`. Before the output is shown: where does `S H |0⟩` point?"
+    choices = ["+x", "+y", "-y", "+z"]
+    measure = 'points along (\S+)'
+    values = ["+x", "+y", "-y", "+z"]
+    answer = 2
+    explain = "`S H|0⟩ = (|0⟩ + i|1⟩)/√2 = |+i⟩`, on `+y`: `S` multiplies the `|1⟩` amplitude by `i`, a relative phase of `π/2`, which turns the point a quarter turn about `z`, from `+x` towards `+y`. `-y` would be `S'`, the opposite turn."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Two one-qubit states give the same probabilities of 0 and 1. Must they be the same state?"
+  choices = [
+    "Yes: a state is fixed by its probabilities",
+    "No: they can differ by a global phase, which no measurement detects",
+    "No: a relative phase can differ, and a later gate reveals it",
+  ]
+  answer = 3
+  explain = "Equal probabilities fix `θ` on the sphere but not `φ`. `|+⟩` and `|−⟩` are the example: same probabilities, opposite points, and `H` maps one to `|0⟩` and the other to `|1⟩`. A global phase gives no different state at all: it is the same point."
+  misconceptions = [
+    "Probabilities in the `0`/`1` basis fix only the latitude, `θ`; the longitude `φ` (the relative phase) is invisible to that measurement and changes what later gates do.",
+    "A global phase is true but describes the *same* state: it never changes any measurement, before or after any gate. States that differ physically differ by a relative phase.",
+    "",
+  ]
+
+[[section]]
+title = "Born-rule sampling, checked within 5 standard errors"
+body = '''
+A simulator returns amplitudes, but a quantum computer returns measurement
+**outcomes**, one per run ("shot"). To produce shots, a simulator draws
+outcomes with the Born probabilities. The standard way is **inverse-CDF
+sampling**: line up the probabilities `p_0, p_1, …` on the interval
+`[0, 1)`, draw `u` uniformly, and return the first `k` whose cumulative sum
+`p_0 + … + p_k` exceeds `u`.
+
+Checking a sampler needs a statistical tolerance, and it can be derived.
+Out of `N` shots, the number of 1s is binomial, so the observed frequency
+`f` of an outcome with probability `p` has mean `p` and standard error
+`σ = sqrt(p (1 - p) / N)`. For `N = 200 000` the frequency is close to
+normal, and a correct sampler lands more than `5σ` away with probability
+about `6e-7`, about once in 1.7 million runs. A test that allows `5σ`
+almost never fails a correct sampler, and the RNG is seeded, so the result
+is the same on every run: if it fails once, it fails every time and is a
+bug.
+
+A wrong sampler is not caught by every check of this kind. One that
+returns the right outcome distribution with the bits of `k` in the wrong
+order passes this one-qubit test; the `qsim` project tests that with
+several qubits.
+'''
+refs = ["devroye-1986"]
+
+  [[section.diagram]]
+  file = "inverse-cdf.svg"
+  alt = "The interval from 0 to 1 split into four segments of lengths 0.1, 0.4, 0.2 and 0.3 for the outcomes 0 to 3, with a uniform draw u = 0.62 marked; it falls in the third segment, which spans 0.5 to 0.7, so the sampler returns outcome 2."
+  caption = "Each outcome owns a piece of [0, 1) as long as its probability; a uniform u picks the piece it lands in."
+
+  [[section.example]]
+  caption = "200 000 measurements of `RY(2π/3)|0⟩`, whose exact `P(1)` is `sin²(π/3) = 0.75`, drawn with a seeded RNG."
+  notice = "Notice that the frequency misses 0.75 by about 1.8 standard errors, inside the 5σ band: a correct sampler is off by a few σ in most runs, so a tolerance tighter than the noise would fail it."
+  code = '''
+using Random, Printf
+θ = 2pi / 3
+ψ = ComplexF64[cos(θ / 2), sin(θ / 2)]             # RY(θ)|0⟩
+p1 = abs2(ψ[2])
+N = 200_000
+rng = Xoshiro(42)
+draw(rng) = rand(rng) < abs2(ψ[1]) ? 0 : 1          # inverse CDF for one qubit
+f1 = count(_ -> draw(rng) == 1, 1:N) / N
+σ = sqrt(p1 * (1 - p1) / N)
+@printf("exact P(1) = %.4f, observed %.4f, off by %.1f σ (σ = %.5f): within 5σ: %s\n", p1, f1, abs(f1 - p1) / σ, σ, abs(f1 - p1) < 5σ)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A sampler test with 200 000 shots allows only `1σ` of difference from the exact probability. What is wrong with it?"
+  choices = [
+    "Nothing: with a seeded RNG every run gives the same result",
+    "Depending on the seed, a third of correct samplers fail",
+    "It is too loose: a correct sampler is always within `0.1σ`",
+  ]
+  answer = 2
+  explain = "A normal deviate exceeds `1σ` with probability about 0.32. Seeding makes the test repeatable, but which way it goes depends on the seed: change the seed (or the number of shots) and a third of correct samplers fail. `5σ` makes that about `6e-7`."
+  misconceptions = [
+    "Seeding fixes the outcome of this run, not whether the tolerance is sensible: the next seed, or the next change to the code that draws one extra random number, has a 1 in 3 chance of failing a correct sampler.",
+    "",
+    "The deviation of a correct sampler is about `1σ` in a typical run, by definition of the standard error; the example's was 1.8σ.",
+  ]
+
+[[problem]]
+id = "gb-bloch"
+title = "The Bloch vector of one qubit"
+difficulty = "warm-up"
+kcs = ["bloch-sphere"]
+entry = "bloch"
+packages = []
+prompt = '''
+Write `bloch(ψ)` that returns the Bloch vector `[x, y, z]` (a
+`Vector{Float64}`) of the one-qubit state `ψ = [α, β]`. It is
+`(tr(ρX), tr(ρY), tr(ρZ))` with `ρ = ψψ'`; written out with the amplitudes,
+
+```
+x = 2 Re(conj(α) β),   y = 2 Im(conj(α) β),   z = |α|² − |β|²
+```
+
+```julia
+bloch(ComplexF64[1, 0])                    # [0.0, 0.0, 1.0]
+bloch(ComplexF64[1, im] / sqrt(2))         # [0.0, 1.0, 0.0] up to rounding
+```
+
+Results are compared as whole vectors with `rtol = 1e-12`: each component
+is a product or difference of two rounded amplitudes, so two correct
+formulas differ by a few `u` relative to `‖r‖ = 1`. Speed is graded
+against the reference.
+'''
+starter = '''
+function bloch(ψ)
+    # your code here
+end
+'''
+reference = '''
+function bloch(ψ)
+    α, β = ψ[1], ψ[2]
+    c = conj(α) * β                    # the off-diagonal entry ρ[2, 1] of ρ = ψψ'
+    return [2 * real(c), 2 * imag(c), abs2(α) - abs2(β)]
+end
+'''
+cases = [
+  "ComplexF64[1, 0]",
+  "ComplexF64[0, 1]",
+  "ComplexF64[1, 1] / sqrt(2)",
+  "ComplexF64[1, im] / sqrt(2)",
+  "ComplexF64[0.6, 0.8im]",
+  "ComplexF64[cos(0.4), cis(1.3) * sin(0.4)]",
 ]
+gen = "rng -> [(v = randn(rng, ComplexF64, 2); (v ./ sqrt(sum(abs2, v)),)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "The Bloch vector is the expected value of each Pauli matrix. Which entry of `ρ = ψψ'` holds the relative phase between the amplitudes?",
+  "With `c = conj(ψ[1]) * ψ[2]`: `x = 2real(c)`, `y = 2imag(c)`, `z = abs2(ψ[1]) - abs2(ψ[2])`. Conjugating the other amplitude flips the sign of `y`.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, 2); v ./ sqrt(sum(abs2, v)))"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "conjugates β instead of α (y has the wrong sign)"
+  code = '''
+function bloch(ψ)
+    c = ψ[1] * conj(ψ[2])
+    return [2 * real(c), 2 * imag(c), abs2(ψ[1]) - abs2(ψ[2])]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "forgets the factor 2"
+  code = '''
+function bloch(ψ)
+    c = conj(ψ[1]) * ψ[2]
+    return [real(c), imag(c), abs2(ψ[1]) - abs2(ψ[2])]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "traces of ρ times the Pauli matrices"
+  code = '''
+using LinearAlgebra
+function bloch(ψ)
+    ρ = ψ * ψ'
+    return real.([tr(ρ * [0 1; 1 0]), tr(ρ * [0 -im; im 0]), tr(ρ * [1 0; 0 -1])])
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "gb-rotation"
+title = "A rotation about any axis"
+difficulty = "core"
+kcs = ["unitary-gates"]
+entry = "rotation"
+packages = []
+prompt = '''
+Write `rotation(n, θ)` that returns the `2×2` matrix (a
+`Matrix{ComplexF64}`) of the rotation by angle `θ` about the unit axis
+`n = [nx, ny, nz]` of the Bloch sphere:
+
+```
+R_n(θ) = cos(θ/2) I − i sin(θ/2) (nx X + ny Y + nz Z)
+```
+
+with the Pauli matrices `X = [0 1; 1 0]`, `Y = [0 -i; i 0]`,
+`Z = [1 0; 0 -1]`. For `n = [0, 0, 1]` it is `RZ(θ)`, and `rotation(n, 2π)`
+is `-I` for every axis.
+
+```julia
+rotation([0.0, 0.0, 1.0], pi)     # [-im 0; 0 im] up to rounding: RZ(π)
+rotation([1.0, 0.0, 0.0], pi)     # [0 -im; -im 0] up to rounding: -iX
+```
+
+Results are compared as whole matrices with `rtol = 1e-12`: each entry is
+a sum of two or three products of rounded numbers of size at most 1, so
+two correct implementations agree to a few `u`, and `exp` of the
+generator (a scaling-and-squaring algorithm) to within about `1e-15`.
+'''
+starter = '''
+function rotation(n, θ)
+    # your code here
+end
+'''
+reference = '''
+function rotation(n, θ)
+    c, s = cos(θ / 2), sin(θ / 2)            # the half angle: a full turn is -I
+    nx, ny, nz = n
+    # cos(θ/2) I - i sin(θ/2) (nx X + ny Y + nz Z), written out entry by entry
+    return ComplexF64[c - im * s * nz      -im * s * nx - s * ny;
+                      -im * s * nx + s * ny  c + im * s * nz]
+end
+'''
+cases = [
+  "[0.0, 0.0, 1.0], pi",
+  "[1.0, 0.0, 0.0], pi",
+  "[0.0, 1.0, 0.0], pi / 2",
+  "[0.0, 0.0, 1.0], 2pi",
+  "[1.0, 1.0, 1.0] / sqrt(3), 2pi / 3",
+  "[0.6, 0.0, 0.8], 1.234",
+]
+gen = "rng -> [(a = randn(rng, 3); (a ./ sqrt(sum(abs2, a)), 4pi * rand(rng) - 2pi)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "The rotation turns the sphere by `θ`, but its matrix uses half of `θ`. What does a full turn have to give?",
+  "Write `nx X + ny Y + nz Z = [nz  nx - i ny; nx + i ny  -nz]`, multiply by `-i sin(θ/2)`, and add `cos(θ/2)` on the diagonal.",
+]
+
+  [problem.perf]
+  args = "(a = randn(rng, 3); a ./ sqrt(sum(abs2, a))), 2pi * rand(rng)"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "the full angle θ instead of θ/2"
+  code = '''
+function rotation(n, θ)
+    c, s = cos(θ), sin(θ)
+    nx, ny, nz = n
+    return ComplexF64[c - im * s * nz  -im * s * nx - s * ny; -im * s * nx + s * ny  c + im * s * nz]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the opposite sense of rotation, +i sin(θ/2)"
+  code = '''
+function rotation(n, θ)
+    c, s = cos(θ / 2), sin(θ / 2)
+    nx, ny, nz = n
+    return ComplexF64[c + im * s * nz  im * s * nx + s * ny; im * s * nx - s * ny  c - im * s * nz]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the matrix exponential of the generator"
+  code = '''
+using LinearAlgebra
+function rotation(n, θ)
+    G = n[1] * ComplexF64[0 1; 1 0] + n[2] * ComplexF64[0 -im; im 0] + n[3] * ComplexF64[1 0; 0 -1]
+    return exp(-im * θ / 2 * G)
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "cos I - i sin (n·σ) with matrices"
+  code = '''
+using LinearAlgebra
+function rotation(n, θ)
+    σ = (ComplexF64[0 1; 1 0], ComplexF64[0 -im; im 0], ComplexF64[1 0; 0 -1])
+    G = n[1] * σ[1] + n[2] * σ[2] + n[3] * σ[3]
+    return cos(θ / 2) * Matrix{ComplexF64}(I, 2, 2) - im * sin(θ / 2) * G
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "gb-sample-outcome"
+title = "One measurement by inverse-CDF sampling"
+difficulty = "core"
+kcs = ["born-rule"]
+entry = "sample_outcome"
+packages = []
+prompt = '''
+Write `sample_outcome(ψ, u)` that turns one uniform random number
+`u ∈ [0, 1)` into a measurement outcome of the state `ψ`, by inverse-CDF
+sampling: return the smallest outcome `k` (an `Int`, numbered from 0) with
+
+```
+|ψ_0|² + |ψ_1|² + … + |ψ_k|²  >  u
+```
+
+If rounding leaves the total just below 1 and `u` is above it, return the
+last outcome, `length(ψ) - 1`.
+
+```julia
+ψ = ComplexF64[sqrt(0.1), sqrt(0.4), sqrt(0.2), sqrt(0.3)]
+sample_outcome(ψ, 0.05)     # 0
+sample_outcome(ψ, 0.62)     # 2: the cumulative sums are 0.1, 0.5, 0.7, 1.0
+sample_outcome(ψ, 0.99)     # 3
+```
+
+The test values of `u` stay at least `1e-9` away from every cumulative sum,
+so the order of summation cannot change the outcome; results are compared
+exactly. Speed and allocations are graded against the reference, which
+allocates nothing.
+'''
+starter = '''
+function sample_outcome(ψ, u)
+    # your code here
+end
+'''
+reference = '''
+function sample_outcome(ψ, u)
+    c = 0.0
+    for i in eachindex(ψ)
+        c += abs2(ψ[i])
+        c > u && return i - 1            # index i holds outcome i - 1
+    end
+    return length(ψ) - 1                 # u beyond a total rounded below 1
+end
+'''
+cases = [
+  "ComplexF64[sqrt(0.1), sqrt(0.4), sqrt(0.2), sqrt(0.3)], 0.05",
+  "ComplexF64[sqrt(0.1), sqrt(0.4), sqrt(0.2), sqrt(0.3)], 0.62",
+  "ComplexF64[sqrt(0.1), sqrt(0.4), sqrt(0.2), sqrt(0.3)], 0.99",
+  "ComplexF64[1, 0], 0.999999",
+  "ComplexF64[0, 1], 0.0",
+  "ComplexF64[0.6, 0, 0, 0.8im], 0.5",
+]
+gen = "rng -> [(m = 2^rand(rng, 1:6); p = rand(rng, m) .+ 0.01; p ./= sum(p); k = rand(rng, 1:m); (sqrt.(p) .* cis.(2pi .* rand(rng, m)), cumsum(p)[k] - p[k] / 2)) for _ in 1:20]"   # u at the middle of outcome k's piece, far from every boundary
+compare = "isequal"
+check_type = true
+hints = [
+  "Each outcome owns a piece of `[0, 1)` as long as its probability. Walk through the pieces in order: which one contains `u`?",
+  "Keep a running sum of `abs2(ψ[i])` and return `i - 1` as soon as it exceeds `u`; after the loop, return the last outcome.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, n); v ./ sqrt(sum(abs2, v))), 0.999"
+  sizes = [65536]
+
+  [[problem.variant]]
+  label = "returns the index, not the outcome"
+  code = '''
+function sample_outcome(ψ, u)
+    c = 0.0
+    for i in eachindex(ψ)
+        c += abs2(ψ[i])
+        c > u && return i
+    end
+    return length(ψ)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "uses the magnitudes as probabilities"
+  code = '''
+function sample_outcome(ψ, u)
+    c = 0.0
+    for i in eachindex(ψ)
+        c += abs(ψ[i])
+        c > u && return i - 1
+    end
+    return length(ψ) - 1
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "cumsum and searchsortedfirst"
+  code = '''
+function sample_outcome(ψ, u)
+    c = cumsum(abs2.(ψ))
+    return min(searchsortedfirst(c, u; lt = <=), length(ψ)) - 1
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[reference]]
+id = "nielsen-chuang-2010"
+authors = "Nielsen, M. A.; Chuang, I. L."
+title = "Quantum Computation and Quantum Information"
+venue = "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)"
+year = 2012
+url = "https://doi.org/10.1017/CBO9780511976667"
+note = "Single-qubit gates as unitary matrices, the Pauli, Hadamard, phase and T gates, the rotation operators `exp(-iθa/2)` and the Bloch sphere (sections 1.2-1.3 and 4.2), as used in sections 2 to 5."
+
+[[reference]]
+id = "barenco-1995"
+authors = "Barenco, A.; Bennett, C. H.; Cleve, R.; DiVincenzo, D. P.; Margolus, N.; Shor, P.; Sleator, T.; Smolin, J. A.; Weinfurter, H."
+title = "Elementary gates for quantum computation"
+venue = "Physical Review A 52, 3457-3467"
+year = 1995
+url = "https://doi.org/10.1103/PhysRevA.52.3457"
+note = "Lemma 4.1: every 2×2 unitary is a phase times `R_z(α) R_y(θ) R_z(β)`, the decomposition behind the general gate `U(θ, φ, λ)` in section 4. An arXiv copy is at https://arxiv.org/abs/quant-ph/9503016."
+
+[[reference]]
+id = "bloch-1946"
+authors = "Bloch, F."
+title = "Nuclear Induction"
+venue = "Physical Review 70, 460-474"
+year = 1946
+url = "https://doi.org/10.1103/PhysRev.70.460"
+note = "Describes the polarisation of spin-1/2 nuclei as a vector precessing in a magnetic field, the picture from which the Bloch sphere of section 5 takes its name."
+
+[[reference]]
+id = "devroye-1986"
+authors = "Devroye, L."
+title = "Non-Uniform Random Variate Generation"
+venue = "Springer"
+year = 1986
+url = "https://doi.org/10.1007/978-1-4613-8643-8"
+note = "The inversion method for discrete distributions, returning the first outcome whose cumulative probability exceeds a uniform draw (chapters 2 and 3): the sampler of section 6."

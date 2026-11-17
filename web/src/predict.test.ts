@@ -30,7 +30,8 @@ describe("predict, then run", () => {
   });
 
   it("the site data carries predictions whose answer indexes a choice and a measured value", () => {
-    const preds = course.units.flatMap((u) => u.sections.flatMap((s) => s.examples.flatMap((e) => (e.predict ? [e.predict] : []))));
+    // choice predictions; typed-number ones have no choices and are checked in questions.test.ts
+    const preds = course.units.flatMap((u) => u.sections.flatMap((s) => s.examples.flatMap((e) => (e.predict && !e.predict.typed ? [e.predict] : []))));
     expect(preds.length).toBeGreaterThanOrEqual(4);
     for (const p of preds) {
       expect(p.answer).toBeGreaterThanOrEqual(1);

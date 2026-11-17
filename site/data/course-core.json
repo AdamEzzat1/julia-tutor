@@ -474,6 +474,30 @@
               "notice": "",
               "ok": false,
               "output": "Inf\nNaN\nERROR: DivideError: integer division error\n  @ top-level scope at line 3\n"
+            },
+            {
+              "caption": "Doubling a float until the next doubling would overflow to `Inf`.",
+              "check": true,
+              "code": "function doublings()\n    x, n = 1.0, 0\n    while isfinite(2x)\n        x *= 2\n        n += 1\n    end\n    return n, x\nend\nn, x = doublings()\nprintln(\"doublings before Inf: \", n)\nprintln(\"largest power of two: \", x)\nprintln(\"floatmax(Float64):    \", floatmax(Float64))",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "doublings before Inf: 1023\nlargest power of two: 8.98846567431158e307\nfloatmax(Float64):    1.7976931348623157e308\n",
+              "predict": {
+                "answer": 0,
+                "choices": [],
+                "explain": "A `Float64` stores a power of two in 11 exponent bits, and the largest exponent a finite number can have is 1023. So `2.0^1023` is the last power of two, and one more doubling is `Inf`. `floatmax(Float64)` is a little below `2^1024`: the largest exponent with every one of the 52 fraction bits set. The same bits give `Float32` an exponent range up to 127.",
+                "kc": "floating-point",
+                "measured": "1023",
+                "prompt": "Start at `1.0` and double. How many doublings can you make before the next one gives `Inf`? Type a number before the output is shown.",
+                "typed": {
+                  "tolerance": 5.0,
+                  "unit": "doublings",
+                  "value": 1023.0,
+                  "within": "abs"
+                }
+              }
             }
           ],
           "questions": [],
@@ -566,7 +590,26 @@
               "output": "ERROR: InexactError: trunc(Int8, 200)\n  @ top-level scope at line 1\n"
             }
           ],
-          "questions": [],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "`2.5` is too large for an `Int64`; use `Int128(steps)`",
+                "`Int` converts whole numbers only; round explicitly, as in `round(Int, steps)`",
+                "`steps` has no declared type; write `steps::Float64 = 10 / 4` first"
+              ],
+              "code": "steps = 10 / 4\nn = Int(steps)",
+              "explain": "`InexactError: Int64(2.5)` means the conversion would lose information, and `Int(x)` is exact or it throws. Julia does not pick a rounding for you, because `floor`, `round` and `ceil` give 2, 2 and 3 here (`round` sends a tie to the even neighbour). If integer division was meant in the first place, `10 ÷ 4` is 2 with no float in between.",
+              "kind": "error",
+              "misconceptions": [
+                "An `Int64` holds numbers up to about 9.2e18. The trouble is the fraction, and `Int128(2.5)` throws the same error.",
+                "",
+                "A declaration does not change the value: `steps` is a `Float64` already, and `2.5` still has a fraction."
+              ],
+              "output": "ERROR: InexactError: Int64(2.5)\n  @ top-level scope at line 2",
+              "prompt": "A count comes out of a division as a float, and the next line turns it into an integer. Julia stops with the message below. What is wrong, and what fixes it?"
+            }
+          ],
           "refs": [],
           "title": "Converting between number types"
         },
@@ -2777,7 +2820,26 @@
               "output": "something, a real number, an integer, two things\n# 4 methods for generic function \"describe\" from Main:\n [1] describe(x, y)\n     @ main.jl:4\n [2] describe(x::Integer)\n     @ main.jl:3\n [3] describe(x::Real)\n     @ main.jl:2\n [4] describe(x)\n     @ main.jl:1\n"
             }
           ],
-          "questions": [],
+          "questions": [
+            {
+              "answer": 2,
+              "choices": [
+                "`^` is not defined for a `Float64`; write `side * side` instead",
+                "`area` has no method for a `Float64`; widen the signature to `side::Real`",
+                "`area` was defined before the call; define it again after it"
+              ],
+              "code": "area(side::Int) = side^2\narea(2.5)",
+              "explain": "The message names the call by its argument types, `area(::Float64)`, and lists the closest methods that exist: `area(!Matched::Int64)`, where `!Matched` marks the argument that did not fit. A `Float64` is not an `Int`, so no method applies, and Julia never converts an argument to fit a signature. `area(side::Real) = side^2` accepts both, since `side^2` works for any real number. Annotations on arguments are for dispatch: leave them off, or make them as wide as the code inside allows.",
+              "kind": "error",
+              "misconceptions": [
+                "`2.5^2` is `6.25`; the error is raised before the body runs, at the call: no method of `area` takes a `Float64`.",
+                "",
+                "Methods are chosen when the call runs, from the argument types. Defining the same `Int` method again replaces it and still adds none for `Float64`."
+              ],
+              "output": "ERROR: MethodError: no method matching area(::Float64)\n\nClosest candidates are:\n  area(!Matched::Int64)\n   @ Main main.jl:1\n\n  @ top-level scope at line 2",
+              "prompt": "`area` was written for integer side lengths and then called with a measured length. What does the message say, and what is the fix?"
+            }
+          ],
           "refs": [
             "bezanson-2017"
           ],
@@ -4485,7 +4547,7 @@
               "mode": "repl",
               "notice": "",
               "ok": true,
-              "output": "  0.058258 seconds (28.08 k allocations: 1.935 MiB, 98.80% compilation time)\n  0.000623 seconds (1 allocation: 16 bytes)\nbest of 20 runs: 196.1 μs\n"
+              "output": "  0.062108 seconds (28.08 k allocations: 1.935 MiB, 99.05% compilation time)\n  0.000460 seconds (1 allocation: 16 bytes)\nbest of 20 runs: 206.4 μs\n"
             },
             {
               "caption": "`@allocated` inside a function, after warming up: deterministic, so this output is checked.",
@@ -4650,6 +4712,45 @@
               "notice": "",
               "ok": true,
               "output": "24384 8144 0\n20080 0\ntrue\n"
+            },
+            {
+              "caption": "Three ways to write a sum of squares, measured by the bytes one call allocates (after a first call has compiled it).",
+              "check": true,
+              "code": "squares_broadcast(x) = sum(x .^ 2)\nsquares_comprehension(x) = sum([v^2 for v in x])\nsquares_abs2(x) = sum(abs2, x)\nbytes(f, x) = (f(x); @allocated f(x))\nx = rand(10_000)\nfor (name, f) in [(\"broadcast\", squares_broadcast), (\"comprehension\", squares_comprehension), (\"abs2\", squares_abs2)]\n    println(rpad(name, 14), \"allocated: \", bytes(f, x), \" bytes\")\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "",
+              "ok": true,
+              "output": "broadcast     allocated: 80048 bytes\ncomprehension allocated: 80048 bytes\nabs2          allocated: 0 bytes\n",
+              "race": {
+                "answer": 3,
+                "by": "bytes",
+                "choices": [
+                  "`sum(x .^ 2)`: broadcast the square, then sum",
+                  "`sum([v^2 for v in x])`: a comprehension, then sum",
+                  "`sum(abs2, x)`: apply `abs2` inside the sum"
+                ],
+                "explain": "`x .^ 2` builds a new 10 000-element vector before `sum` sees it, and so does the comprehension: about 80 kB each, 8 bytes per `Float64` plus the array's header. `sum(abs2, x)` calls `abs2` on each element as it adds, so no vector of squares ever exists.",
+                "kc": "allocations",
+                "margin": 2.0,
+                "measured": [
+                  "80048",
+                  "80048",
+                  "0"
+                ],
+                "misconceptions": [
+                  "Dots fuse with other dots in the same expression, but `sum` is not a dot call: the squared vector is built in full, then summed.",
+                  "The brackets make an array: the comprehension builds all 10 000 squares before `sum` starts.",
+                  ""
+                ],
+                "prompt": "All three return the sum of the squares of 10 000 numbers. Which one allocates the least per call?",
+                "ratios": [
+                  null,
+                  null,
+                  1.0
+                ],
+                "unit": "bytes"
+              }
             }
           ],
           "questions": [],
@@ -4685,7 +4786,7 @@
               "mode": "repl",
               "notice": "",
               "ok": true,
-              "output": "columns: 4.7 ms, rows: 16.4 ms\n"
+              "output": "columns: 6.8 ms, rows: 23.5 ms\n"
             },
             {
               "caption": "A norm recomputed inside the loop makes the function quadratic. Same result, very different time (not checked).",
@@ -4695,7 +4796,7 @@
               "mode": "repl",
               "notice": "",
               "ok": true,
-              "output": "true\nslow: 44.17 ms, fast: 0.068 ms\n"
+              "output": "true\nslow: 67.21 ms, fast: 0.065 ms\n"
             },
             {
               "caption": "First the bounds-checked version: an off-by-one index is caught as a `BoundsError`.",
@@ -4715,7 +4816,7 @@
               "mode": "repl",
               "notice": "",
               "ok": true,
-              "output": "true true\n@simd: 164.9 μs, plain: 1137.0 μs\n"
+              "output": "true true\n@simd: 172.0 μs, plain: 1171.5 μs\n"
             }
           ],
           "questions": [],
@@ -4735,7 +4836,7 @@
               "mode": "repl",
               "notice": "",
               "ok": true,
-              "output": "Any[Any]\nAny[Float64]\ntrue\nno barrier: 61.66 ms, barrier: 0.86 ms\n"
+              "output": "Any[Any]\nAny[Float64]\ntrue\nno barrier: 66.43 ms, barrier: 0.97 ms\n"
             }
           ],
           "questions": [],

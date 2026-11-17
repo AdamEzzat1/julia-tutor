@@ -113,3 +113,35 @@ export function extent(vals: number[], log: boolean): [number, number] | null {
   if (d.length === 0) return null;
   return [Math.min(...d), Math.max(...d)];
 }
+
+/**
+ * An explorer question's verdict on the point the sliders are at (the key is
+ * the grid: `q.answer`, read by `tutor site-data`, src/course.jl
+ * `explore_question_key`):
+ * - "right": the answer point;
+ * - "elsewhere": another axis is not at the value the question names;
+ * - "fails": the condition does not hold here (too far);
+ * - "short": the condition holds, but a value further along still does (too cautious).
+ */
+export type ExploreVerdict = "right" | "elsewhere" | "fails" | "short";
+
+export interface ExploreRecord {
+  /** the committed point (indices per axis); null = the answer was shown without committing */
+  point: Selection | null;
+  verdict: ExploreVerdict | "skipped";
+}
+
+export function exploreVerdict(x: Explorer, sel: Selection): ExploreVerdict {
+  const q = x.question!;
+  const ai = x.axes.findIndex((a) => a.group === q.along);
+  if (sel.some((v, k) => k !== ai && v !== q.answer[k])) return "elsewhere";
+  if (sel[ai] === q.answer[ai]) return "right";
+  return q.holdsAt[sel[ai]] ? "short" : "fails";
+}
+
+export function settleExplore(x: Explorer, sel: Selection | null): ExploreRecord {
+  return sel === null ? { point: null, verdict: "skipped" } : { point: sel.slice(), verdict: exploreVerdict(x, sel) };
+}
+
+/** The answer point as text ("method: Heun · step size h: 0.05"). */
+export const pointText = (x: Explorer, sel: Selection) => x.axes.map((a, k) => `${a.label}: ${a.texts[sel[k]]}`).join(" · ");

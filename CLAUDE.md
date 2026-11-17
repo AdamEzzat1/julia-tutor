@@ -273,6 +273,25 @@ every role above has had the chance to object (recorded in the PR).
   Julia as the holes' mutants and reused to grade the capstone (the
   learner's own tests must kill them); the capstone's reference stays
   unpublished until Phase 7's reveal-after-submission exists.
+  *Status:* projects/qsim is built (15 holes over 3 stages, 2,103 tests,
+  holemap clean: every trivial body and all 22 seeded mutants in
+  `mutants.toml` caught, each starter stage fails only at its blanks; one
+  explain fixture per hole). The Qiskit CI job (`qsim-crosscheck`) and the
+  Yao env are built (`projects/qsim/crosscheck/`: 500 random circuits, the
+  lesson circuits, QFT/QPE vs Qiskit's library, noise; per-mutant layer table
+  in projects/qsim/README.md). Units 49-52 are written and verified (states,
+  qubit order, gates and the Bloch sphere, applying gates; 12 problems; the
+  unit-52 `apply_1q!` kernel measures 0 bytes allocated). Units 53-56 are
+  written and verified (entanglement and CHSH, measurement and teleportation,
+  Deutsch-Jozsa and Bernstein-Vazirani on every function and hidden string up
+  to 5 bits, Grover against sin²((2k+1)θ); 12 more problems). Units 57-61
+  are written and verified (QFT vs the DFT matrix for n = 1..7 and an FFT
+  from scratch, phase estimation against its closed form, Kraus channels and
+  density matrices with trajectories, parameter shift and VQE reaching -√2
+  with a product-state control at -1.25, and the five layers of evidence
+  with mutation testing; 15 more problems). Not met yet: the zero-allocation
+  kernels in projects/qsim (`apply!` allocates an offset table and buffers,
+  measured in `measure_baseline.toml`) and the benchmark report.
 * **M10 Fourth project: ude (universal differential equation, SciML).**
   Requires M4 (the student's odeint) and M7 (latency). *DoD:* every package
   justified in the PR (OrdinaryDiffEq, SciMLSensitivity, one AD backend, Lux,
@@ -389,7 +408,11 @@ every role above has had the chance to object (recorded in the PR).
   its ratio. Learners are still graded on the thresholds themselves, so on
   such a machine a learner may see "slower" where the unit says "slow". The
   CI ratios of the 2026-11-14 misses were not logged, so whether 1.5 covers
-  them is unknown until the next run prints them.
+  them is unknown until the next run prints them. A claim the runner's CPU
+  contradicts outright is dropped, not widened: unit 54's `mt-apply-cz`
+  variant with two `&&` bit tests was declared `slow` (vs one mask compare)
+  and measured 1.08-1.21x the reference in all three CI measurements on
+  2026-11-16, so it now claims only `correct`.
 * The performance ladder's 2× rung is timed too: near the line a rerun can
   land on either side (the rung's text says so), and the site keeps the best
   climb, so one lucky run counts. Its allocation-free rung is offered only

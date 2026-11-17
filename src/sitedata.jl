@@ -171,8 +171,16 @@ function course_data()
                 # that `tutor course verify` would accept is exported.
                 pred = p === nothing || r === nothing ? nothing : begin
                     hold, cap = Course.measured_choices(p, r["output"])
-                    hold == [p.answer] ? Dict("kc" => p.kc, "prompt" => strip(p.prompt), "choices" => p.choices,
-                                              "answer" => p.answer, "explain" => strip(p.explain), "measured" => cap) : nothing
+                    if Course.typed(p)
+                        # a typed number: the measured value is the key, checked against the tolerance in the browser
+                        hold == [1] ? Dict("kc" => p.kc, "prompt" => strip(p.prompt), "choices" => String[], "answer" => 0,
+                                           "explain" => strip(p.explain), "measured" => cap,
+                                           "typed" => Dict("tolerance" => p.tolerance, "within" => p.within,
+                                                           "unit" => p.unit, "value" => parse(Float64, cap))) : nothing
+                    else
+                        hold == [p.answer] ? Dict("kc" => p.kc, "prompt" => strip(p.prompt), "choices" => p.choices,
+                                                  "answer" => p.answer, "explain" => strip(p.explain), "measured" => cap) : nothing
+                    end
                 end
                 ed = Dict{String,Any}("code" => rstrip(e.code), "caption" => e.caption, "notice" => e.notice, "mode" => e.mode,
                                       "check" => e.check, "output" => r === nothing ? nothing : r["output"],
@@ -205,6 +213,8 @@ function course_data()
                 end
                 x = e.explore
                 g = x === nothing || r === nothing ? nothing : Course.explorer_grid(x, r["output"])
+                xq = g === nothing || g isa String || x.question === nothing ? nothing :
+                     Course.explore_question_key(x.question, x, g)
                 if g !== nothing && !(g isa String)    # only a grid verify would accept is exported
                     ed["explore"] = Dict("kc" => x.kc, "prompt" => strip(x.prompt), "x" => x.x, "series" => x.series,
                                          "label" => x.label, "log" => x.log, "explain" => strip(x.explain),
@@ -214,12 +224,43 @@ function course_data()
                                                        for a in g.axes],
                                          # the measure as printed, row-major over the axes (last fastest)
                                          "values" => g.values)
+                    # the question the sliders answer, with its key read from the grid (only one verify accepts)
+                    if xq !== nothing && !(xq isa String)
+                        q = x.question
+                        ed["explore"]["question"] = Dict("prompt" => strip(q.prompt), "along" => q.along,
+                                                         "pick" => q.pick, "holds" => q.holds, "limit" => q.limit,
+                                                         "explain" => strip(q.explain),
+                                                         # 0-based indices into each axis's values: the answer point
+                                                         "answer" => [k == xq.along ? xq.index - 1 : xq.at[k] - 1
+                                                                      for k in eachindex(g.axes)],
+                                                         "holdsAt" => xq.holds)
+                    end
+                end
+                rc = e.race
+                if rc !== nothing && r !== nothing && isempty(Course.race_output_problems(rc, r["output"]))
+                    sc = Course.score_race(rc, r["output"])
+                    ed["race"] = Dict("kc" => rc.kc, "prompt" => strip(rc.prompt), "choices" => rc.choices,
+                                      "by" => rc.by, "unit" => rc.unit, "margin" => rc.margin, "answer" => rc.answer,
+                                      "explain" => strip(rc.explain), "misconceptions" => rc.misconceptions,
+                                      # the measured table, as printed, and each choice against the winner
+                                      "measured" => sc.texts,
+                                      "ratios" => [isfinite(x) ? round(x; sigdigits = 3) : nothing for x in sc.ratios])
                 end
                 push!(examples, ed)
             end
-            questions = Any[Dict("kind" => q.kind, "prompt" => strip(q.prompt), "code" => rstrip(q.code),
-                                 "choices" => q.choices, "answer" => q.answer, "explain" => strip(q.explain),
-                                 "misconceptions" => q.misconceptions) for q in s.questions]
+            questions = Any[]
+            for q in s.questions
+                qd = Dict{String,Any}("kind" => q.kind, "prompt" => strip(q.prompt), "code" => rstrip(q.code),
+                                      "choices" => q.choices, "answer" => q.answer, "explain" => strip(q.explain),
+                                      "misconceptions" => q.misconceptions)
+                if q.kind == "error"
+                    # the message is shown, so it is exported (null when not recorded or not one verify
+                    # accepts: the site then leaves the question out, and question numbers stay put)
+                    r = get(exs, Course.example_key(q.code, "repl"), nothing)
+                    qd["output"] = r === nothing || !Course.shows_message(q, r["output"]) ? nothing : rstrip(r["output"])
+                end
+                push!(questions, qd)
+            end
             push!(sections, Dict("title" => s.title, "body" => strip(s.body), "examples" => examples,
                                  "questions" => questions,
                                  "analogies" => Any[Dict("title" => a.title, "text" => strip(a.text), "breaks" => strip(a.breaks))

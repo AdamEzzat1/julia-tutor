@@ -2,15 +2,652 @@ id = "50-qubit-order"
 title = "Which bit is which qubit"
 track = "quantum"
 env = "base"
-status = "planned"
-summary = "Little-endian qubit order, as in Qiskit: qubit 0 is the least significant bit and the rightmost character of a bitstring. The source of most simulator bugs."
+status = "ready"
+summary = "Little-endian qubit order, as in Qiskit: qubit q is bit q of the outcome's index, so qubit 0 is the least significant bit and the rightmost character of a bitstring. Why `kron` lists qubits from the highest down, why Julia's column-major `reshape` makes dimension 1 qubit 0, and how to translate to the textbook order that most papers use."
 kcs = ["qubit-ordering"]
 prerequisites = ["49-quantum-states"]
-outline = [
-  "The question: which index holds the amplitude of |10>, and which qubit is 1?",
-  "Bit q of the basis index is qubit q; the rightmost character is qubit 0",
-  "Diagram: the bit layout of a 3-qubit index, and kron(op_{n-1}, ..., op_0)",
-  "Why this order fits Julia's column-major arrays (reshape gives dimension 1 = qubit 0)",
-  "Textbooks (Nielsen and Chuang) use the opposite order: translating between them",
-  "Check: bitstrings and indices agree with Qiskit's on every basis state of 3 qubits",
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+Unit 49 stored an `n`-qubit state as a `Vector{ComplexF64}` of `2^n`
+amplitudes, the amplitude of outcome `k` at `ψ[k + 1]`. It left one thing
+open: an outcome `k` is a setting of *all* the qubits, so which qubit has
+which value in outcome `k`? This unit answers that, and needs only Julia's
+integer bit operations:
+
+* `k >> q` shifts `k` right by `q` bits, so `(k >> q) & 1` is bit `q` of `k`
+  (bit 0 is the least significant, worth 1; bit 1 is worth 2; and so on);
+* `1 << q` is `2^q`, an integer with only bit `q` set, and `k ⊻ (1 << q)`
+  (`xor`, typed `\xor` then Tab) flips bit `q`;
+* `parse(Int, "110"; base = 2)` reads a binary string, here 6.
+
+A **bitstring** is the way an outcome is printed: one character `0` or `1`
+per qubit.
+'''
+
+  [[section.example]]
+  caption = "Bits of the integer 6, binary 110, read with shifts and masks."
+  code = '''
+k = 6
+println("bits of 6: bit 0 = ", (k >> 0) & 1, ", bit 1 = ", (k >> 1) & 1, ", bit 2 = ", (k >> 2) & 1)
+println("6 with bit 0 flipped: ", k ⊻ (1 << 0), ";  parse(Int, \"110\"; base = 2) = ", parse(Int, "110"; base = 2))
+'''
+
+[[section]]
+title = "The question: which index holds |10⟩, and which qubit is 1?"
+body = '''
+A two-qubit outcome printed `10` has one qubit at 1 and one at 0. Which
+one? Nothing in the mathematics decides it: it is a **convention**, and
+simulators, textbooks and hardware vendors chose differently. Mixing two
+conventions does not raise an error. It silently puts gates on the wrong
+qubits, and the result is a valid state, just the wrong one, which is why
+qubit order causes more simulator bugs than any other single thing.
+
+This course uses Qiskit's convention, **little-endian** order:
+
+* **qubit `q` is bit `q` of `k`**, so qubit 0 is the least significant bit:
+  `k = Σ_q b_q 2^q` where `b_q` is the value of qubit `q`;
+* a bitstring is written like a binary number, **most significant bit
+  first**, so qubit 0 is the *rightmost* character: `|q₂ q₁ q₀⟩`.
+
+So `|10⟩` means qubit 1 is 1 and qubit 0 is 0; `k = 2`, and its amplitude
+is `ψ[3]`. IBM's documentation states the same rule: bit 0 is the least
+significant bit and the rightmost character of a string
+([Bit-ordering in the Qiskit SDK](https://quantum.cloud.ibm.com/docs/en/guides/bit-ordering)).
+'''
+
+  [[section.diagram]]
+  file = "bit-layout.svg"
+  alt = "The 3-qubit outcome 6 drawn three ways: as the bitstring 110 with its characters labelled qubit 2, qubit 1 and qubit 0 from left to right, as the binary weights 4, 2 and 1 under them, so 6 = 4 + 2, and as the Julia index 7 that holds its amplitude."
+  caption = "Qubit q carries the weight 2^q, and the rightmost character is qubit 0. The amplitude of outcome 6 is at ψ[7]."
+
+  [[section.analogy]]
+  title = "Reading a car's odometer"
+  text = '''
+Read a bitstring like an odometer: the rightmost wheel turns fastest and
+counts the smallest unit, and each wheel to the left is worth a power more.
+In a little-endian bitstring the rightmost wheel is qubit 0, worth 1, the
+next is qubit 1, worth 2, and so on. Counting the outcomes `k = 0, 1, 2, …`
+turns qubit 0 at every step, exactly as the last wheel of an odometer turns
+at every unit.
+'''
+  breaks = '''
+An odometer shows a single reading. A quantum state has an amplitude on
+every reading at once, so "the value of qubit 0" is not one digit but a
+probability spread over all outcomes (the last section computes it). And
+the order is a convention: an odometer cannot be read from the other end,
+but a textbook bitstring is exactly that, as section 5 shows.
+'''
+
+  [[section.example]]
+  caption = "All eight outcomes of three qubits: the bitstring and the value of each qubit, from the bits of `k`."
+  notice = "Notice that qubit 0 alternates at every step, qubit 1 every two steps and qubit 2 every four, and that the bitstring's rightmost character is always qubit 0."
+  code = '''
+bit(k, q) = (k >> q) & 1
+bitstring_of(k, n) = join(bit(k, q) for q in n-1:-1:0)     # qubit n-1 first
+println(" k  bitstring  qubit 2  qubit 1  qubit 0")
+for k in 0:7
+    println(lpad(k, 2), "  ", bitstring_of(k, 3), "        ", bit(k, 2), "        ", bit(k, 1), "        ", bit(k, 0))
+end
+'''
+
+  [[section.example]]
+  caption = "The outcome `|10⟩` of two qubits as an integer and a Julia index."
+  code = '''
+k = parse(Int, "10"; base = 2)       # qubit 1 = 1, qubit 0 = 0
+println("k = ", k, ", Julia index ", k + 1)
+'''
+
+    [section.example.predict]
+    kc = "qubit-ordering"
+    prompt = "Two qubits, little-endian. Before the output is shown: which Julia index holds the amplitude of `|10⟩`?"
+    choices = ["ψ[2]", "ψ[3]", "ψ[4]"]
+    measure = 'Julia index (\d+)'
+    values = ["2", "3", "4"]
+    answer = 2
+    explain = "`|10⟩` is binary 10, so `k = 2` (qubit 1 is set, worth 2), stored at index `k + 1 = 3`. `ψ[2]` holds `|01⟩`, where qubit 0 is set: that is what you get by reading the leftmost character as qubit 0. `ψ[4]` holds `|11⟩`."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "On three qubits, only qubit 2 is 1. Which outcome `k` is that, and how is it printed?"
+  choices = [
+    "k = 2, printed `010`",
+    "k = 4, printed `001`",
+    "k = 4, printed `100`",
+    "k = 1, printed `100`",
+  ]
+  answer = 3
+  explain = "Qubit 2 is bit 2, worth `2^2 = 4`, and bitstrings print the most significant qubit first, so `100`. Little-endian order is about which *bit* a qubit is; the string is still written like an ordinary binary number."
+  misconceptions = [
+    "That takes the qubit number as the value. Qubit 2 is worth `2^2 = 4`, and `010` has qubit 1 set.",
+    "The value is right, but the string is printed most significant bit first: qubit 0 is the rightmost character, so qubit 2 is the leftmost.",
+    "",
+    "That reads the leftmost character as qubit 0 and gives it weight 1: the textbook order of section 5, not this course's.",
+  ]
+
+[[section]]
+title = "Operators: `kron` lists the qubits from the highest down"
+body = '''
+A gate `U` on one qubit of `n` acts as a `2^n × 2^n` matrix on the whole
+state: `U` on its qubit and the identity `I` on all the others. Textbooks
+build it with the Kronecker product `⊗` (`kron` in Julia), and the order of
+the factors is the order of the bits: `kron(A, B)` makes `A`'s index the
+*more* significant one. In little-endian order the most significant qubit is
+`n - 1`, so
+
+```
+operator on n qubits = kron(op_{n-1}, ..., op_1, op_0)
+```
+
+and `U` on qubit `q` sits in slot `n - 1 - q` counting from the left. For
+two qubits, `X` on qubit 0 is `kron(I, X)`, and `X` on qubit 1 is
+`kron(X, I)`. Writing `kron(X, I)` for "X on qubit 0" is the most common
+qubit-order bug.
+
+Unit 52 shows how to apply a gate without forming this matrix at all; the
+`kron` construction stays as the textbook reference to test against.
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.example]]
+  caption = "`X` (the bit flip, `X|0⟩ = |1⟩`) placed with `kron` in each of the two slots, applied to `|00⟩`."
+  notice = "Notice that the factor on the *right* acts on qubit 0: `kron(I2, X)` flips the rightmost character."
+  code = '''
+I2 = ComplexF64[1 0; 0 1]
+X  = ComplexF64[0 1; 1 0]
+bitstring_of(k, n) = join(((k >> q) & 1 for q in n-1:-1:0))
+ψ00 = ComplexF64[1, 0, 0, 0]
+for (name, O) in (("kron(I2, X)", kron(I2, X)), ("kron(X, I2)", kron(X, I2)))
+    k = findfirst(!iszero, O * ψ00) - 1
+    println(name, " * |00⟩ = |", bitstring_of(k, 2), "⟩")
+end
+'''
+
+    [section.example.predict]
+    kc = "qubit-ordering"
+    prompt = "Before the output is shown: `kron(X, I2) * |00⟩` is which state?"
+    choices = ["|01⟩: qubit 0 flipped", "|10⟩: qubit 1 flipped"]
+    measure = 'kron\(X, I2\) \* \|00⟩ = \|(\d+)⟩'
+    values = ["01", "10"]
+    answer = 2
+    explain = "In `kron(A, B)` the left factor acts on the more significant bit, and in little-endian order that is the higher qubit. So `X` on the left flips qubit 1, giving `|10⟩` (outcome 2), and `kron(I2, X)` flips qubit 0."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Three qubits. Which `kron` product applies `H` to qubit 0 and leaves qubits 1 and 2 alone?"
+  choices = [
+    "`kron(H, I2, I2)`",
+    "`kron(I2, H, I2)`",
+    "`kron(I2, I2, H)`",
+  ]
+  answer = 3
+  explain = "The factors run from qubit `n - 1` on the left to qubit 0 on the right, so qubit 0's factor comes last."
+  misconceptions = [
+    "That puts `H` on the most significant qubit, qubit 2: the first factor of `kron` is the high bit.",
+    "The middle slot is qubit 1 on three qubits.",
+    "",
+  ]
+
+[[section]]
+title = "Why this order fits Julia's column-major arrays"
+body = '''
+Julia stores a multidimensional array **column-major**: the first index
+varies fastest in memory
+([Performance tips: access arrays in memory order](https://docs.julialang.org/en/v1.10/manual/performance-tips/#man-performance-column-major)).
+So `reshape(ψ, 2, 2, ..., 2)` turns the state into an `n`-dimensional
+`2 × 2 × … × 2` array whose **first** index changes at every step through
+`ψ`, exactly like qubit 0. In general
+
+```
+A = reshape(ψ, ntuple(_ -> 2, n))      # A[b₀+1, b₁+1, …, b_{n-1}+1] = ψ[k+1]
+```
+
+**dimension `d` is qubit `d - 1`**. Little-endian order and column-major
+storage agree, so an operation on one qubit becomes an operation along one
+array dimension. For example, the probability that qubit 0 is 1
+sums `|A|²` over the slice `A[2, :, …, :]`. The partial trace in the `qsim`
+project uses this.
+
+In C and NumPy, arrays are row-major (the *last* index fastest), so the same
+`reshape` there gives the opposite correspondence; a simulator written in
+those languages with little-endian qubits has to reverse the dimensions.
+'''
+
+  [[section.example]]
+  caption = "The outcome `|110⟩` reshaped to a 2×2×2 array, and the probability that qubit 0 is 1 computed two ways for a state with amplitudes on all outcomes."
+  notice = "Notice that `findfirst` reports `(1, 2, 2)`: dimension 1 holds `b₀ + 1 = 1` (qubit 0 is 0) and dimensions 2 and 3 hold 2 (qubits 1 and 2 are 1), the bitstring `110` read right to left."
+  code = '''
+using LinearAlgebra
+ψ = zeros(ComplexF64, 8); ψ[0b110 + 1] = 1
+println(findfirst(!iszero, reshape(ψ, 2, 2, 2)))
+φ = normalize(ComplexF64[1, 2, 3, 4, 5, 6, 7, 8])
+P = abs2.(reshape(φ, 2, 2, 2))
+by_slice = sum(P[2, :, :])                                         # dimension 1 = qubit 0
+by_bits  = sum(abs2(φ[k + 1]) for k in 0:7 if (k >> 0) & 1 == 1)
+println("P(qubit 0 = 1): slice ", round(by_slice; digits = 6), ", bits ", round(by_bits; digits = 6),
+        ", exact 120/204 = ", round(120 / 204; digits = 6))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`A = reshape(ψ, 2, 2, 2, 2)` for a 4-qubit state. Which slice holds the amplitudes where qubit 3 is 0?"
+  choices = [
+    "`A[1, :, :, :]`",
+    "`A[:, :, :, 1]`",
+    "`A[:, :, :, 2]`",
+  ]
+  answer = 2
+  explain = "Dimension `d` is qubit `d - 1`, so qubit 3 is the fourth dimension, and the value 0 is index 1 along it."
+  misconceptions = [
+    "The first dimension is qubit 0 (column-major: it varies fastest), and index 1 there means qubit 0 is 0.",
+    "",
+    "Right dimension, but index 2 along it is the value 1: indices are values plus one.",
+  ]
+
+[[section]]
+title = "Textbooks use the opposite order: translating between them"
+body = '''
+Most textbooks and papers, Nielsen and Chuang among them, write a state
+`|x₁ x₂ … x_n⟩` with the **first** qubit as the **leftmost**, most
+significant character: **big-endian** order. Their CNOT with the first qubit
+as control and the second as target (a gate that flips the target when the
+control is 1) has the matrix
+
+```
+1 0 0 0
+0 1 0 0
+0 0 0 1
+0 0 1 0
+```
+
+In this course's order, CNOT with control qubit 0 and target qubit 1 is a
+different matrix, because "control is 1" now means "the least significant
+bit is 1", outcomes 1 and 3. The two are the same gate written in two
+conventions, and a permutation translates between them: reverse the order
+of the bits of every outcome. For a state, the amplitude at outcome `k`
+moves to outcome `reverse_bits(k)`; for an operator `O`, use `R O Rᵀ` with
+the permutation matrix `R`.
+
+When you take a circuit from a paper: number its qubits from the right, or
+reverse each bitstring, before comparing results. Other simulators vary too.
+Qiskit is little-endian like this course. Yao.jl, the second cross-check of
+this course's `qsim` project, is little-endian but numbers qubits from 1, so
+the cross-check maps qubit `q` to Yao's `q + 1`.
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.diagram]]
+  file = "textbook-order.svg"
+  alt = "The same three-qubit state, qubit 0 set and qubits 1 and 2 clear, written in two conventions: little-endian, as in Qiskit and this course, prints 001 and is outcome 1; textbook big-endian order prints 100 and calls it outcome 4. An arrow labelled reverse the bits connects them."
+  caption = "One physical state, two names. Reversing the bits of each outcome translates between the conventions."
+
+  [[section.example]]
+  caption = "The bit-reversal permutation on two qubits, applied to this course's CNOT (control 0, target 1); and where each 3-qubit outcome goes."
+  notice = "Notice that `R CX Rᵀ` gives exactly the textbook matrix, and that the palindromes `000`, `010`, `101`, `111` (outcomes 0, 2, 5, 7) keep their numbers."
+  code = '''
+bit(k, q) = (k >> q) & 1
+reverse_bits(k, n) = foldl((acc, q) -> (acc << 1) | bit(k, q), 0:n-1; init = 0)
+CX_course   = [1 0 0 0; 0 0 0 1; 0 0 1 0; 0 1 0 0]   # control qubit 0, target qubit 1
+CX_textbook = [1 0 0 0; 0 1 0 0; 0 0 0 1; 0 0 1 0]   # control first, target second (big-endian)
+R = zeros(Int, 4, 4)
+for k in 0:3
+    R[reverse_bits(k, 2) + 1, k + 1] = 1
+end
+println("R * CX_course * R' == CX_textbook: ", R * CX_course * R' == CX_textbook)
+println("3 qubits, outcome k -> reverse_bits(k): ", [k => reverse_bits(k, 3) for k in 0:7])
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A paper reports that a 3-qubit circuit ends in `|100⟩`, with its first qubit as the leftmost character. What does this course's simulator print for the same circuit?"
+  choices = [
+    "`100`, since a bitstring is the same in every convention",
+    "`001`: the paper's first qubit is qubit 0, printed rightmost here",
+    "`010`: only the middle qubit keeps its place",
+  ]
+  answer = 2
+  explain = "The paper's leftmost character is its first qubit, which this course calls qubit 0 and prints rightmost. Reversing the string translates it: `100` becomes `001`, outcome 1 here and outcome 4 in the paper."
+  misconceptions = [
+    "The physical state is the same, but its printed name depends on the convention. Comparing strings without translating is exactly the silent bug of section 2.",
+    "",
+    "The middle character stays in the middle for three qubits, but the outer two swap: `100` becomes `001`.",
+  ]
+
+[[section]]
+title = "Check: bitstrings and indices agree with Qiskit's rule on every basis state"
+body = '''
+A convention needs a test like any other code. The rule to check is Qiskit's
+definition: the bitstring of outcome `k` is `k` in binary with bit `n - 1`
+first, so reading the string back as a binary number gives `k`, and the
+character at position `n - q` (counting from 1 on the left) is the value of
+qubit `q`. The check below runs over all `2^n` outcomes, which is cheap for
+small `n` and leaves no case untested.
+
+That checks this course's functions against the rule as Qiskit's
+documentation states it. That Qiskit itself follows the rule in every gate
+is checked elsewhere: the `qsim` project's cross-check job runs 500 random
+circuits in Qiskit and in the simulator you build and compares every
+amplitude (`projects/qsim/README.md`).
+'''
+
+  [[section.example]]
+  caption = "For every outcome of 1 to 5 qubits: the bitstring read back in base 2 is `k`, and character `n - q` is qubit `q`."
+  code = '''
+bit(k, q) = (k >> q) & 1
+bitstring_of(k, n) = join(bit(k, q) for q in n-1:-1:0)
+checks = 0
+ok = true
+for n in 1:5, k in 0:2^n-1
+    s = bitstring_of(k, n)
+    global ok &= parse(Int, s; base = 2) == k
+    for q in 0:n-1
+        global ok &= s[n - q] == (bit(k, q) == 1 ? '1' : '0')
+    end
+    global checks += 1
+end
+println(checks, " outcomes checked, all agree with the rule: ", ok)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does the check run over every outcome instead of a few examples such as `k = 6`?"
+  choices = [
+    "Some order bugs agree with the rule on palindromes like `101`",
+    "Julia's `parse` is unreliable for short strings",
+    "Testing a few examples is never good practice",
+  ]
+  answer = 1
+  explain = "A function that reverses the qubit order still gives the right string for every palindrome (`0`, `11`, `101`, `0110`, ...), and `k = 6`, `110`, is caught only by luck. An exhaustive check over all `2^n` outcomes of small `n` costs a few hundred comparisons and catches every such bug."
+  misconceptions = [
+    "",
+    "`parse` is exact for any valid binary string; the reason is the bug the test must catch.",
+    "Well-chosen examples are useful (they document the rule), but a few hand-picked cases can miss a whole class of bugs; when every case is cheap, test them all.",
+  ]
+
+[[problem]]
+id = "qo-bitstring"
+title = "The bitstring of an outcome"
+difficulty = "warm-up"
+kcs = ["qubit-ordering"]
+entry = "bitstring_of"
+packages = []
+prompt = '''
+Write `bitstring_of(k, n)` that returns the `n`-character bitstring of
+outcome `k` in this course's (Qiskit's) order: qubit `n - 1` first, qubit 0
+the rightmost character.
+
+```julia
+bitstring_of(6, 3)     # "110"
+bitstring_of(1, 4)     # "0001"
+bitstring_of(0, 2)     # "00"
+```
+
+Results are compared exactly and must be a `String`.
+'''
+starter = '''
+function bitstring_of(k, n)
+    # your code here
+end
+'''
+reference = '''
+function bitstring_of(k, n)
+    return join(((k >> q) & 1 for q in n-1:-1:0))     # most significant qubit first
+end
+'''
+cases = ["6, 3", "1, 4", "0, 2", "5, 3", "8, 4", "1, 1"]
+gen = "rng -> [(n = rand(rng, 1:12); (rand(rng, 0:2^n-1), n)) for _ in 1:20]"
+compare = "isequal"
+check_type = true
+hints = [
+  "Qubit `q` is bit `q` of `k`. Which qubit's character comes first in the string?",
+  "`(k >> q) & 1` is qubit `q`'s value; loop `q` from `n - 1` down to `0`. Julia's `string(k; base = 2, pad = n)` also writes binary.",
 ]
+
+  [problem.perf]
+  args = "rand(rng, 0:2^20-1), 20"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "qubit 0 first (textbook order)"
+  code = '''
+bitstring_of(k, n) = join(((k >> q) & 1 for q in 0:n-1))
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Base.bitstring, all 64 bits"
+  code = '''
+bitstring_of(k, n) = bitstring(k)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "string with base and pad"
+  code = '''
+bitstring_of(k, n) = string(k; base = 2, pad = n)
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "qo-qubit-probability"
+title = "The probability that one qubit is 1"
+difficulty = "core"
+kcs = ["qubit-ordering"]
+entry = "qubit_probability"
+packages = []
+prompt = '''
+Write `qubit_probability(ψ, q)` that returns the probability (a `Float64`)
+that measuring qubit `q` of the state `ψ` gives 1. By the Born rule, that is
+the sum of `|ψ_k|²` over every outcome `k` in which qubit `q` is 1.
+
+```julia
+ψ = ComplexF64[0, 0.6, 0.8, 0]       # 0.6|01⟩ + 0.8|10⟩
+qubit_probability(ψ, 0)              # 0.36: only |01⟩ has qubit 0 set
+qubit_probability(ψ, 1)              # 0.6400000000000001: only |10⟩ has qubit 1 set
+```
+
+Results are compared with `rtol = 1e-10` (sums of up to `2^16` terms in a
+different order than the reference differ by at most about
+`2 · 2^15 · u ≈ 7e-12` relative; see unit 49's last section). Speed and
+allocations are graded against the reference, which reads the vector once
+and allocates nothing.
+'''
+starter = '''
+function qubit_probability(ψ, q)
+    # your code here
+end
+'''
+reference = '''
+function qubit_probability(ψ, q)
+    p = 0.0
+    for i in eachindex(ψ)
+        k = i - 1                      # index i holds outcome i - 1
+        if (k >> q) & 1 == 1
+            p += abs2(ψ[i])
+        end
+    end
+    return p
+end
+'''
+cases = [
+  "ComplexF64[0, 0.6, 0.8, 0], 0",
+  "ComplexF64[0, 0.6, 0.8, 0], 1",
+  "ComplexF64[1, 0], 0",
+  "ComplexF64[0, 0, 0, 0, 0.6, 0, 0, 0.8im], 2",
+  "ComplexF64[0, 0, 0, 0, 0.6, 0, 0, 0.8im], 0",
+]
+gen = "rng -> [(n = rand(rng, 1:8); v = randn(rng, ComplexF64, 2^n); (v ./ sqrt(sum(abs2, v)), rand(rng, 0:n-1))) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+check_type = true
+hints = [
+  "Which outcomes have qubit `q` equal to 1? Their probabilities add up.",
+  "Loop over the indices; index `i` is outcome `k = i - 1`, and `(k >> q) & 1` is qubit `q`'s value in it.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, n); v ./ sqrt(sum(abs2, v))), 7"
+  sizes = [65536]
+
+  [[problem.variant]]
+  label = "textbook order: bit n - 1 - q"
+  code = '''
+function qubit_probability(ψ, q)
+    n = trailing_zeros(length(ψ))
+    return sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if (k >> (n - 1 - q)) & 1 == 1; init = 0.0)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "tests the bit of the index i instead of the outcome i - 1"
+  code = '''
+function qubit_probability(ψ, q)
+    p = 0.0
+    for i in eachindex(ψ)
+        if (i >> q) & 1 == 1
+            p += abs2(ψ[i])
+        end
+    end
+    return p
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "builds the list of matching outcomes first"
+  code = '''
+function qubit_probability(ψ, q)
+    ks = [k for k in 0:length(ψ)-1 if (k >> q) & 1 == 1]
+    return sum(abs2.(ψ[ks .+ 1]))
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "a generator over the outcomes"
+  code = '''
+qubit_probability(ψ, q) = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if (k >> q) & 1 == 1; init = 0.0)
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "qo-flip-qubit"
+title = "Flip one qubit in place"
+difficulty = "core"
+kcs = ["qubit-ordering"]
+entry = "flip_qubit!"
+packages = []
+prompt = '''
+Write `flip_qubit!(ψ, q)` that applies the bit flip `X` to qubit `q` of the
+state `ψ` **in place** and returns `ψ`. `X` swaps the amplitudes of each pair
+of outcomes that differ only in qubit `q`: outcome `k` and `k ⊻ (1 << q)`.
+Do not build the `2^n × 2^n` matrix.
+
+```julia
+flip_qubit!(ComplexF64[1, 0, 0, 0], 0)       # |00⟩ → |01⟩ = ComplexF64[0, 1, 0, 0]
+flip_qubit!(ComplexF64[1, 0, 0, 0], 1)       # |00⟩ → |10⟩ = ComplexF64[0, 0, 1, 0]
+```
+
+Results are compared exactly: a swap moves amplitudes without arithmetic.
+Speed and allocations are graded against the reference, which allocates
+nothing.
+'''
+starter = '''
+function flip_qubit!(ψ, q)
+    # your code here
+end
+'''
+reference = '''
+function flip_qubit!(ψ, q)
+    m = 1 << q
+    for k in 0:length(ψ)-1
+        if k & m == 0                  # visit each pair once, from its member with qubit q = 0
+            j = k | m
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+'''
+cases = [
+  "ComplexF64[1, 0, 0, 0], 0",
+  "ComplexF64[1, 0, 0, 0], 1",
+  "ComplexF64[0.6, 0.8im], 0",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 2",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], 0",
+]
+gen = "rng -> [(n = rand(rng, 1:8); (randn(rng, ComplexF64, 2^n), rand(rng, 0:n-1))) for _ in 1:20]"
+compare = "isequal"
+check_type = true
+hints = [
+  "`X` on qubit `q` exchanges the amplitudes of two outcomes that differ only in bit `q`. If you swap every such pair twice, what happens?",
+  "Loop over the outcomes `k` whose bit `q` is 0 (`k & (1 << q) == 0`) and swap `ψ[k + 1]` with `ψ[(k | (1 << q)) + 1]`.",
+]
+
+  [problem.perf]
+  args = "randn(rng, ComplexF64, n), 7"
+  sizes = [65536]
+  mutates = true
+
+  [[problem.variant]]
+  label = "swaps every pair twice (from both of its members)"
+  code = '''
+function flip_qubit!(ψ, q)
+    for k in 0:length(ψ)-1
+        j = k ⊻ (1 << q)
+        ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "textbook order: flips bit n - 1 - q"
+  code = '''
+function flip_qubit!(ψ, q)
+    n = trailing_zeros(length(ψ))
+    m = 1 << (n - 1 - q)
+    for k in 0:length(ψ)-1
+        if k & m == 0
+            ψ[k + 1], ψ[(k | m) + 1] = ψ[(k | m) + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "copies through a permuted index vector"
+  code = '''
+function flip_qubit!(ψ, q)
+    ψ .= ψ[(0:length(ψ)-1) .⊻ (1 << q) .+ 1]
+    return ψ
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "loops over pairs as blocks of 2^q"
+  code = '''
+function flip_qubit!(ψ, q)
+    s = 1 << q
+    for base in 0:2s:length(ψ)-1, j in base:base+s-1
+        ψ[j + 1], ψ[j + s + 1] = ψ[j + s + 1], ψ[j + 1]
+    end
+    return ψ
+end
+'''
+  expect = ["correct"]
+
+[[reference]]
+id = "nielsen-chuang-2010"
+authors = "Nielsen, M. A.; Chuang, I. L."
+title = "Quantum Computation and Quantum Information"
+venue = "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)"
+year = 2012
+url = "https://doi.org/10.1017/CBO9780511976667"
+note = "The textbook convention of section 5: multi-qubit states written with the first qubit leftmost, and the CNOT matrix with the first qubit as control (section 1.3.2); the tensor product of operators used in section 3 (section 2.1.7)."

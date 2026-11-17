@@ -57,6 +57,27 @@ println(describe("hi"), ", ", describe(2.5), ", ", describe(3), ", ", describe(1
 methods(describe)
 '''
 
+  [[section.question]]
+  kind = "error"
+  prompt = "`area` was written for integer side lengths and then called with a measured length. What does the message say, and what is the fix?"
+  code = '''
+area(side::Int) = side^2
+area(2.5)
+'''
+  shows = "MethodError: no method matching area(::Float64)"
+  choices = [
+    "`^` is not defined for a `Float64`; write `side * side` instead",
+    "`area` has no method for a `Float64`; widen the signature to `side::Real`",
+    "`area` was defined before the call; define it again after it",
+  ]
+  answer = 2
+  explain = "The message names the call by its argument types, `area(::Float64)`, and lists the closest methods that exist: `area(!Matched::Int64)`, where `!Matched` marks the argument that did not fit. A `Float64` is not an `Int`, so no method applies, and Julia never converts an argument to fit a signature. `area(side::Real) = side^2` accepts both, since `side^2` works for any real number. Annotations on arguments are for dispatch: leave them off, or make them as wide as the code inside allows."
+  misconceptions = [
+    "`2.5^2` is `6.25`; the error is raised before the body runs, at the call: no method of `area` takes a `Float64`.",
+    "",
+    "Methods are chosen when the call runs, from the argument types. Defining the same `Int` method again replaces it and still adds none for `Float64`.",
+  ]
+
 [[section]]
 title = "Specificity on all arguments"
 body = '''

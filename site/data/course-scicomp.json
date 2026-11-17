@@ -414,6 +414,33 @@
                 "label": "relative error of the sum",
                 "log": true,
                 "prompt": "Move `n` up with the plain loop and watch the error against `u = 1.1e-16`. Then switch to pairwise and to Kahan at the largest `n`. Which grows like `n`, which barely grows, and which does not grow at all?",
+                "question": {
+                  "along": "n",
+                  "answer": [
+                    0,
+                    8
+                  ],
+                  "explain": "The loop first passes `1e-12` at `n = 100000` (`1.9e-12`), below the bound `n u` (`1.1e-11` there) as at every `n`; `n = 3000` reads lower than `n = 1000` because individual rounding errors can cancel, and `n u` is the worst case. Switch to pairwise at `n = 100000`: `5.6e-17`, the stored `0.1`'s own error. The terms are the same, only the order of the additions changed.",
+                  "holds": "above",
+                  "holdsAt": [
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    true,
+                    true,
+                    true,
+                    true,
+                    true
+                  ],
+                  "limit": 1.0e-12,
+                  "pick": "smallest",
+                  "prompt": "Set the summation to the plain loop and move `n` up. Find the smallest `n` at which the relative error passes `1e-12`, about ten thousand `u`, and commit that point."
+                },
                 "series": "method",
                 "values": [
                   "1.7e-16",
@@ -1241,6 +1268,26 @@
                 "label": "error at t = 2",
                 "log": true,
                 "prompt": "Pick a method and move `h`. Each step halves `h`: by what factor does each method's error shrink? Read the slope shown with each point, and find the step sizes where RK4's slope is furthest from 4.",
+                "question": {
+                  "along": "h",
+                  "answer": [
+                    1,
+                    2
+                  ],
+                  "explain": "Heun meets `1e-4` up to `h = 0.05` (`9.6e-5`); at `h = 0.1` it is `3.7e-4`. Now switch to RK4: it meets the same tolerance at every step on the grid, up to `h = 0.4` (`2.0e-5`). To reach `t = 2`, Heun at `h = 0.05` takes 40 steps of 2 evaluations, 80 in all; RK4 at `h = 0.4` takes 5 steps of 4, 20 in all. The higher order buys a larger step, and the larger step is what makes it cheaper.",
+                  "holds": "below",
+                  "holdsAt": [
+                    true,
+                    true,
+                    true,
+                    false,
+                    false,
+                    false
+                  ],
+                  "limit": 0.0001,
+                  "pick": "largest",
+                  "prompt": "You need the error at `t = 2` below `1e-4`. Set the method to Heun and find the largest step `h` that meets it, then commit that point."
+                },
                 "series": "method",
                 "values": [
                   "0.00082",
@@ -3189,6 +3236,31 @@
                 "label": "max |u| after 100 steps (it starts at 1)",
                 "log": true,
                 "prompt": "With forward Euler, move `r = dt / dx^2` up from 0.3 and find where `max |u|` jumps. Then change the grid: does the jump move? Switch to backward Euler at the same `r`.",
+                "question": {
+                  "along": "r",
+                  "answer": [
+                    0,
+                    1,
+                    4
+                  ],
+                  "explain": "On 39 points forward Euler stays below 1.5 up to `r = 0.5` (`0.908`), and at `r = 0.52` it is already `3.6`: the zig-zag mode's factor `1 - 4r sin^2(...)` has left `[-1, 1]`. Move `n` to 19 or 79 at `r = 0.52`: it grows on every grid, because the limit is on `r`, not on `dt`. Then switch to backward Euler at `r = 1.0`: below 1 on every grid.",
+                  "holds": "below",
+                  "holdsAt": [
+                    true,
+                    true,
+                    true,
+                    true,
+                    true,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false
+                  ],
+                  "limit": 1.5,
+                  "pick": "largest",
+                  "prompt": "Set forward Euler on 39 interior points. Find the largest `r` at which `max |u|` after 100 steps stays below 1.5 (it starts at 1), and commit that point."
+                },
                 "series": "scheme",
                 "values": [
                   "0.605",
