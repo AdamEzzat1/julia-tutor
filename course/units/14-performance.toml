@@ -332,6 +332,38 @@ println(measure(*, A, B), " ", measure(mul!, C, A, B))
 C ≈ A * B
 '''
 
+  [[section.example]]
+  caption = "Three ways to write a sum of squares, measured by the bytes one call allocates (after a first call has compiled it)."
+  code = '''
+squares_broadcast(x) = sum(x .^ 2)
+squares_comprehension(x) = sum([v^2 for v in x])
+squares_abs2(x) = sum(abs2, x)
+bytes(f, x) = (f(x); @allocated f(x))
+x = rand(10_000)
+for (name, f) in [("broadcast", squares_broadcast), ("comprehension", squares_comprehension), ("abs2", squares_abs2)]
+    println(rpad(name, 14), "allocated: ", bytes(f, x), " bytes")
+end
+'''
+
+    [section.example.race]
+    kc = "allocations"
+    prompt = "All three return the sum of the squares of 10 000 numbers. Which one allocates the least per call?"
+    choices = [
+      "`sum(x .^ 2)`: broadcast the square, then sum",
+      "`sum([v^2 for v in x])`: a comprehension, then sum",
+      "`sum(abs2, x)`: apply `abs2` inside the sum",
+    ]
+    rows = ['^broadcast +allocated: (?<m>\d+) bytes', '^comprehension +allocated: (?<m>\d+) bytes', '^abs2 +allocated: (?<m>\d+) bytes']
+    by = "bytes"
+    unit = "bytes"
+    answer = 3
+    explain = "`x .^ 2` builds a new 10 000-element vector before `sum` sees it, and so does the comprehension: about 80 kB each, 8 bytes per `Float64` plus the array's header. `sum(abs2, x)` calls `abs2` on each element as it adds, so no vector of squares ever exists."
+    misconceptions = [
+      "Dots fuse with other dots in the same expression, but `sum` is not a dot call: the squared vector is built in full, then summed.",
+      "The brackets make an array: the comprehension builds all 10 000 squares before `sum` starts.",
+      "",
+    ]
+
 [[section]]
 title = "Loops: memory order, hoisting, @inbounds and @simd"
 body = '''

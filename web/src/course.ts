@@ -22,6 +22,46 @@ export interface Example {
   choose?: Checkpoint; // pick a method and give a reason before the output is shown (see choose.ts)
   breakit?: BreakIt; // find where the method fails before the sweep is shown (see breakit.ts)
   explore?: Explorer; // sliders over the grid the output recorded (see explore.ts)
+  race?: Race; // pick the implementation that wins before the measurements are shown (see race.ts)
+}
+
+/**
+ * Pick the implementation that wins. `measured` (one per choice, as printed)
+ * and `ratios` (each choice against the winner; null for infinite, a winner at
+ * 0 bytes) were read from the recorded output by `tutor site-data`, only when
+ * the declared winner wins by at least `margin` (src/course.jl,
+ * `race_output_problems`).
+ */
+export interface Race {
+  kc: string;
+  prompt: string;
+  choices: string[];
+  by: "time" | "bytes";
+  unit: string;
+  margin: number;
+  answer: number; // 1-based
+  explain: string;
+  misconceptions: string[];
+  measured: string[];
+  ratios: (number | null)[];
+}
+
+/**
+ * The question an explorer asks: the learner answers by setting the sliders.
+ * `answer` is the answer point as 0-based indices into each axis's values,
+ * read from the grid by `tutor site-data` (src/course.jl,
+ * `explore_question_key`); `holdsAt[j]` says whether the condition holds at
+ * value j of the `along` axis with the other axes at the answer.
+ */
+export interface ExploreQuestion {
+  prompt: string;
+  along: string;
+  pick: "largest" | "smallest";
+  holds: "below" | "above";
+  limit: number;
+  explain: string;
+  answer: number[];
+  holdsAt: boolean[];
 }
 
 /**
@@ -43,6 +83,8 @@ export interface Explorer {
   explain: string;
   axes: { group: string; label: string; log: boolean; numeric: boolean; texts: string[]; nums: number[] }[];
   values: string[];
+  /** the question the sliders answer (absent in older data) */
+  question?: ExploreQuestion;
 }
 
 /**
@@ -103,10 +145,20 @@ export interface Checkpoint {
 export interface Prediction {
   kc: string;
   prompt: string;
-  choices: string[];
-  answer: number; // 1-based
+  choices: string[]; // empty for a typed-number prediction
+  answer: number; // 1-based; 0 for a typed-number prediction
   explain: string;
   measured: string;
+  /** a typed-number prediction: the learner types a number, a hit when within the tolerance of `value` */
+  typed?: Typed;
+}
+
+/** "abs": |x - v| <= tolerance; "rel": <= tolerance * |v|; "factor": v / tolerance <= x <= v * tolerance */
+export interface Typed {
+  tolerance: number;
+  within: "abs" | "rel" | "factor";
+  unit: string;
+  value: number;
 }
 
 /**
@@ -115,7 +167,9 @@ export interface Prediction {
  * misconceptions[i] is the feedback for choice i ("" for the answer).
  */
 export interface Question {
-  kind: "choice" | "output";
+  kind: "choice" | "output" | "error";
+  /** kind "error": the recorded message shown under the code (null: not recorded; the question is left out) */
+  output?: string | null;
   prompt: string;
   code: string;
   choices: string[];

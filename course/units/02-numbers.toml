@@ -112,6 +112,32 @@ println(0 / 0)
 println(1 ÷ 0)
 '''
 
+  [[section.example]]
+  caption = "Doubling a float until the next doubling would overflow to `Inf`."
+  code = '''
+function doublings()
+    x, n = 1.0, 0
+    while isfinite(2x)
+        x *= 2
+        n += 1
+    end
+    return n, x
+end
+n, x = doublings()
+println("doublings before Inf: ", n)
+println("largest power of two: ", x)
+println("floatmax(Float64):    ", floatmax(Float64))
+'''
+
+    [section.example.predict]
+    kc = "floating-point"
+    prompt = "Start at `1.0` and double. How many doublings can you make before the next one gives `Inf`? Type a number before the output is shown."
+    measure = 'doublings before Inf: (\d+)'
+    tolerance = 5
+    within = "abs"
+    unit = "doublings"
+    explain = "A `Float64` stores a power of two in 11 exponent bits, and the largest exponent a finite number can have is 1023. So `2.0^1023` is the last power of two, and one more doubling is `Inf`. `floatmax(Float64)` is a little below `2^1024`: the largest exponent with every one of the 52 fraction bits set. The same bits give `Float32` an exponent range up to 127."
+
 [[section]]
 title = "Integer division and remainders with negative numbers"
 body = '''
@@ -198,6 +224,27 @@ Int(2.5)
   code = '''
 Int8(200)
 '''
+
+  [[section.question]]
+  kind = "error"
+  prompt = "A count comes out of a division as a float, and the next line turns it into an integer. Julia stops with the message below. What is wrong, and what fixes it?"
+  code = '''
+steps = 10 / 4
+n = Int(steps)
+'''
+  shows = "InexactError"
+  choices = [
+    "`2.5` is too large for an `Int64`; use `Int128(steps)`",
+    "`Int` converts whole numbers only; round explicitly, as in `round(Int, steps)`",
+    "`steps` has no declared type; write `steps::Float64 = 10 / 4` first",
+  ]
+  answer = 2
+  explain = "`InexactError: Int64(2.5)` means the conversion would lose information, and `Int(x)` is exact or it throws. Julia does not pick a rounding for you, because `floor`, `round` and `ceil` give 2, 2 and 3 here (`round` sends a tie to the even neighbour). If integer division was meant in the first place, `10 ÷ 4` is 2 with no float in between."
+  misconceptions = [
+    "An `Int64` holds numbers up to about 9.2e18. The trouble is the fraction, and `Int128(2.5)` throws the same error.",
+    "",
+    "A declaration does not change the value: `steps` is a `Float64` already, and `2.5` still has a fraction.",
+  ]
 
 [[section]]
 title = "Promotion: mixing number types"

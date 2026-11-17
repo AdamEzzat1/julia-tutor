@@ -37,6 +37,10 @@ output = """numbers | int first | int second\nint first\n"""
 ok = true
 output = """false 2\ntrue 2\n1\n"""
 
+[examples.fcb6e88da95dbe5f]
+ok = false
+output = """ERROR: MethodError: no method matching area(::Float64)\n\nClosest candidates are:\n  area(!Matched::Int64)\n   @ Main main.jl:1\n\n  @ top-level scope at line 2\n"""
+
 [[samples.describe-by-type]]
 call = "kind(3)"
 result = "\"integer\""

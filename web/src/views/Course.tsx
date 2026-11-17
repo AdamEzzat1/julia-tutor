@@ -10,10 +10,11 @@ import {
   type Bug, type CourseInfo, type Example, type Explorer, type Problem, type Question, type Unit,
 } from "../course";
 import { bugRates, bugTestCode, bumpBug, hintsOpen, reading, unitBugs, type BugReading, type BugRecord } from "../findbug";
-import { predictionKey, predictionRates, settlePrediction, unitPredictionKeys, type PredictionRecord } from "../predict";
+import { parseTyped, predictionKey, predictionRates, settlePrediction, settleTyped, toleranceText, unitPredictionKeys, type PredictionRecord } from "../predict";
+import { raceText, settleRace, unitRaceKeys, type RaceRecord } from "../race";
 import { choiceRates, costText, MAX_REASON, reasonOk, settleChoice, unitChoiceKeys, type ChoiceRecord } from "../choose";
 import { breakRates, juliaNumber, parseValue, probeCode, readProbe, settleBreak, sweepWith, unitBreakKeys, type BreakRecord } from "../breakit";
-import { drawable, extent, juliaValue, lines, localSlope, scale, startSelection, ticks, valueAt, type Selection } from "../explore";
+import { drawable, extent, juliaValue, lines, localSlope, pointText, scale, settleExplore, startSelection, ticks, valueAt, type ExploreRecord, type Selection } from "../explore";
 import { assemble, bumpParsons, displayOrder, parsonsFeedback, parsonsRates, unitParsons, type ParsonsFeedback, type ParsonsRecord } from "../parsons";
 import { loadProgress, saveProgress, type Progress } from "../progress";
 import { bestLadder, ladderTotals, type LadderRecord } from "../ladder";
@@ -80,6 +81,11 @@ export function CourseView() {
   // A break-it edge too: the first committed value is kept.
   const broke = (key: string, r: BreakRecord) =>
     setProgress((s) => s.breaks[key] ? s : saveProgress({ ...s, breaks: { ...s.breaks, [key]: r } }));
+  // A race pick and an explorer point too: the first commit is kept.
+  const raced = (key: string, r: RaceRecord) =>
+    setProgress((s) => s.races[key] ? s : saveProgress({ ...s, races: { ...s.races, [key]: r } }));
+  const explored = (key: string, r: ExploreRecord) =>
+    setProgress((s) => s.explores[key] ? s : saveProgress({ ...s, explores: { ...s.explores, [key]: r } }));
   // A find-the-bug record counts test runs and hints until it is fixed, then freezes.
   const bugged = (pid: string, what: "run" | "hint" | "fixed") =>
     setProgress((s) => saveProgress({ ...s, bugs: { ...s.bugs, [pid]: bumpBug(s.bugs[pid], what) } }));
@@ -124,7 +130,7 @@ export function CourseView() {
           <UnitPage key={unit.id} unit={unit} problemId={problemId} progress={progress}
             openProblem={(p) => { setProblemId(p); writeParams(unit.id, p, active.id); }} onSolved={solved}
             onAnswered={answered} onPredicted={predicted} onChose={chose} onBroke={broke} onBug={bugged}
-            onParsons={parsoned} go={go} />}
+            onParsons={parsoned} onRaced={raced} onExplored={explored} go={go} />}
       </div>
     </div>
   );
@@ -190,7 +196,7 @@ function Overview({ c, progress, go }: { c: CourseInfo; progress: Progress; go: 
   );
 }
 
-function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, onPredicted, onChose, onBroke, onBug, onParsons, go }: {
+function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered, onPredicted, onChose, onBroke, onBug, onParsons, onRaced, onExplored, go }: {
   unit: Unit;
   problemId: string | null;
   progress: Progress;
@@ -202,9 +208,17 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
   onBroke: (key: string, r: BreakRecord) => void;
   onBug: (pid: string, what: "run" | "hint" | "fixed") => void;
   onParsons: (pid: string, solved: boolean) => void;
+  onRaced: (key: string, r: RaceRecord) => void;
+  onExplored: (key: string, r: ExploreRecord) => void;
   go: (u: string) => void;
 }) {
   const bugs = unitBugs(unit);
+  const rkeys = unitRaceKeys(unit);
+  const rmade = rkeys.filter((k) => progress.races[k]?.pick);
+  const rhits = rmade.filter((k) => progress.races[k].hit);
+  const xkeys = unit.sections.flatMap((s, i) => s.examples.flatMap((e, j) => (e.explore?.question ? [predictionKey(unit.id, i, j)] : [])));
+  const xmade = xkeys.filter((k) => progress.explores[k] && progress.explores[k].point !== null);
+  const xright = xmade.filter((k) => progress.explores[k].verdict === "right");
   const parsons = unitParsons(unit);
   const parsonsSolved = parsons.filter((p) => progress.parsons[p.id]?.solved);
   const lad = ladderTotals(progress.ladder, unit.problems.map((p) => p.id));
@@ -218,7 +232,8 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
   const bkeys = unitBreakKeys(unit);
   const bmade = bkeys.filter((k) => progress.breaks[k] && progress.breaks[k].value !== null);
   const bfound = bmade.filter((k) => progress.breaks[k].verdict === "found");
-  const qkeys = unit.sections.flatMap((s, i) => s.questions.map((_, k) => `${unit.id}/${i}/${k}`));
+  // an error question without its recorded message is not shown, so it is not counted
+  const qkeys = unit.sections.flatMap((s, i) => s.questions.flatMap((q, k) => (shown(q) ? [`${unit.id}/${i}/${k}`] : [])));
   const qdone = qkeys.filter((k) => progress.questions[k]);
   const qfirst = qdone.filter((k) => progress.questions[k] === "first-try");
   const own = courseById(unit.course);
@@ -271,6 +286,16 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               break it: {bmade.length}/{bkeys.length}{bmade.length ? ` · ${bfound.length} found` : ""}
             </span>
           )}
+          {rkeys.length > 0 && (
+            <span className="jt-chip" title="Races committed in this browser before seeing the measurements, and how many picked the winner">
+              races: {rmade.length}/{rkeys.length}{rmade.length ? ` · ${rhits.length} winners` : ""}
+            </span>
+          )}
+          {xkeys.length > 0 && (
+            <span className="jt-chip" title="Explorer questions answered in this browser with the sliders, and how many points were right">
+              explorer questions: {xmade.length}/{xkeys.length}{xmade.length ? ` · ${xright.length} right` : ""}
+            </span>
+          )}
           {bugs.length > 0 && (
             <span className="jt-chip" title="Find-the-bug problems fixed in this browser: the grader and every convergence test passed on the same code">
               find the bug: {bugsFixed.length}/{bugs.length} fixed
@@ -313,10 +338,13 @@ function UnitPage({ unit, problemId, progress, openProblem, onSolved, onAnswered
               return <ExampleBlock key={j} ex={e} env={unit.env} id={key}
                 record={progress.predictions[key] ?? null} onPredicted={(r) => onPredicted(key, r)}
                 choice={progress.choices[key] ?? null} onChose={(r) => onChose(key, r)}
-                broke={progress.breaks[key] ?? null} onBroke={(r) => onBroke(key, r)} />;
+                broke={progress.breaks[key] ?? null} onBroke={(r) => onBroke(key, r)}
+                raced={progress.races[key] ?? null} onRaced={(r) => onRaced(key, r)}
+                explored={progress.explores[key] ?? null} onExplored={(r) => onExplored(key, r)} />;
             })}
-            {s.questions.map((q, k) => (
-              <QuestionBlock key={k} q={q} number={k + 1} total={s.questions.length}
+            {s.questions.map((q, k) => shown(q) && (
+              <QuestionBlock key={k} q={q} number={s.questions.slice(0, k + 1).filter(shown).length}
+                total={s.questions.filter(shown).length}
                 onSettled={(firstTry) => onAnswered(`${unit.id}/${i}/${k}`, firstTry)} />
             ))}
           </section>
@@ -670,7 +698,115 @@ const SERIES_STYLE = [
  * recorded grid; nothing is computed except the plot's geometry and, on
  * log-log axes, the slope between neighbouring printed values.
  */
-function ExplorerPanel({ x }: { x: Explorer }) {
+/** The gate before a race's measurements: pick the implementation you expect to win. */
+function RaceGate({ ex, onRaced }: { ex: Example; onRaced: (r: RaceRecord) => void }) {
+  const r = ex.race!;
+  return (
+    <figure className="jt-example">
+      {ex.caption && <figcaption>{md(ex.caption)}</figcaption>}
+      <Code src={ex.code} />
+      <div className="jt-question" aria-live="polite">
+        <div className="jt-eyebrow">Which one wins? · one pick, scored once</div>
+        <div className="jt-question-prompt"><Markdown text={r.prompt} /></div>
+        <div className="jt-options" role="group" aria-label="Implementations">
+          {r.choices.map((c, k) => (
+            <button key={k} className="jt-option" onClick={() => onRaced(settleRace(r, k + 1))}>
+              <span className="letter">{LETTERS[k]}</span><span>{md(c)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="jt-example-bar">
+        <button className="jt-btn ghost jt-small" onClick={() => onRaced(settleRace(r, 0))}>
+          Show the measurements without picking
+        </button>
+      </div>
+    </figure>
+  );
+}
+
+/** After the pick: who won, by how much, from the recorded output. */
+function RaceResult({ ex, r }: { ex: Example; r: RaceRecord }) {
+  const c = ex.race!;
+  const tone = r.pick === 0 ? "reveal" : r.hit ? "ok" : "mis";
+  const tag = r.pick === 0 ? "Not picked" : r.hit ? "You picked the winner" : "Not this one";
+  const what = c.by === "time" ? "time per call" : "bytes allocated per call";
+  return (
+    <div className={`jt-callout ${tone}`}>
+      <span className="tag">{tag}</span>
+      <div>
+        <table className="jt-table jt-small" style={{ margin: "0.2rem 0 0.4rem" }}>
+          <caption className="jt-muted" style={{ textAlign: "left", captionSide: "top" }}>
+            Measured in the output above: {what}, smaller wins. The winner beats every other by at least {c.margin}×
+            on every verify run{c.by === "time" ? ", so machine load does not change who wins (the times themselves vary)" : ""}.
+          </caption>
+          <thead><tr><th scope="col">Implementation</th><th scope="col">{c.by === "time" ? "Time" : "Allocated"}</th></tr></thead>
+          <tbody>
+            {c.choices.map((t, k) => (
+              <tr key={k} aria-current={r.pick === k + 1 ? "true" : undefined}>
+                <td>{LETTERS[k]} · {md(t.split(/:\s/)[0])}{r.pick === k + 1 ? " (yours)" : ""}</td>
+                <td>{raceText(c, k)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {r.pick > 0 && c.misconceptions[r.pick - 1] && <div>{md(c.misconceptions[r.pick - 1])}</div>}
+        <div style={{ marginTop: "0.3rem" }}>{md(c.explain)}</div>
+      </div>
+    </div>
+  );
+}
+
+const EXPLORE_TAG = { right: "Right point", elsewhere: "Another slice", fails: "Too far", short: "Holds, but not the edge", skipped: "Answer shown" } as const;
+
+/**
+ * The question an explorer asks: answered by setting the sliders and
+ * committing the point. Scored once, like a prediction.
+ */
+function ExploreAsk({ x, sel, record, onCommit, onSkip }: {
+  x: Explorer; sel: Selection; record: ExploreRecord | null; onCommit: () => void; onSkip: () => void;
+}) {
+  const q = x.question!;
+  const cond = `${x.label} ${q.holds} ${q.limit}`;
+  if (!record) {
+    return (
+      <div className="jt-question" style={{ margin: "0 0 0.6rem" }}>
+        <div className="jt-eyebrow">Explorer question · answer with the sliders, scored once</div>
+        <div className="jt-question-prompt"><Markdown text={q.prompt} /></div>
+        <div className="jt-row">
+          <button className="jt-btn" onClick={onCommit}>Commit this point</button>
+          <span className="jt-small jt-muted">{pointText(x, sel)}</span>
+        </div>
+        <div className="jt-example-bar">
+          <button className="jt-btn ghost jt-small" onClick={onSkip}>Show the answer without committing</button>
+        </div>
+      </div>
+    );
+  }
+  const v = record.verdict;
+  const ai = x.axes.findIndex((a) => a.group === q.along);
+  const along = x.axes[ai];
+  const note = {
+    right: `At this point the condition (${cond}) holds, and at the next value of ${along.label} it no longer does.`,
+    elsewhere: "The question holds the other sliders at the values it names; this point is in another slice of the grid.",
+    fails: `At this point the condition (${cond}) does not hold: you went past the edge.`,
+    short: `The condition (${cond}) holds here, but it still holds at a ${q.pick === "largest" ? "larger" : "smaller"} ${along.label}.`,
+    skipped: "",
+  }[v];
+  return (
+    <div className={`jt-callout ${v === "right" ? "ok" : v === "skipped" ? "reveal" : "mis"}`} style={{ margin: "0 0 0.6rem" }}>
+      <span className="tag">{EXPLORE_TAG[v]}</span>
+      <div>
+        <div className="jt-question-prompt"><Markdown text={q.prompt} /></div>
+        {record.point && <div className="jt-small">You committed {pointText(x, record.point)}. {note}</div>}
+        <div className="jt-small">The answer, read from the grid: <code>{pointText(x, q.answer)}</code>.</div>
+        <div style={{ marginTop: "0.3rem" }}>{md(q.explain)}</div>
+      </div>
+    </div>
+  );
+}
+
+function ExplorerPanel({ x, record, onExplored }: { x: Explorer; record: ExploreRecord | null; onExplored: (r: ExploreRecord) => void }) {
   const [sel, setSel] = useState<Selection>(() => startSelection(x));
   const set = (k: number, v: number) => setSel((s) => s.map((old, i) => (i === k ? v : old)));
   const xi = x.axes.findIndex((a) => a.group === x.x);
@@ -688,6 +824,8 @@ function ExplorerPanel({ x }: { x: Explorer }) {
     <div className="jt-explore">
       <div className="jt-eyebrow">Explorer · precomputed by the reference; run it yourself with tutor serve</div>
       <div className="jt-question-prompt">{md(x.prompt)}</div>
+      {x.question && <ExploreAsk x={x} sel={sel} record={record}
+        onCommit={() => onExplored(settleExplore(x, sel))} onSkip={() => onExplored(settleExplore(x, null))} />}
       <div className="jt-explore-controls">
         {x.axes.map((a, k) => a.numeric ? (
           <label key={a.group} className="jt-explore-slider">
@@ -767,18 +905,23 @@ function ExplorerPanel({ x }: { x: Explorer }) {
           </tbody>
         </table>
       </details>
-      <div style={{ marginTop: "0.4rem" }}>{md(x.explain)}</div>
+      {(!x.question || record) && <div style={{ marginTop: "0.4rem" }}>{md(x.explain)}</div>}
     </div>
   );
 }
 
-function ExampleBlock({ ex, env, id, record, onPredicted, choice, onChose, broke, onBroke }: {
+function ExampleBlock({ ex, env, id, record, onPredicted, choice, onChose, broke, onBroke, raced, onRaced, explored, onExplored }: {
   ex: Example; env: string; id: string; record: PredictionRecord | null; onPredicted: (r: PredictionRecord) => void;
   choice: ChoiceRecord | null; onChose: (r: ChoiceRecord) => void;
   broke: BreakRecord | null; onBroke: (r: BreakRecord) => void;
+  raced: RaceRecord | null; onRaced: (r: RaceRecord) => void;
+  explored: ExploreRecord | null; onExplored: (r: ExploreRecord) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const p = ex.predict;
+  // Like a checkpoint: the measurements stay hidden until an implementation is picked.
+  if (ex.race && !raced) return <RaceGate ex={ex} onRaced={onRaced} />;
+  if (p?.typed && !record) return <TypedGate ex={ex} onPredicted={onPredicted} />;
   // The sweep (output and notice) stays hidden until an edge is committed.
   if (ex.breakit && !broke) return <BreakGate ex={ex} env={env} onBroke={onBroke} />;
   // Like a prediction: the output, figures and notice stay hidden until a method is committed.
@@ -824,7 +967,20 @@ function ExampleBlock({ ex, env, id, record, onPredicted, choice, onChose, broke
               alt={`Figure produced by this example when it was recorded (${src.split("/").pop()})`} />
           ))}
           {ex.notice && ex.output !== null && <p className="jt-notice">{md(ex.notice)}</p>}
-          {p && record && (
+          {p?.typed && record && (
+            <div className={`jt-callout ${record.pick === 0 ? "reveal" : record.hit ? "ok" : "mis"}`}>
+              <span className="tag">{record.pick === 0 ? "Not predicted" : record.hit ? "Your estimate held" : "Not this time"}</span>
+              <div>
+                <div className="jt-small">
+                  {record.pick > 0 && record.value !== undefined && <>You typed <code>{record.value}</code>. </>}
+                  Measured in the output above: <code>{p.measured}</code>{p.typed.unit ? ` ${p.typed.unit}` : ""}; a hit
+                  is {toleranceText(p.typed)}.
+                </div>
+                <div style={{ marginTop: "0.3rem" }}>{md(p.explain)}</div>
+              </div>
+            </div>
+          )}
+          {p && !p.typed && record && (
             <div className={`jt-callout ${record.pick === 0 ? "reveal" : record.hit ? "ok" : "mis"}`}>
               <span className="tag">{record.pick === 0 ? "Not predicted" : record.hit ? "Your prediction held" : "Not this time"}</span>
               <div>
@@ -838,7 +994,8 @@ function ExampleBlock({ ex, env, id, record, onPredicted, choice, onChose, broke
           )}
           {ex.choose && choice && <ChoiceResult ex={ex} r={choice} />}
           {ex.breakit && broke && <BreakResult ex={ex} r={broke} />}
-          {ex.explore && ex.output !== null && <ExplorerPanel x={ex.explore} />}
+          {ex.race && raced && <RaceResult ex={ex} r={raced} />}
+          {ex.explore && ex.output !== null && <ExplorerPanel x={ex.explore} record={explored} onExplored={onExplored} />}
         </>
       )}
       <div className="jt-example-bar">
@@ -853,6 +1010,42 @@ function ExampleBlock({ ex, env, id, record, onPredicted, choice, onChose, broke
 }
 
 const LETTERS = "ABCDEF";
+
+/** Error questions are shown only with the message they are about (site-data exports it when verify accepts it). */
+const shown = (q: Question) => q.kind !== "error" || (q.output ?? null) !== null;
+
+/** The gate before a typed-number prediction's output: type one number, commit. */
+function TypedGate({ ex, onPredicted }: { ex: Example; onPredicted: (r: PredictionRecord) => void }) {
+  const p = ex.predict!;
+  const t = p.typed!;
+  const [text, setText] = useState("");
+  const x = parseTyped(text);
+  const commit = () => { if (x !== null) onPredicted(settleTyped(p, x)); };
+  return (
+    <figure className="jt-example">
+      {ex.caption && <figcaption>{md(ex.caption)}</figcaption>}
+      <Code src={ex.code} />
+      <div className="jt-question" aria-live="polite">
+        <div className="jt-eyebrow">Estimate, then run · one number, scored once ({toleranceText(t)})</div>
+        <div className="jt-question-prompt"><Markdown text={p.prompt} /></div>
+        <div className="jt-row">
+          <label className="jt-small">
+            Your number{t.unit ? ` (${t.unit})` : ""}
+            <input className="jt-input" style={{ display: "block", marginTop: "0.3rem", width: "12rem" }} inputMode="decimal"
+              value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} />
+          </label>
+          <button className="jt-btn" disabled={x === null} onClick={commit}>Commit and run</button>
+          {text.trim() !== "" && x === null && <span className="jt-small jt-muted">A number, like 4, 0.25 or 1e-6.</span>}
+        </div>
+      </div>
+      <div className="jt-example-bar">
+        <button className="jt-btn ghost jt-small" onClick={() => onPredicted(settleTyped(p, null))}>
+          Show the output without estimating
+        </button>
+      </div>
+    </figure>
+  );
+}
 
 /**
  * A concept question: pick until right. Each wrong pick shows the
@@ -874,10 +1067,13 @@ function QuestionBlock({ q, number, total, onSettled }: {
   return (
     <div className="jt-question" aria-live="polite">
       <div className="jt-eyebrow">
-        {q.kind === "output" ? "Predict the output" : "Check your understanding"}{total > 1 ? ` · ${number} of ${total}` : ""}
+        {q.kind === "output" ? "Predict the output" : q.kind === "error" ? "Read the error" : "Check your understanding"}{total > 1 ? ` · ${number} of ${total}` : ""}
       </div>
       <div className="jt-question-prompt"><Markdown text={q.prompt} /></div>
       {q.code && <Code src={q.code} />}
+      {q.kind === "error" && q.output && (
+        <pre className="jt-output err" aria-label="The message Julia printed">{q.output}</pre>
+      )}
       <div className="jt-options" role="group" aria-label="Answer options">
         {q.choices.map((c, k) => {
           const i = k + 1;
@@ -896,8 +1092,8 @@ function QuestionBlock({ q, number, total, onSettled }: {
       {st.done && (
         <div className={`jt-callout ${st.firstTry ? "ok" : "reveal"}`}>
           <span className="tag">{st.firstTry ? "Correct" : `Answer ${LETTERS[q.answer - 1]}`}</span>
-          <div>{md(q.explain)}{q.kind === "output" && <div className="jt-small jt-muted" style={{ marginTop: "0.3rem" }}>
-            The answer is the output recorded when this code ran on Julia {course.julia}.</div>}</div>
+          <div>{md(q.explain)}{q.kind !== "choice" && <div className="jt-small jt-muted" style={{ marginTop: "0.3rem" }}>
+            {q.kind === "output" ? "The answer is the output" : "The message is the one"} recorded when this code ran on Julia {course.julia}.</div>}</div>
         </div>
       )}
     </div>
