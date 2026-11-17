@@ -15,6 +15,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [],
       "problems": [
         {
@@ -270,6 +271,31 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [
+        {
+          "answer": 2,
+          "choices": [
+            "(Int64, 3)",
+            "(Float64, 3)",
+            "(Float64, 3.5)",
+            "(Rational{Int64}, 3)"
+          ],
+          "code": "typeof(7 / 2), 7 ÷ 2",
+          "covers": [
+            "01-first-steps",
+            "02-numbers"
+          ],
+          "explain": "`/` always returns a floating-point number, even for two integers; `÷` (`div`) is integer division and drops the fraction.",
+          "misconceptions": [
+            "`/` on integers is not integer division in Julia: `7 / 2` is `3.5`, a `Float64`.",
+            "",
+            "`÷` is integer division: it drops the fraction, so `7 ÷ 2` is `3`.",
+            "Rationals are built with `//` (`7 // 2`); `/` gives a `Float64`."
+          ],
+          "output": "(Float64, 3)",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "01-first-steps"
       ],
@@ -653,6 +679,30 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [
+        {
+          "answer": 3,
+          "choices": [
+            "(5, 5)",
+            "(6, 6)",
+            "(5, 6)",
+            "(6, 5)"
+          ],
+          "code": "s = \"héllo\"\nlength(s), sizeof(s)",
+          "covers": [
+            "03-strings"
+          ],
+          "explain": "`length` counts characters (5); `sizeof` counts the bytes of the UTF-8 encoding, and `é` takes two bytes, so 6.",
+          "misconceptions": [
+            "Strings are UTF-8: `é` is two bytes, so the byte count is one more than the character count.",
+            "`length` counts characters, not bytes: `é` is one character.",
+            "",
+            "This swaps the two: `length` is characters (5), `sizeof` is bytes (6)."
+          ],
+          "output": "(5, 6)",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "01-first-steps"
       ],
@@ -988,6 +1038,30 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [
+        {
+          "answer": 1,
+          "choices": [
+            "(\"big\", \"fallback\")",
+            "(\"big\", false)",
+            "(\"big\", true)",
+            "(\"small\", \"fallback\")"
+          ],
+          "code": "x = 10\nr = x > 5 ? \"big\" : \"small\"\n(r, x > 20 || \"fallback\")",
+          "covers": [
+            "04-control-flow"
+          ],
+          "explain": "`x > 5` holds, so the ternary gives `\"big\"`. When the left side of `||` is false, `||` returns its right side as it is, without converting it to a `Bool`, so the second value is the string.",
+          "misconceptions": [
+            "",
+            "`||` does not turn its right side into a `Bool`: when the left side is false it returns the right side as it is.",
+            "`x > 20` is false, so `||` evaluates and returns its right side; it would be `true` only if the left side held.",
+            "`10 > 5` holds, so the ternary picks its first branch."
+          ],
+          "output": "(\"big\", \"fallback\")",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "01-first-steps"
       ],
@@ -1354,6 +1428,28 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [
+        {
+          "answer": 3,
+          "choices": [
+            "(2, 2)",
+            "(1, 1)",
+            "(2, 1)"
+          ],
+          "code": "function bump(x)\n    x += 1\n    return x\nend\na = 1\nbump(a), a",
+          "covers": [
+            "05-functions"
+          ],
+          "explain": "Inside `bump`, `x += 1` rebinds the local name `x` to a new value; the caller's `a` still names `1`. Numbers are immutable, so no function can change `a` from the outside.",
+          "misconceptions": [
+            "Arguments are passed by sharing, not by reference: rebinding `x` inside the function does not rebind the caller's `a`.",
+            "`bump` returns the new local value, `2`; only the caller's `a` stays `1`.",
+            ""
+          ],
+          "output": "(2, 1)",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "04-control-flow"
       ],
@@ -1687,6 +1783,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "05-functions"
       ],
@@ -2017,6 +2114,31 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [
+        {
+          "answer": 4,
+          "choices": [
+            "([1, 2, 3], [2, 4, 6])",
+            "([10, 2, 3], [2, 4, 6])",
+            "([1, 2, 3], [20, 4, 6])",
+            "([10, 2, 3], [20, 4, 6])"
+          ],
+          "code": "a = [1, 2, 3]\nb = a\nb[1] = 10\nc = a .* 2\n(a, c)",
+          "covers": [
+            "06-collections",
+            "07-broadcasting"
+          ],
+          "explain": "`b = a` binds a second name to the same array, so `b[1] = 10` changes `a`. `a .* 2` then builds a new array from the changed `a`.",
+          "misconceptions": [
+            "`b = a` does not copy: both names refer to one array, so writing through `b` changes `a`.",
+            "`c` is computed after `b[1] = 10`, from the array as it is then, so its first element is `20`.",
+            "`a` and `b` are the same array: if `c` sees the change, so does `a`.",
+            ""
+          ],
+          "output": "([10, 2, 3], [20, 4, 6])",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "05-functions"
       ],
@@ -2331,6 +2453,30 @@
         "L02-concrete-types"
       ],
       "outline": [],
+      "placement": [
+        {
+          "answer": 2,
+          "choices": [
+            "(Vector{Real}, false)",
+            "(Vector{Float64}, false)",
+            "(Vector{Any}, true)",
+            "(Vector{Float64}, true)"
+          ],
+          "code": "typeof([1, 2.5]), isconcretetype(Real)",
+          "covers": [
+            "08-types"
+          ],
+          "explain": "An array literal promotes its elements to a common type, so `1` becomes `1.0` and the array is a `Vector{Float64}`. `Real` is abstract: no value has type exactly `Real`.",
+          "misconceptions": [
+            "The literal promotes to a common concrete type, `Float64`; it does not keep an abstract element type.",
+            "",
+            "Promotion finds `Float64` for `Int` and `Float64`, so no `Any` is needed; and `Real` is abstract.",
+            "`Real` is an abstract type: values are `Int64`, `Float64` and so on, never exactly `Real`."
+          ],
+          "output": "(Vector{Float64}, false)",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "06-collections",
         "07-broadcasting"
@@ -2652,6 +2798,30 @@
         "L01-dispatch"
       ],
       "outline": [],
+      "placement": [
+        {
+          "answer": 2,
+          "choices": [
+            "(\"numbers\", \"numbers\")",
+            "(\"int first\", \"numbers\")",
+            "(\"int first\", \"int first\")",
+            "(\"numbers\", \"int first\")"
+          ],
+          "code": "g(::Number, ::Number) = \"numbers\"\ng(::Int, ::Number) = \"int first\"\ng(1, 2.0), g(2.0, 1)",
+          "covers": [
+            "09-dispatch"
+          ],
+          "explain": "Julia picks the most specific method that matches every argument. `g(1, 2.0)` matches both, and `(Int, Number)` is more specific. `g(2.0, 1)` has a `Float64` first, so only `(Number, Number)` matches.",
+          "misconceptions": [
+            "When both methods match, the more specific one, `(Int, Number)`, wins.",
+            "",
+            "Dispatch looks at each argument's position: in `g(2.0, 1)` the `Int` is second, which `(Int, Number)` does not accept.",
+            "This swaps the calls: the `Int` comes first in `g(1, 2.0)`, so that is the call `(Int, Number)` matches."
+          ],
+          "output": "(\"int first\", \"numbers\")",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "08-types"
       ],
@@ -3013,6 +3183,30 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [
+        {
+          "answer": 4,
+          "choices": [
+            "NaN",
+            "ArgumentError",
+            "0.0 + 1.0im",
+            "DomainError"
+          ],
+          "code": "r = try\n    sqrt(-1.0)\ncatch e\n    typeof(e)\nend\nr",
+          "covers": [
+            "10-errors"
+          ],
+          "explain": "`sqrt` of a negative `Float64` throws a `DomainError` instead of returning `NaN`; for a complex result call `sqrt(complex(-1.0))`. `try` is an expression, so `r` is the value of the `catch` branch.",
+          "misconceptions": [
+            "Julia's `sqrt` throws on a negative real instead of returning `NaN` (as C's would).",
+            "The argument has the right type but is outside the function's domain: that is a `DomainError`.",
+            "The result type depends only on the argument types, so `sqrt(::Float64)` never returns a complex number.",
+            ""
+          ],
+          "output": "DomainError",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "08-types"
       ],
@@ -3380,6 +3574,30 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [
+        {
+          "answer": 4,
+          "choices": [
+            "(25, 3)",
+            "(30, 4)",
+            "(55, 4)",
+            "(25, 4)"
+          ],
+          "code": "sum(x for x in 1:10 if isodd(x)), first(Iterators.drop(1:10, 3))",
+          "covers": [
+            "11-iteration"
+          ],
+          "explain": "The generator keeps the odd numbers 1, 3, 5, 7, 9, which sum to 25. `Iterators.drop(1:10, 3)` skips the first three elements, so it starts at 4.",
+          "misconceptions": [
+            "`drop(itr, 3)` skips three elements: 1, 2 and 3, so the first one left is 4.",
+            "The filter keeps odd numbers; 30 is the sum of the even ones.",
+            "The `if` clause filters: 55 is the sum of all ten numbers.",
+            ""
+          ],
+          "output": "(25, 4)",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "08-types"
       ],
@@ -3725,6 +3943,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "10-errors",
         "11-iteration"
@@ -3996,6 +4215,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "10-errors",
         "11-iteration"
@@ -4337,6 +4557,30 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [
+        {
+          "answer": 2,
+          "choices": [
+            "1-element Vector{Any}:\n Int64",
+            "1-element Vector{Any}:\n Union{Float64, Int64}",
+            "1-element Vector{Any}:\n Float64",
+            "1-element Vector{Any}:\n Any"
+          ],
+          "code": "f(x) = x > 0 ? x : 0.0\nBase.return_types(f, (Int,))",
+          "covers": [
+            "14-performance"
+          ],
+          "explain": "One branch returns the `Int` argument and the other `0.0`, so inference can only say the result is one of the two: a small `Union`. That is type instability, and it comes from the literal `0.0`; `zero(x)` would keep the type.",
+          "misconceptions": [
+            "The `0.0` branch returns a `Float64`, so `Int64` alone does not cover every return.",
+            "",
+            "Julia does not convert the `x` branch to `Float64`: each branch returns its own type.",
+            "Inference keeps both possibilities as a small `Union`; it gives up to `Any` only when there are too many."
+          ],
+          "output": "1-element Vector{Any}:\n Union{Float64, Int64}",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "08-types"
       ],
@@ -4865,6 +5109,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "09-dispatch",
         "10-errors",
@@ -5228,6 +5473,30 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [
+        {
+          "answer": 1,
+          "choices": [
+            "(:+, 3)",
+            "(:*, 3)",
+            "(:a, 3)",
+            "(:+, 5)"
+          ],
+          "code": "ex = :(a + b * c)\n(ex.args[1], length(ex.args))",
+          "covers": [
+            "16-metaprogramming"
+          ],
+          "explain": "`a + b * c` parses as a call to `+` with two arguments, `a` and `b * c`. A call's `args` are the function, then its arguments: `[:+, :a, :(b * c)]`.",
+          "misconceptions": [
+            "",
+            "`*` binds tighter, so it sits inside the second argument; the outer call is `+`.",
+            "In a call expression the function comes first in `args`, before the arguments.",
+            "The tree is nested: `b * c` is one argument (its own `Expr`), not three entries."
+          ],
+          "output": "(:+, 3)",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "08-types"
       ],
@@ -5566,6 +5835,30 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [
+        {
+          "answer": 2,
+          "choices": [
+            "(6, 1)",
+            "(6, 3)",
+            "(3, 3)",
+            "(0, 3)"
+          ],
+          "code": "struct Countdown\n    n::Int\nend\nBase.iterate(c::Countdown, k = c.n) = k < 1 ? nothing : (k, k - 1)\nsum(Countdown(3)), first(Countdown(3))",
+          "covers": [
+            "17-interfaces"
+          ],
+          "explain": "`iterate` starts at `n` and counts down to 1, so the elements are 3, 2, 1: their sum is 6 and the first is 3. Defining `iterate` is enough for `sum` and `first`.",
+          "misconceptions": [
+            "`first` takes the first element `iterate` returns, which starts at `c.n`, here 3.",
+            "",
+            "`sum` adds every element: 3 + 2 + 1, not just the first.",
+            "The state starts at `n = 3`, so iteration produces elements before reaching `nothing`."
+          ],
+          "output": "(6, 3)",
+          "prompt": "What does this print?"
+        }
+      ],
       "prerequisites": [
         "15-generic-programming"
       ],
@@ -5851,6 +6144,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "10-errors"
       ],
@@ -6176,6 +6470,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "14-performance",
         "15-generic-programming",
@@ -6539,6 +6834,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "11-iteration"
       ],

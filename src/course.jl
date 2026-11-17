@@ -284,6 +284,18 @@ struct Question
 end
 Question(kind, prompt, code, choices, answer, explain, mis) = Question(kind, prompt, code, choices, answer, explain, mis, "")
 
+"""
+A placement item: an `output` question in the unit it tests. A course's
+placement check is its units' items in course order; answering an item right
+(one pick, scored once) suggests skipping every unit in `covers`, which always
+holds the item's own unit and may name earlier units of the same course. A
+unit is suggested for skipping only when every item covering it was right.
+"""
+struct Placement
+    q::Question
+    covers::Vector{String}
+end
+
 """Question kinds whose code is run when the unit is recorded."""
 const RECORDED_KINDS = ("output", "error")
 
@@ -465,9 +477,12 @@ struct Unit
     sections::Vector{Section}
     problems::Vector{Problem}
     references::Vector{Reference}
+    placement::Vector{Placement}  # its course's placement check: output questions that let a learner skip units
 end
 Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems) =
     Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems, Reference[])
+Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems, refs::Vector{Reference}) =
+    Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems, refs, Placement[])
 
 getstr(d, k, default = "") = String(get(d, k, default))
 
@@ -481,9 +496,12 @@ end
 """Every concept question of a unit, in order."""
 questions(u) = [q for s in u.sections for q in s.questions]
 
-"""Code a unit records: its examples, then the code of its `output` and `error` questions (REPL mode)."""
+"""Questions whose code a unit records: its `output` and `error` questions, then its placement items."""
+recorded_questions(u) = vcat([q for q in questions(u) if q.kind in RECORDED_KINDS], [p.q for p in u.placement])
+
+"""Code a unit records: its examples, then the code of its recorded questions (REPL mode)."""
 recorded_code(u) = vcat([(e.code, e.mode) for s in u.sections for e in s.examples],
-                        [(q.code, "repl") for q in questions(u) if q.kind in RECORDED_KINDS])
+                        [(q.code, "repl") for q in recorded_questions(u)])
 
 function load_problem(d)
     perf = haskey(d, "perf") ?
@@ -908,7 +926,13 @@ function load_unit(path::String)
     return Unit(d["id"], d["title"], d["track"], getstr(d, "env", "base"), getstr(d, "status", "ready"),
                 d["summary"], String.(get(d, "kcs", String[])), String.(get(d, "prerequisites", String[])),
                 String.(get(d, "outline", String[])), String.(get(d, "lessons", String[])), sections,
-                [load_problem(p) for p in get(d, "problem", Any[])], refs)
+                [load_problem(p) for p in get(d, "problem", Any[])], refs,
+                [load_placement(p, d["id"]) for p in get(d, "placement", Any[])])
+end
+
+function load_placement(p, uid)
+    q = load_question(merge(Dict{String,Any}("kind" => "output"), p))
+    return Placement(q, unique(vcat(String.(get(p, "covers", String[])), [String(uid)])))
 end
 
 """All units in syllabus order (file names start with a sortable number)."""
@@ -1123,6 +1147,14 @@ function validate_courses(courses::Vector{CourseInfo}, units::Vector{Unit};
         for id in c.units
             haskey(byid, id) || push!(problems, "course $(c.id): no unit $id")
         end
+        # placement items cover their own unit and earlier units of the same course
+        for (k, id) in enumerate(c.units), (i, pl) in enumerate(haskey(byid, id) ? byid[id].placement : Placement[])
+            for v in pl.covers
+                j = findfirst(==(v), c.units)
+                j === nothing && (push!(problems, "$id placement $i: covers $v, which is not a unit of course $(c.id)"); continue)
+                j <= k || push!(problems, "$id placement $i: covers $v, which comes after $id in course $(c.id)")
+            end
+        end
         known = filter(id -> haskey(byid, id), c.units)
         issorted(known; by = id -> global_order[id]) ||
             push!(problems, "course $(c.id): units must be listed in syllabus order")
@@ -1227,6 +1259,17 @@ function question_problems(q::Question)
     else
         isempty(q.shows) || push!(out, "`shows` belongs to error questions only")
     end
+    return out
+end
+
+"""
+What is structurally wrong with a placement item: it is an `output` question
+(predict the output; the key is measured when the unit is recorded).
+`covers` is checked against the course in `validate_courses`.
+"""
+function placement_problems(p::Placement)
+    out = question_problems(p.q)
+    p.q.kind == "output" || push!(out, "a placement item is an output question (kind = \"output\")")
     return out
 end
 
@@ -2052,6 +2095,9 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
                 append!(problems, ["$(u.id) '$(s.title)' explorer: $m" for m in explorer_problems(e.explore, e, u.kcs)])
             e.race === nothing ||
                 append!(problems, ["$(u.id) '$(s.title)' race: $m" for m in race_problems(e.race, e, u.kcs)])
+        end
+        for (i, pl) in enumerate(u.placement)
+            append!(problems, ["$(u.id) placement $i: $m" for m in placement_problems(pl)])
         end
         for s in u.sections, (i, q) in enumerate(s.questions)
             append!(problems, ["$(u.id) '$(s.title)' question $i: $m" for m in question_problems(q)])

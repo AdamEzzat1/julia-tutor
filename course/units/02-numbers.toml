@@ -534,3 +534,24 @@ end
 mean_int(v) = sum(float, v) / length(v)
 '''
   expect = ["correct", "fast"]
+
+[[placement]]
+covers = ["01-first-steps"]
+prompt = "What does this print?"
+code = '''
+typeof(7 / 2), 7 ÷ 2
+'''
+choices = [
+  "(Int64, 3)",
+  "(Float64, 3)",
+  "(Float64, 3.5)",
+  "(Rational{Int64}, 3)",
+]
+answer = 2
+explain = "`/` always returns a floating-point number, even for two integers; `÷` (`div`) is integer division and drops the fraction."
+misconceptions = [
+  "`/` on integers is not integer division in Julia: `7 / 2` is `3.5`, a `Float64`.",
+  "",
+  "`÷` is integer division: it drops the fraction, so `7 ÷ 2` is `3`.",
+  "Rationals are built with `//` (`7 // 2`); `/` gives a `Float64`.",
+]

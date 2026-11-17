@@ -15,6 +15,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "02-numbers",
         "14-performance",
@@ -802,6 +803,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "24-differential-equations",
         "30-floating-point"
@@ -1620,6 +1622,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "14-performance",
         "20-stdlib-tour",
@@ -2183,6 +2186,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "30-floating-point",
         "32-dense-linear-algebra"
@@ -2762,6 +2766,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "07-broadcasting",
         "14-performance",
@@ -3520,6 +3525,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives",
         "24-differential-equations",
@@ -4191,6 +4197,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives",
         "24-differential-equations",
@@ -4794,6 +4801,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "24-differential-equations",
         "31-convergence"
@@ -5350,6 +5358,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "25-optimization",
         "32-dense-linear-algebra"
@@ -5811,6 +5820,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "25-optimization",
         "38-constrained-optimization"
@@ -6287,6 +6297,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "14-performance",
         "18-concurrency",
@@ -6894,6 +6905,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "24-differential-equations",
         "31-convergence",
@@ -7456,6 +7468,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "36-daes",
         "38-constrained-optimization",

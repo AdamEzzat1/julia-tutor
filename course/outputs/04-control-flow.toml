@@ -21,6 +21,10 @@ output = """negative\nodd\n"""
 ok = true
 output = """(3.0, NaN)\n"""
 
+[examples.940d12b914b33fa6]
+ok = true
+output = """(\"big\", \"fallback\")\n"""
+
 [examples.9e34f93d7603076d]
 ok = false
 output = """ERROR: UndefVarError: `sq` not defined\n  @ top level at line 4\n"""

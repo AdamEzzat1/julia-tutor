@@ -15,6 +15,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives",
         "24-differential-equations",
@@ -467,6 +468,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives",
         "26-machine-learning",
@@ -1021,6 +1023,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "24-differential-equations",
         "32-dense-linear-algebra",
@@ -1476,6 +1479,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "30-floating-point",
         "31-convergence",
@@ -1962,6 +1966,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives",
         "26-machine-learning",
@@ -2404,6 +2409,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "31-convergence",
         "34-pde-discretization",

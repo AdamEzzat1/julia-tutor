@@ -5,6 +5,10 @@ verified_on = "1.10.13"
 ok = true
 output = """3 2 1 \n[4, 3, 2, 1] 55 5\n[6, 4, 2] [9, 8] [(2, 'a'), (1, 'b')]\n"""
 
+[examples.3e81b67369828f30]
+ok = true
+output = """(6, 3)\n"""
+
 [examples.5176a12282b66c6b]
 ok = true
 output = """1 2 true\n[0, 10, 0, 0, 0] 2\n5-element OneHot:\n 0\n 1\n 0\n 0\n 0\n"""

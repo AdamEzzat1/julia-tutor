@@ -21,6 +21,10 @@ output = """ERROR: MethodError: combine(::Int64, ::Int64) is ambiguous.\n\nCandi
 ok = false
 output = """(1.0, 2.5) (1//1, 2//3) Float64\n3.0 3\nERROR: InexactError: Int64(3.5)\n  @ top-level scope at line 3\n"""
 
+[examples.58ee0bd8ecf5e81b]
+ok = true
+output = """(\"int first\", \"numbers\")\n"""
+
 [examples.693df6718a181138]
 ok = true
 output = """\"both ints\"\n"""

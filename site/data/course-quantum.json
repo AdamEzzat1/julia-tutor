@@ -13,6 +13,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "06-collections",
         "20-stdlib-tour"
@@ -509,6 +510,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "49-quantum-states"
       ],
@@ -955,6 +957,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "50-qubit-order"
       ],
@@ -1438,6 +1441,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "51-gates-bloch"
       ],
@@ -1940,6 +1944,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "52-applying-gates"
       ],
@@ -2421,6 +2426,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "53-entanglement-chsh"
       ],
@@ -2857,6 +2863,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "54-measurement-teleportation"
       ],
@@ -3285,6 +3292,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "55-oracles"
       ],
@@ -3728,6 +3736,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "56-grover"
       ],
@@ -4121,6 +4130,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "57-qft"
       ],
@@ -4500,6 +4510,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "58-phase-estimation"
       ],
@@ -4945,6 +4956,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "59-noise-density-matrices"
       ],
@@ -5346,6 +5358,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "60-variational"
       ],

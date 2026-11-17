@@ -16,6 +16,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "20-stdlib-tour"
       ],
@@ -1086,6 +1087,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "21-dataframes"
       ],
@@ -1948,6 +1950,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "15-generic-programming"
       ],
@@ -2833,6 +2836,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives"
       ],
@@ -3621,6 +3625,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives"
       ],
@@ -4521,6 +4526,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "25-optimization"
       ],
@@ -5382,6 +5388,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "26-machine-learning"
       ],
@@ -6219,6 +6226,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "14-performance"
       ],
@@ -6982,6 +6990,7 @@
         "Continuous integration and registering a package in the General registry",
         "Needs: the sandbox to run a multi-file project, not one file"
       ],
+      "placement": [],
       "prerequisites": [
         "12-modules"
       ],

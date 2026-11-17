@@ -170,6 +170,43 @@ P_with(; compare = "isequal", checker = "", packages = String[]) =
     @test any(contains("not in course/envs"), bad(P_with(packages = ["Flux"])))
 end
 
+@testset "placement check: items, covers and measured keys" begin
+    units = Course.load_course()
+    courses = Course.load_courses()
+    byid = Dict(u.id => u for u in units)
+    # the core check: 12 output items, each covering its own unit
+    core = filter(u -> u.id in courses[1].units, units)
+    @test sum(u -> length(u.placement), core) == 12
+    @test all(pl.q.kind == "output" for u in core for pl in u.placement)
+    @test all(u -> all(pl -> u.id in pl.covers, u.placement), units)
+    @test byid["02-numbers"].placement[1].covers == ["01-first-steps", "02-numbers"]   # own unit added last
+    # loading: kind defaults to output, the unit is added to covers once
+    pl = Course.load_placement(Dict{String,Any}("prompt" => "p", "code" => "1", "choices" => ["1", "2"], "answer" => 1,
+                                                "explain" => "e", "misconceptions" => ["", "m"], "covers" => ["u"]), "u")
+    @test pl.q.kind == "output" && pl.covers == ["u"]
+    @test Course.placement_problems(pl) == String[]
+    choice = Course.Placement(Course.Question("choice", "p", "", ["a", "b"], 1, "e", ["", "m"]), ["u"])
+    @test any(contains("output question"), Course.placement_problems(choice))
+    # covers: units of the same course, at or before the item's unit
+    with(u, covers) = Course.Unit(u.id, u.title, u.track, u.env, u.status, u.summary, u.kcs, u.prerequisites, u.outline,
+                                  u.lessons, u.sections, u.problems, u.references, [Course.Placement(pl.q, covers)])
+    swapped(id, covers) = [u.id == id ? with(u, covers) : u for u in units]
+    has(msg, us) = any(contains(msg), Course.validate_courses(courses, us))
+    @test !has("placement", swapped("05-functions", ["04-control-flow", "05-functions"]))
+    @test has("comes after 05-functions", swapped("05-functions", ["06-collections", "05-functions"]))
+    @test has("not a unit of course core", swapped("05-functions", ["35-stiffness", "05-functions"]))
+    # verify checks a placement item's key against the recorded output, like an output question
+    u = with(byid["05-functions"], ["05-functions"])
+    u = Course.Unit(u.id, u.title, u.track, u.env, u.status, u.summary, u.kcs, u.prerequisites, u.outline, u.lessons,
+                    Course.Section[], u.problems, u.references, u.placement)
+    k = Course.example_key("1", "repl")
+    @test ("1", "repl") in Course.recorded_code(u)
+    @test Practice.question_key_problems(u, Dict("examples" => Dict(k => Dict("output" => "1\n")))) == String[]
+    @test any(contains("placement 1: the answer is not"),
+              Practice.question_key_problems(u, Dict("examples" => Dict(k => Dict("output" => "2\n")))))
+    @test any(contains("placement 1: its code was not run"), Practice.question_key_problems(u, Dict("examples" => Dict())))
+end
+
 @testset "predict, then run: the key is read from the recorded output" begin
     Pr(; kc = "k", measure = raw"order (\S+)", choices = ["about 4", "below 3.5"], ranges = [(3.95, Inf), (-Inf, 3.5)],
        values = String[], answer = 2) = Course.Prediction(kc, "What order?", measure, choices, ranges, values, answer, "why")

@@ -510,3 +510,25 @@ venue = "SIAM Review 59"
 year = 2017
 url = "https://arxiv.org/abs/1411.1607"
 note = "The design paper of Julia by its creators. It presents multiple dispatch, picking a method from the types of the arguments, as a main idea of the language, as stated in the first section of this unit."
+
+[[placement]]
+prompt = "What does this print?"
+code = '''
+g(::Number, ::Number) = "numbers"
+g(::Int, ::Number) = "int first"
+g(1, 2.0), g(2.0, 1)
+'''
+choices = [
+  "(\"numbers\", \"numbers\")",
+  "(\"int first\", \"numbers\")",
+  "(\"int first\", \"int first\")",
+  "(\"numbers\", \"int first\")",
+]
+answer = 2
+explain = "Julia picks the most specific method that matches every argument. `g(1, 2.0)` matches both, and `(Int, Number)` is more specific. `g(2.0, 1)` has a `Float64` first, so only `(Number, Number)` matches."
+misconceptions = [
+  "When both methods match, the more specific one, `(Int, Number)`, wins.",
+  "",
+  "Dispatch looks at each argument's position: in `g(2.0, 1)` the `Int` is second, which `(Int, Number)` does not accept.",
+  "This swaps the calls: the `Int` comes first in `g(1, 2.0)`, so that is the call `(Int, Number)` matches.",
+]

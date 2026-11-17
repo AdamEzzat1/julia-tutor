@@ -634,23 +634,25 @@ choice must equal it (trailing whitespace aside) and no other choice may.
 """
 function question_key_problems(u::Course.Unit, rec)
     out = String[]
-    for (i, q) in enumerate(Course.questions(u))
+    labelled = vcat([("question $i", q) for (i, q) in enumerate(Course.questions(u))],
+                    [("placement $i", p.q) for (i, p) in enumerate(u.placement)])
+    for (label, q) in labelled
         q.kind in Course.RECORDED_KINDS || continue
         r = get(rec["examples"], Course.example_key(q.code, "repl"), nothing)
-        r === nothing && (push!(out, "$(u.id) question $i: its code was not run"); continue)
+        r === nothing && (push!(out, "$(u.id) $label: its code was not run"); continue)
         if q.kind == "error"
             # An error question is about the message Julia printed: it must be in the output.
             Course.shows_message(q, r["output"]) ||
-                push!(out, "$(u.id) question $i: no ERROR or Warning line of the output contains `shows` " *
+                push!(out, "$(u.id) $label: no ERROR or Warning line of the output contains `shows` " *
                            "($(repr(q.shows)))\n--- output\n$(rstrip(r["output"]))")
             continue
         end
         got = rstrip(r["output"])
         comparable(q.choices[q.answer]) == comparable(got) ||
-            push!(out, "$(u.id) question $i: the answer is not the code's output\n--- answer\n$(q.choices[q.answer])\n--- output\n$got")
+            push!(out, "$(u.id) $label: the answer is not the code's output\n--- answer\n$(q.choices[q.answer])\n--- output\n$got")
         # (no matching choice at all is the message above: the answer is not the output)
         count(c -> comparable(c) == comparable(got), q.choices) > 1 &&
-            push!(out, "$(u.id) question $i: more than one choice equals the output")
+            push!(out, "$(u.id) $label: more than one choice equals the output")
     end
     return out
 end
@@ -792,7 +794,7 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
         for (k, v) in rec["examples"]
             old = get(get(stored, "examples", Dict()), k, nothing)
             checkable = any(e -> Course.example_key(e.code, e.mode) == k && e.check, (e for s in u.sections for e in s.examples)) ||
-                        any(q -> q.kind in Course.RECORDED_KINDS && Course.example_key(q.code, "repl") == k, Course.questions(u))
+                        any(q -> Course.example_key(q.code, "repl") == k, Course.recorded_questions(u))
             if old === nothing
                 push!(problems, "$(u.id): example $k has no recorded output")
             elseif checkable && !same_example(old, v)

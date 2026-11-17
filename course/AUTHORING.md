@@ -275,6 +275,47 @@ n = Int(steps)
 * `site-data` exports the question with its message only when `verify`
   would accept it; otherwise the site leaves the question out.
 
+## Placement check
+
+**Learning purpose.** A learner who already knows some Julia should not have
+to read units they could teach. A course's placement check is a short run of
+predict-the-output questions, one pick each, scored once; the site then lists
+each unit as *can skip* (every question covering it was right), *study* (one
+was missed) or *not checked* (no question covers it). A miss outweighs any
+number of hits on purpose: a wrong "skip" costs the learner a unit they
+needed, a wrong "study" only a re-read.
+
+Each item lives in the unit it tests, at the top level of the unit file:
+
+```toml
+[[placement]]
+covers = ["01-first-steps"]      # optional: earlier units of the same course
+prompt = "What does this print?"
+code = '''
+typeof(7 / 2), 7 ÷ 2
+'''
+choices = ["(Int64, 3)", "(Float64, 3)", "(Float64, 3.5)", "(Rational{Int64}, 3)"]
+answer = 2
+explain = "..."
+misconceptions = ["...", "", "...", "..."]
+```
+
+* An item is an `output` question (`kind` defaults to `"output"`; any other
+  kind is an error): `record` runs its code, and `verify` requires the answer
+  to be the recorded output and no other choice to be. `site-data` exports
+  only items whose key holds.
+* `covers` always includes the item's own unit; list an earlier unit only
+  when the snippet cannot be answered without it (`verify` rejects a unit of
+  another course or a later one).
+* Test the idea a learner would skip the unit for, not a corner of it: the
+  snippet should be answerable in under a minute by someone who knows the
+  unit, and misread in a specific way by someone who does not. Each wrong
+  choice is one of those misreadings, with its misconception.
+* Aim for about 10 to 15 items per course. Units with no item are reported
+  as *not checked*, never as skippable; say so rather than stretching an
+  item to cover a unit it does not test.
+* Answers stay in the visitor's browser (`julia-tutor/placement/v1`).
+
 ## Predict, then run
 
 **Learning purpose.** A prediction made before seeing a result tests the

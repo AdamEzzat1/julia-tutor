@@ -25,6 +25,10 @@ output = """9 27\n2.3 m, 2.35 m, 2.3 km\n"""
 ok = true
 output = """7 4.0 5//3 200000000000000000001\nInt64 Float64 Rational{Int64}\n"""
 
+[examples.9cc95a406e730e4a]
+ok = true
+output = """(2, 1)\n"""
+
 [examples.ad52c6d91491022e]
 ok = true
 output = """lo = 1, hi = 8, avg = 5.0\n8\n(1, 2, 1.5)\n"""

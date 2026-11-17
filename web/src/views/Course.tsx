@@ -20,6 +20,8 @@ import { loadProgress, saveProgress, type Progress } from "../progress";
 import { addMiss, dueCards, loadReviews, nextDue, predictionReviewKey, questionReviewKey, saveReviews, seed, settleReview, type Reviews } from "../review";
 import { todayISO } from "../storage";
 import { ReviewPanel } from "./Review";
+import { PlacementPanel } from "./Placement";
+import { checkItems, clearCourse, loadPlacement, savePlacement, settlePlacement, verdicts, type PlacementAnswers } from "../placement";
 import { bestLadder, ladderTotals, type LadderRecord } from "../ladder";
 import { gradeCode, runCode, useServer, type GradeResult, type RunResult } from "../server";
 
@@ -94,6 +96,13 @@ export function CourseView() {
   };
   const today = todayISO();
   const due = dueCards(reviews, units, today);
+  // Placement answers: one pick per item, the first kept; a retake clears this course's only.
+  const [placement, setPlacement] = useState<PlacementAnswers>(loadPlacement);
+  const placed = (key: string, pick: number) => {
+    const c = checkItems(units).find((x) => x.key === key);
+    if (c) setPlacement((a) => a[key] ? a : savePlacement({ ...a, [key]: settlePlacement(c.item, pick) }));
+  };
+  const placeVerdicts = verdicts(units, placement);
   // A method choice too: the first record (pick, reason, verdict) is kept.
   const chose = (key: string, r: ChoiceRecord) =>
     setProgress((s) => s.choices[key] ? s : saveProgress({ ...s, choices: { ...s.choices, [key]: r } }));
@@ -136,6 +145,7 @@ export function CourseView() {
                 <button key={u.id} aria-current={u.id === unit?.id} onClick={() => go(u.id)} className={u.status === "planned" ? "planned" : ""}>
                   <span className="s">
                     {unitNumber(u.id)} · {u.status === "planned" ? "planned" : `${done}/${u.problems.length} solved`}
+                    {placeVerdicts[u.id] === "skip" ? " · can skip" : ""}
                   </span>
                   <span className="t">{u.title.split(/:\s/)[0]}</span>
                 </button>
@@ -148,6 +158,10 @@ export function CourseView() {
         {unit === null && (
           <ReviewPanel key={active.id} cards={due.cards} stale={due.stale.length} next={nextDue(reviews, today, units)} units={units}
             onSettle={reviewed} go={(u) => go(u)} />
+        )}
+        {unit === null && (
+          <PlacementPanel key={`p-${active.id}`} units={units} answers={placement} onAnswer={placed}
+            onRetake={() => setPlacement((a) => savePlacement(clearCourse(a, units)))} go={(u) => go(u)} />
         )}
         {unit === null ? <Overview c={active} progress={progress} go={go} /> :
           <UnitPage key={unit.id} unit={unit} problemId={problemId} progress={progress}

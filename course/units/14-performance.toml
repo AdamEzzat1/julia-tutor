@@ -1115,3 +1115,24 @@ venue = "SIAM Review 59(1)"
 year = 2017
 url = "https://arxiv.org/abs/1411.1607"
 note = "Describes the dataflow type inference that works out the type of each expression from the argument types, the mechanism that type stability (section 2) depends on."
+
+[[placement]]
+prompt = "What does this print?"
+code = '''
+f(x) = x > 0 ? x : 0.0
+Base.return_types(f, (Int,))
+'''
+choices = [
+  "1-element Vector{Any}:\n Int64",
+  "1-element Vector{Any}:\n Union{Float64, Int64}",
+  "1-element Vector{Any}:\n Float64",
+  "1-element Vector{Any}:\n Any",
+]
+answer = 2
+explain = "One branch returns the `Int` argument and the other `0.0`, so inference can only say the result is one of the two: a small `Union`. That is type instability, and it comes from the literal `0.0`; `zero(x)` would keep the type."
+misconceptions = [
+  "The `0.0` branch returns a `Float64`, so `Int64` alone does not cover every return.",
+  "",
+  "Julia does not convert the `x` branch to `Float64`: each branch returns its own type.",
+  "Inference keeps both possibilities as a small `Union`; it gives up to `Any` only when there are too many.",
+]

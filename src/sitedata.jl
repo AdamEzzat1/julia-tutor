@@ -13,6 +13,7 @@ module SiteData
 
 using TOML
 using ..Checker, ..Scaffold, ..HoleMap, ..Lessons, ..Fixtures, ..Course
+import ..Practice
 using ..JSON: to_json
 
 export site_data, course_data, to_json
@@ -281,12 +282,26 @@ function course_data()
                             (p.parsons === nothing ? Pair{String,Any}[] :
                                 ["parsons" => parsons_data(p, get(get(rec, "parsons", Dict()), p.id, String[]))])...)
                        for p in u.problems]
+        # placement items whose key holds (the answer is the recorded output and no other choice
+        # is), as verify checks it; an item whose key fails is left out, like such a prediction
+        placement = Any[]
+        for pl in u.placement
+            r = get(exs, Course.example_key(pl.q.code, "repl"), nothing)
+            r === nothing && continue
+            got = Practice.comparable(r["output"])
+            (Practice.comparable(pl.q.choices[pl.q.answer]) == got &&
+                count(c -> Practice.comparable(c) == got, pl.q.choices) == 1) || continue
+            push!(placement, Dict("prompt" => strip(pl.q.prompt), "code" => rstrip(pl.q.code),
+                                  "choices" => pl.q.choices, "answer" => pl.q.answer,
+                                  "explain" => strip(pl.q.explain), "misconceptions" => pl.q.misconceptions,
+                                  "covers" => pl.covers, "output" => rstrip(r["output"])))
+        end
         # prerequisites as unit ids (unique across courses); each unit says its course
         push!(out, Dict("id" => u.id, "title" => u.title, "track" => u.track, "env" => u.env,
                         "course" => get(cidx, u.id, nothing),
                         "status" => u.status, "summary" => strip(u.summary), "kcs" => u.kcs,
                         "prerequisites" => Course.prereq_unit.(u.prerequisites), "outline" => u.outline, "lessons" => u.lessons,
-                        "sections" => sections, "problems" => problems,
+                        "sections" => sections, "problems" => problems, "placement" => placement,
                         "references" => Any[Dict("id" => r.id, "authors" => r.authors, "title" => r.title, "venue" => r.venue,
                                                  "year" => r.year, "url" => r.url, "note" => strip(r.note)) for r in u.references]))
     end

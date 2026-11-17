@@ -271,6 +271,25 @@ export interface Unit {
   sections: Section[];
   problems: Problem[];
   references?: Reference[];
+  /** placement items (placement.ts); only those whose key matched the recorded output are exported */
+  placement?: PlacementItem[];
+}
+
+/**
+ * A placement item: a predict-the-output question in the unit it tests. Right
+ * on its one pick, it suggests skipping every unit in `covers` (its own unit,
+ * and possibly earlier units of the same course).
+ */
+export interface PlacementItem {
+  prompt: string;
+  code: string;
+  choices: string[];
+  answer: number; // 1-based; choices[answer - 1] is the recorded output
+  explain: string;
+  misconceptions: string[];
+  covers: string[];
+  /** the recorded output */
+  output: string;
 }
 
 export type CourseStatus = "ready" | "in-progress" | "planned";

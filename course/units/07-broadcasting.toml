@@ -450,3 +450,28 @@ function max_abs_diff(x, y)
 end
 '''
   expect = ["correct", "fast"]
+
+[[placement]]
+covers = ["06-collections"]
+prompt = "What does this print?"
+code = '''
+a = [1, 2, 3]
+b = a
+b[1] = 10
+c = a .* 2
+(a, c)
+'''
+choices = [
+  "([1, 2, 3], [2, 4, 6])",
+  "([10, 2, 3], [2, 4, 6])",
+  "([1, 2, 3], [20, 4, 6])",
+  "([10, 2, 3], [20, 4, 6])",
+]
+answer = 4
+explain = "`b = a` binds a second name to the same array, so `b[1] = 10` changes `a`. `a .* 2` then builds a new array from the changed `a`."
+misconceptions = [
+  "`b = a` does not copy: both names refer to one array, so writing through `b` changes `a`.",
+  "`c` is computed after `b[1] = 10`, from the array as it is then, so its first element is `20`.",
+  "`a` and `b` are the same array: if `c` sees the change, so does `a`.",
+  "",
+]

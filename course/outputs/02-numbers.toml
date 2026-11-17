@@ -25,6 +25,10 @@ output = """9223372036854775807\n-9223372036854775808\n-9223372036854775808\n-92
 ok = true
 output = """0.30000000000000004\nfalse\ntrue\nfalse\ntrue\n2.220446049250313e-16\n"""
 
+[examples.44a4c18a3cf7aa6b]
+ok = true
+output = """(Float64, 3)\n"""
+
 [examples.737fe667448d47fa]
 ok = true
 output = """1//2 Rational{Int64}\ntrue\n3 4\n"""

@@ -584,3 +584,23 @@ end
 total_kinetic(masses, speeds) = sum(b -> 0.5 * b.m * b.v^2, [Body(m, v) for (m, v) in zip(masses, speeds)]; init = 0.0)
 '''
   expect = ["correct", "fast"]
+
+[[placement]]
+prompt = "What does this print?"
+code = '''
+typeof([1, 2.5]), isconcretetype(Real)
+'''
+choices = [
+  "(Vector{Real}, false)",
+  "(Vector{Float64}, false)",
+  "(Vector{Any}, true)",
+  "(Vector{Float64}, true)",
+]
+answer = 2
+explain = "An array literal promotes its elements to a common type, so `1` becomes `1.0` and the array is a `Vector{Float64}`. `Real` is abstract: no value has type exactly `Real`."
+misconceptions = [
+  "The literal promotes to a common concrete type, `Float64`; it does not keep an abstract element type.",
+  "",
+  "Promotion finds `Float64` for `Int` and `Float64`, so no `Any` is needed; and `Real` is abstract.",
+  "`Real` is an abstract type: values are `Int64`, `Float64` and so on, never exactly `Real`.",
+]
