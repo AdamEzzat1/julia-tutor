@@ -17,6 +17,9 @@ import { breakRates, juliaNumber, parseValue, probeCode, readProbe, settleBreak,
 import { drawable, extent, juliaValue, lines, localSlope, pointText, scale, settleExplore, startSelection, ticks, valueAt, type ExploreRecord, type Selection } from "../explore";
 import { assemble, bumpParsons, displayOrder, parsonsFeedback, parsonsRates, unitParsons, type ParsonsFeedback, type ParsonsRecord } from "../parsons";
 import { loadProgress, saveProgress, type Progress } from "../progress";
+import { addMiss, dueCards, loadReviews, nextDue, predictionReviewKey, questionReviewKey, saveReviews, seed, settleReview, type Reviews } from "../review";
+import { todayISO } from "../storage";
+import { ReviewPanel } from "./Review";
 import { bestLadder, ladderTotals, type LadderRecord } from "../ladder";
 import { gradeCode, runCode, useServer, type GradeResult, type RunResult } from "../server";
 
@@ -43,6 +46,8 @@ export function CourseView() {
   const [problemId, setProblemId] = useState<string | null>(() => readParams().problem);
   const [courseId, setCourseId] = useState<string>(() => readParams().course ?? course.courses[0].id);
   const [progress, setProgress] = useState<Progress>(loadProgress);
+  // Missed questions from progress saved before the review queue existed are queued once, due today.
+  const [reviews, setReviews] = useState<Reviews>(() => saveReviews(seed(loadReviews(), loadProgress(), todayISO())));
   const unit = course.units.find((u) => u.id === unitId) ?? null;
   // The syllabus shows one course: the open unit's, else the chosen one.
   const active = courseById(unit?.course ?? courseId) ?? course.courses[0];
@@ -69,12 +74,26 @@ export function CourseView() {
       return saveProgress({ ...s, solved: { ...s.solved, [pid]: best }, ladder });
     });
   // The first settlement of a question is the one kept (a reload must not turn "later" into "first-try").
-  const answered = (key: string, firstTry: boolean) =>
+  const answered = (key: string, firstTry: boolean) => {
+    // a first settlement that missed queues the question for review tomorrow (review.ts)
+    if (!progress.questions[key] && !firstTry) setReviews((r) => saveReviews(addMiss(r, questionReviewKey(key), todayISO())));
     setProgress((s) => s.questions[key] ? s :
       saveProgress({ ...s, questions: { ...s.questions, [key]: firstTry ? "first-try" : "later" } }));
+  };
   // A prediction is committed once: the first record is kept, never replaced.
-  const predicted = (key: string, r: PredictionRecord) =>
+  const predicted = (key: string, r: PredictionRecord) => {
+    if (!progress.predictions[key] && r.pick > 0 && !r.hit)
+      setReviews((rv) => saveReviews(addMiss(rv, predictionReviewKey(key), todayISO())));
     setProgress((s) => s.predictions[key] ? s : saveProgress({ ...s, predictions: { ...s.predictions, [key]: r } }));
+  };
+  // A review: score it with SM-2 and return the date it is next due.
+  const reviewed = (key: string, recalled: boolean) => {
+    const next = settleReview(reviews, key, recalled, todayISO());
+    setReviews(saveReviews(next));
+    return next[key].due;
+  };
+  const today = todayISO();
+  const due = dueCards(reviews, units, today);
   // A method choice too: the first record (pick, reason, verdict) is kept.
   const chose = (key: string, r: ChoiceRecord) =>
     setProgress((s) => s.choices[key] ? s : saveProgress({ ...s, choices: { ...s.choices, [key]: r } }));
@@ -105,7 +124,7 @@ export function CourseView() {
           ))}
         </div>
         <button aria-current={unit === null} onClick={() => go(null)}>
-          <span className="s">{units.filter((u) => u.status === "ready").length} units ready · {active.problems} problems{statusNote(active) ? ` · ${statusNote(active)}` : ""}</span>
+          <span className="s">{units.filter((u) => u.status === "ready").length} units ready · {active.problems} problems{statusNote(active) ? ` · ${statusNote(active)}` : ""}{due.cards.length ? ` · ${due.cards.length} review${due.cards.length === 1 ? "" : "s"} due` : ""}</span>
           <span className="t">{active.title}: overview</span>
         </button>
         {tracksOf(active).map((t) => (
@@ -126,6 +145,10 @@ export function CourseView() {
         ))}
       </nav>
       <div className="jt-grid" style={{ gap: "1.1rem" }}>
+        {unit === null && (
+          <ReviewPanel key={active.id} cards={due.cards} stale={due.stale.length} next={nextDue(reviews, today, units)} units={units}
+            onSettle={reviewed} go={(u) => go(u)} />
+        )}
         {unit === null ? <Overview c={active} progress={progress} go={go} /> :
           <UnitPage key={unit.id} unit={unit} problemId={problemId} progress={progress}
             openProblem={(p) => { setProblemId(p); writeParams(unit.id, p, active.id); }} onSolved={solved}
