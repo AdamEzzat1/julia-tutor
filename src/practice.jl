@@ -819,8 +819,10 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
     for p in u.problems
         # "fast" only exists when there is a performance section to measure.
         ref_expect = p.perf === nothing ? ["correct"] : ["correct", "fast"]
+        # A performance bug's starter is correct by design: check its declared verdicts instead.
+        perf_bug = p.bug !== nothing && !isempty(p.bug.starter_expect)
         jobs = Tuple{String,String,Vector{String}}[("reference", p.reference, ref_expect),
-                                                   ("starter", p.starter, String[])]
+                                                   ("starter", p.starter, perf_bug ? p.bug.starter_expect : String[])]
         append!(jobs, [(v.label, v.code, v.expect) for v in p.variants])
         # Sequential: performance verdicts are measured, and parallel runs would
         # compete for the CPU. Each run is still self-relative (learner vs reference).
@@ -838,7 +840,7 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
                 println(log, "  ", rpad(p.id * "/" * label, 46), "  ", r["status"], "  ", join(r["verdicts"], ","),
                         ratio_note(r), "  (re-measured: '", join(missing_perf, "', '"), "' was missing)")
             end
-            label == "starter" && r["status"] == "passed" &&
+            label == "starter" && r["status"] == "passed" && !perf_bug &&
                 push!(problems, "$(p.id): the starter already passes (the problem is trivial)")
             r["status"] == "internal-error" && push!(problems, "$(p.id): $(r["feedback"][1]["detail"])")
             for x in expect

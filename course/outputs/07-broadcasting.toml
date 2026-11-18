@@ -41,6 +41,19 @@ output = """Bool[0, 1, 0]\nERROR: DimensionMismatch: arrays could not be broadca
 ok = true
 output = """[6, -2, 8, -2, 10] [3, 4, 5]\n10 14 -8 -2\n52 1 true false\n3\n"""
 
+[[samples.damped-step-find-the-allocation]]
+call = "damped_step!([0.0, 1.0], [1.0, -1.0], [0.5, 0.0], 0.1, 0.2)"
+result = """2-element Vector{Float64}:\n 0.10300000000000001\n 0.902"""
+[[samples.damped-step-find-the-allocation]]
+call = "damped_step!([2.0], [0.0], [-9.81], 0.01, 0.0)"
+result = """1-element Vector{Float64}:\n 1.999019"""
+[[samples.damped-step-find-the-allocation]]
+call = "damped_step!(Float64[], Float64[], Float64[], 0.5, 1.0)"
+result = "Float64[]"
+[[samples.damped-step-find-the-allocation]]
+call = "damped_step!([1.0, 2.0, 3.0], [3.0, 2.0, 1.0], [0.0, 0.0, 0.0], 1.0, 0.5)"
+result = """3-element Vector{Float64}:\n 2.5\n 3.0\n 3.5"""
+
 [[samples.fused-polynomial]]
 call = "poly3([0.0, 1.0, 2.0])"
 result = """3-element Vector{Float64}:\n  1.0\n  6.0\n 17.0"""

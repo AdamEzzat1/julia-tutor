@@ -462,3 +462,142 @@ venue = "Proceedings of the ACM on Programming Languages 4 (OOPSLA)"
 year = 2020
 url = "https://doi.org/10.1145/3428275"
 note = "Gives the formal semantics of world age, shows how it keeps inlining valid in the presence of eval, and studies how packages bypass it with invokelatest (section 4)."
+
+[[problem]]
+id = "rms-find-the-instability"
+title = "Find the bug: a type instability `@inferred` cannot see"
+difficulty = "core"
+kcs = ["type-inference", "code-introspection"]
+entry = "rms"
+prompt = '''
+`rms(v)` returns the root mean square of a non-empty vector of `Float64`s:
+the square root of the mean of the squares. The code in the editor gives
+the right answer, allocates nothing, and its inferred return type is a
+concrete `Float64`, so `@inferred rms(v)` passes. The grader still reports
+it as type-unstable: one line gives a variable two possible types.
+
+Find it and fix it; change nothing else. The measurement tests ask the
+compiler what it inferred, with `Base.return_types` and with
+`Base.code_typed` (unoptimized, so each local variable keeps its own
+inferred type), and count the bytes one call allocates.
+
+```julia
+rms([3.0, 4.0])   # 3.5355339059327378
+```
+
+Results are compared with `rtol = 1e-12`.
+'''
+reference = '''
+function rms(v)
+    s = zero(eltype(v))
+    for x in v
+        s += x^2
+    end
+    return sqrt(s / length(v))
+end
+'''
+cases = ["[3.0, 4.0]", "[1.0]", "[-2.0, 2.0, -2.0, 2.0]", "[0.5, 1.5, 2.5]"]
+gen = "rng -> [(randn(rng, rand(rng, 1:30)),) for _ in 1:20]"
+compare = "isapprox"
+# rtol: the planted and the fixed code add the same squares in the same order (0 + x^2 is exactly x^2),
+# so they agree to the bit; 1e-12 leaves room for a correct variant that sums in another order
+# (at most about n eps relative for n <= 30 positive terms).
+rtol = 1e-12
+hints = [
+  "The return type is concrete and nothing is allocated, but one local variable is not concrete. Which variable is assigned values of two different types over the run of the function?",
+  "The sum starts from a literal. What type does that literal have, and what type does it have after the first addition of a `Float64`? `eltype(v)` names the element type of `v`.",
+]
+
+  [problem.bug]
+  kc = "type-inference"
+  find = "s = zero(eltype(v))"
+  replace = "s = 0"
+  answer_tokens = ["eltype"]
+  starter_expect = ["correct", "unstable"]
+  misconception = '''
+`s = 0` starts the sum as an `Int`, and the first `s += x^2` makes it a
+`Float64`. The belief it models: a variable has one type, the type of the
+value it ends up holding. The compiler types a variable by every value any
+assignment can give it, so `s` is inferred as `Union{Float64, Int64}`. Here
+that costs no allocation (the compiler splits a small `Union` into two
+branches), and the return type is still `Float64`, because dividing either
+type by an `Int` gives a `Float64`: so `@inferred` and the allocation count
+both passed, and only the locals showed it. In a larger function the same
+`Union` spreads into every expression that uses `s`. Start an accumulator
+with the type it will hold: `zero(eltype(v))`.
+'''
+
+  [[problem.bug.test]]
+  name = "the inferred return type is concrete"
+  # expect: an indicator (1 = concrete, 0 = not), so [0.5, 1.5] means "concrete". Measured on the
+  # reference: Float64.
+  code = '''
+rt = only(Base.return_types(rms, (Vector{Float64},)))
+println("concrete return type: ", Int(isconcretetype(rt)))
+'''
+  row = '^concrete return type: (?<m>\S+)$'
+  expect = [0.5, 1.5]
+  explain = '''
+Whether the compiler can name one concrete type for the result of
+`rms(::Vector{Float64})`. This is what `@inferred` checks.
+'''
+
+  [[problem.bug.test]]
+  name = "local variables whose inferred type is not concrete"
+  # expect: a count of named locals and arguments (compiler temporaries, whose names are empty or start
+  # with '#', are left out); the reference has none (measured: v, s and x are all concrete), so [-0.5, 0.5]
+  # means "none".
+  code = '''
+ci = only(Base.code_typed(rms, (Vector{Float64},); optimize = false))[1]
+abstract_locals = count(zip(ci.slotnames, ci.slottypes)) do (name, T)
+    s = string(name)
+    !isempty(s) && !startswith(s, "#") && !isconcretetype(Core.Compiler.widenconst(T))
+end
+println("non-concrete locals: ", abstract_locals)
+'''
+  row = '^non-concrete locals: (?<m>\S+)$'
+  expect = [-0.5, 0.5]
+  explain = '''
+How many of the function's own variables the compiler could not give one
+concrete type. A variable typed as a `Union` counts: it means some
+assignment gives it a value of another type than the others.
+'''
+
+  [[problem.bug.test]]
+  name = "bytes allocated by one call on 1000 elements"
+  # expect: after a compiling call `@allocated` reads exact heap bytes; the reference reads 0, and any
+  # heap object is at least 16 bytes, so [-0.5, 0.5] means "exactly zero".
+  code = '''
+_bytes(v) = (rms(v); @allocated rms(v))
+println("bytes per call: ", _bytes(collect(1.0:1000.0)))
+'''
+  row = '^bytes per call: (?<m>\S+)$'
+  expect = [-0.5, 0.5]
+  explain = '''
+The bytes one call allocates. A loop over a vector that only adds numbers
+needs no heap memory.
+'''
+
+  [problem.perf]
+  args = "randn(rng, n)"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "takes the square root before dividing"
+  code = '''
+function rms(v)
+    s = zero(eltype(v))
+    for x in v
+        s += x^2
+    end
+    return sqrt(s) / length(v)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sum(abs2, v) instead of a loop"
+  code = '''
+rms(v) = sqrt(sum(abs2, v) / length(v))
+'''
+  expect = ["correct"]

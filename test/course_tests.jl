@@ -506,6 +506,20 @@ end
     @test !Course.bug_test_passes(t, 1.0) && !Course.bug_test_passes(t, nothing) && !Course.bug_test_passes(t, NaN)
     @test Course.bug_test_code("f(h) = h\n\n", t) == "f(h) = h\n\nprintln(\"order: \", f(1.0))"
 
+    # a performance bug: the planted starter's answers are right, so it declares the counted verdicts
+    # it must get instead (never timed ones), and it needs a perf section where they are measured
+    @test Bg().starter_expect == String[]
+    Bp(se) = Course.Bug("k", "a = h / 2", "a = h", [T()], "the belief", ["h / 2"], se)
+    Pp(b) = Course.Problem("p", "t", "core", ["k"], "", "f", something(Course.plant(ref, b), ""), ref, ["1.0"], "", "isequal",
+                           "", 1e-8, true, false, ["look at the scale"], Course.Perf("n", [10], false), Course.Variant[],
+                           1, 1, String[], b)
+    pprobs(se) = Course.bug_problems(Pp(Bp(se)), ["k"])
+    @test isempty(pprobs(["correct", "allocates"])) && isempty(pprobs(["correct", "allocates", "unstable"]))
+    @test any(contains("timed verdicts"), pprobs(["correct", "unstable", "slow"]))
+    @test any(contains("must include \"correct\""), pprobs(["allocates"]))
+    @test any(contains("\"allocates\" or \"unstable\""), pprobs(["correct"]))
+    @test any(contains("needs [problem.perf]"), probs(Bp(["correct", "allocates"])))
+
     # loading: a hand-written starter is refused, a generated one is the planted reference
     d = Dict("id" => "p", "title" => "t", "difficulty" => "core", "prompt" => "", "entry" => "f", "reference" => ref,
              "bug" => Dict("kc" => "k", "find" => "a = h / 2", "replace" => "a = h", "misconception" => "m",
@@ -514,6 +528,9 @@ end
     p = Course.load_problem(d)
     @test p.starter == Course.plant(ref, p.bug) && p.bug.tests[1].expect == (1.0, 2.0)
     @test Course.load_problem(merge(d, Dict("starter" => "f(h) = h"))).starter == Course.BUG_STARTER_GIVEN
+    @test p.bug.starter_expect == String[]
+    @test Course.load_problem(merge(d, Dict("bug" => merge(d["bug"], Dict("starter_expect" => ["correct", "unstable"]))))).bug.starter_expect ==
+          ["correct", "unstable"]
     @test Course.load_problem(merge(d, Dict("bug" => merge(d["bug"], Dict("test" => [Dict("expect" => [1])]))))).bug.tests[1].expect |>
           x -> all(isnan, x)
 
@@ -529,6 +546,15 @@ end
     for p in filter(p -> haskey(p, "bug"), site)
         @test occursin(p["bug"]["planted"], p["starter"]) && !occursin(p["bug"]["fixed"], p["starter"])
     end
+    # Core has find-the-bug problems too: performance bugs measured with @allocated and inference
+    core = Set(only(c for c in Course.load_courses() if c.id == "core").units)
+    perf_bugs = [(u.id, p) for u in units if u.id in core for p in u.problems if p.bug !== nothing && !isempty(p.bug.starter_expect)]
+    @test length(perf_bugs) >= 4
+    @test any(((_, p),) -> "allocates" in p.bug.starter_expect, perf_bugs) && any(((_, p),) -> "unstable" in p.bug.starter_expect, perf_bugs)
+    @test all(((_, p),) -> any(t -> occursin("@allocated", t.code) || occursin("code_typed", t.code) ||
+                                     occursin("return_types", t.code), p.bug.tests), perf_bugs)
+    sited = Dict(p["id"] => p for p in site)
+    @test all(((_, p),) -> sited[p.id]["bug"]["starter_expect"] == p.bug.starter_expect, perf_bugs)
 end
 
 @testset "precomputed explorers: the grid is read from the recorded output" begin

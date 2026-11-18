@@ -5,9 +5,9 @@
         "base"
       ],
       "estimate": {
-        "basis": "30–60 min per ready unit (20), 10–25 min per practice problem (52), 2–4 h per guided project (0), 4–8 h per hole project (1); guessed rates, not measured",
-        "high_hours": 50,
-        "low_hours": 22
+        "basis": "30–60 min per ready unit (20), 10–25 min per practice problem (57), 2–4 h per guided project (0), 4–8 h per hole project (1); guessed rates, not measured",
+        "high_hours": 52,
+        "low_hours": 23
       },
       "guided": [],
       "id": "core",
@@ -69,7 +69,7 @@
           "text": "Use threads without data races, and say when threads will not help."
         }
       ],
-      "problems": 52,
+      "problems": 57,
       "projects": [
         "symdiff"
       ],

@@ -79,3 +79,16 @@ result = "NaN"
 [[samples.mean-skipping-missing]]
 call = "mean_present(Union{Missing,Int}[4, 6])"
 result = "5.0"
+
+[[samples.ring-find-the-abstract-field]]
+call = "wrapped_sums([1.0, 2.0, 3.0, 4.0], 2)"
+result = """4-element Vector{Float64}:\n 3.0\n 5.0\n 7.0\n 5.0"""
+[[samples.ring-find-the-abstract-field]]
+call = "wrapped_sums([5.0], 3)"
+result = """1-element Vector{Float64}:\n 15.0"""
+[[samples.ring-find-the-abstract-field]]
+call = "wrapped_sums([1.0, -1.0, 2.0], 1)"
+result = """3-element Vector{Float64}:\n  1.0\n -1.0\n  2.0"""
+[[samples.ring-find-the-abstract-field]]
+call = "wrapped_sums([0.5, 0.25, 0.125, 1.0, 2.0], 5)"
+result = """5-element Vector{Float64}:\n 3.875\n 3.875\n 3.875\n 3.875\n 3.875"""

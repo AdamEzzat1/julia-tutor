@@ -9,7 +9,7 @@ import {
   course, courseById, estimateText, landingHref, questionState, statusNote, TRACK_BLURB, TRACK_LABEL, trackRequirement, unitNumber,
   type Bug, type CourseInfo, type Example, type Explorer, type Problem, type Question, type Unit,
 } from "../course";
-import { bugRates, bugTestCode, bumpBug, hintsOpen, reading, unitBugs, type BugReading, type BugRecord } from "../findbug";
+import { bugRates, bugTestCode, bumpBug, hintsOpen, isPerfBug, perfCost, reading, testsNoun, unitBugs, type BugReading, type BugRecord } from "../findbug";
 import { parseTyped, predictionKey, predictionRates, settlePrediction, settleTyped, toleranceText, unitPredictionKeys, type PredictionRecord } from "../predict";
 import { raceText, settleRace, unitRaceKeys, type RaceRecord } from "../race";
 import { choiceRates, costText, MAX_REASON, reasonOk, settleChoice, unitChoiceKeys, type ChoiceRecord } from "../choose";
@@ -1148,8 +1148,8 @@ function BugRates({ c, progress }: { c: CourseInfo; progress: Progress }) {
       <div className="jt-eyebrow">Find the bug</div>
       <h3 id="jt-bug-rates" style={{ marginTop: "0.25rem" }}>Your fixes, by knowledge component</h3>
       <p className="jt-small" style={{ maxWidth: "50rem" }}>
-        {total} practice problems in this course start from a solver with one planted error. A problem counts as fixed
-        when the grader and every convergence test pass on the same code; hints are counted up to the fix. The record
+        {total} practice problems in this course start from code with one planted error. A problem counts as fixed
+        when the grader and every one of its tests pass on the same code; hints are counted up to the fix. The record
         stays in this browser.
       </p>
       {rates.length === 0 ? <p className="jt-small jt-muted">No find-the-bug problem started yet.</p> : (
@@ -1357,16 +1357,17 @@ function ParsonsProblem({ p, onSolved, record, onCheck, best }: {
   );
 }
 
-/** The convergence tests' measurements on the learner's code, with what each failing one measures. */
+/** The bug's tests' measurements on the learner's code, with what each failing one measures. */
 function BugTests({ bug, readings, errors }: { bug: Bug; readings: BugReading[]; errors: string[] }) {
   const failing = bug.tests.filter((_, i) => !readings[i]?.passed);
+  const noun = testsNoun(bug);
   return (
     <div className={`jt-callout ${failing.length ? "mis" : "ok"}`} aria-live="polite">
       <span className="tag">{failing.length ? `${failing.length} of ${bug.tests.length} tests fail` : "Every test passes"}</span>
       <div>
         <table className="jt-table jt-small" style={{ margin: "0 0 0.4rem" }}>
-          <caption className="jt-muted" style={{ textAlign: "left", captionSide: "top" }}>Convergence tests on the code in the editor</caption>
-          <thead><tr><th scope="col">Test</th><th scope="col">Measured</th><th scope="col">A correct solver</th><th scope="col" /></tr></thead>
+          <caption className="jt-muted" style={{ textAlign: "left", captionSide: "top" }}>{noun[0].toUpperCase() + noun.slice(1)} on the code in the editor</caption>
+          <thead><tr><th scope="col">Test</th><th scope="col">Measured</th><th scope="col">{isPerfBug(bug) ? "The reference" : "A correct solver"}</th><th scope="col" /></tr></thead>
           <tbody>
             {bug.tests.map((t, i) => {
               const r = readings[i];
@@ -1398,7 +1399,7 @@ function BugFixed({ bug, record }: { bug: Bug; record: BugRecord }) {
       <span className="tag">Fixed</span>
       <div>
         <div className="jt-small">
-          The grader and every convergence test passed on the same code, after {record.runs} test
+          The grader and every one of the {testsNoun(bug)} passed on the same code, after {record.runs} test
           run{record.runs === 1 ? "" : "s"} and {record.hints} hint{record.hints === 1 ? "" : "s"}. The planted line was
         </div>
         <Code src={bug.planted} />
@@ -1476,7 +1477,9 @@ function ProblemPanel({ p, env, onSolved, bugRecord, onBug, best }: {
         <span className="jt-chip">{p.difficulty}</span>
         {p.kcs.map((k) => <span key={k} className="jt-chip kc">{k}</span>)}
         <span className="jt-chip info">define <code>{p.entry}</code></span>
-        {bug && <span className="jt-chip advice" title="The code in the editor is the reference with one line changed">find the bug: one line is wrong</span>}
+        {bug && (isPerfBug(bug)
+          ? <span className="jt-chip advice" title="The code in the editor is the reference with one line changed; its answers are right">find the bug: one line {perfCost(bug)}</span>
+          : <span className="jt-chip advice" title="The code in the editor is the reference with one line changed">find the bug: one line is wrong</span>)}
       </div>
       <Markdown text={p.prompt} />
       {p.samples.length > 0 && (
@@ -1502,13 +1505,13 @@ function ProblemPanel({ p, env, onSolved, bugRecord, onBug, best }: {
         </button>
         {bug && (
           <button className="jt-btn" disabled={!canRunTests || busy} onClick={testOnly}
-            title={canRunTests ? "Run every convergence test on the code in the editor" : `Needs tutor serve with the ${env} environment`}>
-            Run the convergence tests
+            title={canRunTests ? `Run every one of the ${testsNoun(bug)} on the code in the editor` : `Needs tutor serve with the ${env} environment`}>
+            Run the {testsNoun(bug)}
           </button>
         )}
         {hints < p.hints.length && (
           <button className="jt-btn ghost jt-small" disabled={!hintsReady} onClick={moreHint}
-            title={hintsReady ? undefined : "Run the convergence tests first: what they measure is the first hint"}>
+            title={hintsReady ? undefined : `Run the ${bug ? testsNoun(bug) : "tests"} first: what they measure is the first hint`}>
             {hints === 0 ? "Show a hint" : "Another hint"} ({hints}/{p.hints.length})
           </button>
         )}

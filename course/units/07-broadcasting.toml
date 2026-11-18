@@ -475,3 +475,133 @@ misconceptions = [
   "`a` and `b` are the same array: if `c` sees the change, so does `a`.",
   "",
 ]
+
+[[problem]]
+id = "damped-step-find-the-allocation"
+title = "Find the bug: a fused update that is not fused"
+difficulty = "core"
+kcs = ["dot-fusion", "in-place-assignment"]
+entry = "damped_step!"
+prompt = '''
+`damped_step!(x, v, a, dt, c)` advances many particles by one time step `dt`.
+It first updates each velocity with its acceleration `a` minus a damping
+term `c * v`, then moves each position with the *new* velocity. Both
+updates are written in place, so a step should allocate nothing. The code in
+the editor gives the right answer, but one line builds a whole temporary
+vector on every step.
+
+Find it and fix it; change nothing else. The measurement tests count the
+bytes one step allocates with `@allocated` (after a first call compiles it),
+and how that count grows with the number of particles.
+
+```julia
+x, v = [0.0, 1.0], [1.0, -1.0]
+damped_step!(x, v, [0.5, 0.0], 0.1, 0.2)   # x ≈ [0.103, 0.902], v ≈ [1.03, -0.98]
+```
+
+Results are compared with `rtol = 1e-12`; `x` and `v` after the call are
+checked too.
+'''
+reference = '''
+function damped_step!(x, v, a, dt, c)
+    @. v = v + dt * (a - c * v)
+    x .= x .+ dt .* v
+    return x
+end
+'''
+cases = [
+  "[0.0, 1.0], [1.0, -1.0], [0.5, 0.0], 0.1, 0.2",
+  "[2.0], [0.0], [-9.81], 0.01, 0.0",
+  "Float64[], Float64[], Float64[], 0.5, 1.0",
+  "[1.0, 2.0, 3.0], [3.0, 2.0, 1.0], [0.0, 0.0, 0.0], 1.0, 0.5",
+]
+gen = "rng -> [(randn(rng, m), randn(rng, m), randn(rng, m), rand(rng), rand(rng)) for m in rand(rng, 0:30, 20)]"
+compare = "isapprox"
+# rtol: a correct fix does the same operations per element in the same order (a dotted product rounds
+# exactly like an undotted one), so results agree to the last bit; 1e-12 leaves room for an explicit
+# loop that groups the terms differently (a few eps).
+rtol = 1e-12
+compare_args = true
+hints = [
+  "Eight bytes per particle is one `Float64` each: a vector as long as the input is built and thrown away on every step. Look for the part of a dotted expression that does not join its loop.",
+  "A dotted expression fuses into one loop only where every operation is dotted. An undotted operator between a scalar and a vector is ordinary vector arithmetic: it builds its result first. `@.` dots every operation for you, as on the line above.",
+]
+
+  [problem.bug]
+  kc = "dot-fusion"
+  find = "x .= x .+ dt .* v"
+  replace = "x .= x .+ dt * v"
+  answer_tokens = ["dt .* v"]
+  starter_expect = ["correct", "allocates"]
+  misconception = '''
+`dt * v` is valid Julia (a scalar times a vector) and reads like the
+mathematics. The belief it models: the dot on the assignment, `.=`, makes
+the whole right-hand side one fused loop. Fusion covers only the dotted
+calls. The undotted `*` runs first, as ordinary multiplication, and returns
+a new vector of `length(v)` `Float64`s: 8 bytes per particle on every step,
+as the second test measured. The dotted `.+` and `.=` then loop over that
+temporary. Dot every operation, or write the line with `@.` like the one
+above it.
+'''
+
+  [[problem.bug.test]]
+  name = "bytes allocated by one step of 1000 particles"
+  # expect: after a compiling call `@allocated` reads exact heap bytes; the reference's step reads 0, and
+  # any heap object is at least 16 bytes, so [-0.5, 0.5] means "exactly zero".
+  code = '''
+_bytes(x, v, a) = (damped_step!(x, v, a, 0.01, 0.5); @allocated damped_step!(x, v, a, 0.01, 0.5))
+println("bytes per step: ", _bytes(zeros(1000), ones(1000), fill(0.5, 1000)))
+'''
+  row = '^bytes per step: (?<m>\S+)$'
+  expect = [-0.5, 0.5]
+  explain = '''
+The bytes one step allocates. An in-place step needs no new arrays, so a
+correct version reads exactly 0.
+'''
+
+  [[problem.bug.test]]
+  name = "extra bytes per added particle (1000 particles, then 2000)"
+  # expect: the reference reads 0 at both sizes, so the difference is exactly 0; one temporary
+  # Vector{Float64} per step reads 8.0 here.
+  code = '''
+_bytes(x, v, a) = (damped_step!(x, v, a, 0.01, 0.5); @allocated damped_step!(x, v, a, 0.01, 0.5))
+b1 = _bytes(zeros(1000), ones(1000), fill(0.5, 1000))
+b2 = _bytes(zeros(2000), ones(2000), fill(0.5, 2000))
+println("bytes per particle: ", (b2 - b1) / 1000)
+'''
+  row = '^bytes per particle: (?<m>\S+)$'
+  expect = [-0.5, 0.5]
+  explain = '''
+How the allocation grows with the number of particles. 8 bytes per particle
+is one `Float64` for each: a whole temporary vector, as long as the input,
+made on every step.
+'''
+
+  [problem.perf]
+  args = "zeros(n), randn(rng, n), randn(rng, n), 0.01, 0.5"
+  sizes = [100000]
+  mutates = true
+
+  [[problem.variant]]
+  label = "moves the positions with the old velocity"
+  code = '''
+function damped_step!(x, v, a, dt, c)
+    x .= x .+ dt .* v
+    @. v = v + dt * (a - c * v)
+    return x
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "one explicit loop over the particles"
+  code = '''
+function damped_step!(x, v, a, dt, c)
+    for i in eachindex(x, v, a)
+        v[i] += dt * (a[i] - c * v[i])
+        x[i] += dt * v[i]
+    end
+    return x
+end
+'''
+  expect = ["correct"]

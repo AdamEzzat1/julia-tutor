@@ -251,6 +251,8 @@ export interface Bug {
   planted: string;
   fixed: string;
   tests: BugTest[];
+  /** a performance bug: the verdicts the planted starter gets ("correct" plus "allocates"/"unstable"); empty otherwise */
+  starter_expect?: string[];
 }
 
 export type Track = "foundations" | "core" | "advanced" | "ecosystem" | "scicomp" | "sciml" | "quantum";

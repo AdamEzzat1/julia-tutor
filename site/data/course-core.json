@@ -464,6 +464,92 @@
               "notice": "",
               "ok": true,
               "output": "-128 Int8\n"
+            },
+            {
+              "breakit": {
+                "close": 1.25,
+                "edge": [
+                  20.0,
+                  21.0
+                ],
+                "explain": "`20! = 2432902008176640000`, about `2.4e18`, fits under `typemax(Int) = 9223372036854775807`. `21!` is 21 times that, about `5.1e19`, which needs more than 63 bits, so the product wraps around to `-4249290049419214848` and keeps multiplying from there. A quick check without the sweep: `n!` grows past `9.2e18` between 20 and 21, since `20!` is a quarter of the limit and the next factor is 21.",
+                "fails": "below",
+                "kc": "integer-overflow",
+                "limit": 0.5,
+                "measure": "1 if prod(1:n) equals n!, else 0",
+                "param": "n",
+                "past": "The product has already wrapped around there. It wraps first at `21!`: `20!` is about `2.4e18`, and 21 times that is past `typemax(Int)`, about `9.2e18`.",
+                "probe": "n = round(Int, {{p}})\nprintln(\"n = \", n, \"  prod(1:n) right: \", Float64(prod(1:n) == factorial(big(n))))",
+                "prompt": "Find the largest `n` for which `prod(1:n)`, computed in `Int`, still equals `n!`. A row reads 1.0 while the product is right and 0.0 once it has wrapped around. Estimate it from `typemax(Int)` (about `9.2e18`), or try values with the probe if a server is connected, then commit your `n`.",
+                "row": "n = (?<p>\\S+)  prod\\(1:n\\) right: (?<m>\\S+)",
+                "rows": [
+                  {
+                    "failed": false,
+                    "m": "1.0",
+                    "p": 15.0
+                  },
+                  {
+                    "failed": false,
+                    "m": "1.0",
+                    "p": 16.0
+                  },
+                  {
+                    "failed": false,
+                    "m": "1.0",
+                    "p": 17.0
+                  },
+                  {
+                    "failed": false,
+                    "m": "1.0",
+                    "p": 18.0
+                  },
+                  {
+                    "failed": false,
+                    "m": "1.0",
+                    "p": 19.0
+                  },
+                  {
+                    "failed": false,
+                    "m": "1.0",
+                    "p": 20.0
+                  },
+                  {
+                    "failed": true,
+                    "m": "0.0",
+                    "p": 21.0
+                  },
+                  {
+                    "failed": true,
+                    "m": "0.0",
+                    "p": 22.0
+                  },
+                  {
+                    "failed": true,
+                    "m": "0.0",
+                    "p": 23.0
+                  },
+                  {
+                    "failed": true,
+                    "m": "0.0",
+                    "p": 24.0
+                  },
+                  {
+                    "failed": true,
+                    "m": "0.0",
+                    "p": 25.0
+                  }
+                ],
+                "short": "The product is still exact there: `Int` holds every factorial up to `20!`, which is a quarter of `typemax(Int)`.",
+                "side": "high"
+              },
+              "caption": "`prod(1:n)` multiplies `1 * 2 * ... * n` in `Int`. Each row compares it with the exact factorial from a `BigInt` (1.0: equal, 0.0: not).",
+              "check": true,
+              "code": "for n in 15:25\n    println(\"n = \", n, \"  prod(1:n) right: \", Float64(prod(1:n) == factorial(big(n))))\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that nothing warns you when the product stops being right: the `Int` result is just a different number. (`factorial(n)` itself checks, and throws an `OverflowError` instead.)",
+              "ok": true,
+              "output": "n = 15  prod(1:n) right: 1.0\nn = 16  prod(1:n) right: 1.0\nn = 17  prod(1:n) right: 1.0\nn = 18  prod(1:n) right: 1.0\nn = 19  prod(1:n) right: 1.0\nn = 20  prod(1:n) right: 1.0\nn = 21  prod(1:n) right: 0.0\nn = 22  prod(1:n) right: 0.0\nn = 23  prod(1:n) right: 0.0\nn = 24  prod(1:n) right: 0.0\nn = 25  prod(1:n) right: 0.0\n"
             }
           ],
           "questions": [],
@@ -500,6 +586,77 @@
               "notice": "",
               "ok": false,
               "output": "Inf\nNaN\nERROR: DivideError: integer division error\n  @ top-level scope at line 3\n"
+            },
+            {
+              "breakit": {
+                "close": 1.25,
+                "edge": [
+                  9.007199254740991e15,
+                  9.007199254740992e15
+                ],
+                "explain": "A `Float64` has 53 significant bits, so it holds every integer up to `2^53 = 9007199254740992` exactly. Below `2^53` the gap between neighbouring floats is at most 1, and `x + 1` is a float, so it is exact. At `x = 2^53` the gap becomes 2: `2^53 + 1` is not a `Float64`, and it rounds to the even neighbour, `2^53` itself, so adding 1 changes nothing. The last `n` that counts right is `2^53 - 1`, because `(2^53 - 1) + 1 = 2^53` is still representable. This is why a `Float64` loop counter or an index stored as a float silently stops advancing near `9e15`.",
+                "fails": "above",
+                "kc": "floating-point",
+                "limit": 0.5,
+                "measure": "error of x + 1 (0 = exact)",
+                "param": "n",
+                "past": "Adding 1 is already inexact there: from `2^53 = 9007199254740992` on, neighbouring floats are 2 or more apart, so `x + 1` rounds to a neighbour instead.",
+                "probe": "n = round(Int, {{p}})\nx = Float64(n)\nprintln(\"n = \", n, \"  error of x + 1: \", abs(((x + 1.0) - x) - 1.0))",
+                "prompt": "Find the largest integer `n` for which `Float64(n) + 1` still lands exactly on `n + 1`. A row reads 0 while adding 1 is exact and 1 once it is not. A `Float64` keeps 53 significant bits; work it out from that, or try values with the probe if a server is connected, then commit your `n` (a plain integer).",
+                "row": "n = (?<p>\\S+)  error of x \\+ 1: (?<m>\\S+)",
+                "rows": [
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 1.125899906842624e15
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 2.251799813685248e15
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 4.503599627370496e15
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 9.00719925474099e15
+                  },
+                  {
+                    "failed": false,
+                    "m": "0.0",
+                    "p": 9.007199254740991e15
+                  },
+                  {
+                    "failed": true,
+                    "m": "1.0",
+                    "p": 9.007199254740992e15
+                  },
+                  {
+                    "failed": true,
+                    "m": "1.0",
+                    "p": 9.007199254740994e15
+                  },
+                  {
+                    "failed": true,
+                    "m": "1.0",
+                    "p": 1.8014398509481984e16
+                  }
+                ],
+                "short": "Adding 1 is still exact there: every integer below `2^53`, about `9.0e15`, is a `Float64`, and so is the next one up.",
+                "side": "high"
+              },
+              "caption": "Counting by ones in `Float64`: for each integer `n`, store it as `x = Float64(n)` and measure how far `x + 1` lands from `x + 1` exactly (0: it counts right).",
+              "check": true,
+              "code": "for n in (2^50, 2^51, 2^52, 2^53 - 2, 2^53 - 1, 2^53, 2^53 + 2, 2^54)\n    x = Float64(n)\n    println(\"n = \", n, \"  error of x + 1: \", abs(((x + 1.0) - x) - 1.0))\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the error jumps from 0 to 1 between two neighbouring integers, and that past that point `x + 1` sometimes lands on `x` itself and sometimes two above it.",
+              "ok": true,
+              "output": "n = 1125899906842624  error of x + 1: 0.0\nn = 2251799813685248  error of x + 1: 0.0\nn = 4503599627370496  error of x + 1: 0.0\nn = 9007199254740990  error of x + 1: 0.0\nn = 9007199254740991  error of x + 1: 0.0\nn = 9007199254740992  error of x + 1: 1.0\nn = 9007199254740994  error of x + 1: 1.0\nn = 18014398509481984  error of x + 1: 1.0\n"
             },
             {
               "caption": "Doubling a float until the next doubling would overflow to `Inf`.",
@@ -1878,6 +2035,79 @@
           ],
           "starter": "function word_counts(s)\n    counts = Dict{String,Int}()\n    # your code here\n    return counts\nend\n",
           "title": "Word frequencies"
+        },
+        {
+          "bug": {
+            "fixed": "out = Int[]",
+            "kc": "element-types",
+            "misconception": "`[]` is an empty vector, and pushing integers into it feels like it should\ngive a vector of integers, as it would with a Python list. The belief it\nmodels: a vector's element type follows its contents. In Julia it is fixed\nwhen the vector is made: `[]` is a `Vector{Any}`, and it stays one after any\nnumber of `push!`es. The values print the same, but each one is stored\nboxed, code that reads them cannot know their type, and `Vector{Any}` is\nnot equal in type to `Vector{Int64}` (the grader checks result types).\n`Int[]`, or `eltype(v)[]` for any integer type, makes the vector with the\nelement type it will hold.",
+            "planted": "out = []",
+            "starter_expect": [],
+            "tests": [
+              {
+                "code": "println(\"values match: \", Int(squares_of_evens([1, 2, 3, 4]) == [4, 16]))",
+                "expect": [
+                  0.5,
+                  1.5
+                ],
+                "explain": "Whether the result has the right values, compared with `==`, which looks at\nthe values only.",
+                "name": "the values on [1, 2, 3, 4]",
+                "row": "^values match: (?<m>\\S+)$"
+              },
+              {
+                "code": "r = squares_of_evens([1, 2, 3, 4])\nprintln(\"element type: \", eltype(r))\nprintln(\"concrete element type: \", Int(isconcretetype(eltype(r))))",
+                "expect": [
+                  0.5,
+                  1.5
+                ],
+                "explain": "Whether the vector that holds the result can store its elements unboxed, as\none concrete type. The line above the reading names the element type.",
+                "name": "the result's element type is concrete",
+                "row": "^concrete element type: (?<m>\\S+)$"
+              }
+            ]
+          },
+          "check_type": true,
+          "compare": "isequal",
+          "difficulty": "warm-up",
+          "entry": "squares_of_evens",
+          "hints": [
+            "The first test passes and the second fails, so the values are right and the container is not. When is a vector's element type decided: when it is made, or as values are pushed into it?",
+            "An empty `[]` is a `Vector{Any}`, and pushing integers into it does not change that. Give the empty vector its element type when you make it."
+          ],
+          "id": "evens-find-the-element-type",
+          "kcs": [
+            "element-types",
+            "vectors"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              100000
+            ]
+          },
+          "prompt": "`squares_of_evens(v)` takes a vector of `Int`s and returns a vector with the\nsquare of each even entry, in order. The code in the editor prints the right\nnumbers, yet the grader rejects it: one line gives the result the wrong\ntype.\n\nFind it and fix it; change nothing else. The tests check the values on one\ninput and ask what the element type of the result is.\n\n```julia\nsquares_of_evens([1, 2, 3, 4])   # [4, 16], a Vector{Int64}\n```\n\nResults are compared with `isequal`, and their types must match.",
+          "random_cases": true,
+          "rtol": 1.0e-8,
+          "samples": [
+            {
+              "call": "squares_of_evens([1, 2, 3, 4])",
+              "result": "2-element Vector{Int64}:\n  4\n 16"
+            },
+            {
+              "call": "squares_of_evens(Int[])",
+              "result": "Int64[]"
+            },
+            {
+              "call": "squares_of_evens([7, 9])",
+              "result": "Int64[]"
+            },
+            {
+              "call": "squares_of_evens([-2, 0, 5])",
+              "result": "2-element Vector{Int64}:\n 4\n 0"
+            }
+          ],
+          "starter": "function squares_of_evens(v)\n    out = []\n    for x in v\n        if iseven(x)\n            push!(out, x^2)\n        end\n    end\n    return out\nend\n",
+          "title": "Find the bug: the right numbers in the wrong vector"
         }
       ],
       "references": [],
@@ -2263,6 +2493,82 @@
           ],
           "starter": "function max_abs_diff(x, y)\n    # your code here\nend\n",
           "title": "Largest absolute difference"
+        },
+        {
+          "bug": {
+            "fixed": "x .= x .+ dt .* v",
+            "kc": "dot-fusion",
+            "misconception": "`dt * v` is valid Julia (a scalar times a vector) and reads like the\nmathematics. The belief it models: the dot on the assignment, `.=`, makes\nthe whole right-hand side one fused loop. Fusion covers only the dotted\ncalls. The undotted `*` runs first, as ordinary multiplication, and returns\na new vector of `length(v)` `Float64`s: 8 bytes per particle on every step,\nas the second test measured. The dotted `.+` and `.=` then loop over that\ntemporary. Dot every operation, or write the line with `@.` like the one\nabove it.",
+            "planted": "x .= x .+ dt * v",
+            "starter_expect": [
+              "correct",
+              "allocates"
+            ],
+            "tests": [
+              {
+                "code": "_bytes(x, v, a) = (damped_step!(x, v, a, 0.01, 0.5); @allocated damped_step!(x, v, a, 0.01, 0.5))\nprintln(\"bytes per step: \", _bytes(zeros(1000), ones(1000), fill(0.5, 1000)))",
+                "expect": [
+                  -0.5,
+                  0.5
+                ],
+                "explain": "The bytes one step allocates. An in-place step needs no new arrays, so a\ncorrect version reads exactly 0.",
+                "name": "bytes allocated by one step of 1000 particles",
+                "row": "^bytes per step: (?<m>\\S+)$"
+              },
+              {
+                "code": "_bytes(x, v, a) = (damped_step!(x, v, a, 0.01, 0.5); @allocated damped_step!(x, v, a, 0.01, 0.5))\nb1 = _bytes(zeros(1000), ones(1000), fill(0.5, 1000))\nb2 = _bytes(zeros(2000), ones(2000), fill(0.5, 2000))\nprintln(\"bytes per particle: \", (b2 - b1) / 1000)",
+                "expect": [
+                  -0.5,
+                  0.5
+                ],
+                "explain": "How the allocation grows with the number of particles. 8 bytes per particle\nis one `Float64` for each: a whole temporary vector, as long as the input,\nmade on every step.",
+                "name": "extra bytes per added particle (1000 particles, then 2000)",
+                "row": "^bytes per particle: (?<m>\\S+)$"
+              }
+            ]
+          },
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "damped_step!",
+          "hints": [
+            "Eight bytes per particle is one `Float64` each: a vector as long as the input is built and thrown away on every step. Look for the part of a dotted expression that does not join its loop.",
+            "A dotted expression fuses into one loop only where every operation is dotted. An undotted operator between a scalar and a vector is ordinary vector arithmetic: it builds its result first. `@.` dots every operation for you, as on the line above."
+          ],
+          "id": "damped-step-find-the-allocation",
+          "kcs": [
+            "dot-fusion",
+            "in-place-assignment"
+          ],
+          "perf": {
+            "mutates": true,
+            "sizes": [
+              100000
+            ]
+          },
+          "prompt": "`damped_step!(x, v, a, dt, c)` advances many particles by one time step `dt`.\nIt first updates each velocity with its acceleration `a` minus a damping\nterm `c * v`, then moves each position with the *new* velocity. Both\nupdates are written in place, so a step should allocate nothing. The code in\nthe editor gives the right answer, but one line builds a whole temporary\nvector on every step.\n\nFind it and fix it; change nothing else. The measurement tests count the\nbytes one step allocates with `@allocated` (after a first call compiles it),\nand how that count grows with the number of particles.\n\n```julia\nx, v = [0.0, 1.0], [1.0, -1.0]\ndamped_step!(x, v, [0.5, 0.0], 0.1, 0.2)   # x ≈ [0.103, 0.902], v ≈ [1.03, -0.98]\n```\n\nResults are compared with `rtol = 1e-12`; `x` and `v` after the call are\nchecked too.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "damped_step!([0.0, 1.0], [1.0, -1.0], [0.5, 0.0], 0.1, 0.2)",
+              "result": "2-element Vector{Float64}:\n 0.10300000000000001\n 0.902"
+            },
+            {
+              "call": "damped_step!([2.0], [0.0], [-9.81], 0.01, 0.0)",
+              "result": "1-element Vector{Float64}:\n 1.999019"
+            },
+            {
+              "call": "damped_step!(Float64[], Float64[], Float64[], 0.5, 1.0)",
+              "result": "Float64[]"
+            },
+            {
+              "call": "damped_step!([1.0, 2.0, 3.0], [3.0, 2.0, 1.0], [0.0, 0.0, 0.0], 1.0, 0.5)",
+              "result": "3-element Vector{Float64}:\n 2.5\n 3.0\n 3.5"
+            }
+          ],
+          "starter": "function damped_step!(x, v, a, dt, c)\n    @. v = v + dt * (a - c * v)\n    x .= x .+ dt * v\n    return x\nend\n",
+          "title": "Find the bug: a fused update that is not fused"
         }
       ],
       "references": [],
@@ -2614,6 +2920,83 @@
           ],
           "starter": "struct Body\n    # fields for the mass and the speed\nend\n\nfunction total_kinetic(masses, speeds)\n    # build a Vector of Body, then add up 0.5 * m * v^2\nend\n",
           "title": "Struct fields and speed"
+        },
+        {
+          "bug": {
+            "fixed": "data::Vector{Float64}",
+            "kc": "concrete-types",
+            "misconception": "`data::AbstractVector` accepts any vector, which feels like the flexible,\ngeneric choice. The belief it models: an abstract type on a field costs\nnothing, as an abstract type on an argument does. Arguments are specialized:\nJulia compiles a method for the concrete types each call passes. Fields are\nnot: a `Ring` stores `data` as a pointer to a value whose type is checked at\nrun time, so `r.data[...]` is a dynamic call whose result is inferred as\n`Any`, and every result gets a box on the heap (the second test measured\nabout 250 bytes per element against the 8 the result itself needs). Declare\nthe concrete type, or keep it generic with a type parameter:\n`struct Ring{V<:AbstractVector}; data::V; end`.",
+            "planted": "data::AbstractVector",
+            "starter_expect": [
+              "correct",
+              "allocates",
+              "unstable"
+            ],
+            "tests": [
+              {
+                "code": "r = Ring([1.0, 2.0, 3.0])\nprintln(\"wrapped_sums(r.data, 2) = \", wrapped_sums(r.data, 2))\nrt = only(Base.return_types(getindex, (typeof(r), Int)))\nprintln(\"concrete r[i]: \", Int(isconcretetype(rt)))",
+                "expect": [
+                  0.5,
+                  1.5
+                ],
+                "explain": "Whether the compiler can name one concrete type for an element read through\nthe struct. When it cannot, every read is a dynamic call and every value\nread is boxed.",
+                "name": "the type inferred for r[i] is concrete",
+                "row": "^concrete r\\[i\\]: (?<m>\\S+)$"
+              },
+              {
+                "code": "_bytes(v) = (wrapped_sums(v, 3); @allocated wrapped_sums(v, 3))\nb1 = _bytes(collect(1.0:1000.0))\nb2 = _bytes(collect(1.0:2000.0))\nprintln(\"bytes per element: \", (b2 - b1) / 1000)",
+                "expect": [
+                  7.5,
+                  8.5
+                ],
+                "explain": "How the allocation grows with the length of `v`. The result needs one\n`Float64`, 8 bytes, per element; much more than that means values are being\nboxed as they are read.",
+                "name": "extra bytes per element of v (1000 elements, then 2000, w = 3)",
+                "row": "^bytes per element: (?<m>\\S+)$"
+              }
+            ]
+          },
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "wrapped_sums",
+          "hints": [
+            "The first test shows that the compiler does not know the type of `r[i]`. `r` is a `Ring`; what does the definition of `Ring` let the compiler assume about what `r.data` holds?",
+            "A field's declared type is all the compiler may assume about it. An abstract type there means any value of any subtype could be stored, so every access is looked up at run time. Declare the concrete type the constructor is called with."
+          ],
+          "id": "ring-find-the-abstract-field",
+          "kcs": [
+            "concrete-types",
+            "structs"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              20000
+            ]
+          },
+          "prompt": "`wrapped_sums(v, w)` returns, for each position `i` of the `Float64` vector\n`v`, the sum of the `w` entries starting at `i`, wrapping around past the\nend (so the last positions also add entries from the start). It wraps `v`\nin a small `Ring` struct whose indexing does the wrap-around with `mod1`.\nThe code in the editor gives the right answers but runs many times slower\nthan it should and allocates far more than its result: one line of the\nstruct's definition costs that.\n\nFind it and fix it; change nothing else. The measurement tests ask the\ncompiler what type it infers for `r[i]`, and count how the bytes one call\nallocates grow with the length of `v` (after a first call compiles it).\n\n```julia\nwrapped_sums([1.0, 2.0, 3.0, 4.0], 2)   # [3.0, 5.0, 7.0, 5.0]\n```\n\nResults are compared with `rtol = 1e-12`.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "wrapped_sums([1.0, 2.0, 3.0, 4.0], 2)",
+              "result": "4-element Vector{Float64}:\n 3.0\n 5.0\n 7.0\n 5.0"
+            },
+            {
+              "call": "wrapped_sums([5.0], 3)",
+              "result": "1-element Vector{Float64}:\n 15.0"
+            },
+            {
+              "call": "wrapped_sums([1.0, -1.0, 2.0], 1)",
+              "result": "3-element Vector{Float64}:\n  1.0\n -1.0\n  2.0"
+            },
+            {
+              "call": "wrapped_sums([0.5, 0.25, 0.125, 1.0, 2.0], 5)",
+              "result": "5-element Vector{Float64}:\n 3.875\n 3.875\n 3.875\n 3.875\n 3.875"
+            }
+          ],
+          "starter": "struct Ring\n    data::AbstractVector\nend\n\nBase.getindex(r::Ring, i::Int) = r.data[mod1(i, length(r.data))]\n\nfunction wrapped_sums(v, w)\n    r = Ring(v)\n    return [sum(r[i + k] for k in 0:w-1) for i in eachindex(v)]\nend\n",
+          "title": "Find the bug: a struct that hides its field's type"
         }
       ],
       "references": [],
@@ -4764,6 +5147,82 @@
           ],
           "starter": "# A name ending in ! (like sort! and push!) promises to change its argument:\n# callers of running_max! expect v itself to hold the answer afterwards.\nfunction running_max!(v)\n    # your code here\nend\n",
           "title": "Running maximum, in place"
+        },
+        {
+          "bug": {
+            "fixed": "sum(@view v[i-1:i+1])",
+            "kc": "views",
+            "misconception": "`v[i-1:i+1]` reads as \"these three entries of `v`\", but indexing with a\nrange copies them into a new `Vector`: 80 bytes on every pass of the loop\nhere (three `Float64`s plus the array's header), as the second test\nmeasured. The belief it models: a slice is a window onto the original\narray, as it is in NumPy. In Julia a slice is a copy. `@view v[i-1:i+1]`\n(or `view(v, i-1:i+1)`) is the window, and summing it allocates nothing.",
+            "planted": "sum(v[i-1:i+1])",
+            "starter_expect": [
+              "correct",
+              "allocates"
+            ],
+            "tests": [
+              {
+                "code": "_bytes(out, v) = (smooth3!(out, v); @allocated smooth3!(out, v))\nprintln(\"bytes per call: \", _bytes(zeros(2), [1.0, 2.0]))",
+                "expect": [
+                  -0.5,
+                  0.5
+                ],
+                "explain": "The bytes one call allocates when the loop body never runs. Above zero, the\nallocation happens outside the loop, in the lines that run once per call.",
+                "name": "bytes allocated by one call on 2 elements (the loop body never runs)",
+                "row": "^bytes per call: (?<m>\\S+)$"
+              },
+              {
+                "code": "_bytes(out, v) = (smooth3!(out, v); @allocated smooth3!(out, v))\nb1 = _bytes(zeros(1001), collect(1.0:1001.0))\nb2 = _bytes(zeros(2001), collect(1.0:2001.0))\nprintln(\"bytes per interior point: \", (b2 - b1) / 1000)",
+                "expect": [
+                  -0.5,
+                  0.5
+                ],
+                "explain": "The extra bytes a call allocates for each extra pass of the loop. Zero means\nthe loop body builds nothing on the heap; a steady number per point means\nsomething in the loop body makes a new object every time it runs.",
+                "name": "extra bytes per interior point (1001 elements, then 2001)",
+                "row": "^bytes per interior point: (?<m>\\S+)$"
+              }
+            ]
+          },
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "smooth3!",
+          "hints": [
+            "The first test calls the function on a vector whose loop body never runs, and it allocates nothing. So whatever allocates is inside the loop. Which expression in the loop body could make a new object?",
+            "Indexing a vector with a range, `v[a:b]`, copies those entries into a new `Vector`. A view refers to the same entries without copying, and `sum` accepts either."
+          ],
+          "id": "smooth-find-the-allocation",
+          "kcs": [
+            "views",
+            "allocations"
+          ],
+          "perf": {
+            "mutates": true,
+            "sizes": [
+              100000
+            ]
+          },
+          "prompt": "`smooth3!(out, v)` writes a three-point moving average of `v` into `out`:\neach interior entry becomes the mean of itself and its two neighbours, and\nthe two end entries are copied unchanged. It returns `out`. The code in the\neditor gives the right answer on every case. It is meant to allocate nothing,\nand it does not manage that: one line builds a new array every time the loop\nbody runs.\n\nFind that line and fix it; change nothing else. The measurement tests call\nthe function once to compile it, then count the bytes one more call\nallocates with `@allocated`: once on a vector whose loop never runs, and as\nthe extra bytes per point when the vector grows. Compare the two readings.\n\n```julia\nsmooth3!(zeros(4), [1.0, 2.0, 6.0, 4.0])   # [1.0, 3.0, 4.0, 4.0]\n```\n\nResults are compared with `rtol = 1e-12`, and `out` after the call is\nchecked too.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "smooth3!(zeros(4), [1.0, 2.0, 6.0, 4.0])",
+              "result": "4-element Vector{Float64}:\n 1.0\n 3.0\n 4.0\n 4.0"
+            },
+            {
+              "call": "smooth3!(zeros(1), [5.0])",
+              "result": "1-element Vector{Float64}:\n 5.0"
+            },
+            {
+              "call": "smooth3!(zeros(2), [1.0, -1.0])",
+              "result": "2-element Vector{Float64}:\n  1.0\n -1.0"
+            },
+            {
+              "call": "smooth3!(zeros(5), [0.5, 0.5, 0.5, 0.5, 0.5])",
+              "result": "5-element Vector{Float64}:\n 0.5\n 0.5\n 0.5\n 0.5\n 0.5"
+            }
+          ],
+          "starter": "function smooth3!(out, v)\n    n = length(v)\n    out[1] = v[1]\n    out[n] = v[n]\n    for i in 2:n-1\n        out[i] = sum(v[i-1:i+1]) / 3\n    end\n    return out\nend\n",
+          "title": "Find the bug: the line that allocates"
         }
       ],
       "references": [
@@ -6588,6 +7047,92 @@
           ],
           "starter": "function infers_concretely(f, argtypes)\n    # your code here\nend\n",
           "title": "Ask the compiler: is the return type concrete?"
+        },
+        {
+          "bug": {
+            "fixed": "s = zero(eltype(v))",
+            "kc": "type-inference",
+            "misconception": "`s = 0` starts the sum as an `Int`, and the first `s += x^2` makes it a\n`Float64`. The belief it models: a variable has one type, the type of the\nvalue it ends up holding. The compiler types a variable by every value any\nassignment can give it, so `s` is inferred as `Union{Float64, Int64}`. Here\nthat costs no allocation (the compiler splits a small `Union` into two\nbranches), and the return type is still `Float64`, because dividing either\ntype by an `Int` gives a `Float64`: so `@inferred` and the allocation count\nboth passed, and only the locals showed it. In a larger function the same\n`Union` spreads into every expression that uses `s`. Start an accumulator\nwith the type it will hold: `zero(eltype(v))`.",
+            "planted": "s = 0",
+            "starter_expect": [
+              "correct",
+              "unstable"
+            ],
+            "tests": [
+              {
+                "code": "rt = only(Base.return_types(rms, (Vector{Float64},)))\nprintln(\"concrete return type: \", Int(isconcretetype(rt)))",
+                "expect": [
+                  0.5,
+                  1.5
+                ],
+                "explain": "Whether the compiler can name one concrete type for the result of\n`rms(::Vector{Float64})`. This is what `@inferred` checks.",
+                "name": "the inferred return type is concrete",
+                "row": "^concrete return type: (?<m>\\S+)$"
+              },
+              {
+                "code": "ci = only(Base.code_typed(rms, (Vector{Float64},); optimize = false))[1]\nabstract_locals = count(zip(ci.slotnames, ci.slottypes)) do (name, T)\n    s = string(name)\n    !isempty(s) && !startswith(s, \"#\") && !isconcretetype(Core.Compiler.widenconst(T))\nend\nprintln(\"non-concrete locals: \", abstract_locals)",
+                "expect": [
+                  -0.5,
+                  0.5
+                ],
+                "explain": "How many of the function's own variables the compiler could not give one\nconcrete type. A variable typed as a `Union` counts: it means some\nassignment gives it a value of another type than the others.",
+                "name": "local variables whose inferred type is not concrete",
+                "row": "^non-concrete locals: (?<m>\\S+)$"
+              },
+              {
+                "code": "_bytes(v) = (rms(v); @allocated rms(v))\nprintln(\"bytes per call: \", _bytes(collect(1.0:1000.0)))",
+                "expect": [
+                  -0.5,
+                  0.5
+                ],
+                "explain": "The bytes one call allocates. A loop over a vector that only adds numbers\nneeds no heap memory.",
+                "name": "bytes allocated by one call on 1000 elements",
+                "row": "^bytes per call: (?<m>\\S+)$"
+              }
+            ]
+          },
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "rms",
+          "hints": [
+            "The return type is concrete and nothing is allocated, but one local variable is not concrete. Which variable is assigned values of two different types over the run of the function?",
+            "The sum starts from a literal. What type does that literal have, and what type does it have after the first addition of a `Float64`? `eltype(v)` names the element type of `v`."
+          ],
+          "id": "rms-find-the-instability",
+          "kcs": [
+            "type-inference",
+            "code-introspection"
+          ],
+          "perf": {
+            "mutates": false,
+            "sizes": [
+              100000
+            ]
+          },
+          "prompt": "`rms(v)` returns the root mean square of a non-empty vector of `Float64`s:\nthe square root of the mean of the squares. The code in the editor gives\nthe right answer, allocates nothing, and its inferred return type is a\nconcrete `Float64`, so `@inferred rms(v)` passes. The grader still reports\nit as type-unstable: one line gives a variable two possible types.\n\nFind it and fix it; change nothing else. The measurement tests ask the\ncompiler what it inferred, with `Base.return_types` and with\n`Base.code_typed` (unoptimized, so each local variable keeps its own\ninferred type), and count the bytes one call allocates.\n\n```julia\nrms([3.0, 4.0])   # 3.5355339059327378\n```\n\nResults are compared with `rtol = 1e-12`.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "rms([3.0, 4.0])",
+              "result": "3.5355339059327378"
+            },
+            {
+              "call": "rms([1.0])",
+              "result": "1.0"
+            },
+            {
+              "call": "rms([-2.0, 2.0, -2.0, 2.0])",
+              "result": "2.0"
+            },
+            {
+              "call": "rms([0.5, 1.5, 2.5])",
+              "result": "1.707825127659933"
+            }
+          ],
+          "starter": "function rms(v)\n    s = 0\n    for x in v\n        s += x^2\n    end\n    return sqrt(s / length(v))\nend\n",
+          "title": "Find the bug: a type instability `@inferred` cannot see"
         }
       ],
       "references": [

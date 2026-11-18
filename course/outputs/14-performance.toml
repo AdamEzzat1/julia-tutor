@@ -120,6 +120,19 @@ result = """3-element Vector{Float64}:\n -2.0\n -2.0\n -1.0"""
 call = "running_max!([7])"
 result = """1-element Vector{Int64}:\n 7"""
 
+[[samples.smooth-find-the-allocation]]
+call = "smooth3!(zeros(4), [1.0, 2.0, 6.0, 4.0])"
+result = """4-element Vector{Float64}:\n 1.0\n 3.0\n 4.0\n 4.0"""
+[[samples.smooth-find-the-allocation]]
+call = "smooth3!(zeros(1), [5.0])"
+result = """1-element Vector{Float64}:\n 5.0"""
+[[samples.smooth-find-the-allocation]]
+call = "smooth3!(zeros(2), [1.0, -1.0])"
+result = """2-element Vector{Float64}:\n  1.0\n -1.0"""
+[[samples.smooth-find-the-allocation]]
+call = "smooth3!(zeros(5), [0.5, 0.5, 0.5, 0.5, 0.5])"
+result = """5-element Vector{Float64}:\n 0.5\n 0.5\n 0.5\n 0.5\n 0.5"""
+
 [[samples.stable-mean]]
 call = "mean_positive([1.0, -2.0, 3.0])"
 result = "2.0"

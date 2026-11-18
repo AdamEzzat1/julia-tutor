@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { course, type Bug, type BugTest, type Problem, type Unit } from "./course";
-import { bugRates, bugTestCode, bugTestPasses, bumpBug, hintsOpen, readBugTest, reading, unitBugs } from "./findbug";
+import { bugRates, bugTestCode, bugTestPasses, bumpBug, hintsOpen, isPerfBug, perfCost, readBugTest, reading, testsNoun, unitBugs } from "./findbug";
 
 const T = (expect: [number, number] = [3.7, 4.3]): BugTest =>
   ({ name: "order", code: "println(\"observed order: \", 4.0)", row: String.raw`^observed order: (?<m>\S+)$`, expect, explain: "e" });
@@ -73,6 +73,29 @@ describe("find the bug", () => {
         expect(t.expect[0]).toBeLessThan(t.expect[1]);
         expect(t.code).toContain(p.entry);   // a test exercises the learner's function
       }
+    }
+  });
+
+  it("names a performance bug by what it costs, and its tests by what they measure", () => {
+    expect(isPerfBug(bug("k"))).toBe(false);
+    expect(testsNoun(bug("k"))).toBe("convergence tests");
+    const alloc = { ...bug("k"), starter_expect: ["correct", "allocates"] };
+    const both = { ...bug("k"), starter_expect: ["correct", "allocates", "unstable"] };
+    expect(isPerfBug(alloc)).toBe(true);
+    expect(testsNoun(alloc)).toBe("measurement tests");
+    expect(perfCost(alloc)).toBe("allocates");
+    expect(perfCost(both)).toBe("allocates and is type-unstable");
+  });
+
+  it("the site data's Core performance bugs: correct starters, measured with @allocated or inference", () => {
+    const core = course.units.filter((u) => u.course === "core").flatMap((u) => u.problems.filter((p) => p.bug && isPerfBug(p.bug)));
+    expect(core.length).toBeGreaterThanOrEqual(4);
+    for (const p of core) {
+      const se = p.bug!.starter_expect!;
+      expect(se.every((v) => ["correct", "allocates", "unstable"].includes(v))).toBe(true);
+      expect(se.some((v) => v !== "correct")).toBe(true);
+      expect(p.perf).not.toBeNull();
+      expect(p.bug!.tests.some((t) => /@allocated|code_typed|return_types/.test(t.code))).toBe(true);
     }
   });
 });

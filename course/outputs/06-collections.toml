@@ -70,6 +70,19 @@ result = "Int64[]"
 call = "dedupe([5, 5, 5])"
 result = """1-element Vector{Int64}:\n 5"""
 
+[[samples.evens-find-the-element-type]]
+call = "squares_of_evens([1, 2, 3, 4])"
+result = """2-element Vector{Int64}:\n  4\n 16"""
+[[samples.evens-find-the-element-type]]
+call = "squares_of_evens(Int[])"
+result = "Int64[]"
+[[samples.evens-find-the-element-type]]
+call = "squares_of_evens([7, 9])"
+result = "Int64[]"
+[[samples.evens-find-the-element-type]]
+call = "squares_of_evens([-2, 0, 5])"
+result = """2-element Vector{Int64}:\n 4\n 0"""
+
 [[samples.word-frequencies]]
 call = "word_counts(\"the cat The dog\")"
 result = """Dict{String, Int64} with 3 entries:\n  \"the\" => 2\n  \"cat\" => 1\n  \"dog\" => 1"""

@@ -823,6 +823,42 @@ the reference's line and the misconception are shown. On the command line,
 `tutor practice <id> file.jl` prints the test table, and `--hints=N` shows the
 first N hints.
 
+#### Performance bugs: the line that allocates, the type instability
+
+In Core the planted line usually keeps every answer right and costs memory or
+type stability instead: a slice where a view was meant, an undotted operator
+inside a fused broadcast, an abstract field type, an accumulator that starts
+as an `Int`. Declare what the grader must find on the planted starter:
+
+```toml
+  [problem.bug]
+  kc = "views"
+  find = "sum(@view v[i-1:i+1])"
+  replace = "sum(v[i-1:i+1])"
+  answer_tokens = ["@view"]
+  starter_expect = ["correct", "allocates"]   # or "unstable", or both
+```
+
+* `starter_expect` holds `"correct"` plus `"allocates"` and/or `"unstable"`:
+  counted verdicts only, never `slow` or `fast` (timings move with the
+  machine; counts do not). `verify` grades the starter and requires those
+  verdicts, instead of requiring it to fail. The problem needs
+  `[problem.perf]`, where they are measured.
+* The tests measure what the grader measures. `@allocated` after a first,
+  compiling call (`_bytes(x) = (f(x); @allocated f(x))`; at top level a call
+  through a global can allocate on its own), and inference with
+  `Base.return_types` or `Base.code_typed(...; optimize = false)` (each local
+  keeps its own inferred type there; leave out compiler temporaries, whose
+  names are empty or start with `#`). A count of bytes or of non-concrete
+  locals uses `expect = [-0.5, 0.5]` for "exactly zero"; derive it in the
+  comment (any heap object is at least 16 bytes).
+* Make the readings point at the place without naming it: bytes on a call
+  whose loop never runs next to the extra bytes per element (the allocation
+  is in the loop), or a concrete return type next to a non-concrete local
+  (`@inferred` passes; the instability is inside).
+* No input values from an unseeded RNG in a test (invariant 3): allocation
+  does not depend on values, so use `collect(1.0:n)` or `fill`.
+
 ### Parsons problems
 
 A Parsons problem gives the lines of a kernel shuffled, plus a few wrong

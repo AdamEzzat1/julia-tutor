@@ -336,6 +336,8 @@ fix is no secret; the site shows it only once the learner's code passes.
 """
 bug_data(p) = Dict("kc" => p.bug.kc, "misconception" => strip(p.bug.misconception),
                    "planted" => strip(p.bug.replace), "fixed" => strip(p.bug.find),
+                   # non-empty for a performance bug: the starter's answers are right, these verdicts are not
+                   "starter_expect" => p.bug.starter_expect,
                    "tests" => Any[Dict("name" => t.name, "code" => rstrip(t.code), "row" => t.row,
                                        "expect" => [t.expect...], "explain" => strip(t.explain)) for t in p.bug.tests])
 

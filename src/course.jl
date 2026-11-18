@@ -386,6 +386,13 @@ failing tests and what each measures, then the problem's `hints` one at a
 time; `answer_tokens` (pieces of the fix) may not appear in a test's text or
 the first hint. Once the learner's code passes the grader, `misconception`
 says what belief the planted line models.
+
+A *performance* bug leaves every answer right: the planted line allocates or
+makes a variable's type unstable. Its `starter_expect` lists the verdicts the
+grader must give the planted starter, `"correct"` plus `"allocates"` and/or
+`"unstable"` (counted, never timed, so they hold on any machine); verify then
+checks those instead of requiring the starter to fail. Its tests measure with
+`@allocated` and inference, as the grader does.
 """
 struct Bug
     kc::String
@@ -394,7 +401,13 @@ struct Bug
     tests::Vector{BugTest}
     misconception::String
     answer_tokens::Vector{String}
+    starter_expect::Vector{String}   # empty: the planted starter gives wrong answers
 end
+Bug(kc, find, replace, tests, misconception, answer_tokens) =
+    Bug(kc, find, replace, tests, misconception, answer_tokens, String[])
+
+# Verdicts a performance bug's starter may be declared to get: counted ones only.
+const BUG_STARTER_VERDICTS = ("correct", "allocates", "unstable")
 
 """
 A distractor line of a Parsons problem: it can take the place of the movable
@@ -535,7 +548,7 @@ function load_bug(b)
         push!(tests, BugTest(getstr(t, "name"), getstr(t, "code"), getstr(t, "row"), expect, getstr(t, "explain")))
     end
     return Bug(getstr(b, "kc"), getstr(b, "find"), getstr(b, "replace"), tests, getstr(b, "misconception"),
-               String.(get(b, "answer_tokens", String[])))
+               String.(get(b, "answer_tokens", String[])), String.(get(b, "starter_expect", String[])))
 end
 
 """The line numbers (1-based) where two texts differ, or `nothing` when their line counts differ."""
@@ -566,6 +579,17 @@ function bug_problems(p::Problem, kcs)
         occursin(tok, b.replace) && push!(out, "answer token \"$tok\" also appears in the planted line, so it cannot give the fix away")
     end
     isempty(p.hints) && push!(out, "no hints (they fade in after the measured tests)")
+    if !isempty(b.starter_expect)
+        se = b.starter_expect
+        for x in se
+            x in BUG_STARTER_VERDICTS ||
+                push!(out, "starter_expect: '$x' is not one of $(BUG_STARTER_VERDICTS) (timed verdicts vary by machine)")
+        end
+        "correct" in se || push!(out, "starter_expect must include \"correct\": a performance bug keeps every answer right")
+        any(in(se), ("allocates", "unstable")) ||
+            push!(out, "starter_expect must include \"allocates\" or \"unstable\": what the planted line costs")
+        p.perf === nothing && push!(out, "a performance bug needs [problem.perf]: its verdicts are measured there")
+    end
     length(b.tests) >= 1 || push!(out, "no convergence tests")
     names = Set{String}()
     for (i, t) in enumerate(b.tests)
