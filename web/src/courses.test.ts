@@ -20,8 +20,8 @@ describe("course site data", () => {
       expect(c.problems).toBe(n);
     }
     // 147 + 39 in quantum units 49-61 + 5 Core find-the-bug problems (units 06, 07, 08, 14, 19)
-    // + 2 science find-the-bug problems (units 21, 23)
-    expect(course.courses.reduce((s, c) => s + c.problems, 0)).toBe(193);
+    // + 2 science find-the-bug problems (units 21, 23) + 2 scicomp find-the-bug problems (units 30, 33)
+    expect(course.courses.reduce((s, c) => s + c.problems, 0)).toBe(195);
   });
   it("resolves cross-course prerequisites to unit ids that exist", () => {
     const ids = new Set(course.units.map((u) => u.id));

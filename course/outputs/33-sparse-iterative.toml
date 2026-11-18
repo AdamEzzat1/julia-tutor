@@ -45,6 +45,22 @@ output = """N = 16  nnz(A) = 1216   nnz(L) natural = 4111    reordered = 2118\nN
 ok = true
 output = """N = 16  CG 28   CG+Jacobi 28   GMRES 28   GMRES+ILU 6\nN = 32  CG 59   CG+Jacobi 59   GMRES 59   GMRES+ILU 9\nN = 64  CG 119  CG+Jacobi 119  GMRES 118  GMRES+ILU 15\n"""
 
+[[samples.csc-row-sums-find-the-bug]]
+call = "row_sums(sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 2.0, 3.0, 5.0]))"
+result = """3-element Vector{Float64}:\n 6.0\n 2.0\n 3.0"""
+[[samples.csc-row-sums-find-the-bug]]
+call = "row_sums(sparse([2, 3, 4], [1, 2, 3], [1.0, 2.0, 3.0], 4, 4))"
+result = """4-element Vector{Float64}:\n 0.0\n 1.0\n 2.0\n 3.0"""
+[[samples.csc-row-sums-find-the-bug]]
+call = "row_sums(sparse([1, 3, 4, 2], [1, 1, 2, 2], [0.5, -1.0, 2.0, 4.0], 4, 2))"
+result = """4-element Vector{Float64}:\n  0.5\n  4.0\n -1.0\n  2.0"""
+[[samples.csc-row-sums-find-the-bug]]
+call = "row_sums(sparse([1, 2], [3, 1], [7.0, 9.0], 2, 3))"
+result = """2-element Vector{Float64}:\n 7.0\n 9.0"""
+[[samples.csc-row-sums-find-the-bug]]
+call = "row_sums(spzeros(3, 3))"
+result = """3-element Vector{Float64}:\n 0.0\n 0.0\n 0.0"""
+
 [[samples.sparse-conjugate-gradient]]
 call = "conjugate_gradient([4.0 1.0; 1.0 3.0], [1.0, 2.0], 1e-10)"
 result = """2-element Vector{Float64}:\n 0.09090909090909091\n 0.6363636363636364"""
