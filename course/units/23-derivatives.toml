@@ -88,6 +88,37 @@ end
 '''
 
   [[section.example]]
+  caption = "The central difference for d/dx sin(x) at x = 1, on a finer grid of step sizes, all far from the round-off end."
+  notice = "Notice that a step 10 times larger, from `1e-4` to `1e-3`, makes the error 100 times larger: the error goes as h², and round-off is still far below it."
+  code = '''
+f(x) = sin(x)
+for h in (1e-5, 3e-5, 1e-4, 2e-4, 3e-4, 5e-4, 1e-3, 3e-3, 1e-2)
+    cen = (f(1.0 + h) - f(1.0 - h)) / (2h)
+    println("h = ", h, "  central error: ", abs(cen - cos(1.0)))
+end
+'''
+
+    [section.example.breakit]
+    kc = "finite-differences"
+    prompt = "You need the slope of `sin` at 1 to within `1e-8` with the central difference. Find the largest step `h` that still gets there. The truncation error is about `h^2 |f'''(1)| / 6`, and `f''' = -cos`. Work it out from that, or try steps with the probe if a server is connected, then commit your `h`."
+    param = "h"
+    measure = "central-difference error at x = 1"
+    row = 'h = (?<p>\S+)  central error: (?<m>\S+)'
+    fails = "above"
+    limit = 1e-8
+    edge = [0.0003, 0.0005]
+    close = 2.0
+    probe = '''
+f(x) = sin(x)
+h = {{p}}
+cen = (f(1.0 + h) - f(1.0 - h)) / (2h)
+println("h = ", h, "  central error: ", abs(cen - cos(1.0)))
+'''
+    explain = "The central difference drops the Taylor term `h^2 f'''(x) / 6`, and `|f'''(1)| = cos(1) ≈ 0.540`, so the error is about `0.090 h^2`. Setting that to `1e-8` gives `h ≈ sqrt(1e-8 / 0.090) ≈ 3.3e-4`. The sweep agrees: `5e-4` gives `2.3e-8`, `3e-4` gives `8.1e-9`. Round-off (about `eps() / h ≈ 1e-12` here) is far smaller, so the truncation term decides."
+    short = "That step is already accurate enough, and a larger one would do too. The error goes as `h^2` with coefficient `cos(1) / 6 ≈ 0.090`, so the largest step is near `sqrt(1e-8 / 0.090)`."
+    past = "That step is too large: the error at it is above `1e-8`. The error is about `0.090 h^2`, so solve `0.090 h^2 = 1e-8` for `h`."
+
+  [[section.example]]
   caption = "Forward-mode AD on the same function: no step size."
   code = '''
 using ForwardDiff
@@ -1528,3 +1559,152 @@ venue = "ACM Communications in Computer Algebra 55(3)"
 year = 2021
 url = "https://arxiv.org/abs/2105.03949"
 note = "Describes the design of Symbolics.jl used in the last sections: symbolic terms, rewriting and code generation."
+
+[[problem]]
+id = "dual-chain-find-the-bug"
+title = "Find the bug: a dual number's chain rule"
+difficulty = "core"
+kcs = ["dual-numbers", "forward-mode-ad"]
+entry = "dual_slope"
+packages = ["ForwardDiff"]
+prompt = '''
+`dual_slope(f, x)` returns `f′(x)` by running `f` on a hand-written dual
+number seeded with derivative 1, as in this unit's dual-number section. The
+type has `+`, `*` and `sin` methods and promotes plain numbers, so `f` may use
+constants such as `3x`.
+
+One line of the code in the editor is wrong. It still gives the right slope
+for `sin` itself, so a quick check against `cos` looks fine. Find the line and
+fix it; change nothing else.
+
+```julia
+dual_slope(sin, 1.0)              # cos(1.0) ≈ 0.5403
+dual_slope(x -> sin(3x), 1.0)     # 3cos(3.0) ≈ -2.97
+dual_slope(x -> x * sin(x), 2.0)  # sin(2.0) + 2cos(2.0) ≈ 0.077
+```
+
+The tests print the slope's error against the derivative worked out by hand.
+Results are compared with `rtol = 1e-12`.
+'''
+reference = '''
+struct Dual <: Number
+    v::Float64   # value
+    d::Float64   # derivative
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.v + b.v, a.d + b.d)
+Base.:*(a::Dual, b::Dual) = Dual(a.v * b.v, a.d * b.v + a.v * b.d)
+Base.sin(a::Dual) = Dual(sin(a.v), cos(a.v) * a.d)
+Base.convert(::Type{Dual}, x::Real) = Dual(x, 0.0)
+Base.promote_rule(::Type{Dual}, ::Type{<:Real}) = Dual
+
+dual_slope(f, x) = f(Dual(x, 1.0)).d
+'''
+cases = [
+  "sin, 1.0",
+  "x -> sin(3x), 1.0",
+  "x -> x * sin(x), 2.0",
+  "x -> sin(sin(x)), 0.5",
+  "x -> 2x * x + 1, -1.5",
+]
+compare = "isapprox"
+# rtol: each slope is a handful of products and one or two `sin`/`cos` calls, so any
+# correct version is within a few eps of the hand-derived value; 1e-12 is far above that.
+rtol = 1e-12
+hints = [
+  "The first test passes: `sin` applied directly to the seed gives the right slope. The second applies `sin` to `3x`, whose derivative part is 3, not 1. Which rule has to use the derivative part of its argument?",
+  "The chain rule: d/dx sin(g(x)) = cos(g(x)) · g′(x). In dual numbers, g′(x) is the argument's derivative part.",
+]
+
+  [problem.bug]
+  kc = "forward-mode-ad"
+  find = "Dual(sin(a.v), cos(a.v) * a.d)"
+  replace = "Dual(sin(a.v), cos(a.v))"
+  answer_tokens = ["* a.d"]
+  misconception = '''
+The planted rule says "the derivative of `sin` is `cos`", which is true only
+when the argument is the variable itself. For `sin(g(x))` the chain rule
+multiplies by `g′(x)`, and in a dual number that factor is the argument's
+derivative part `a.d`. With the seed `Dual(x, 1.0)` passed straight to `sin`,
+`a.d` is 1, so the missing factor changes nothing: that is why `sin` alone
+passed and `sin(3x)` (inner derivative 3) did not. Every elementary rule must
+multiply by the derivative part of its input, or composition breaks.
+'''
+
+  [[problem.bug.test]]
+  name = "slope of sin at 1, against cos(1)"
+  # expect: dual_slope(sin, 1.0) computes cos(1.0) * 1.0, which is cos(1.0) exactly (the reference: 0.0).
+  # The range [-1e-12, 1e-12] is the problem's rtol times |cos(1)| < 1, rounded up.
+  code = '''
+println("error: ", dual_slope(sin, 1.0) - cos(1.0))
+'''
+  row = '^error: (?<m>\S+)$'
+  expect = [-1e-12, 1e-12]
+  explain = '''
+The slope of `sin` applied straight to the seeded variable, minus `cos(1)`.
+Zero means the rule for `sin` is right when its argument is the variable
+itself, with derivative part 1.
+'''
+
+  [[problem.bug.test]]
+  name = "slope of sin(3x) at 1, against 3cos(3)"
+  # expect: `3x` promotes 3 to Dual(3.0, 0.0), so the argument is Dual(3.0, 3.0) exactly, and the
+  # reference computes cos(3.0) * 3.0, which equals 3cos(3.0) exactly (0.0). |3cos(3)| < 3, so
+  # 3e-12 is the rtol bound. The planted rule returns cos(3), an error of -2cos(3) ≈ 1.98.
+  code = '''
+println("error: ", dual_slope(x -> sin(3x), 1.0) - 3cos(3.0))
+'''
+  row = '^error: (?<m>\S+)$'
+  expect = [-3e-12, 3e-12]
+  explain = '''
+The slope of `sin(3x)`, minus `3cos(3)` from the chain rule. Here `sin`'s
+argument changes three times as fast as `x`. An error near `-2cos(3) ≈ 1.98`
+means the result is `cos(3)`: the factor 3 from the inner function was lost.
+'''
+
+  [[problem.bug.test]]
+  name = "slope of x sin(x) at 2, against sin(2) + 2cos(2)"
+  # expect: a product and one sin; a correct version differs from sin(2) + 2cos(2) by a few eps
+  # (|value| < 1.2, so 2e-12 is far above that). The planted rule happens to give the same
+  # value here (sin's argument is x, derivative part 1): this test passes on both.
+  code = '''
+println("error: ", dual_slope(x -> x * sin(x), 2.0) - (sin(2.0) + 2cos(2.0)))
+'''
+  row = '^error: (?<m>\S+)$'
+  expect = [-2e-12, 2e-12]
+  explain = '''
+The slope of `x sin(x)`, minus the product rule's `sin(2) + 2cos(2)`. This
+tests `*` together with `sin` of the plain variable. Zero here and an error
+on `sin(3x)` points at the rule that receives a composed argument.
+'''
+
+  [[problem.variant]]
+  label = "sin's rule multiplies by the value instead of the derivative part"
+  code = '''
+struct Dual <: Number
+    v::Float64
+    d::Float64
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.v + b.v, a.d + b.d)
+Base.:*(a::Dual, b::Dual) = Dual(a.v * b.v, a.d * b.v + a.v * b.d)
+Base.sin(a::Dual) = Dual(sin(a.v), cos(a.v) * a.v)
+Base.convert(::Type{Dual}, x::Real) = Dual(x, 0.0)
+Base.promote_rule(::Type{Dual}, ::Type{<:Real}) = Dual
+dual_slope(f, x) = f(Dual(x, 1.0)).d
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a parametric dual (the same rules)"
+  code = '''
+struct Dual{T<:Real} <: Number
+    v::T
+    d::T
+end
+Base.:+(a::Dual, b::Dual) = Dual(a.v + b.v, a.d + b.d)
+Base.:*(a::Dual, b::Dual) = Dual(a.v * b.v, a.d * b.v + a.v * b.d)
+Base.sin(a::Dual) = Dual(sin(a.v), cos(a.v) * a.d)
+Base.convert(::Type{Dual{T}}, x::Real) where {T} = Dual(T(x), zero(T))
+Base.promote_rule(::Type{Dual{T}}, ::Type{S}) where {T, S<:Real} = Dual{promote_type(T, S)}
+dual_slope(f, x) = f(Dual(x, one(x))).d
+'''
+  expect = ["correct"]

@@ -9,7 +9,7 @@ import {
   course, courseById, estimateText, landingHref, questionState, statusNote, TRACK_BLURB, TRACK_LABEL, trackRequirement, unitNumber,
   type Bug, type CourseInfo, type Example, type Explorer, type Problem, type Question, type Unit,
 } from "../course";
-import { bugRates, bugTestCode, bumpBug, hintsOpen, reading, unitBugs, type BugReading, type BugRecord } from "../findbug";
+import { bugRates, bugTestCode, bumpBug, hintsOpen, isPerfBug, perfCost, reading, testsNoun, unitBugs, type BugReading, type BugRecord } from "../findbug";
 import { parseTyped, predictionKey, predictionRates, settlePrediction, settleTyped, toleranceText, unitPredictionKeys, type PredictionRecord } from "../predict";
 import { raceText, settleRace, unitRaceKeys, type RaceRecord } from "../race";
 import { choiceRates, costText, MAX_REASON, reasonOk, settleChoice, unitChoiceKeys, type ChoiceRecord } from "../choose";
@@ -17,6 +17,11 @@ import { breakRates, juliaNumber, parseValue, probeCode, readProbe, settleBreak,
 import { drawable, extent, juliaValue, lines, localSlope, pointText, scale, settleExplore, startSelection, ticks, valueAt, type ExploreRecord, type Selection } from "../explore";
 import { assemble, bumpParsons, displayOrder, parsonsFeedback, parsonsRates, unitParsons, type ParsonsFeedback, type ParsonsRecord } from "../parsons";
 import { loadProgress, saveProgress, type Progress } from "../progress";
+import { addMiss, dueCards, loadReviews, nextDue, predictionReviewKey, questionReviewKey, saveReviews, seed, settleReview, type Reviews } from "../review";
+import { todayISO } from "../storage";
+import { ReviewPanel } from "./Review";
+import { PlacementPanel } from "./Placement";
+import { checkItems, clearCourse, loadPlacement, savePlacement, settlePlacement, verdicts, type PlacementAnswers } from "../placement";
 import { bestLadder, ladderTotals, type LadderRecord } from "../ladder";
 import { gradeCode, runCode, useServer, type GradeResult, type RunResult } from "../server";
 
@@ -43,6 +48,8 @@ export function CourseView() {
   const [problemId, setProblemId] = useState<string | null>(() => readParams().problem);
   const [courseId, setCourseId] = useState<string>(() => readParams().course ?? course.courses[0].id);
   const [progress, setProgress] = useState<Progress>(loadProgress);
+  // Missed questions from progress saved before the review queue existed are queued once, due today.
+  const [reviews, setReviews] = useState<Reviews>(() => saveReviews(seed(loadReviews(), loadProgress(), todayISO())));
   const unit = course.units.find((u) => u.id === unitId) ?? null;
   // The syllabus shows one course: the open unit's, else the chosen one.
   const active = courseById(unit?.course ?? courseId) ?? course.courses[0];
@@ -69,12 +76,33 @@ export function CourseView() {
       return saveProgress({ ...s, solved: { ...s.solved, [pid]: best }, ladder });
     });
   // The first settlement of a question is the one kept (a reload must not turn "later" into "first-try").
-  const answered = (key: string, firstTry: boolean) =>
+  const answered = (key: string, firstTry: boolean) => {
+    // a first settlement that missed queues the question for review tomorrow (review.ts)
+    if (!progress.questions[key] && !firstTry) setReviews((r) => saveReviews(addMiss(r, questionReviewKey(key), todayISO())));
     setProgress((s) => s.questions[key] ? s :
       saveProgress({ ...s, questions: { ...s.questions, [key]: firstTry ? "first-try" : "later" } }));
+  };
   // A prediction is committed once: the first record is kept, never replaced.
-  const predicted = (key: string, r: PredictionRecord) =>
+  const predicted = (key: string, r: PredictionRecord) => {
+    if (!progress.predictions[key] && r.pick > 0 && !r.hit)
+      setReviews((rv) => saveReviews(addMiss(rv, predictionReviewKey(key), todayISO())));
     setProgress((s) => s.predictions[key] ? s : saveProgress({ ...s, predictions: { ...s.predictions, [key]: r } }));
+  };
+  // A review: score it with SM-2 and return the date it is next due.
+  const reviewed = (key: string, recalled: boolean) => {
+    const next = settleReview(reviews, key, recalled, todayISO());
+    setReviews(saveReviews(next));
+    return next[key].due;
+  };
+  const today = todayISO();
+  const due = dueCards(reviews, units, today);
+  // Placement answers: one pick per item, the first kept; a retake clears this course's only.
+  const [placement, setPlacement] = useState<PlacementAnswers>(loadPlacement);
+  const placed = (key: string, pick: number) => {
+    const c = checkItems(units).find((x) => x.key === key);
+    if (c) setPlacement((a) => a[key] ? a : savePlacement({ ...a, [key]: settlePlacement(c.item, pick) }));
+  };
+  const placeVerdicts = verdicts(units, placement);
   // A method choice too: the first record (pick, reason, verdict) is kept.
   const chose = (key: string, r: ChoiceRecord) =>
     setProgress((s) => s.choices[key] ? s : saveProgress({ ...s, choices: { ...s.choices, [key]: r } }));
@@ -105,7 +133,7 @@ export function CourseView() {
           ))}
         </div>
         <button aria-current={unit === null} onClick={() => go(null)}>
-          <span className="s">{units.filter((u) => u.status === "ready").length} units ready · {active.problems} problems{statusNote(active) ? ` · ${statusNote(active)}` : ""}</span>
+          <span className="s">{units.filter((u) => u.status === "ready").length} units ready · {active.problems} problems{statusNote(active) ? ` · ${statusNote(active)}` : ""}{due.cards.length ? ` · ${due.cards.length} review${due.cards.length === 1 ? "" : "s"} due` : ""}</span>
           <span className="t">{active.title}: overview</span>
         </button>
         {tracksOf(active).map((t) => (
@@ -117,6 +145,7 @@ export function CourseView() {
                 <button key={u.id} aria-current={u.id === unit?.id} onClick={() => go(u.id)} className={u.status === "planned" ? "planned" : ""}>
                   <span className="s">
                     {unitNumber(u.id)} · {u.status === "planned" ? "planned" : `${done}/${u.problems.length} solved`}
+                    {placeVerdicts[u.id] === "skip" ? " · can skip" : ""}
                   </span>
                   <span className="t">{u.title.split(/:\s/)[0]}</span>
                 </button>
@@ -126,6 +155,14 @@ export function CourseView() {
         ))}
       </nav>
       <div className="jt-grid" style={{ gap: "1.1rem" }}>
+        {unit === null && (
+          <ReviewPanel key={active.id} cards={due.cards} stale={due.stale.length} next={nextDue(reviews, today, units)} units={units}
+            onSettle={reviewed} go={(u) => go(u)} />
+        )}
+        {unit === null && (
+          <PlacementPanel key={`p-${active.id}`} units={units} answers={placement} onAnswer={placed}
+            onRetake={() => setPlacement((a) => savePlacement(clearCourse(a, units)))} go={(u) => go(u)} />
+        )}
         {unit === null ? <Overview c={active} progress={progress} go={go} /> :
           <UnitPage key={unit.id} unit={unit} problemId={problemId} progress={progress}
             openProblem={(p) => { setProblemId(p); writeParams(unit.id, p, active.id); }} onSolved={solved}
@@ -1111,8 +1148,8 @@ function BugRates({ c, progress }: { c: CourseInfo; progress: Progress }) {
       <div className="jt-eyebrow">Find the bug</div>
       <h3 id="jt-bug-rates" style={{ marginTop: "0.25rem" }}>Your fixes, by knowledge component</h3>
       <p className="jt-small" style={{ maxWidth: "50rem" }}>
-        {total} practice problems in this course start from a solver with one planted error. A problem counts as fixed
-        when the grader and every convergence test pass on the same code; hints are counted up to the fix. The record
+        {total} practice problems in this course start from code with one planted error. A problem counts as fixed
+        when the grader and every one of its tests pass on the same code; hints are counted up to the fix. The record
         stays in this browser.
       </p>
       {rates.length === 0 ? <p className="jt-small jt-muted">No find-the-bug problem started yet.</p> : (
@@ -1320,16 +1357,17 @@ function ParsonsProblem({ p, onSolved, record, onCheck, best }: {
   );
 }
 
-/** The convergence tests' measurements on the learner's code, with what each failing one measures. */
+/** The bug's tests' measurements on the learner's code, with what each failing one measures. */
 function BugTests({ bug, readings, errors }: { bug: Bug; readings: BugReading[]; errors: string[] }) {
   const failing = bug.tests.filter((_, i) => !readings[i]?.passed);
+  const noun = testsNoun(bug);
   return (
     <div className={`jt-callout ${failing.length ? "mis" : "ok"}`} aria-live="polite">
       <span className="tag">{failing.length ? `${failing.length} of ${bug.tests.length} tests fail` : "Every test passes"}</span>
       <div>
         <table className="jt-table jt-small" style={{ margin: "0 0 0.4rem" }}>
-          <caption className="jt-muted" style={{ textAlign: "left", captionSide: "top" }}>Convergence tests on the code in the editor</caption>
-          <thead><tr><th scope="col">Test</th><th scope="col">Measured</th><th scope="col">A correct solver</th><th scope="col" /></tr></thead>
+          <caption className="jt-muted" style={{ textAlign: "left", captionSide: "top" }}>{noun[0].toUpperCase() + noun.slice(1)} on the code in the editor</caption>
+          <thead><tr><th scope="col">Test</th><th scope="col">Measured</th><th scope="col">{isPerfBug(bug) ? "The reference" : "A correct solver"}</th><th scope="col" /></tr></thead>
           <tbody>
             {bug.tests.map((t, i) => {
               const r = readings[i];
@@ -1361,7 +1399,7 @@ function BugFixed({ bug, record }: { bug: Bug; record: BugRecord }) {
       <span className="tag">Fixed</span>
       <div>
         <div className="jt-small">
-          The grader and every convergence test passed on the same code, after {record.runs} test
+          The grader and every one of the {testsNoun(bug)} passed on the same code, after {record.runs} test
           run{record.runs === 1 ? "" : "s"} and {record.hints} hint{record.hints === 1 ? "" : "s"}. The planted line was
         </div>
         <Code src={bug.planted} />
@@ -1439,7 +1477,9 @@ function ProblemPanel({ p, env, onSolved, bugRecord, onBug, best }: {
         <span className="jt-chip">{p.difficulty}</span>
         {p.kcs.map((k) => <span key={k} className="jt-chip kc">{k}</span>)}
         <span className="jt-chip info">define <code>{p.entry}</code></span>
-        {bug && <span className="jt-chip advice" title="The code in the editor is the reference with one line changed">find the bug: one line is wrong</span>}
+        {bug && (isPerfBug(bug)
+          ? <span className="jt-chip advice" title="The code in the editor is the reference with one line changed; its answers are right">find the bug: one line {perfCost(bug)}</span>
+          : <span className="jt-chip advice" title="The code in the editor is the reference with one line changed">find the bug: one line is wrong</span>)}
       </div>
       <Markdown text={p.prompt} />
       {p.samples.length > 0 && (
@@ -1465,13 +1505,13 @@ function ProblemPanel({ p, env, onSolved, bugRecord, onBug, best }: {
         </button>
         {bug && (
           <button className="jt-btn" disabled={!canRunTests || busy} onClick={testOnly}
-            title={canRunTests ? "Run every convergence test on the code in the editor" : `Needs tutor serve with the ${env} environment`}>
-            Run the convergence tests
+            title={canRunTests ? `Run every one of the ${testsNoun(bug)} on the code in the editor` : `Needs tutor serve with the ${env} environment`}>
+            Run the {testsNoun(bug)}
           </button>
         )}
         {hints < p.hints.length && (
           <button className="jt-btn ghost jt-small" disabled={!hintsReady} onClick={moreHint}
-            title={hintsReady ? undefined : "Run the convergence tests first: what they measure is the first hint"}>
+            title={hintsReady ? undefined : `Run the ${bug ? testsNoun(bug) : "tests"} first: what they measure is the first hint`}>
             {hints === 0 ? "Show a hint" : "Another hint"} ({hints}/{p.hints.length})
           </button>
         )}

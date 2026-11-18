@@ -213,3 +213,16 @@ result = "1"
 [[samples.df-unmatched-keys]]
 call = "count_unmatched((order_id = Int[], customer_id = Int[]), (id = [1], name = [\"Ann\"]))"
 result = "0"
+
+[[samples.site-means-find-the-bug]]
+call = "site_means(DataFrame(site = [\"a\", \"b\", \"a\", \"b\"], temp = [1.0, missing, 3.0, 5.0]))"
+result = """2-element Vector{Tuple{String, Float64}}:\n (\"a\", 2.0)\n (\"b\", 5.0)"""
+[[samples.site-means-find-the-bug]]
+call = "site_means(DataFrame(site = [\"x\"], temp = [2.5]))"
+result = """1-element Vector{Tuple{String, Float64}}:\n (\"x\", 2.5)"""
+[[samples.site-means-find-the-bug]]
+call = "site_means(DataFrame(site = [\"n\", \"s\", \"n\", \"s\", \"n\"], temp = [missing, 4.0, 6.0, missing, 8.0]))"
+result = """2-element Vector{Tuple{String, Float64}}:\n (\"n\", 7.0)\n (\"s\", 4.0)"""
+[[samples.site-means-find-the-bug]]
+call = "site_means(DataFrame(site = [\"b\", \"a\"], temp = Union{Missing, Float64}[3.0, 1.0]))"
+result = """2-element Vector{Tuple{String, Float64}}:\n (\"a\", 1.0)\n (\"b\", 3.0)"""

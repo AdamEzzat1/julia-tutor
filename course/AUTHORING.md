@@ -275,6 +275,47 @@ n = Int(steps)
 * `site-data` exports the question with its message only when `verify`
   would accept it; otherwise the site leaves the question out.
 
+## Placement check
+
+**Learning purpose.** A learner who already knows some Julia should not have
+to read units they could teach. A course's placement check is a short run of
+predict-the-output questions, one pick each, scored once; the site then lists
+each unit as *can skip* (every question covering it was right), *study* (one
+was missed) or *not checked* (no question covers it). A miss outweighs any
+number of hits on purpose: a wrong "skip" costs the learner a unit they
+needed, a wrong "study" only a re-read.
+
+Each item lives in the unit it tests, at the top level of the unit file:
+
+```toml
+[[placement]]
+covers = ["01-first-steps"]      # optional: earlier units of the same course
+prompt = "What does this print?"
+code = '''
+typeof(7 / 2), 7 ÷ 2
+'''
+choices = ["(Int64, 3)", "(Float64, 3)", "(Float64, 3.5)", "(Rational{Int64}, 3)"]
+answer = 2
+explain = "..."
+misconceptions = ["...", "", "...", "..."]
+```
+
+* An item is an `output` question (`kind` defaults to `"output"`; any other
+  kind is an error): `record` runs its code, and `verify` requires the answer
+  to be the recorded output and no other choice to be. `site-data` exports
+  only items whose key holds.
+* `covers` always includes the item's own unit; list an earlier unit only
+  when the snippet cannot be answered without it (`verify` rejects a unit of
+  another course or a later one).
+* Test the idea a learner would skip the unit for, not a corner of it: the
+  snippet should be answerable in under a minute by someone who knows the
+  unit, and misread in a specific way by someone who does not. Each wrong
+  choice is one of those misreadings, with its misconception.
+* Aim for about 10 to 15 items per course. Units with no item are reported
+  as *not checked*, never as skippable; say so rather than stretching an
+  item to cover a unit it does not test.
+* Answers stay in the visitor's browser (`julia-tutor/placement/v1`).
+
 ## Predict, then run
 
 **Learning purpose.** A prediction made before seeing a result tests the
@@ -781,6 +822,42 @@ when the grader and every test pass on the same code; then the planted line,
 the reference's line and the misconception are shown. On the command line,
 `tutor practice <id> file.jl` prints the test table, and `--hints=N` shows the
 first N hints.
+
+#### Performance bugs: the line that allocates, the type instability
+
+In Core the planted line usually keeps every answer right and costs memory or
+type stability instead: a slice where a view was meant, an undotted operator
+inside a fused broadcast, an abstract field type, an accumulator that starts
+as an `Int`. Declare what the grader must find on the planted starter:
+
+```toml
+  [problem.bug]
+  kc = "views"
+  find = "sum(@view v[i-1:i+1])"
+  replace = "sum(v[i-1:i+1])"
+  answer_tokens = ["@view"]
+  starter_expect = ["correct", "allocates"]   # or "unstable", or both
+```
+
+* `starter_expect` holds `"correct"` plus `"allocates"` and/or `"unstable"`:
+  counted verdicts only, never `slow` or `fast` (timings move with the
+  machine; counts do not). `verify` grades the starter and requires those
+  verdicts, instead of requiring it to fail. The problem needs
+  `[problem.perf]`, where they are measured.
+* The tests measure what the grader measures. `@allocated` after a first,
+  compiling call (`_bytes(x) = (f(x); @allocated f(x))`; at top level a call
+  through a global can allocate on its own), and inference with
+  `Base.return_types` or `Base.code_typed(...; optimize = false)` (each local
+  keeps its own inferred type there; leave out compiler temporaries, whose
+  names are empty or start with `#`). A count of bytes or of non-concrete
+  locals uses `expect = [-0.5, 0.5]` for "exactly zero"; derive it in the
+  comment (any heap object is at least 16 bytes).
+* Make the readings point at the place without naming it: bytes on a call
+  whose loop never runs next to the extra bytes per element (the allocation
+  is in the loop), or a concrete return type next to a non-concrete local
+  (`@inferred` passes; the instability is inside).
+* No input values from an unseeded RNG in a test (invariant 3): allocation
+  does not depend on values, so use `collect(1.0:n)` or `fill`.
 
 ### Parsons problems
 

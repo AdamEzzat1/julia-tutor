@@ -59,6 +59,33 @@ y = x + Int8(1)
 println(y, " ", typeof(y))
 '''
 
+  [[section.example]]
+  caption = "`prod(1:n)` multiplies `1 * 2 * ... * n` in `Int`. Each row compares it with the exact factorial from a `BigInt` (1.0: equal, 0.0: not)."
+  notice = "Notice that nothing warns you when the product stops being right: the `Int` result is just a different number. (`factorial(n)` itself checks, and throws an `OverflowError` instead.)"
+  code = '''
+for n in 15:25
+    println("n = ", n, "  prod(1:n) right: ", Float64(prod(1:n) == factorial(big(n))))
+end
+'''
+
+    [section.example.breakit]
+    kc = "integer-overflow"
+    prompt = "Find the largest `n` for which `prod(1:n)`, computed in `Int`, still equals `n!`. A row reads 1.0 while the product is right and 0.0 once it has wrapped around. Estimate it from `typemax(Int)` (about `9.2e18`), or try values with the probe if a server is connected, then commit your `n`."
+    param = "n"
+    measure = "1 if prod(1:n) equals n!, else 0"
+    row = 'n = (?<p>\S+)  prod\(1:n\) right: (?<m>\S+)'
+    fails = "below"
+    limit = 0.5
+    edge = [20, 21]
+    close = 1.25
+    probe = '''
+n = round(Int, {{p}})
+println("n = ", n, "  prod(1:n) right: ", Float64(prod(1:n) == factorial(big(n))))
+'''
+    explain = "`20! = 2432902008176640000`, about `2.4e18`, fits under `typemax(Int) = 9223372036854775807`. `21!` is 21 times that, about `5.1e19`, which needs more than 63 bits, so the product wraps around to `-4249290049419214848` and keeps multiplying from there. A quick check without the sweep: `n!` grows past `9.2e18` between 20 and 21, since `20!` is a quarter of the limit and the next factor is 21."
+    short = "The product is still exact there: `Int` holds every factorial up to `20!`, which is a quarter of `typemax(Int)`."
+    past = "The product has already wrapped around there. It wraps first at `21!`: `20!` is about `2.4e18`, and 21 times that is past `typemax(Int)`, about `9.2e18`."
+
 [[section]]
 title = "Floating point is approximate"
 body = '''
@@ -111,6 +138,35 @@ println(1 / 0)
 println(0 / 0)
 println(1 ÷ 0)
 '''
+
+  [[section.example]]
+  caption = "Counting by ones in `Float64`: for each integer `n`, store it as `x = Float64(n)` and measure how far `x + 1` lands from `x + 1` exactly (0: it counts right)."
+  notice = "Notice that the error jumps from 0 to 1 between two neighbouring integers, and that past that point `x + 1` sometimes lands on `x` itself and sometimes two above it."
+  code = '''
+for n in (2^50, 2^51, 2^52, 2^53 - 2, 2^53 - 1, 2^53, 2^53 + 2, 2^54)
+    x = Float64(n)
+    println("n = ", n, "  error of x + 1: ", abs(((x + 1.0) - x) - 1.0))
+end
+'''
+
+    [section.example.breakit]
+    kc = "floating-point"
+    prompt = "Find the largest integer `n` for which `Float64(n) + 1` still lands exactly on `n + 1`. A row reads 0 while adding 1 is exact and 1 once it is not. A `Float64` keeps 53 significant bits; work it out from that, or try values with the probe if a server is connected, then commit your `n` (a plain integer)."
+    param = "n"
+    measure = "error of x + 1 (0 = exact)"
+    row = 'n = (?<p>\S+)  error of x \+ 1: (?<m>\S+)'
+    fails = "above"
+    limit = 0.5
+    edge = [9007199254740991, 9007199254740992]
+    close = 1.25
+    probe = '''
+n = round(Int, {{p}})
+x = Float64(n)
+println("n = ", n, "  error of x + 1: ", abs(((x + 1.0) - x) - 1.0))
+'''
+    explain = "A `Float64` has 53 significant bits, so it holds every integer up to `2^53 = 9007199254740992` exactly. Below `2^53` the gap between neighbouring floats is at most 1, and `x + 1` is a float, so it is exact. At `x = 2^53` the gap becomes 2: `2^53 + 1` is not a `Float64`, and it rounds to the even neighbour, `2^53` itself, so adding 1 changes nothing. The last `n` that counts right is `2^53 - 1`, because `(2^53 - 1) + 1 = 2^53` is still representable. This is why a `Float64` loop counter or an index stored as a float silently stops advancing near `9e15`."
+    short = "Adding 1 is still exact there: every integer below `2^53`, about `9.0e15`, is a `Float64`, and so is the next one up."
+    past = "Adding 1 is already inexact there: from `2^53 = 9007199254740992` on, neighbouring floats are 2 or more apart, so `x + 1` rounds to a neighbour instead."
 
   [[section.example]]
   caption = "Doubling a float until the next doubling would overflow to `Inf`."
@@ -534,3 +590,24 @@ end
 mean_int(v) = sum(float, v) / length(v)
 '''
   expect = ["correct", "fast"]
+
+[[placement]]
+covers = ["01-first-steps"]
+prompt = "What does this print?"
+code = '''
+typeof(7 / 2), 7 ÷ 2
+'''
+choices = [
+  "(Int64, 3)",
+  "(Float64, 3)",
+  "(Float64, 3.5)",
+  "(Rational{Int64}, 3)",
+]
+answer = 2
+explain = "`/` always returns a floating-point number, even for two integers; `÷` (`div`) is integer division and drops the fraction."
+misconceptions = [
+  "`/` on integers is not integer division in Julia: `7 / 2` is `3.5`, a `Float64`.",
+  "",
+  "`÷` is integer division: it drops the fraction, so `7 ÷ 2` is `3`.",
+  "Rationals are built with `//` (`7 // 2`); `/` gives a `Float64`.",
+]

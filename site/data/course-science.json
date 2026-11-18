@@ -16,6 +16,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "20-stdlib-tour"
       ],
@@ -223,6 +224,84 @@
           ],
           "starter": "using CSV, DataFrames, Statistics\n\nfunction rain_summary(s)\n    df = CSV.read(IOBuffer(s), DataFrame)\n    # your code here\nend\n",
           "title": "Read a European CSV"
+        },
+        {
+          "bug": {
+            "fixed": ":temp => (t -> mean(skipmissing(t))) => :mean",
+            "kc": "missing-values",
+            "misconception": "The planted line assumes `mean` ignores missing values, as pandas' `mean`\ndoes by default (`skipna=True`). In Julia `missing` propagates through\narithmetic: the mean of a vector with one `missing` is `missing`, and the\ngrouped result's column becomes `Union{Missing, Float64}`. Dropping the gaps\nhas to be said: `mean(skipmissing(t))` iterates over the readings that are\npresent. That is a decision about the data, which is why Julia does not make\nit for you.",
+            "planted": ":temp => mean => :mean",
+            "starter_expect": [],
+            "tests": [
+              {
+                "code": "df = DataFrame(site = [\"a\", \"b\", \"a\", \"b\"], temp = [1.0, missing, 3.0, 5.0])\nr = site_means(df)\nprintln(\"error: \", abs(Float64(r[1][2]) - 2.0))",
+                "expect": [
+                  0.0,
+                  1.0e-12
+                ],
+                "explain": "The mean of the site with no missing reading, minus its exact value 2.0. Zero\nmeans the grouping and the mean are right where the data is complete.",
+                "name": "error of site a's mean, every reading present",
+                "row": "^error: (?<m>\\S+)$"
+              },
+              {
+                "code": "df = DataFrame(site = [\"a\", \"b\", \"a\", \"b\"], temp = [1.0, missing, 3.0, 5.0])\nr = site_means(df)\nprintln(\"is a number: \", Float64(!ismissing(r[2][2])))",
+                "expect": [
+                  0.5,
+                  1.5
+                ],
+                "explain": "Whether site b, which has one missing reading among two, gets a number at\nall. 0.0 means the `missing` in its readings made the whole mean `missing`.",
+                "name": "site b's mean is a number (1.0) or missing (0.0)",
+                "row": "^is a number: (?<m>\\S+)$"
+              },
+              {
+                "code": "df = DataFrame(site = [\"a\", \"b\", \"a\", \"b\"], temp = [1.0, missing, 3.0, 5.0])\nr = site_means(df)\nprintln(\"error: \", abs(coalesce(r[2][2], Inf) - 5.0))",
+                "expect": [
+                  0.0,
+                  1.0e-12
+                ],
+                "explain": "Site b's mean minus 5.0, its one reading that is present. Inf stands for a\nmissing mean. A different finite number would mean the gap was counted as\nsome value, such as zero.",
+                "name": "error of site b's mean over its present readings (Inf when missing)",
+                "row": "^error: (?<m>\\S+)$"
+              }
+            ]
+          },
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "site_means",
+          "hints": [
+            "The first test, on a site with every reading present, passes. The next ones look at a site with one reading missing. What does `mean` return when one of its inputs is `missing`?",
+            "`missing` propagates: `1.0 + missing` is `missing`, and so is the mean of a vector that contains one. Statistics has no option to drop them; Base has a wrapper that skips them while iterating."
+          ],
+          "id": "site-means-find-the-bug",
+          "kcs": [
+            "missing-values",
+            "split-apply-combine"
+          ],
+          "perf": null,
+          "prompt": "`df` holds temperature readings with columns `site` (`Vector{String}`) and\n`temp`, which may contain `missing` where a sensor failed. Every site has at\nleast one reading that is not missing. `site_means(df)` returns the mean\ntemperature of each site over its readings that are present, as a\n`Vector{Tuple{String, Float64}}` of `(site, mean)` sorted by site name.\n\nOne line of the code in the editor is wrong. On a table with no `missing`\nit gives the right answer. Find the line and fix it; change nothing else.\n\n```julia\ndf = DataFrame(site = [\"a\", \"b\", \"a\", \"b\"], temp = [1.0, missing, 3.0, 5.0])\nsite_means(df)   # [(\"a\", 2.0), (\"b\", 5.0)]\n```\n\nResults are compared with `rtol = 1e-12`.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "site_means(DataFrame(site = [\"a\", \"b\", \"a\", \"b\"], temp = [1.0, missing, 3.0, 5.0]))",
+              "result": "2-element Vector{Tuple{String, Float64}}:\n (\"a\", 2.0)\n (\"b\", 5.0)"
+            },
+            {
+              "call": "site_means(DataFrame(site = [\"x\"], temp = [2.5]))",
+              "result": "1-element Vector{Tuple{String, Float64}}:\n (\"x\", 2.5)"
+            },
+            {
+              "call": "site_means(DataFrame(site = [\"n\", \"s\", \"n\", \"s\", \"n\"], temp = [missing, 4.0, 6.0, missing, 8.0]))",
+              "result": "2-element Vector{Tuple{String, Float64}}:\n (\"n\", 7.0)\n (\"s\", 4.0)"
+            },
+            {
+              "call": "site_means(DataFrame(site = [\"b\", \"a\"], temp = Union{Missing, Float64}[3.0, 1.0]))",
+              "result": "2-element Vector{Tuple{String, Float64}}:\n (\"a\", 1.0)\n (\"b\", 3.0)"
+            }
+          ],
+          "starter": "using DataFrames, Statistics\n\nfunction site_means(df)\n    g = combine(groupby(df, :site; sort = true), :temp => mean => :mean)\n    return collect(zip(g.site, g.mean))\nend\n",
+          "title": "Find the bug: one missing reading"
         }
       ],
       "references": [
@@ -1086,6 +1165,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "21-dataframes"
       ],
@@ -1948,6 +2028,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "15-generic-programming"
       ],
@@ -2090,6 +2171,88 @@
           ],
           "starter": "using ForwardDiff\n\n# Make this function generic so that ForwardDiff can run it on dual numbers.\nfunction final_position(p::Vector{Float64}, nsteps::Int)\n    k, c = p\n    dt = 0.01\n    u = zeros(2)              # position, velocity\n    u[1] = 1.0\n    for _ in 1:nsteps\n        a = -k * u[1] - c * u[2]\n        u[1] += dt * u[2]\n        u[2] += dt * a\n    end\n    return u[1]\nend\n\nfunction position_sensitivity(p, nsteps)\n    # your code here\nend\n",
           "title": "Make a simulation differentiable"
+        },
+        {
+          "bug": {
+            "fixed": "Dual(sin(a.v), cos(a.v) * a.d)",
+            "kc": "forward-mode-ad",
+            "misconception": "The planted rule says \"the derivative of `sin` is `cos`\", which is true only\nwhen the argument is the variable itself. For `sin(g(x))` the chain rule\nmultiplies by `g′(x)`, and in a dual number that factor is the argument's\nderivative part `a.d`. With the seed `Dual(x, 1.0)` passed straight to `sin`,\n`a.d` is 1, so the missing factor changes nothing: that is why `sin` alone\npassed and `sin(3x)` (inner derivative 3) did not. Every elementary rule must\nmultiply by the derivative part of its input, or composition breaks.",
+            "planted": "Dual(sin(a.v), cos(a.v))",
+            "starter_expect": [],
+            "tests": [
+              {
+                "code": "println(\"error: \", dual_slope(sin, 1.0) - cos(1.0))",
+                "expect": [
+                  -1.0e-12,
+                  1.0e-12
+                ],
+                "explain": "The slope of `sin` applied straight to the seeded variable, minus `cos(1)`.\nZero means the rule for `sin` is right when its argument is the variable\nitself, with derivative part 1.",
+                "name": "slope of sin at 1, against cos(1)",
+                "row": "^error: (?<m>\\S+)$"
+              },
+              {
+                "code": "println(\"error: \", dual_slope(x -> sin(3x), 1.0) - 3cos(3.0))",
+                "expect": [
+                  -3.0e-12,
+                  3.0e-12
+                ],
+                "explain": "The slope of `sin(3x)`, minus `3cos(3)` from the chain rule. Here `sin`'s\nargument changes three times as fast as `x`. An error near `-2cos(3) ≈ 1.98`\nmeans the result is `cos(3)`: the factor 3 from the inner function was lost.",
+                "name": "slope of sin(3x) at 1, against 3cos(3)",
+                "row": "^error: (?<m>\\S+)$"
+              },
+              {
+                "code": "println(\"error: \", dual_slope(x -> x * sin(x), 2.0) - (sin(2.0) + 2cos(2.0)))",
+                "expect": [
+                  -2.0e-12,
+                  2.0e-12
+                ],
+                "explain": "The slope of `x sin(x)`, minus the product rule's `sin(2) + 2cos(2)`. This\ntests `*` together with `sin` of the plain variable. Zero here and an error\non `sin(3x)` points at the rule that receives a composed argument.",
+                "name": "slope of x sin(x) at 2, against sin(2) + 2cos(2)",
+                "row": "^error: (?<m>\\S+)$"
+              }
+            ]
+          },
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "dual_slope",
+          "hints": [
+            "The first test passes: `sin` applied directly to the seed gives the right slope. The second applies `sin` to `3x`, whose derivative part is 3, not 1. Which rule has to use the derivative part of its argument?",
+            "The chain rule: d/dx sin(g(x)) = cos(g(x)) · g′(x). In dual numbers, g′(x) is the argument's derivative part."
+          ],
+          "id": "dual-chain-find-the-bug",
+          "kcs": [
+            "dual-numbers",
+            "forward-mode-ad"
+          ],
+          "perf": null,
+          "prompt": "`dual_slope(f, x)` returns `f′(x)` by running `f` on a hand-written dual\nnumber seeded with derivative 1, as in this unit's dual-number section. The\ntype has `+`, `*` and `sin` methods and promotes plain numbers, so `f` may use\nconstants such as `3x`.\n\nOne line of the code in the editor is wrong. It still gives the right slope\nfor `sin` itself, so a quick check against `cos` looks fine. Find the line and\nfix it; change nothing else.\n\n```julia\ndual_slope(sin, 1.0)              # cos(1.0) ≈ 0.5403\ndual_slope(x -> sin(3x), 1.0)     # 3cos(3.0) ≈ -2.97\ndual_slope(x -> x * sin(x), 2.0)  # sin(2.0) + 2cos(2.0) ≈ 0.077\n```\n\nThe tests print the slope's error against the derivative worked out by hand.\nResults are compared with `rtol = 1e-12`.",
+          "random_cases": false,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "dual_slope(sin, 1.0)",
+              "result": "0.5403023058681398"
+            },
+            {
+              "call": "dual_slope(x -> sin(3x), 1.0)",
+              "result": "-2.9699774898013365"
+            },
+            {
+              "call": "dual_slope(x -> x * sin(x), 2.0)",
+              "result": "0.0770037537313969"
+            },
+            {
+              "call": "dual_slope(x -> sin(sin(x)), 0.5)",
+              "result": "0.7786439483717796"
+            },
+            {
+              "call": "dual_slope(x -> 2x * x + 1, -1.5)",
+              "result": "-6.0"
+            }
+          ],
+          "starter": "struct Dual <: Number\n    v::Float64   # value\n    d::Float64   # derivative\nend\nBase.:+(a::Dual, b::Dual) = Dual(a.v + b.v, a.d + b.d)\nBase.:*(a::Dual, b::Dual) = Dual(a.v * b.v, a.d * b.v + a.v * b.d)\nBase.sin(a::Dual) = Dual(sin(a.v), cos(a.v))\nBase.convert(::Type{Dual}, x::Real) = Dual(x, 0.0)\nBase.promote_rule(::Type{Dual}, ::Type{<:Real}) = Dual\n\ndual_slope(f, x) = f(Dual(x, 1.0)).d\n",
+          "title": "Find the bug: a dual number's chain rule"
         }
       ],
       "references": [
@@ -2148,6 +2311,82 @@
               "notice": "",
               "ok": true,
               "output": "    h    forward  central\n1e-01  4.3e-02  9.0e-04\n1e-03  4.2e-04  9.0e-08\n1e-05  4.2e-06  1.1e-11\n1e-07  4.2e-08  1.9e-10\n1e-09  5.3e-08  3.0e-09\n1e-11  1.2e-06  1.2e-06\n1e-13  7.3e-04  1.8e-04\n1e-15  1.5e-02  1.5e-02\n"
+            },
+            {
+              "breakit": {
+                "close": 2.0,
+                "edge": [
+                  0.0003,
+                  0.0005
+                ],
+                "explain": "The central difference drops the Taylor term `h^2 f'''(x) / 6`, and `|f'''(1)| = cos(1) ≈ 0.540`, so the error is about `0.090 h^2`. Setting that to `1e-8` gives `h ≈ sqrt(1e-8 / 0.090) ≈ 3.3e-4`. The sweep agrees: `5e-4` gives `2.3e-8`, `3e-4` gives `8.1e-9`. Round-off (about `eps() / h ≈ 1e-12` here) is far smaller, so the truncation term decides.",
+                "fails": "above",
+                "kc": "finite-differences",
+                "limit": 1.0e-8,
+                "measure": "central-difference error at x = 1",
+                "param": "h",
+                "past": "That step is too large: the error at it is above `1e-8`. The error is about `0.090 h^2`, so solve `0.090 h^2 = 1e-8` for `h`.",
+                "probe": "f(x) = sin(x)\nh = {{p}}\ncen = (f(1.0 + h) - f(1.0 - h)) / (2h)\nprintln(\"h = \", h, \"  central error: \", abs(cen - cos(1.0)))",
+                "prompt": "You need the slope of `sin` at 1 to within `1e-8` with the central difference. Find the largest step `h` that still gets there. The truncation error is about `h^2 |f'''(1)| / 6`, and `f''' = -cos`. Work it out from that, or try steps with the probe if a server is connected, then commit your `h`.",
+                "row": "h = (?<p>\\S+)  central error: (?<m>\\S+)",
+                "rows": [
+                  {
+                    "failed": false,
+                    "m": "1.1140866007508521e-11",
+                    "p": 1.0e-5
+                  },
+                  {
+                    "failed": false,
+                    "m": "8.145495389300095e-11",
+                    "p": 3.0e-5
+                  },
+                  {
+                    "failed": false,
+                    "m": "9.004295087322589e-10",
+                    "p": 0.0001
+                  },
+                  {
+                    "failed": false,
+                    "m": "3.6021572391575774e-9",
+                    "p": 0.0002
+                  },
+                  {
+                    "failed": false,
+                    "m": "8.104481641346695e-9",
+                    "p": 0.0003
+                  },
+                  {
+                    "failed": true,
+                    "m": "2.251258601759787e-8",
+                    "p": 0.0005
+                  },
+                  {
+                    "failed": true,
+                    "m": "9.005045020771263e-8",
+                    "p": 0.001
+                  },
+                  {
+                    "failed": true,
+                    "m": "8.104531136199356e-7",
+                    "p": 0.003
+                  },
+                  {
+                    "failed": true,
+                    "m": "9.004993406280803e-6",
+                    "p": 0.01
+                  }
+                ],
+                "short": "That step is already accurate enough, and a larger one would do too. The error goes as `h^2` with coefficient `cos(1) / 6 ≈ 0.090`, so the largest step is near `sqrt(1e-8 / 0.090)`.",
+                "side": "high"
+              },
+              "caption": "The central difference for d/dx sin(x) at x = 1, on a finer grid of step sizes, all far from the round-off end.",
+              "check": true,
+              "code": "f(x) = sin(x)\nfor h in (1e-5, 3e-5, 1e-4, 2e-4, 3e-4, 5e-4, 1e-3, 3e-3, 1e-2)\n    cen = (f(1.0 + h) - f(1.0 - h)) / (2h)\n    println(\"h = \", h, \"  central error: \", abs(cen - cos(1.0)))\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that a step 10 times larger, from `1e-4` to `1e-3`, makes the error 100 times larger: the error goes as h², and round-off is still far below it.",
+              "ok": true,
+              "output": "h = 1.0e-5  central error: 1.1140866007508521e-11\nh = 3.0e-5  central error: 8.145495389300095e-11\nh = 0.0001  central error: 9.004295087322589e-10\nh = 0.0002  central error: 3.6021572391575774e-9\nh = 0.0003  central error: 8.104481641346695e-9\nh = 0.0005  central error: 2.251258601759787e-8\nh = 0.001  central error: 9.005045020771263e-8\nh = 0.003  central error: 8.104531136199356e-7\nh = 0.01  central error: 9.004993406280803e-6\n"
             },
             {
               "caption": "Forward-mode AD on the same function: no step size.",
@@ -2833,6 +3072,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives"
       ],
@@ -3621,6 +3861,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives"
       ],
@@ -4521,6 +4762,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "25-optimization"
       ],
@@ -5382,6 +5624,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "26-machine-learning"
       ],
@@ -6219,6 +6462,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "14-performance"
       ],
@@ -6982,6 +7226,7 @@
         "Continuous integration and registering a package in the General registry",
         "Needs: the sandbox to run a multi-file project, not one file"
       ],
+      "placement": [],
       "prerequisites": [
         "12-modules"
       ],

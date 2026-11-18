@@ -1115,3 +1115,160 @@ venue = "SIAM Review 59(1)"
 year = 2017
 url = "https://arxiv.org/abs/1411.1607"
 note = "Describes the dataflow type inference that works out the type of each expression from the argument types, the mechanism that type stability (section 2) depends on."
+
+[[placement]]
+prompt = "What does this print?"
+code = '''
+f(x) = x > 0 ? x : 0.0
+Base.return_types(f, (Int,))
+'''
+choices = [
+  "1-element Vector{Any}:\n Int64",
+  "1-element Vector{Any}:\n Union{Float64, Int64}",
+  "1-element Vector{Any}:\n Float64",
+  "1-element Vector{Any}:\n Any",
+]
+answer = 2
+explain = "One branch returns the `Int` argument and the other `0.0`, so inference can only say the result is one of the two: a small `Union`. That is type instability, and it comes from the literal `0.0`; `zero(x)` would keep the type."
+misconceptions = [
+  "The `0.0` branch returns a `Float64`, so `Int64` alone does not cover every return.",
+  "",
+  "Julia does not convert the `x` branch to `Float64`: each branch returns its own type.",
+  "Inference keeps both possibilities as a small `Union`; it gives up to `Any` only when there are too many.",
+]
+
+[[problem]]
+id = "smooth-find-the-allocation"
+title = "Find the bug: the line that allocates"
+difficulty = "core"
+kcs = ["views", "allocations"]
+entry = "smooth3!"
+prompt = '''
+`smooth3!(out, v)` writes a three-point moving average of `v` into `out`:
+each interior entry becomes the mean of itself and its two neighbours, and
+the two end entries are copied unchanged. It returns `out`. The code in the
+editor gives the right answer on every case. It is meant to allocate nothing,
+and it does not manage that: one line builds a new array every time the loop
+body runs.
+
+Find that line and fix it; change nothing else. The measurement tests call
+the function once to compile it, then count the bytes one more call
+allocates with `@allocated`: once on a vector whose loop never runs, and as
+the extra bytes per point when the vector grows. Compare the two readings.
+
+```julia
+smooth3!(zeros(4), [1.0, 2.0, 6.0, 4.0])   # [1.0, 3.0, 4.0, 4.0]
+```
+
+Results are compared with `rtol = 1e-12`, and `out` after the call is
+checked too.
+'''
+reference = '''
+function smooth3!(out, v)
+    n = length(v)
+    out[1] = v[1]
+    out[n] = v[n]
+    for i in 2:n-1
+        out[i] = sum(@view v[i-1:i+1]) / 3
+    end
+    return out
+end
+'''
+cases = [
+  "zeros(4), [1.0, 2.0, 6.0, 4.0]",
+  "zeros(1), [5.0]",
+  "zeros(2), [1.0, -1.0]",
+  "zeros(5), [0.5, 0.5, 0.5, 0.5, 0.5]",
+]
+gen = "rng -> [(zeros(m), randn(rng, m)) for m in rand(rng, 1:40, 20)]"
+compare = "isapprox"
+# rtol: every version adds the same three numbers and divides by 3; another order of the two additions
+# changes the result by at most a few eps relative to the largest term. 1e-12 is far above that.
+rtol = 1e-12
+compare_args = true
+hints = [
+  "The first test calls the function on a vector whose loop body never runs, and it allocates nothing. So whatever allocates is inside the loop. Which expression in the loop body could make a new object?",
+  "Indexing a vector with a range, `v[a:b]`, copies those entries into a new `Vector`. A view refers to the same entries without copying, and `sum` accepts either.",
+]
+
+  [problem.bug]
+  kc = "views"
+  find = "sum(@view v[i-1:i+1])"
+  replace = "sum(v[i-1:i+1])"
+  answer_tokens = ["@view"]
+  starter_expect = ["correct", "allocates"]
+  misconception = '''
+`v[i-1:i+1]` reads as "these three entries of `v`", but indexing with a
+range copies them into a new `Vector`: 80 bytes on every pass of the loop
+here (three `Float64`s plus the array's header), as the second test
+measured. The belief it models: a slice is a window onto the original
+array, as it is in NumPy. In Julia a slice is a copy. `@view v[i-1:i+1]`
+(or `view(v, i-1:i+1)`) is the window, and summing it allocates nothing.
+'''
+
+  [[problem.bug.test]]
+  name = "bytes allocated by one call on 2 elements (the loop body never runs)"
+  # expect: `@allocated` counts heap bytes exactly, and the first call has compiled the method, so a call
+  # that allocates nothing reads 0 (the reference: 0). Any heap object is at least 16 bytes, so the
+  # range [-0.5, 0.5] means "exactly zero".
+  code = '''
+_bytes(out, v) = (smooth3!(out, v); @allocated smooth3!(out, v))
+println("bytes per call: ", _bytes(zeros(2), [1.0, 2.0]))
+'''
+  row = '^bytes per call: (?<m>\S+)$'
+  expect = [-0.5, 0.5]
+  explain = '''
+The bytes one call allocates when the loop body never runs. Above zero, the
+allocation happens outside the loop, in the lines that run once per call.
+'''
+
+  [[problem.bug.test]]
+  name = "extra bytes per interior point (1001 elements, then 2001)"
+  # expect: the same reasoning; the reference reads 0 at both lengths, so the difference is exactly 0.
+  # The planted line reads 80 (a 3-element Vector{Float64} per pass), far outside.
+  code = '''
+_bytes(out, v) = (smooth3!(out, v); @allocated smooth3!(out, v))
+b1 = _bytes(zeros(1001), collect(1.0:1001.0))
+b2 = _bytes(zeros(2001), collect(1.0:2001.0))
+println("bytes per interior point: ", (b2 - b1) / 1000)
+'''
+  row = '^bytes per interior point: (?<m>\S+)$'
+  expect = [-0.5, 0.5]
+  explain = '''
+The extra bytes a call allocates for each extra pass of the loop. Zero means
+the loop body builds nothing on the heap; a steady number per point means
+something in the loop body makes a new object every time it runs.
+'''
+
+  [problem.perf]
+  args = "zeros(n), randn(rng, n)"
+  sizes = [100000]
+  mutates = true
+
+  [[problem.variant]]
+  label = "averages every entry, the ends included (reads past both ends)"
+  code = '''
+function smooth3!(out, v)
+    n = length(v)
+    for i in 1:n
+        out[i] = (v[max(i - 1, 1)] + v[i] + v[min(i + 1, n)]) / 3
+    end
+    return out
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the three entries added by hand"
+  code = '''
+function smooth3!(out, v)
+    n = length(v)
+    out[1] = v[1]
+    out[n] = v[n]
+    for i in 2:n-1
+        out[i] = (v[i-1] + v[i] + v[i+1]) / 3
+    end
+    return out
+end
+'''
+  expect = ["correct"]

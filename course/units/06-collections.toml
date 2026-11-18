@@ -461,3 +461,113 @@ function word_counts(s)
 end
 '''
   expect = ["correct", "scaling"]
+
+[[problem]]
+id = "evens-find-the-element-type"
+title = "Find the bug: the right numbers in the wrong vector"
+difficulty = "warm-up"
+kcs = ["element-types", "vectors"]
+entry = "squares_of_evens"
+prompt = '''
+`squares_of_evens(v)` takes a vector of `Int`s and returns a vector with the
+square of each even entry, in order. The code in the editor prints the right
+numbers, yet the grader rejects it: one line gives the result the wrong
+type.
+
+Find it and fix it; change nothing else. The tests check the values on one
+input and ask what the element type of the result is.
+
+```julia
+squares_of_evens([1, 2, 3, 4])   # [4, 16], a Vector{Int64}
+```
+
+Results are compared with `isequal`, and their types must match.
+'''
+reference = '''
+function squares_of_evens(v)
+    out = Int[]
+    for x in v
+        if iseven(x)
+            push!(out, x^2)
+        end
+    end
+    return out
+end
+'''
+cases = ["[1, 2, 3, 4]", "Int[]", "[7, 9]", "[-2, 0, 5]"]
+gen = "rng -> [(rand(rng, -50:50, rand(rng, 0:15)),) for _ in 1:20]"
+hints = [
+  "The first test passes and the second fails, so the values are right and the container is not. When is a vector's element type decided: when it is made, or as values are pushed into it?",
+  "An empty `[]` is a `Vector{Any}`, and pushing integers into it does not change that. Give the empty vector its element type when you make it.",
+]
+
+  [problem.bug]
+  kc = "element-types"
+  find = "out = Int[]"
+  replace = "out = []"
+  answer_tokens = ["Int[]"]
+  misconception = '''
+`[]` is an empty vector, and pushing integers into it feels like it should
+give a vector of integers, as it would with a Python list. The belief it
+models: a vector's element type follows its contents. In Julia it is fixed
+when the vector is made: `[]` is a `Vector{Any}`, and it stays one after any
+number of `push!`es. The values print the same, but each one is stored
+boxed, code that reads them cannot know their type, and `Vector{Any}` is
+not equal in type to `Vector{Int64}` (the grader checks result types).
+`Int[]`, or `eltype(v)[]` for any integer type, makes the vector with the
+element type it will hold.
+'''
+
+  [[problem.bug.test]]
+  name = "the values on [1, 2, 3, 4]"
+  # expect: an indicator (1 = the result == [4, 16]), so [0.5, 1.5] means "equal values".
+  # `==` compares values, not element types.
+  code = '''
+println("values match: ", Int(squares_of_evens([1, 2, 3, 4]) == [4, 16]))
+'''
+  row = '^values match: (?<m>\S+)$'
+  expect = [0.5, 1.5]
+  explain = '''
+Whether the result has the right values, compared with `==`, which looks at
+the values only.
+'''
+
+  [[problem.bug.test]]
+  name = "the result's element type is concrete"
+  # expect: an indicator (1 = isconcretetype(eltype(result))), so [0.5, 1.5] means "concrete".
+  # Measured on the reference: Int64.
+  code = '''
+r = squares_of_evens([1, 2, 3, 4])
+println("element type: ", eltype(r))
+println("concrete element type: ", Int(isconcretetype(eltype(r))))
+'''
+  row = '^concrete element type: (?<m>\S+)$'
+  expect = [0.5, 1.5]
+  explain = '''
+Whether the vector that holds the result can store its elements unboxed, as
+one concrete type. The line above the reading names the element type.
+'''
+
+  [problem.perf]
+  args = "rand(rng, 1:1000, n)"
+  sizes = [100000]
+
+  [[problem.variant]]
+  label = "squares the odd entries"
+  code = '''
+function squares_of_evens(v)
+    out = Int[]
+    for x in v
+        isodd(x) && push!(out, x^2)
+    end
+    return out
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a comprehension with a filter"
+  code = '''
+squares_of_evens(v) = [x^2 for x in v if iseven(x)]
+'''
+  expect = ["correct"]

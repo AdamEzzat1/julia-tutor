@@ -7,7 +7,7 @@
 // each failing test measures, then the problem's hints one at a time. The
 // planted line and its misconception are shown only once the code passes the
 // grader and every test on the same code.
-import type { BugTest, Problem, Unit } from "./course";
+import type { Bug, BugTest, Problem, Unit } from "./course";
 
 export interface BugReading {
   name: string;
@@ -91,6 +91,19 @@ export function bugRates(records: Record<string, BugRecord>, units: Unit[]): KcB
     }
   return [...by.values()].sort((a, b) => a.kc.localeCompare(b.kc));
 }
+
+/** A performance bug: the planted starter's answers are right; it allocates or is type-unstable. */
+export const isPerfBug = (b: Bug) => (b.starter_expect ?? []).includes("correct");
+
+/** What the planted line costs, in words, for a performance bug ("allocates and is type-unstable"). */
+export function perfCost(b: Bug): string {
+  const s = b.starter_expect ?? [];
+  return [s.includes("allocates") ? "allocates" : "", s.includes("unstable") ? "is type-unstable" : ""]
+    .filter(Boolean).join(" and ");
+}
+
+/** What a bug's tests are called: they measure convergence for a solver, memory and inference for a performance bug. */
+export const testsNoun = (b: Bug) => (isPerfBug(b) ? "measurement tests" : "convergence tests");
 
 /** The find-the-bug problems of a unit. */
 export const unitBugs = (u: Unit): Problem[] => u.problems.filter((p) => p.bug);

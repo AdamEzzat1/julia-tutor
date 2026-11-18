@@ -170,6 +170,43 @@ P_with(; compare = "isequal", checker = "", packages = String[]) =
     @test any(contains("not in course/envs"), bad(P_with(packages = ["Flux"])))
 end
 
+@testset "placement check: items, covers and measured keys" begin
+    units = Course.load_course()
+    courses = Course.load_courses()
+    byid = Dict(u.id => u for u in units)
+    # the core check: 12 output items, each covering its own unit
+    core = filter(u -> u.id in courses[1].units, units)
+    @test sum(u -> length(u.placement), core) == 12
+    @test all(pl.q.kind == "output" for u in core for pl in u.placement)
+    @test all(u -> all(pl -> u.id in pl.covers, u.placement), units)
+    @test byid["02-numbers"].placement[1].covers == ["01-first-steps", "02-numbers"]   # own unit added last
+    # loading: kind defaults to output, the unit is added to covers once
+    pl = Course.load_placement(Dict{String,Any}("prompt" => "p", "code" => "1", "choices" => ["1", "2"], "answer" => 1,
+                                                "explain" => "e", "misconceptions" => ["", "m"], "covers" => ["u"]), "u")
+    @test pl.q.kind == "output" && pl.covers == ["u"]
+    @test Course.placement_problems(pl) == String[]
+    choice = Course.Placement(Course.Question("choice", "p", "", ["a", "b"], 1, "e", ["", "m"]), ["u"])
+    @test any(contains("output question"), Course.placement_problems(choice))
+    # covers: units of the same course, at or before the item's unit
+    with(u, covers) = Course.Unit(u.id, u.title, u.track, u.env, u.status, u.summary, u.kcs, u.prerequisites, u.outline,
+                                  u.lessons, u.sections, u.problems, u.references, [Course.Placement(pl.q, covers)])
+    swapped(id, covers) = [u.id == id ? with(u, covers) : u for u in units]
+    has(msg, us) = any(contains(msg), Course.validate_courses(courses, us))
+    @test !has("placement", swapped("05-functions", ["04-control-flow", "05-functions"]))
+    @test has("comes after 05-functions", swapped("05-functions", ["06-collections", "05-functions"]))
+    @test has("not a unit of course core", swapped("05-functions", ["35-stiffness", "05-functions"]))
+    # verify checks a placement item's key against the recorded output, like an output question
+    u = with(byid["05-functions"], ["05-functions"])
+    u = Course.Unit(u.id, u.title, u.track, u.env, u.status, u.summary, u.kcs, u.prerequisites, u.outline, u.lessons,
+                    Course.Section[], u.problems, u.references, u.placement)
+    k = Course.example_key("1", "repl")
+    @test ("1", "repl") in Course.recorded_code(u)
+    @test Practice.question_key_problems(u, Dict("examples" => Dict(k => Dict("output" => "1\n")))) == String[]
+    @test any(contains("placement 1: the answer is not"),
+              Practice.question_key_problems(u, Dict("examples" => Dict(k => Dict("output" => "2\n")))))
+    @test any(contains("placement 1: its code was not run"), Practice.question_key_problems(u, Dict("examples" => Dict())))
+end
+
 @testset "predict, then run: the key is read from the recorded output" begin
     Pr(; kc = "k", measure = raw"order (\S+)", choices = ["about 4", "below 3.5"], ranges = [(3.95, Inf), (-Inf, 3.5)],
        values = String[], answer = 2) = Course.Prediction(kc, "What order?", measure, choices, ranges, values, answer, "why")
@@ -469,6 +506,20 @@ end
     @test !Course.bug_test_passes(t, 1.0) && !Course.bug_test_passes(t, nothing) && !Course.bug_test_passes(t, NaN)
     @test Course.bug_test_code("f(h) = h\n\n", t) == "f(h) = h\n\nprintln(\"order: \", f(1.0))"
 
+    # a performance bug: the planted starter's answers are right, so it declares the counted verdicts
+    # it must get instead (never timed ones), and it needs a perf section where they are measured
+    @test Bg().starter_expect == String[]
+    Bp(se) = Course.Bug("k", "a = h / 2", "a = h", [T()], "the belief", ["h / 2"], se)
+    Pp(b) = Course.Problem("p", "t", "core", ["k"], "", "f", something(Course.plant(ref, b), ""), ref, ["1.0"], "", "isequal",
+                           "", 1e-8, true, false, ["look at the scale"], Course.Perf("n", [10], false), Course.Variant[],
+                           1, 1, String[], b)
+    pprobs(se) = Course.bug_problems(Pp(Bp(se)), ["k"])
+    @test isempty(pprobs(["correct", "allocates"])) && isempty(pprobs(["correct", "allocates", "unstable"]))
+    @test any(contains("timed verdicts"), pprobs(["correct", "unstable", "slow"]))
+    @test any(contains("must include \"correct\""), pprobs(["allocates"]))
+    @test any(contains("\"allocates\" or \"unstable\""), pprobs(["correct"]))
+    @test any(contains("needs [problem.perf]"), probs(Bp(["correct", "allocates"])))
+
     # loading: a hand-written starter is refused, a generated one is the planted reference
     d = Dict("id" => "p", "title" => "t", "difficulty" => "core", "prompt" => "", "entry" => "f", "reference" => ref,
              "bug" => Dict("kc" => "k", "find" => "a = h / 2", "replace" => "a = h", "misconception" => "m",
@@ -477,6 +528,9 @@ end
     p = Course.load_problem(d)
     @test p.starter == Course.plant(ref, p.bug) && p.bug.tests[1].expect == (1.0, 2.0)
     @test Course.load_problem(merge(d, Dict("starter" => "f(h) = h"))).starter == Course.BUG_STARTER_GIVEN
+    @test p.bug.starter_expect == String[]
+    @test Course.load_problem(merge(d, Dict("bug" => merge(d["bug"], Dict("starter_expect" => ["correct", "unstable"]))))).bug.starter_expect ==
+          ["correct", "unstable"]
     @test Course.load_problem(merge(d, Dict("bug" => merge(d["bug"], Dict("test" => [Dict("expect" => [1])]))))).bug.tests[1].expect |>
           x -> all(isnan, x)
 
@@ -492,6 +546,15 @@ end
     for p in filter(p -> haskey(p, "bug"), site)
         @test occursin(p["bug"]["planted"], p["starter"]) && !occursin(p["bug"]["fixed"], p["starter"])
     end
+    # Core has find-the-bug problems too: performance bugs measured with @allocated and inference
+    core = Set(only(c for c in Course.load_courses() if c.id == "core").units)
+    perf_bugs = [(u.id, p) for u in units if u.id in core for p in u.problems if p.bug !== nothing && !isempty(p.bug.starter_expect)]
+    @test length(perf_bugs) >= 4
+    @test any(((_, p),) -> "allocates" in p.bug.starter_expect, perf_bugs) && any(((_, p),) -> "unstable" in p.bug.starter_expect, perf_bugs)
+    @test all(((_, p),) -> any(t -> occursin("@allocated", t.code) || occursin("code_typed", t.code) ||
+                                     occursin("return_types", t.code), p.bug.tests), perf_bugs)
+    sited = Dict(p["id"] => p for p in site)
+    @test all(((_, p),) -> sited[p.id]["bug"]["starter_expect"] == p.bug.starter_expect, perf_bugs)
 end
 
 @testset "precomputed explorers: the grid is read from the recorded output" begin

@@ -15,6 +15,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "02-numbers",
         "14-performance",
@@ -802,6 +803,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "24-differential-equations",
         "30-floating-point"
@@ -952,6 +954,7 @@
             "kc": "convergence-order",
             "misconception": "The planted line evaluates the second stage at the start of the step, `t`,\nwhile its state is the Euler prediction at the midpoint. The belief it models:\na stage is defined by its `y` argument, and the time argument is bookkeeping.\nFor `y' = f(y)` that is true, which is why the first test measured order 4\nand why tests on autonomous problems alone cannot see this error. As soon as\n`f` depends on `t`, each stage must pair the time and the state of the same\npoint inside the step, and a mismatch costs the method its order: here it fell\nfrom 4 to about 1.",
             "planted": "k2 = f(t, y + h / 2 * k1)",
+            "starter_expect": [],
             "tests": [
               {
                 "code": "let ns = [10, 20, 40, 80, 160]\n    errs = [abs(rk4_solve((t, y) -> -y, 1.0, 1.0, n) - exp(-1.0)) for n in ns]\n    x = log.(1 ./ ns); z = log.(errs)\n    p = sum((x .- sum(x) / 5) .* (z .- sum(z) / 5)) / sum((x .- sum(x) / 5) .^ 2)\n    println(\"observed order: \", round(p; digits = 2))\nend",
@@ -1620,6 +1623,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "14-performance",
         "20-stdlib-tour",
@@ -2183,6 +2187,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "30-floating-point",
         "32-dense-linear-algebra"
@@ -2762,6 +2767,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "07-broadcasting",
         "14-performance",
@@ -2901,6 +2907,7 @@
             "kc": "boundary-conditions",
             "misconception": "The planted line divides the interval into `n` gaps, as if the `n` points were\nall the points. With two boundary points held at zero there are `n + 2`\npoints and `n + 1` gaps. The belief it models: \"n points, so the spacing is\n1/n\", an off-by-one that ignores the boundary. The grid then ends at\n`x = 1` with an unknown where the boundary value should be, every equation is\nscaled by the wrong `dx^2`, and the error falls like `1/n`, not `1/n^2`. The\nlast unknown sits on the right boundary while the first sits one gap inside\nthe left one, so the two ends are treated differently: the symmetry test\nmeasured an asymmetry of about 1%. The values still look like a plausible\nsolution and still improve with `n`, so a plot alone rarely shows it.",
             "planted": "dx = 1 / n",
+            "starter_expect": [],
             "tests": [
               {
                 "code": "let ns = [9, 19, 39, 79, 159]\n    errs = [(x = (1:n) ./ (n + 1); maximum(abs.(poisson_dirichlet(x -> pi^2 * sinpi(x), n) .- sinpi.(x)))) for n in ns]\n    a = log.(1 ./ (ns .+ 1)); z = log.(errs)\n    p = sum((a .- sum(a) / 5) .* (z .- sum(z) / 5)) / sum((a .- sum(a) / 5) .^ 2)\n    println(\"observed order: \", round(p; digits = 2))\nend",
@@ -3520,6 +3527,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives",
         "24-differential-equations",
@@ -4191,6 +4199,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives",
         "24-differential-equations",
@@ -4794,6 +4803,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "24-differential-equations",
         "31-convergence"
@@ -5350,6 +5360,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "25-optimization",
         "32-dense-linear-algebra"
@@ -5811,6 +5822,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "25-optimization",
         "38-constrained-optimization"
@@ -6287,6 +6299,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "14-performance",
         "18-concurrency",
@@ -6894,6 +6907,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "24-differential-equations",
         "31-convergence",
@@ -7456,6 +7470,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "36-daes",
         "38-constrained-optimization",

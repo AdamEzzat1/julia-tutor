@@ -9,6 +9,10 @@ output = """true Nothing\nVector{Union{Missing, Int64}} missing 4 [1, 0, 3]\nmis
 ok = true
 output = """Options(100, 1.0e-8, false)\nOptions(100, 0.001, true)\n"""
 
+[examples.210cabe17566a1ea]
+ok = true
+output = """(Vector{Float64}, false)\n"""
+
 [examples.4743aaf232d12de8]
 ok = false
 output = """Interval(1.0, 3.0) Interval(2.0, 2.0)\nERROR: ArgumentError: need lo <= hi, got 3 > 1\n  @ Interval at line 5\n  @ top-level scope at line 11\n"""
@@ -75,3 +79,16 @@ result = "NaN"
 [[samples.mean-skipping-missing]]
 call = "mean_present(Union{Missing,Int}[4, 6])"
 result = "5.0"
+
+[[samples.ring-find-the-abstract-field]]
+call = "wrapped_sums([1.0, 2.0, 3.0, 4.0], 2)"
+result = """4-element Vector{Float64}:\n 3.0\n 5.0\n 7.0\n 5.0"""
+[[samples.ring-find-the-abstract-field]]
+call = "wrapped_sums([5.0], 3)"
+result = """1-element Vector{Float64}:\n 15.0"""
+[[samples.ring-find-the-abstract-field]]
+call = "wrapped_sums([1.0, -1.0, 2.0], 1)"
+result = """3-element Vector{Float64}:\n  1.0\n -1.0\n  2.0"""
+[[samples.ring-find-the-abstract-field]]
+call = "wrapped_sums([0.5, 0.25, 0.125, 1.0, 2.0], 5)"
+result = """5-element Vector{Float64}:\n 3.875\n 3.875\n 3.875\n 3.875\n 3.875"""

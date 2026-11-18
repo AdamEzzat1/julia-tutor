@@ -499,3 +499,23 @@ function fib_sum(n)
 end
 '''
   expect = ["correct", "fast"]
+
+[[placement]]
+prompt = "What does this print?"
+code = '''
+sum(x for x in 1:10 if isodd(x)), first(Iterators.drop(1:10, 3))
+'''
+choices = [
+  "(25, 3)",
+  "(30, 4)",
+  "(55, 4)",
+  "(25, 4)",
+]
+answer = 4
+explain = "The generator keeps the odd numbers 1, 3, 5, 7, 9, which sum to 25. `Iterators.drop(1:10, 3)` skips the first three elements, so it starts at 4."
+misconceptions = [
+  "`drop(itr, 3)` skips three elements: 1, 2 and 3, so the first one left is 4.",
+  "The filter keeps odd numbers; 30 is the sum of the even ones.",
+  "The `if` clause filters: 55 is the sum of all ten numbers.",
+  "",
+]
