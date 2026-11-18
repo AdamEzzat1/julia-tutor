@@ -1713,3 +1713,137 @@ venue = "Journal of Statistical Software 59(10)"
 year = 2014
 url = "https://doi.org/10.18637/jss.v059.i10"
 note = "Defines tidy (long) data, one observation per row, which the reshaping section produces with stack."
+
+[[problem]]
+id = "site-means-find-the-bug"
+title = "Find the bug: one missing reading"
+difficulty = "core"
+kcs = ["missing-values", "split-apply-combine"]
+entry = "site_means"
+packages = ["DataFrames"]
+prompt = '''
+`df` holds temperature readings with columns `site` (`Vector{String}`) and
+`temp`, which may contain `missing` where a sensor failed. Every site has at
+least one reading that is not missing. `site_means(df)` returns the mean
+temperature of each site over its readings that are present, as a
+`Vector{Tuple{String, Float64}}` of `(site, mean)` sorted by site name.
+
+One line of the code in the editor is wrong. On a table with no `missing`
+it gives the right answer. Find the line and fix it; change nothing else.
+
+```julia
+df = DataFrame(site = ["a", "b", "a", "b"], temp = [1.0, missing, 3.0, 5.0])
+site_means(df)   # [("a", 2.0), ("b", 5.0)]
+```
+
+Results are compared with `rtol = 1e-12`.
+'''
+reference = '''
+using DataFrames, Statistics
+
+function site_means(df)
+    g = combine(groupby(df, :site; sort = true), :temp => (t -> mean(skipmissing(t))) => :mean)
+    return collect(zip(g.site, g.mean))
+end
+'''
+# rtol: means of a few small numbers; another summation order moves them by a few eps.
+# The return type is not asserted (DataFrame columns cannot be inferred); the grader
+# judges stability relative to the reference.
+compare = "isapprox"
+rtol = 1e-12
+cases = [
+  "DataFrame(site = [\"a\", \"b\", \"a\", \"b\"], temp = [1.0, missing, 3.0, 5.0])",
+  "DataFrame(site = [\"x\"], temp = [2.5])",
+  "DataFrame(site = [\"n\", \"s\", \"n\", \"s\", \"n\"], temp = [missing, 4.0, 6.0, missing, 8.0])",
+  "DataFrame(site = [\"b\", \"a\"], temp = Union{Missing, Float64}[3.0, 1.0])",
+]
+gen = "rng -> [(m = rand(rng, 2:20); t = Union{Missing, Float64}[rand(rng, -10:30) * 1.0 for _ in 1:m]; for i in 1:m; i > 2 && rand(rng) < 0.25 && (t[i] = missing); end; (DataFrame(site = [isodd(i) ? \"a\" : \"b\" for i in 1:m], temp = t),)) for _ in 1:15]"
+hints = [
+  "The first test, on a site with every reading present, passes. The next ones look at a site with one reading missing. What does `mean` return when one of its inputs is `missing`?",
+  "`missing` propagates: `1.0 + missing` is `missing`, and so is the mean of a vector that contains one. Statistics has no option to drop them; Base has a wrapper that skips them while iterating.",
+]
+
+  [problem.bug]
+  kc = "missing-values"
+  find = ":temp => (t -> mean(skipmissing(t))) => :mean"
+  replace = ":temp => mean => :mean"
+  answer_tokens = ["skipmissing"]
+  misconception = '''
+The planted line assumes `mean` ignores missing values, as pandas' `mean`
+does by default (`skipna=True`). In Julia `missing` propagates through
+arithmetic: the mean of a vector with one `missing` is `missing`, and the
+grouped result's column becomes `Union{Missing, Float64}`. Dropping the gaps
+has to be said: `mean(skipmissing(t))` iterates over the readings that are
+present. That is a decision about the data, which is why Julia does not make
+it for you.
+'''
+
+  [[problem.bug.test]]
+  name = "error of site a's mean, every reading present"
+  # expect: mean of [1.0, 3.0] is exactly 2.0 in Float64, so a correct version reads 0.0.
+  code = '''
+df = DataFrame(site = ["a", "b", "a", "b"], temp = [1.0, missing, 3.0, 5.0])
+r = site_means(df)
+println("error: ", abs(Float64(r[1][2]) - 2.0))
+'''
+  row = '^error: (?<m>\S+)$'
+  expect = [0.0, 1e-12]
+  explain = '''
+The mean of the site with no missing reading, minus its exact value 2.0. Zero
+means the grouping and the mean are right where the data is complete.
+'''
+
+  [[problem.bug.test]]
+  name = "site b's mean is a number (1.0) or missing (0.0)"
+  # expect: the reference returns 5.0 for site b, so the indicator reads 1.0; the planted
+  # line returns `missing` there, which reads 0.0. Any range around 1 alone works.
+  code = '''
+df = DataFrame(site = ["a", "b", "a", "b"], temp = [1.0, missing, 3.0, 5.0])
+r = site_means(df)
+println("is a number: ", Float64(!ismissing(r[2][2])))
+'''
+  row = '^is a number: (?<m>\S+)$'
+  expect = [0.5, 1.5]
+  explain = '''
+Whether site b, which has one missing reading among two, gets a number at
+all. 0.0 means the `missing` in its readings made the whole mean `missing`.
+'''
+
+  [[problem.bug.test]]
+  name = "error of site b's mean over its present readings (Inf when missing)"
+  # expect: site b's present reading is 5.0, so its mean is exactly 5.0 and a correct version
+  # reads 0.0. `coalesce` turns a missing mean into Inf, outside the range.
+  code = '''
+df = DataFrame(site = ["a", "b", "a", "b"], temp = [1.0, missing, 3.0, 5.0])
+r = site_means(df)
+println("error: ", abs(coalesce(r[2][2], Inf) - 5.0))
+'''
+  row = '^error: (?<m>\S+)$'
+  expect = [0.0, 1e-12]
+  explain = '''
+Site b's mean minus 5.0, its one reading that is present. Inf stands for a
+missing mean. A different finite number would mean the gap was counted as
+some value, such as zero.
+'''
+
+  [[problem.variant]]
+  label = "replaces missing with 0.0 before averaging"
+  code = '''
+using DataFrames, Statistics
+function site_means(df)
+    g = combine(groupby(df, :site; sort = true), :temp => (t -> mean(coalesce.(t, 0.0))) => :mean)
+    return collect(zip(g.site, g.mean))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "drops the rows with missing first, then groups"
+  code = '''
+using DataFrames, Statistics
+function site_means(df)
+    g = combine(groupby(dropmissing(df, :temp), :site; sort = true), :temp => mean => :mean)
+    return collect(zip(g.site, g.mean))
+end
+'''
+  expect = ["correct"]

@@ -118,8 +118,8 @@
         "turing"
       ],
       "estimate": {
-        "basis": "30–60 min per ready unit (8), 10–25 min per practice problem (32), 2–4 h per guided project (8), 4–8 h per hole project (0); guessed rates, not measured",
-        "high_hours": 54,
+        "basis": "30–60 min per ready unit (8), 10–25 min per practice problem (34), 2–4 h per guided project (8), 4–8 h per hole project (0); guessed rates, not measured",
+        "high_hours": 55,
         "low_hours": 25
       },
       "guided": [
@@ -188,7 +188,7 @@
           "text": "Package a tool so that a clean environment reproduces its results."
         }
       ],
-      "problems": 32,
+      "problems": 34,
       "projects": [],
       "requires": [
         "core"
