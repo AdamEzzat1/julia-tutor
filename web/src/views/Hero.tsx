@@ -4,8 +4,10 @@ import { data } from "../data";
 import { guided } from "../guided";
 
 // The homepage: the courses first, the two flagship courses as the
-// destination and Core Julia as the way in; then what exists so far, as counts
-// of what was built (not of what anyone learned); then how the feedback works.
+// destination and Core Julia as the way in, then every other course (each
+// requires only Core Julia, so it sits beside the path rather than on it);
+// then what exists so far, as counts of what was built (not of what anyone
+// learned); then how the feedback works.
 const ROLE: Record<string, string> = {
   core: "The way in",
   science: "The packages in between",
@@ -22,6 +24,7 @@ export function HeroView() {
   const byId = (id: string) => course.courses.find((c) => c.id === id);
   const [core, science] = [byId("core"), byId("science")];
   const flagships = course.courses.filter((c) => ROLE[c.id] === "Destination");
+  const beside = course.courses.filter((c) => !(c.id in ROLE));
   const readyUnits = course.units.filter((u) => u.status === "ready").length;
   const problems = course.units.reduce((n, u) => n + u.problems.length, 0);
   const guidedReady = guided.projects.filter((g) => g.status === "ready").length;
@@ -32,8 +35,9 @@ export function HeroView() {
         <div className="jt-eyebrow"><span className="jt-pips" aria-hidden="true"><i /><i /><i /></span>&nbsp; Julia {data.julia} · rule-based, no LLM in the feedback</div>
         <h2 style={{ marginTop: "0.6rem", maxWidth: "48rem" }}>Scientific computing and scientific ML in Julia, with feedback you can <em>trace back</em>.</h2>
         <p className="lede" style={{ maxWidth: "48rem" }}>
-          Four courses. Scientific computing and Scientific ML are where they lead; Core Julia is the way in, and
-          Julia for science covers the packages in between. Every example output on this site was recorded by running
+          Five courses. Scientific computing and Scientific ML are where they lead; Core Julia is the way in, and
+          Julia for science covers the packages in between. Quantum computing starts from Core Julia alone and
+          builds a quantum simulator with the standard library. Every example output on this site was recorded by running
           it. Practice problems are graded on your own machine, in a sandbox, for correctness first and then for
           speed, memory and type stability relative to a reference solution.
         </p>
@@ -49,6 +53,12 @@ export function HeroView() {
             {flagships.map((c) => <CourseCard key={c.id} c={c} />)}
           </div>
         </div>
+        {beside.length > 0 && (
+          <div className="jt-paths-beside">
+            <div className="jt-eyebrow">Also from Core Julia</div>
+            {beside.map((c) => <CourseCard key={c.id} c={c} />)}
+          </div>
+        )}
       </section>
 
       <section className="jt-panel jt-pad" aria-labelledby="built-heading">
