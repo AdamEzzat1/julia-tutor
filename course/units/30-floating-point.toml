@@ -145,6 +145,51 @@ println("Kahan error:             ", relerr(kahan_sum))
 '''
 
   [[section.example]]
+  caption = "The plain loop on `1.0` followed by `n` terms of `1e-16`, for a range of `n`, against the exact sum in `BigFloat`. The loop is written out, without `@simd`, so its digits are the same on every CPU."
+  notice = "Notice that the error is almost exactly `n × 1e-16`: every term is rounded away, so the loop returns `1.0` whatever `n` is, and the error is the part of the sum it never added."
+  code = '''
+function loop_sum(x)
+    s = 0.0
+    for v in x
+        s += v
+    end
+    return s
+end
+for n in (1000, 3000, 5000, 7000, 9000, 11000, 13000, 20000, 50000)
+    x = [1.0; fill(1e-16, n)]
+    exact = Float64(sum(big.(x)))
+    println("n = ", n, "  loop relative error: ", abs(loop_sum(x) - exact) / exact)
+end
+'''
+
+    [section.example.breakit]
+    kc = "floating-point-rounding"
+    prompt = "The plain loop adds `1.0` and then `n` terms of `1e-16`. You need the sum to a relative error of `1e-12`. Find the largest `n` that still gets there. Each `1e-16` is below half the spacing of floats near 1; work out what the loop returns, or try values of `n` with the probe if a server is connected, then commit your `n`."
+    param = "n"
+    measure = "relative error of the plain loop"
+    row = 'n = (?<p>\S+)  loop relative error: (?<m>\S+)'
+    fails = "above"
+    limit = 1e-12
+    edge = [9000.0, 11000.0]
+    close = 1.25
+    probe = '''
+function loop_sum(x)
+    s = 0.0
+    for v in x
+        s += v
+    end
+    return s
+end
+n = round(Int, {{p}})
+x = [1.0; fill(1e-16, n)]
+exact = Float64(sum(big.(x)))
+println("n = ", n, "  loop relative error: ", abs(loop_sum(x) - exact) / exact)
+'''
+    explain = "The spacing of floats just above 1 is `eps() ≈ 2.2e-16`, so `1.0 + 1e-16` rounds back to `1.0`, and so does every later addition: the loop returns exactly `1.0`. The true sum is `1 + n × 1e-16`, so the relative error is about `n × 1e-16`, and it reaches `1e-12` at `n = 10_000`. The sweep shows `9.0e-13` at 9000 and `1.1e-12` at 11000. The loop does not lose a little in each addition: it loses every term, completely."
+    short = "That many terms still keeps the error below `1e-12`, and more would too. Every term is rounded away, so the error is about `n × 1e-16`: solve `n × 1e-16 = 1e-12`."
+    past = "That many terms already puts the error above `1e-12`. Every term is rounded away, so the error is about `n × 1e-16`; the largest `n` is where that equals `1e-12`."
+
+  [[section.example]]
   caption = "How the error grows with `n`: `n` copies of `0.1` summed by the plain loop, by pairwise summation written out (halves down to 8 terms, no `@simd`, so its digits are the same on every CPU), and by Kahan's loop. The exact sum of `n` copies of the stored `0.1` is computed in `BigFloat`."
   notice = "Notice that the loop's error grows roughly in proportion to `n`, but not smoothly (some `n` happen to round favourably), pairwise stays within a few `u`, and Kahan's error is the same at every `n`."
   code = '''
@@ -196,6 +241,15 @@ end
       group = "n"
       label = "terms n"
       log = true
+
+      [section.example.explore.question]
+      prompt = "Set the summation to the plain loop and move `n` up. Find the smallest `n` at which the relative error passes `1e-12`, about ten thousand `u`, and commit that point."
+      along = "n"
+      at = { method = "loop" }
+      pick = "smallest"
+      holds = "above"
+      limit = 1e-12
+      explain = "The loop first passes `1e-12` at `n = 100000` (`1.9e-12`), below the bound `n u` (`1.1e-11` there) as at every `n`; `n = 3000` reads lower than `n = 1000` because individual rounding errors can cancel, and `n u` is the worst case. Switch to pairwise at `n = 100000`: `5.6e-17`, the stored `0.1`'s own error. The terms are the same, only the order of the additions changed."
 
   [[section.question]]
   kind = "output"
@@ -1040,6 +1094,133 @@ end
 '''
   expect = ["correct"]
 
+
+[[problem]]
+id = "sample-var-find-the-bug"
+title = "Find the bug: a variance that cancels"
+difficulty = "core"
+kcs = ["cancellation", "backward-stability"]
+entry = "sample_var"
+packages = []
+prompt = '''
+`sample_var(v)` returns the sample variance of a `Vector{Float64}` with at
+least two entries: the sum of `(x - m)^2` over the entries, where `m` is
+their mean, divided by `length(v) - 1`.
+
+One line of the code in the editor is wrong. It is a formula you will find in
+textbooks, and on data near zero it gives the right answer. Find the line and
+fix it; change nothing else.
+
+```julia
+sample_var([1.0, 2.0, 3.0, 4.0])          # 1.6666666666666667
+sample_var(1e8 .+ [1.0, 2.0, 3.0, 4.0])   # 1.6666666666666667 as well
+```
+
+The tests print the variance's error against the exact value. Results are
+compared with `rtol = 1e-9`.
+'''
+reference = '''
+function sample_var(v)
+    n = length(v)
+    m = sum(v) / n
+    return sum(x -> (x - m)^2, v) / (n - 1)
+end
+'''
+cases = [
+  "[1.0, 2.0, 3.0, 4.0]",
+  "1e8 .+ [1.0, 2.0, 3.0, 4.0]",
+  "1e9 .+ [1.0, 2.0, 3.0, 4.0]",
+  "[-3.5, 0.25, 7.0]",
+  "1e6 .+ [0.1, 0.7, 0.3, 0.9, 0.5]",
+]
+# rtol: the cases have at most 20 entries, means up to about 1e8 and a spread near 1. The two-pass
+# formula's relative error is about (n + 3) u plus a term (n u κ)^2 with κ = |m| sqrt(n) / std
+# below about 2e9 (the standard two-pass bound, Higham 2002 on the sample variance): at most about 1e-11, so 1e-9 is safely above any correct
+# version. The one-pass formula `sum(x^2) - n m^2` has error near u m^2 / var, about 100% at 1e8.
+gen = "rng -> [(n = rand(rng, 2:20); off = (0.0, 1e3, 1e6, 1e8)[rand(rng, 1:4)]; (off .+ randn(rng, n),)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-9
+hints = [
+  "The first test, on small numbers, passes. The next two shift the same data by `1e8` and `1e9`, which does not change its variance. Which quantities in the planted line grow with the shift, and how large are they compared with the answer?",
+  "`sum(abs2, v)` and `n * m^2` are both near `4e16` when the data is near `1e8`; floats there are 8 apart, and their difference is about 5. Subtract the mean from each entry before squaring.",
+]
+
+  [problem.bug]
+  kc = "cancellation"
+  find = "return sum(x -> (x - m)^2, v) / (n - 1)"
+  replace = "return (sum(abs2, v) - n * m^2) / (n - 1)"
+  answer_tokens = ["(x - m)"]
+  misconception = '''
+The planted line uses the "computational formula" `Σx² - n m²`, which is
+algebraically equal to `Σ(x - m)²` and needs one pass less. In floating point
+it subtracts two numbers that both carry the square of the data's offset: at
+`1e8` each is near `4e16`, where floats are 8 apart, and the true difference is
+5. The subtraction itself is exact; the rounding already made in forming
+`Σx²` is what remains, and it is as large as the answer. Subtracting the mean
+first makes every term small, so nothing large cancels.
+'''
+
+  [[problem.bug.test]]
+  name = "variance of [1, 2, 3, 4], against 5/3"
+  # expect: every intermediate is a small integer or 2.5, so both formulas give Float64(5/3)
+  # exactly (the reference: 0.0). The planted line passes too.
+  code = '''
+println("error: ", abs(sample_var([1.0, 2.0, 3.0, 4.0]) - 5 / 3))
+'''
+  row = '^error: (?<m>\S+)$'
+  expect = [0.0, 1e-12]
+  explain = '''
+The variance of four small numbers, minus its exact value 5/3. Zero means the
+formula is right where nothing large is involved.
+'''
+
+  [[problem.bug.test]]
+  name = "variance of 1e8 + [1, 2, 3, 4], against 5/3"
+  # expect: the mean is 1e8 + 2.5 exactly and each deviation is exact, so the reference gives
+  # Float64(5/3) again (0.0). The planted line reads near 1.0: Σx² rounds in steps of 8.
+  code = '''
+println("error: ", abs(sample_var(1e8 .+ [1.0, 2.0, 3.0, 4.0]) - 5 / 3))
+'''
+  row = '^error: (?<m>\S+)$'
+  expect = [0.0, 1e-12]
+  explain = '''
+The same data shifted by `1e8`. A shift does not change a variance, so the
+answer is still 5/3. An error near 1 is the rounding of the sum of squares,
+about `4e16`, showing through once the two large terms cancel.
+'''
+
+  [[problem.bug.test]]
+  name = "variance of 1e9 + [1, 2, 3, 4], against 5/3"
+  # expect: the mean is 1e9 + 2.5 exactly and the deviations are exact, so the reference reads
+  # 0.0. Near 4e18 floats are 512 apart, so the planted line loses the answer entirely.
+  code = '''
+println("error: ", abs(sample_var(1e9 .+ [1.0, 2.0, 3.0, 4.0]) - 5 / 3))
+'''
+  row = '^error: (?<m>\S+)$'
+  expect = [0.0, 1e-12]
+  explain = '''
+The data shifted by `1e9`. Now the squares are near `4e18`, where floats are
+512 apart, far wider than the answer: an error of 5/3 means the result was 0.
+'''
+
+  [[problem.variant]]
+  label = "divides by n instead of n - 1"
+  code = '''
+function sample_var(v)
+    n = length(v)
+    m = sum(v) / n
+    return sum(x -> (x - m)^2, v) / n
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Statistics.var"
+  code = '''
+using Statistics
+sample_var(v) = var(v)
+'''
+  expect = ["correct"]
 [[reference]]
 id = "goldberg-1991"
 authors = "Goldberg, D."

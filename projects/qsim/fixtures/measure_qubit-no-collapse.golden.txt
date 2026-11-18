@@ -1,0 +1,36 @@
+== tutor explain: qsim, stage 2 ==
+
+Start here: hole `measure_qubit` at src/QSim.jl:458
+  why: 2 of the 2 failing testsets depend on it (Ochiai 0.82); 1 of its dependent testsets pass.
+  finding inside it: JT004 `measure!` ends in `!` but no method of it in this file mutates anything (line 458)
+  Read its docstring: it is the specification. Knowledge component: measurement-collapse.
+
+Tests: 44/46 testsets pass
+  FAIL QSim/measurement: sampler is statistically correct (chi-square)  [100 failed, 0 errored; depends on: apply_gate, bitstring, bloch, measure_qubit, partial_trace, ry, sample_counts]
+       test/runtests.jl:336 FAIL (bloch_vector(φ, 1))[3] ≈ if m == 0  evaluated: -0.012773636 ≈ -1
+       test/runtests.jl:336 FAIL (bloch_vector(φ, 1))[3] ≈ if m == 0  evaluated: 0.14413767 ≈ 1
+  FAIL QSim/lesson 3: teleportation/with mid-circuit measurement  [1 failed, 0 errored; depends on: apply_gate, measure_qubit, partial_trace]
+       test/runtests.jl:479 FAIL minimum(fids) > 1 - 1.0e-12  evaluated: 0.5 > 1.0
+
+Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
+  1. measure_qubit      0.82  implemented  failing-deps=2 passing-deps=1  src/QSim.jl:458
+  2. partial_trace      0.41  implemented  failing-deps=2 passing-deps=10  src/QSim.jl:481
+  3. sample_counts      0.35  implemented  failing-deps=1 passing-deps=3  src/QSim.jl:436
+  4. bitstring          0.32  implemented  failing-deps=1 passing-deps=4  src/QSim.jl:423
+  5. bloch              0.27  implemented  failing-deps=1 passing-deps=6  src/QSim.jl:504
+  6. apply_gate         0.24  implemented  failing-deps=2 passing-deps=33  src/QSim.jl:182
+  7. ry                 0.22  implemented  failing-deps=1 passing-deps=9  src/QSim.jl:129
+  8. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86
+  9. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253
+  10. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224
+
+Static findings (1):
+  src/QSim.jl:458:1: ADVICE JT004 `measure!` ends in `!` but no method of it in this file mutates anything
+      hint 1: What does the trailing `!` in a Julia function name promise its callers?
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)
+  allocations apply!(H, qubit 3 of 10): 517  (reference 517)
+  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)
+  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)
+  JET: not used by this project's measurements

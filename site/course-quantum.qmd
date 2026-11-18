@@ -1,0 +1,8 @@
+---
+title: "Quantum computing"
+---
+
+<!-- The landing page of course/courses/quantum.toml; everything on it comes from that manifest (web/src/views/CourseLanding.tsx). -->
+
+::: {.jt-mount data-view="course-landing" data-course="quantum"}
+:::

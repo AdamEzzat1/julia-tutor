@@ -170,6 +170,15 @@ end
       label = "step size h"
       log = true
 
+      [section.example.explore.question]
+      prompt = "You need the error at `t = 2` below `1e-4`. Set the method to Heun and find the largest step `h` that meets it, then commit that point."
+      along = "h"
+      at = { method = "Heun" }
+      pick = "largest"
+      holds = "below"
+      limit = 1e-4
+      explain = "Heun meets `1e-4` up to `h = 0.05` (`9.6e-5`); at `h = 0.1` it is `3.7e-4`. Now switch to RK4: it meets the same tolerance at every step on the grid, up to `h = 0.4` (`2.0e-5`). To reach `t = 2`, Heun at `h = 0.05` takes 40 steps of 2 evaluations, 80 in all; RK4 at `h = 0.4` takes 5 steps of 4, 20 in all. The higher order buys a larger step, and the larger step is what makes it cheaper."
+
   [[section.question]]
   kind = "output"
   prompt = "Halving the step divided the error from `1.6e-3` to `1.0e-4`. What does this print?"

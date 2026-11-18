@@ -284,6 +284,23 @@ end
     @test g("evaluated: 0.85 <= 0.1889902102315128 <= 1.2") == "evaluated: 0.85 <= 0.18899021 <= 1.2"
     @test g("[-0.1367287974337117, 3.0113068229662483]") == "[-0.1367288, 3.0113068]"
     @test g("x = 1.2345678901234e-15") == "x = 1.2345679e-15"
+    # imaginary parts too: the measured local/CI pair from qsim's apply_gate fixture
+    @test g("0.048610734 - 0.10425127978960651im, -0.069703234 + 0.015120536589867214im") ==
+          "0.048610734 - 0.10425128im, -0.069703234 + 0.015120537im"
+    @test g("0.048610734 - 0.10425127978960655im, -0.069703234 + 0.015120536589867239im") ==
+          "0.048610734 - 0.10425128im, -0.069703234 + 0.015120537im"
+    @test g("1.2345678901234e-15im") == "1.2345679e-15im"
+    @test g("0.1234567890123image") == "0.1234567890123image"   # `im` must end the number
+    # a line the child cut with `…`: the cut moved by one character between a local run and CI
+    # (2026-11-16); both now end before the first long float, the same on every CPU
+    pre = "  FAIL fast ≈ M * ψ  evaluated: ComplexF64[0.048610734 - "
+    local_cut = pre * "0.10425127978960651im, 0.08077944 + 0.03421141437465865im, -0.095505807 -…"
+    ci_cut    = pre * "0.10425127978960655im, 0.08077944 + 0.03421141437465866im, -0.095505807…"
+    @test g(local_cut) == g(ci_cut) == pre * "…"
+    @test g("a\n" * local_cut * "\nx = 0.18899021023137388") == "a\n" * pre * "…" * "\nx = 0.18899021"
+    # a cut line with no long float is kept whole; Julia's own `…` inside a matrix is not a cut
+    @test g("61, 62, 63] == [0, 8, 16, 24…") == "61, 62, 63] == [0, 8, 16, 24…"
+    @test g("[0.1234567891 … 0.5]") == "[0.12345679 … 0.5]"
     # short floats, integers, versions, paths and Ochiai scores are untouched
     for s in ("atol = 1000.0 * 1.0e-8", "Julia 1.10.13", "src/ODEInt.jl:226", "Ochiai 0.87",
               "0.000123", "14/17 testsets", "x1.234567890123")
@@ -307,6 +324,49 @@ end
         rm(dir; recursive = true)
         changed
     end
+end
+
+@testset "holemap: seeded mutants (mutants.toml)" begin
+    @test HoleMap.load_seeded(SYMDIFF) == HoleMap.Seeded[]            # optional file
+    qsim = Scaffold.load_project(joinpath(ROOT, "projects", "qsim"))
+    ms = HoleMap.load_seeded(qsim)
+    @test length(ms) == 22
+    @test allunique(m.id for m in ms)
+    # every anchor occurs exactly once, and applying it really changes the file
+    for m in ms
+        dir = HoleMap.materialize_seeded(qsim, m)
+        src = read(joinpath(dir, "src", m.file), String)
+        rm(dir; recursive = true)
+        @test occursin(m.replace, src)
+        @test m.find != m.replace
+    end
+    missing_anchor = HoleMap.Seeded("x", "", "QSim.jl", "no such text anywhere", "y")
+    @test_throws ErrorException HoleMap.materialize_seeded(qsim, missing_anchor)
+    twice = HoleMap.Seeded("x", "", "QSim.jl", "function ", "y")      # occurs many times
+    err = try HoleMap.materialize_seeded(qsim, twice); "" catch e; sprint(showerror, e) end
+    @test occursin("must be once", err)
+    @test_throws ErrorException HoleMap.materialize_seeded(qsim, HoleMap.Seeded("x", "", "Nope.jl", "a", "b"))
+end
+
+@testset "holemap: the stage fill check (pure)" begin
+    hs = [Scaffold.HoleSpec("a", 1, "kc", "src/P.jl", "", ["0"]),
+          Scaffold.HoleSpec("b", 2, "kc", "src/P.jl", "", ["0"])]
+    p = Scaffold.ProjectSpec("p", "", "P", [1, 2], hs)
+    deps = Dict{String,Any}("a" => ["P/t1"], "b" => ["P/t2"])
+    ts(name, holes; ok = false) = Runner.TestsetResult(name, ok ? 1 : 0, 0, ok ? 0 : 1, ok ? 0 : length(holes),
+                                                      ok ? String[] : ["boom"], holes)
+    rep(t...; crash = "") = Runner.TestReport(collect(t), crash, false, "")
+    # stage 1 opens only `a`: failing t1 at a is fine
+    @test HoleMap.stage_problems(p, 1, rep(ts("P/t1", ["a"]), ts("P/t2", String[]; ok = true)), deps) == String[]
+    # stage 1 reaching `b` (opened only at stage 2) is a problem
+    @test any(contains("does not open"), HoleMap.stage_problems(p, 1, rep(ts("P/t1", ["a", "b"])), deps))
+    # a failing testset that reaches no hole
+    @test any(contains("without reaching a hole"), HoleMap.stage_problems(p, 2, rep(ts("P/t1", String[])), deps))
+    # a failure the map does not predict (t2 depends only on b; stage 1 opens a)
+    @test any(contains("no opened hole's map predicts"), HoleMap.stage_problems(p, 1, rep(ts("P/t2", ["a"])), deps))
+    # stage 2 opens both: both failures predicted
+    @test HoleMap.stage_problems(p, 2, rep(ts("P/t1", ["a"]), ts("P/t2", ["b"])), deps) == String[]
+    @test any(contains("crashes"), HoleMap.stage_problems(p, 1, rep(; crash = "LoadError"), deps))
 end
 
 if !FAST

@@ -77,6 +77,19 @@ result = "true"
 call = "infers_concretely(parse, (Type{Int}, String))"
 result = "true"
 
+[[samples.rms-find-the-instability]]
+call = "rms([3.0, 4.0])"
+result = "3.5355339059327378"
+[[samples.rms-find-the-instability]]
+call = "rms([1.0])"
+result = "1.0"
+[[samples.rms-find-the-instability]]
+call = "rms([-2.0, 2.0, -2.0, 2.0])"
+result = "2.0"
+[[samples.rms-find-the-instability]]
+call = "rms([0.5, 1.5, 2.5])"
+result = "1.707825127659933"
+
 [[samples.stable-relu-sum]]
 call = "relu_sum([1, -2, 3])"
 result = "4"

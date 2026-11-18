@@ -9,13 +9,14 @@ on:
 concurrency:
   group: ci-${{ github.head_ref || github.ref }}
   cancel-in-progress: false
-# Three jobs (docs/SANDBOX_IMAGES.md):
+# Four jobs (docs/SANDBOX_IMAGES.md for the first three):
 # * images: each sandbox image for this checkout's inputs, pulled from GHCR when
 #   CI pushed it before, else built and pushed; then sizes and cold starts.
 # * verify: the definition-of-done check, in those images (pulled, not rebuilt),
 #   with the memory peaks of every contained run; then sandbox/images.toml must
 #   name exactly these images.
 # * clean-start: docs/START_CORE.md, timed on a fresh runner.
+# * qsim-crosscheck: the quantum project's simulator vs Qiskit and Yao.
 jobs:
   images:
     runs-on: ubuntu-latest
@@ -98,6 +99,45 @@ jobs:
         run: scripts/verify_all.sh
       - name: sandbox/images.toml names exactly these images
         run: ./tutor sandbox digests --check
+
+  # Author-side only: the qsim simulator vs two independent simulators,
+  # Qiskit (Python) and Yao (Julia), both pinned (projects/qsim/crosscheck/).
+  # No learner ever installs either; nothing here touches the sandbox images.
+  qsim-crosscheck:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      JULIA_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install juliaup and the pinned Julia
+        run: |
+          curl -fsSL https://install.julialang.org | sh -s -- --yes --default-channel "$(cat JULIA_VERSION)"
+          echo "$HOME/.juliaup/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        with:
+          path: .depot
+          key: qsim-crosscheck-${{ hashFiles('JULIA_VERSION', 'projects/qsim/reference/Manifest.toml', 'projects/qsim/crosscheck/yao/Manifest.toml') }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install the pinned Qiskit and the Yao env (the only networked step)
+        run: |
+          python -m pip install --no-cache-dir -r projects/qsim/crosscheck/requirements.txt
+          source scripts/env.sh
+          JULIA_PKG_OFFLINE=false julia_pinned --project=projects/qsim/reference -e 'using Pkg; Pkg.instantiate()'
+          JULIA_PKG_OFFLINE=false julia_pinned --project=projects/qsim/crosscheck/yao -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+      - name: Qiskit differential test
+        run: |
+          source scripts/env.sh
+          JULIA="julia +$JULIA_PIN --startup-file=no --history-file=no --threads=1" \
+            python projects/qsim/crosscheck/qiskit_diff.py
+      - name: Yao differential test
+        run: |
+          source scripts/env.sh
+          julia_pinned --project=projects/qsim/crosscheck/yao projects/qsim/crosscheck/yao_diff.jl
 
   clean-start:
     needs: images

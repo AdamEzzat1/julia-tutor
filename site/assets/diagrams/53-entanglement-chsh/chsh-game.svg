@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 330" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>The CHSH game</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker></defs>
+<rect width="700" height="330" fill="#ffffff"/>
+<text x="20.0" y="28.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">The CHSH game: win when a ⊻ b = x ∧ y</text>
+<rect x="290" y="50" width="120" height="56" rx="8" fill="#3657c8" fill-opacity="0.08" stroke="#776f82"/>
+<text x="350.0" y="75.0" font-size="14" fill="#2b2733" text-anchor="middle" >Referee</text>
+<text x="350.0" y="95.0" font-size="12" fill="#776f82" text-anchor="middle" >random x, y</text>
+<rect x="60" y="150" width="150" height="80" rx="8" fill="none" stroke="#2b2733" stroke-width="1.5"/>
+<text x="135.0" y="178.0" font-size="15" fill="#2b2733" text-anchor="middle" font-weight="600">Alice</text>
+<text x="135.0" y="200.0" font-size="12" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">gets x, answers a</text>
+<rect x="490" y="150" width="150" height="80" rx="8" fill="none" stroke="#2b2733" stroke-width="1.5"/>
+<text x="565.0" y="178.0" font-size="15" fill="#2b2733" text-anchor="middle" font-weight="600">Bob</text>
+<text x="565.0" y="200.0" font-size="12" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">gets y, answers b</text>
+<line x1="300" y1="106" x2="160" y2="148" stroke="#776f82" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="205.0" y="122.0" font-size="14" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">x</text>
+<line x1="400" y1="106" x2="540" y2="148" stroke="#776f82" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="495.0" y="122.0" font-size="14" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">y</text>
+<line x1="135" y1="232" x2="135" y2="268" stroke="#776f82" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="150.0" y="286.0" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">a</text>
+<line x1="565" y1="232" x2="565" y2="268" stroke="#776f82" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="580.0" y="286.0" font-size="14" fill="#2b2733" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">b</text>
+<line x1="350" y1="130" x2="350" y2="250" stroke="#2b2733" stroke-width="3"/>
+<text x="350.0" y="268.0" font-size="12" fill="#776f82" text-anchor="middle" >no communication</text>
+<path d="M210,205 C270,240 430,240 490,205" fill="none" stroke="#7b4bb8" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="350.0" y="228.0" font-size="12" fill="#2b2733" text-anchor="middle" ></text>
+<text x="350.0" y="308.0" font-size="12" fill="#7b4bb8" text-anchor="middle" >optional: one qubit each of a Bell pair, prepared before the game (dashed); it carries no message</text>
+</svg>

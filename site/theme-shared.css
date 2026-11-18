@@ -19,3 +19,18 @@ main.content, .jt-mount { min-width: 0; max-width: 100%; }
   main.content td, main.content th { min-width: 8rem; }
 }
 code, pre, kbd, .sourceCode { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+/* HUD background (assets/hud-switch.js loads assets/hud-v2.js): a fixed canvas
+   behind the page that never takes clicks; the navbar and footer are
+   see-through so it shows behind them too. */
+canvas.jt-hud { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+body .navbar { background-color: rgba(31, 27, 38, 0.86) !important; backdrop-filter: blur(6px); }
+body.quarto-dark .navbar { background-color: rgba(15, 13, 19, 0.82) !important; }
+body.quarto-dark .nav-footer { background-color: rgba(27, 24, 35, 0.78); }
+@media print { canvas.jt-hud { display: none; } }
+/* HUD switch (assets/hud-switch.js), in the navbar's tool area. */
+.jt-hud-switch { font: 500 0.72rem "JetBrains Mono", ui-monospace, monospace; letter-spacing: 0.04em; text-transform: uppercase;
+  color: inherit; opacity: 0.8; background: transparent; border: 1px solid currentColor; border-radius: 999px;
+  padding: 0.15rem 0.6rem; margin: 0 0.5rem; cursor: pointer; min-width: 10.5em; text-align: center; }
+.jt-hud-switch:hover, .jt-hud-switch:focus-visible { opacity: 1; }
+.jt-hud-switch:focus-visible { outline: 2px solid var(--bs-link-color); outline-offset: 2px; }
+.jt-hud-switch.floating { position: fixed; right: 12px; bottom: 12px; z-index: 1000; background: var(--bs-body-bg); }

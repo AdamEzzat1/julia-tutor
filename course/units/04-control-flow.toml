@@ -560,3 +560,25 @@ function count_primes(n)
 end
 '''
   expect = ["correct"]
+
+[[placement]]
+prompt = "What does this print?"
+code = '''
+x = 10
+r = x > 5 ? "big" : "small"
+(r, x > 20 || "fallback")
+'''
+choices = [
+  "(\"big\", \"fallback\")",
+  "(\"big\", false)",
+  "(\"big\", true)",
+  "(\"small\", \"fallback\")",
+]
+answer = 1
+explain = "`x > 5` holds, so the ternary gives `\"big\"`. When the left side of `||` is false, `||` returns its right side as it is, without converting it to a `Bool`, so the second value is the string."
+misconceptions = [
+  "",
+  "`||` does not turn its right side into a `Bool`: when the left side is false it returns the right side as it is.",
+  "`x > 20` is false, so `||` evaluates and returns its right side; it would be `true` only if the left side held.",
+  "`10 > 5` holds, so the ternary picks its first branch.",
+]

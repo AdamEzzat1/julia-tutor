@@ -1,0 +1,45 @@
+== tutor explain: qsim, stage 3 ==
+
+Start here: hole `kraus` at src/QSim.jl:527
+  why: 4 of the 4 failing testsets depend on it (Ochiai 0.89); 1 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: kraus-channels.
+
+Tests: 42/46 testsets pass
+  FAIL QSim/lesson 8: noise, density matrices, channels/each channel moves the Bloch vector as predicted  [15 failed, 0 errored; depends on: bloch, kraus]
+       test/runtests.jl:621 FAIL bloch_vector(apply_kraus(ρ, depolarizing(p), 0)) ≈ (1 - p) * r  evaluated: [0.18257845, -0.183875, -0.16453517] ≈ [0.045164624, -0.045485355, -0.040701239]
+       test/runtests.jl:622 FAIL bloch_vector(apply_kraus(ρ, amp_damping(γ), 0)) ≈ [sqrt(1 - γ) * r[1], sqrt(1 - γ) * r[2], γ + (1 - γ) * r[3]]  evaluated: [0.15811896, -0.15924182, 0.17771043] ≈ [0.15811896, -0.15924182, 0.89145782]
+  FAIL QSim/lesson 8: noise, density matrices, channels/channels keep ρ physical and lower the purity of a pure state  [3 failed, 0 errored; depends on: apply_gate, kraus]
+       test/runtests.jl:630 FAIL is_valid_density(ρ′)
+       test/runtests.jl:630 FAIL is_valid_density(ρ′)
+  FAIL QSim/lesson 8: noise, density matrices, channels/entanglement under noise: Bell fidelity and CHSH  [5 failed, 0 errored; depends on: apply_gate, kraus]
+       test/runtests.jl:640 FAIL isapprox(real(bellψ' * ρp * bellψ), 1 - (3p) / 4, atol = 1.0e-12) && isapprox(chsh(ρp), (2 * √2) * (1 - p), atol = 1.0e-12)
+       test/runtests.jl:640 FAIL isapprox(real(bellψ' * ρp * bellψ), 1 - (3p) / 4, atol = 1.0e-12) && isapprox(chsh(ρp), (2 * √2) * (1 - p), atol = 1.0e-12)
+  FAIL QSim/lesson 8: noise, density matrices, channels/independent method: Monte-Carlo quantum trajectories  [1 failed, 0 errored; depends on: apply_gate, kraus]
+       test/runtests.jl:653 FAIL maximum(abs.(ρ_mc - ρ_exact)) < 5 / sqrt(R)  evaluated: 0.133925 < 0.025
+
+Holes at stage 3 (ranked by Ochiai over the measured test-to-hole map):
+  1. kraus              0.89  implemented  failing-deps=4 passing-deps=1  src/QSim.jl:527
+  2. apply_gate         0.25  implemented  failing-deps=3 passing-deps=32  src/QSim.jl:182
+  3. bloch              0.19  implemented  failing-deps=1 passing-deps=6  src/QSim.jl:511
+  4. basis_state        0.0   implemented  failing-deps=0 passing-deps=6  src/QSim.jl:86
+  5. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:423
+  6. kron_operator      0.0   implemented  failing-deps=0 passing-deps=2  src/QSim.jl:253
+  7. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129
+  8. apply_controlled   0.0   implemented  failing-deps=0 passing-deps=1  src/QSim.jl:224
+  9. partial_trace      0.0   implemented  failing-deps=0 passing-deps=12  src/QSim.jl:488
+  10. sample_counts      0.0   implemented  failing-deps=0 passing-deps=4  src/QSim.jl:436
+  11. measure_qubit      0.0   implemented  failing-deps=0 passing-deps=3  src/QSim.jl:458
+  12. grover             0.0   implemented  failing-deps=0 passing-deps=3  src/Algorithms.jl:101
+  13. qft                0.0   implemented  failing-deps=0 passing-deps=8  src/Algorithms.jl:42
+  14. iqft               0.0   implemented  failing-deps=0 passing-deps=4  src/Algorithms.jl:63
+  15. qpe                0.0   implemented  failing-deps=0 passing-deps=3  src/Algorithms.jl:142
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)
+  allocations apply!(H, qubit 3 of 10): 517  (reference 517)
+  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)
+  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)
+  JET: not used by this project's measurements

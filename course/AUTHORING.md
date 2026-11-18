@@ -236,6 +236,86 @@ ForwardDiff.derivative(x -> x^3, 2.0)
   specific. `validate` fails a unit where the answer is the unique longest
   choice in more than 40% of its choice questions.
 
+### Reading error messages
+
+**Learning purpose.** A `MethodError`, an `InexactError` or a solver's
+warning is the first thing a learner sees when Julia disagrees with them, and
+the message usually says exactly what is wrong: the call's argument types,
+the closest methods that exist, the value that would not convert. Learners
+who have not read many skip it and guess. An `error` question shows code, the
+message Julia printed for it, and asks what is wrong and what fixes it.
+
+```toml
+  [[section.question]]
+  kind = "error"
+  prompt = "A count comes out of a division as a float... What is wrong, and what fixes it?"
+  code = '''
+steps = 10 / 4
+n = Int(steps)
+'''
+  shows = "InexactError"            # must appear on an ERROR: or Warning: line of the recorded output
+  choices = ["...", "`Int` converts whole numbers only; round explicitly, as in `round(Int, steps)`", "..."]
+  answer = 2
+  explain = "..."
+  misconceptions = ["...", "", "..."]
+```
+
+* The message is measured, not typed: `record` runs `code` like an `output`
+  question, the site shows the recorded output under the code, and `verify`
+  fails unless a line of it that starts with `ERROR:`, or holds a logged
+  `Warning:`, contains `shows`. A Julia upgrade that rewords the message
+  breaks the question, as it should.
+* The choices are diagnoses with a fix, not restatements of the message.
+  Each wrong choice is a plausible misreading of it (the value is too large,
+  the variable needs a declaration, Julia cannot convert), with its
+  misconception.
+* Keep the code to the lines that produce the message. The learner reads the
+  message, not a stack trace: an error inside a function prints the frames,
+  so prefer a top-level call where the message is the point.
+* `site-data` exports the question with its message only when `verify`
+  would accept it; otherwise the site leaves the question out.
+
+## Placement check
+
+**Learning purpose.** A learner who already knows some Julia should not have
+to read units they could teach. A course's placement check is a short run of
+predict-the-output questions, one pick each, scored once; the site then lists
+each unit as *can skip* (every question covering it was right), *study* (one
+was missed) or *not checked* (no question covers it). A miss outweighs any
+number of hits on purpose: a wrong "skip" costs the learner a unit they
+needed, a wrong "study" only a re-read.
+
+Each item lives in the unit it tests, at the top level of the unit file:
+
+```toml
+[[placement]]
+covers = ["01-first-steps"]      # optional: earlier units of the same course
+prompt = "What does this print?"
+code = '''
+typeof(7 / 2), 7 ÷ 2
+'''
+choices = ["(Int64, 3)", "(Float64, 3)", "(Float64, 3.5)", "(Rational{Int64}, 3)"]
+answer = 2
+explain = "..."
+misconceptions = ["...", "", "...", "..."]
+```
+
+* An item is an `output` question (`kind` defaults to `"output"`; any other
+  kind is an error): `record` runs its code, and `verify` requires the answer
+  to be the recorded output and no other choice to be. `site-data` exports
+  only items whose key holds.
+* `covers` always includes the item's own unit; list an earlier unit only
+  when the snippet cannot be answered without it (`verify` rejects a unit of
+  another course or a later one).
+* Test the idea a learner would skip the unit for, not a corner of it: the
+  snippet should be answerable in under a minute by someone who knows the
+  unit, and misread in a specific way by someone who does not. Each wrong
+  choice is one of those misreadings, with its misconception.
+* Aim for about 10 to 15 items per course. Units with no item are reported
+  as *not checked*, never as skippable; say so rather than stretching an
+  item to cover a unit it does not test.
+* Answers stay in the visitor's browser (`julia-tutor/placement/v1`).
+
 ## Predict, then run
 
 **Learning purpose.** A prediction made before seeing a result tests the
@@ -281,6 +361,37 @@ picks until right, and it comes after the examples.
   the learner who missed: say why the measured value came out where it did.
 * `site-data` exports a prediction only when its key holds, together with
   the measured value, which the page shows next to the answer.
+
+### Typed-number predictions
+
+A prediction may ask for a number instead of a pick: "how many digits does
+this solve lose?", "what order does this table show?", "how many doublings
+until `Inf`?". The learner types a value, and it is a hit when it lies within
+the tolerance of the measured one. This is harder to guess than three
+choices, and closer to how a scientist checks an estimate. `case estimate`
+asks the same of a case study; here it is one number per example.
+
+```toml
+    [section.example.predict]
+    kc = "floating-point"
+    prompt = "Start at `1.0` and double. How many doublings can you make before the next one gives `Inf`?"
+    measure = 'doublings before Inf: (\d+)'   # one capture group: the measured value is the key
+    tolerance = 5
+    within = "abs"                             # "abs": |x - v| <= 5; "rel": <= tol*|v|; "factor": v/tol <= x <= v*tol
+    unit = "doublings"                         # shown beside the input box
+    explain = "..."
+```
+
+* No `choices`, `ranges`, `values` or `answer`: the key is the number
+  `measure` captures, and `verify` fails unless it is a finite number.
+* Choose the tolerance from the reasoning the section teaches, and say in
+  `explain` how the number follows from it. A tolerance so wide that a guess
+  lands inside it measures nothing; one tighter than the method's own
+  variation (a rounding floor, a fitted slope) marks a correct estimate
+  wrong. Use `factor` for quantities that span orders of magnitude (an
+  error, a step count), `abs` for small integers and orders.
+* Like a choice prediction: the example has `check = true`, the first commit
+  is the one scored, and the hit rate counts for `kc`.
 
 ## Method-choice checkpoints
 
@@ -388,6 +499,45 @@ found are counted per knowledge component in the browser.
 * An example carries one of a prediction, a checkpoint or a break-it
   challenge.
 
+## Pick the implementation that wins
+
+**Learning purpose.** The performance ladder asks a learner to make their
+own code fast; a race asks them to predict which of several finished
+implementations is fast, before seeing the numbers. Picking wrong is cheap
+and specific: the learner who expected `sum(x .^ 2)` to fuse sees the 80 kB
+it allocated. The numbers are recorded, so a race works without `tutor serve`.
+
+```toml
+    [section.example.race]
+    kc = "allocations"
+    prompt = "All three return the sum of the squares of 10 000 numbers. Which one allocates the least per call?"
+    choices = ["`sum(x .^ 2)`: broadcast the square, then sum", "...", "`sum(abs2, x)`: apply `abs2` inside the sum"]
+    rows = ['^broadcast +allocated: (?<m>\d+) bytes', '...', '^abs2 +allocated: (?<m>\d+) bytes']   # one per choice
+    by = "bytes"                       # or "time": what `m` is; smaller wins
+    unit = "bytes"                     # how `m` is printed, shown in the table ("μs", "ns", "bytes")
+    margin = 2.0                       # the winner beats every other by this factor (default 3 for time, 2 for bytes)
+    answer = 3
+    explain = "..."
+    misconceptions = ["...", "...", ""]
+```
+
+* The winner is measured, not typed. Each row's named group `m` is read from
+  exactly one output line, and the smallest wins. `verify` re-runs the
+  example and fails unless the winner is `answer` and it beats every other
+  choice by at least `margin`. A tie fails every margin.
+* **Bytes are deterministic, times are not.** Measure allocations with
+  `@allocated` inside a function, after a first call has compiled it
+  (`bytes(f, x) = (f(x); @allocated f(x))`); the counts are the same on
+  every run, so the example may keep `check = true`. A race on time must use
+  `by = "time"` with a margin of at least 3, take the minimum of many runs
+  (`minimum(@elapsed(f(x)) for _ in 1:50)`), and sit on a `check = false`
+  example: its digits vary, its winner must not.
+* Only race what the section explains. The `explain` says why the winner
+  wins (an allocation that never happens, a memory order, a type that can be
+  inferred), never only that it won.
+* An example carries one of a prediction, a checkpoint, a break-it
+  challenge, an explorer or a race.
+
 ## Precomputed explorers
 
 **Learning purpose.** Some results are a surface rather than a number: an
@@ -446,6 +596,38 @@ other values. Nothing is scored or stored.
 * An explorer may follow a prediction on the same example (the explorer
   appears with the output, once the prediction is committed), but not a
   checkpoint or a break-it challenge, which are grids of their own.
+
+### The question an explorer asks
+
+Sliders on their own drift into watching rather than doing. So every
+explorer asks one question that the learner answers by moving the sliders
+and committing the point: "set the method to Heun and find the largest step
+that keeps the error below `1e-4`". `validate` fails an explorer without one.
+
+```toml
+      [section.example.explore.question]
+      prompt = "You need the error at `t = 2` below `1e-4`. Set the method to Heun and find the largest step `h` that meets it, then commit that point."
+      along = "h"                    # the axis the learner searches (numbers)
+      at = { method = "Heun" }       # every other axis, at a value as printed
+      pick = "largest"               # or "smallest"
+      holds = "below"                # or "above": the measure compared with limit
+      limit = 1e-4
+      explain = "..."                # shown once committed; it may name the answer
+```
+
+* The key is the grid: with the other axes at `at`, the `pick` value of
+  `along` where the measure is `holds` `limit`. `verify` fails unless the
+  condition holds at some values of `along` and fails at others: a question
+  every point answers teaches nothing.
+* The page tells a wrong commit what is wrong with it: another slice of the
+  grid (a slider not where the question puts it), past the edge (the
+  condition fails there), or short of it (it holds, but further still does).
+  The explorer's own `explain` stays hidden until the question is settled,
+  because it usually names the numbers.
+* Ask for a value the section's reasoning predicts (the stability limit, the
+  step a tolerance allows), then use `explain` to send the learner to the
+  comparison that matters: another method at the same tolerance, another
+  grid at the same `r`.
 
 ## Practice problems
 
@@ -640,6 +822,42 @@ when the grader and every test pass on the same code; then the planted line,
 the reference's line and the misconception are shown. On the command line,
 `tutor practice <id> file.jl` prints the test table, and `--hints=N` shows the
 first N hints.
+
+#### Performance bugs: the line that allocates, the type instability
+
+In Core the planted line usually keeps every answer right and costs memory or
+type stability instead: a slice where a view was meant, an undotted operator
+inside a fused broadcast, an abstract field type, an accumulator that starts
+as an `Int`. Declare what the grader must find on the planted starter:
+
+```toml
+  [problem.bug]
+  kc = "views"
+  find = "sum(@view v[i-1:i+1])"
+  replace = "sum(v[i-1:i+1])"
+  answer_tokens = ["@view"]
+  starter_expect = ["correct", "allocates"]   # or "unstable", or both
+```
+
+* `starter_expect` holds `"correct"` plus `"allocates"` and/or `"unstable"`:
+  counted verdicts only, never `slow` or `fast` (timings move with the
+  machine; counts do not). `verify` grades the starter and requires those
+  verdicts, instead of requiring it to fail. The problem needs
+  `[problem.perf]`, where they are measured.
+* The tests measure what the grader measures. `@allocated` after a first,
+  compiling call (`_bytes(x) = (f(x); @allocated f(x))`; at top level a call
+  through a global can allocate on its own), and inference with
+  `Base.return_types` or `Base.code_typed(...; optimize = false)` (each local
+  keeps its own inferred type there; leave out compiler temporaries, whose
+  names are empty or start with `#`). A count of bytes or of non-concrete
+  locals uses `expect = [-0.5, 0.5]` for "exactly zero"; derive it in the
+  comment (any heap object is at least 16 bytes).
+* Make the readings point at the place without naming it: bytes on a call
+  whose loop never runs next to the extra bytes per element (the allocation
+  is in the loop), or a concrete return type next to a non-concrete local
+  (`@inferred` passes; the instability is inside).
+* No input values from an unseeded RNG in a test (invariant 3): allocation
+  does not depend on values, so use `collect(1.0:n)` or `fill`.
 
 ### Parsons problems
 

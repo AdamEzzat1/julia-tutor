@@ -648,3 +648,27 @@ function collatz_stats(n)
 end
 '''
   expect = ["correct", "fast"]
+
+[[placement]]
+prompt = "What does this print?"
+code = '''
+struct Countdown
+    n::Int
+end
+Base.iterate(c::Countdown, k = c.n) = k < 1 ? nothing : (k, k - 1)
+sum(Countdown(3)), first(Countdown(3))
+'''
+choices = [
+  "(6, 1)",
+  "(6, 3)",
+  "(3, 3)",
+  "(0, 3)",
+]
+answer = 2
+explain = "`iterate` starts at `n` and counts down to 1, so the elements are 3, 2, 1: their sum is 6 and the first is 3. Defining `iterate` is enough for `sum` and `first`."
+misconceptions = [
+  "`first` takes the first element `iterate` returns, which starts at `c.n`, here 3.",
+  "",
+  "`sum` adds every element: 3 + 2 + 1, not just the first.",
+  "The state starts at `n = 3`, so iteration produces elements before reaching `nothing`.",
+]

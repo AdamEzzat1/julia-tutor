@@ -583,3 +583,24 @@ venue = "SIAM Review 59(1)"
 year = 2017
 url = "https://arxiv.org/abs/1411.1607"
 note = "Describes Julia macros as functions that run at parse time, taking parsed expressions in and returning transformed expressions, as in section 4."
+
+[[placement]]
+prompt = "What does this print?"
+code = '''
+ex = :(a + b * c)
+(ex.args[1], length(ex.args))
+'''
+choices = [
+  "(:+, 3)",
+  "(:*, 3)",
+  "(:a, 3)",
+  "(:+, 5)",
+]
+answer = 1
+explain = "`a + b * c` parses as a call to `+` with two arguments, `a` and `b * c`. A call's `args` are the function, then its arguments: `[:+, :a, :(b * c)]`."
+misconceptions = [
+  "",
+  "`*` binds tighter, so it sits inside the second argument; the outer call is `+`.",
+  "In a call expression the function comes first in `args`, before the arguments.",
+  "The tree is nested: `b * c` is one argument (its own `Expr`), not three entries.",
+]

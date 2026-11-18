@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 740 340" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>The phase estimation circuit</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#776f82"/></marker></defs>
+<rect width="740" height="340" fill="#ffffff"/>
+<text x="20.0" y="28.0" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">Phase estimation: controlled powers of U, then the inverse QFT</text>
+<text x="70.0" y="85.0" font-size="14" fill="#2b2733" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">q0  |0⟩</text>
+<line x1="78" y1="80" x2="600" y2="80" stroke="#2b2733" stroke-width="1.5"/>
+<text x="70.0" y="140.0" font-size="14" fill="#2b2733" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">q1  |0⟩</text>
+<line x1="78" y1="135" x2="600" y2="135" stroke="#2b2733" stroke-width="1.5"/>
+<text x="70.0" y="195.0" font-size="14" fill="#2b2733" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">q2  |0⟩</text>
+<line x1="78" y1="190" x2="600" y2="190" stroke="#2b2733" stroke-width="1.5"/>
+<text x="70.0" y="270.0" font-size="14" fill="#3657c8" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">q3  |u⟩</text>
+<line x1="78" y1="265" x2="690" y2="265" stroke="#3657c8" stroke-width="1.5"/>
+<text x="698.0" y="270.0" font-size="14" fill="#3657c8" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">|u⟩</text>
+<rect x="102.0" y="62.0" width="36" height="36" fill="#ffffff" stroke="#2b2733" stroke-width="1.5"/>
+<text x="120.0" y="86.0" font-size="14" fill="#2b2733" text-anchor="middle" font-weight="600">H</text>
+<rect x="102.0" y="117.0" width="36" height="36" fill="#ffffff" stroke="#2b2733" stroke-width="1.5"/>
+<text x="120.0" y="141.0" font-size="14" fill="#2b2733" text-anchor="middle" font-weight="600">H</text>
+<rect x="102.0" y="172.0" width="36" height="36" fill="#ffffff" stroke="#2b2733" stroke-width="1.5"/>
+<text x="120.0" y="196.0" font-size="14" fill="#2b2733" text-anchor="middle" font-weight="600">H</text>
+<line x1="190" y1="80" x2="190" y2="247" stroke="#2b2733" stroke-width="1.5"/>
+<circle cx="190" cy="80" r="6" fill="#2b2733"/>
+<rect x="170.0" y="247.0" width="40" height="36" fill="#ffffff" stroke="#3657c8" stroke-width="1.5"/>
+<text x="190.0" y="271.0" font-size="14" fill="#3657c8" text-anchor="middle" font-weight="600">U</text>
+<line x1="270" y1="135" x2="270" y2="247" stroke="#2b2733" stroke-width="1.5"/>
+<circle cx="270" cy="135" r="6" fill="#2b2733"/>
+<rect x="250.0" y="247.0" width="40" height="36" fill="#ffffff" stroke="#3657c8" stroke-width="1.5"/>
+<text x="270.0" y="271.0" font-size="14" fill="#3657c8" text-anchor="middle" font-weight="600">U²</text>
+<line x1="350" y1="190" x2="350" y2="247" stroke="#2b2733" stroke-width="1.5"/>
+<circle cx="350" cy="190" r="6" fill="#2b2733"/>
+<rect x="330.0" y="247.0" width="40" height="36" fill="#ffffff" stroke="#3657c8" stroke-width="1.5"/>
+<text x="350.0" y="271.0" font-size="14" fill="#3657c8" text-anchor="middle" font-weight="600">U⁴</text>
+<rect x="420" y="58" width="90" height="154" fill="#ffffff" stroke="#7b4bb8" stroke-width="2"/>
+<text x="465.0" y="141.0" font-size="16" fill="#7b4bb8" text-anchor="middle" font-weight="600">QFT⁻¹</text>
+<rect x="540" y="62" width="40" height="36" fill="#ffffff" stroke="#2b2733" stroke-width="1.5"/>
+<path d="M547,89 A14,14 0 0 1 573,89" fill="none" stroke="#2b2733" stroke-width="1.4"/>
+<line x1="560" y1="89" x2="570" y2="71" stroke="#2b2733" stroke-width="1.4"/>
+<rect x="540" y="117" width="40" height="36" fill="#ffffff" stroke="#2b2733" stroke-width="1.5"/>
+<path d="M547,144 A14,14 0 0 1 573,144" fill="none" stroke="#2b2733" stroke-width="1.4"/>
+<line x1="560" y1="144" x2="570" y2="126" stroke="#2b2733" stroke-width="1.4"/>
+<rect x="540" y="172" width="40" height="36" fill="#ffffff" stroke="#2b2733" stroke-width="1.5"/>
+<path d="M547,199 A14,14 0 0 1 573,199" fill="none" stroke="#2b2733" stroke-width="1.4"/>
+<line x1="560" y1="199" x2="570" y2="181" stroke="#2b2733" stroke-width="1.4"/>
+<text x="612.0" y="129.0" font-size="13" fill="#2e7d4f" text-anchor="start" >y, read as</text>
+<text x="612.0" y="147.0" font-size="13" fill="#2e7d4f" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">φ ≈ y / 2³</text>
+<text x="390.0" y="55.0" font-size="12" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">qubit j now (|0⟩ + e^(2πi 2^j φ)|1⟩)/√2</text>
+<text x="20.0" y="322.0" font-size="12" fill="#776f82" text-anchor="start" >U|u⟩ = e^(2πiφ)|u⟩. Each controlled power leaves |u⟩ unchanged and kicks the phase 2^j φ back onto counting qubit j.</text>
+</svg>

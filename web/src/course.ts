@@ -22,6 +22,46 @@ export interface Example {
   choose?: Checkpoint; // pick a method and give a reason before the output is shown (see choose.ts)
   breakit?: BreakIt; // find where the method fails before the sweep is shown (see breakit.ts)
   explore?: Explorer; // sliders over the grid the output recorded (see explore.ts)
+  race?: Race; // pick the implementation that wins before the measurements are shown (see race.ts)
+}
+
+/**
+ * Pick the implementation that wins. `measured` (one per choice, as printed)
+ * and `ratios` (each choice against the winner; null for infinite, a winner at
+ * 0 bytes) were read from the recorded output by `tutor site-data`, only when
+ * the declared winner wins by at least `margin` (src/course.jl,
+ * `race_output_problems`).
+ */
+export interface Race {
+  kc: string;
+  prompt: string;
+  choices: string[];
+  by: "time" | "bytes";
+  unit: string;
+  margin: number;
+  answer: number; // 1-based
+  explain: string;
+  misconceptions: string[];
+  measured: string[];
+  ratios: (number | null)[];
+}
+
+/**
+ * The question an explorer asks: the learner answers by setting the sliders.
+ * `answer` is the answer point as 0-based indices into each axis's values,
+ * read from the grid by `tutor site-data` (src/course.jl,
+ * `explore_question_key`); `holdsAt[j]` says whether the condition holds at
+ * value j of the `along` axis with the other axes at the answer.
+ */
+export interface ExploreQuestion {
+  prompt: string;
+  along: string;
+  pick: "largest" | "smallest";
+  holds: "below" | "above";
+  limit: number;
+  explain: string;
+  answer: number[];
+  holdsAt: boolean[];
 }
 
 /**
@@ -43,6 +83,8 @@ export interface Explorer {
   explain: string;
   axes: { group: string; label: string; log: boolean; numeric: boolean; texts: string[]; nums: number[] }[];
   values: string[];
+  /** the question the sliders answer (absent in older data) */
+  question?: ExploreQuestion;
 }
 
 /**
@@ -103,10 +145,20 @@ export interface Checkpoint {
 export interface Prediction {
   kc: string;
   prompt: string;
-  choices: string[];
-  answer: number; // 1-based
+  choices: string[]; // empty for a typed-number prediction
+  answer: number; // 1-based; 0 for a typed-number prediction
   explain: string;
   measured: string;
+  /** a typed-number prediction: the learner types a number, a hit when within the tolerance of `value` */
+  typed?: Typed;
+}
+
+/** "abs": |x - v| <= tolerance; "rel": <= tolerance * |v|; "factor": v / tolerance <= x <= v * tolerance */
+export interface Typed {
+  tolerance: number;
+  within: "abs" | "rel" | "factor";
+  unit: string;
+  value: number;
 }
 
 /**
@@ -115,7 +167,9 @@ export interface Prediction {
  * misconceptions[i] is the feedback for choice i ("" for the answer).
  */
 export interface Question {
-  kind: "choice" | "output";
+  kind: "choice" | "output" | "error";
+  /** kind "error": the recorded message shown under the code (null: not recorded; the question is left out) */
+  output?: string | null;
   prompt: string;
   code: string;
   choices: string[];
@@ -197,9 +251,11 @@ export interface Bug {
   planted: string;
   fixed: string;
   tests: BugTest[];
+  /** a performance bug: the verdicts the planted starter gets ("correct" plus "allocates"/"unstable"); empty otherwise */
+  starter_expect?: string[];
 }
 
-export type Track = "foundations" | "core" | "advanced" | "ecosystem" | "scicomp" | "sciml";
+export type Track = "foundations" | "core" | "advanced" | "ecosystem" | "scicomp" | "sciml" | "quantum";
 
 export interface Unit {
   id: string;
@@ -217,6 +273,25 @@ export interface Unit {
   sections: Section[];
   problems: Problem[];
   references?: Reference[];
+  /** placement items (placement.ts); only those whose key matched the recorded output are exported */
+  placement?: PlacementItem[];
+}
+
+/**
+ * A placement item: a predict-the-output question in the unit it tests. Right
+ * on its one pick, it suggests skipping every unit in `covers` (its own unit,
+ * and possibly earlier units of the same course).
+ */
+export interface PlacementItem {
+  prompt: string;
+  code: string;
+  choices: string[];
+  answer: number; // 1-based; choices[answer - 1] is the recorded output
+  explain: string;
+  misconceptions: string[];
+  covers: string[];
+  /** the recorded output */
+  output: string;
 }
 
 export type CourseStatus = "ready" | "in-progress" | "planned";
@@ -308,9 +383,14 @@ export function statusNote(c: Pick<CourseInfo, "status">): string {
   return c.status === "in-progress" ? "in progress" : c.status === "planned" ? "planned" : "";
 }
 
-/** "about 22–50 hours (estimate)": always says it is an estimate. */
+/**
+ * "about 22–50 hours (estimate)": always says it is an estimate. A course
+ * with no published unit yet has nothing to count, so it gets no number.
+ */
 export const estimateText = (c: CourseInfo) =>
-  `about ${c.estimate.low_hours}–${c.estimate.high_hours} hours (estimate)`;
+  c.estimate.high_hours === 0
+    ? "no time estimate yet (no unit is published)"
+    : `about ${c.estimate.low_hours}–${c.estimate.high_hours} hours (estimate)`;
 
 /**
  * Units of other courses this course's units build on, grouped by course in
@@ -333,6 +413,7 @@ export const TRACK_LABEL: Record<Track, string> = {
   ecosystem: "Ecosystem",
   scicomp: "Scientific computing",
   sciml: "Scientific ML",
+  quantum: "Quantum computing",
 };
 
 export const TRACK_BLURB: Record<Track, string> = {
@@ -342,6 +423,7 @@ export const TRACK_BLURB: Record<Track, string> = {
   ecosystem: "The standard library and the packages Julia is used for, in pinned environments.",
   scicomp: "Numerical methods you can trust: conditioning, error control, linear solvers, DAEs, stochastic models, constrained optimization and parallel limits.",
   sciml: "Differential equations with learned parts: sensitivities, adjoints, neural and universal ODEs, SINDy and PINNs.",
+  quantum: "A state-vector simulator you write yourself in plain Julia, each algorithm checked against the theory it implements.",
 };
 
 /** "Assumes Foundations, Core language, Advanced and Ecosystem", or null. */

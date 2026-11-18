@@ -7,6 +7,8 @@ project:
   resources:
     - assets/app/app.js
     - assets/app/app.css
+    - assets/hud-v2.js
+    - assets/hud-switch.js
     - assets/figures/**
     - assets/diagrams/**
     - .nojekyll
@@ -36,6 +38,8 @@ website:
             text: "Scientific computing"
           - href: course-sciml.qmd
             text: "Scientific ML (in progress)"
+          - href: course-quantum.qmd
+            text: "Quantum computing (in progress)"
           - text: "---"
           - href: course.qmd
             text: Units and practice
@@ -84,3 +88,4 @@ format:
     include-after-body:
       - text: |
           <script type="module" src="assets/app/app.js"></script>
+          <script src="assets/hud-switch.js"></script>

@@ -1,0 +1,29 @@
+== tutor explain: qsim, stage 1 ==
+
+Start here: hole `kron_operator` at src/QSim.jl:253
+  why: 2 of the 2 failing testsets depend on it (Ochiai 1.0).
+  Read its docstring: it is the specification. Knowledge component: little-endian-order.
+
+Tests: 44/46 testsets pass
+  FAIL QSim/little-endian convention, concretely  [1 failed, 0 errored; depends on: apply_gate, basis_state, kron_operator]
+       test/runtests.jl:231 FAIL full_operator_kron(X, 0, 2) ≈ kron(I2, X)  evaluated: ComplexF64[0.0 + 0.0im 0.0 + 0.0im 1.0 + 0.0im 0.0 + 0.0im; 0.0 + 0.0im 0.0 + 0.0im 0.0 + 0.0im 1.0 + 0.0im; 1.0 + 0.0im 0.0 + 0.0im 0.0 + 0.0im 0.0 + 0.0im; 0.0 + 0.0im 1.0 + 0.0im 0.0 + 0.0im 0.0 + 0.0im] ≈ ComplexF64[0.0 + 0.0im 1.0 + 0.0im 0.0 + 0.0im 0.0 + 0.0im; 1.0 + 0.0im 0.0 + 0.0im 0.0 + 0…
+  FAIL QSim/three independent gate-application paths agree (property test)  [133 failed, 0 errored; depends on: apply_gate, kron_operator]
+       test/runtests.jl:245 FAIL full_operator_kron(U, qs[1], n) ≈ full_operator(U, qs, n)  evaluated: ComplexF64[…
+       test/runtests.jl:245 FAIL full_operator_kron(U, qs[1], n) ≈ full_operator(U, qs, n)  evaluated: ComplexF64[…
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. kron_operator      1.0   implemented  failing-deps=2 passing-deps=0  src/QSim.jl:253
+  2. basis_state        0.29  implemented  failing-deps=1 passing-deps=5  src/QSim.jl:86
+  3. apply_gate         0.24  implemented  failing-deps=2 passing-deps=33  src/QSim.jl:182
+  4. bitstring          0.0   implemented  failing-deps=0 passing-deps=5  src/QSim.jl:422
+  5. ry                 0.0   implemented  failing-deps=0 passing-deps=10  src/QSim.jl:129
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations apply!(CX, qubits [7, 2] of 10): 260  (reference 260)
+  allocations apply!(H, qubit 3 of 10): 517  (reference 517)
+  allocations apply_controlled!(X, controls [0, 5], target [9], 10 qubits): 136  (reference 136)
+  allocations run_circuit(qft_circuit(8)): 3491  (reference 3491)
+  JET: not used by this project's measurements

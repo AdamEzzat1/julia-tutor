@@ -1,0 +1,896 @@
+id = "53-entanglement-chsh"
+title = "Entanglement and the CHSH game"
+track = "quantum"
+env = "base"
+status = "ready"
+summary = "Two players who cannot talk win the CHSH game at most 75% of the time with any classical strategy, which a brute force over all 16 deterministic strategies confirms; with a shared Bell pair they win about 85%. The unit builds Bell and GHZ states from H and CNOT, tests entanglement with the reduced density matrix and its entropy (exactly 1 bit for half a Bell pair), and computes the CHSH value 2√2 exactly and from simulated shots, against the classical bound 2."
+kcs = ["entanglement", "partial-trace", "chsh"]
+prerequisites = ["52-applying-gates"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit uses the in-place gates of unit 52, `apply_1q!(ψ, U, q)` and
+`apply_cx!(ψ, c, t)` (CNOT: flip qubit `t` where qubit `c` is 1), the
+little-endian order of unit 50 (outcome `k` has qubit `q` in bit `q`), and the
+Pauli matrices `X` and `Z` of unit 51. Each example below defines the
+helpers it needs, so it runs on its own.
+
+Two new tools:
+
+* The **density matrix** of a state `ψ` is the matrix `ρ = ψ ψ'`, the outer
+  product of the column `ψ` with its conjugate row: `ρ[i, j] = ψ[i] ·
+  conj(ψ[j])`. Its diagonal holds the Born-rule probabilities (unit 49) and
+  its trace is 1. It is the description that still works when only part of a
+  system is looked at, which is what this unit needs.
+* `eigvals(Hermitian(ρ))` from `LinearAlgebra` returns the real eigenvalues
+  of a Hermitian matrix (one with `ρ == ρ'`), in increasing order. The
+  `Hermitian` wrapper tells Julia to use the symmetric algorithm, which
+  returns real numbers instead of complex ones with tiny imaginary parts.
+'''
+
+  [[section.example]]
+  caption = "The density matrix of `|+⟩ = (|0⟩ + |1⟩)/√2`, its trace and its eigenvalues."
+  notice = "Notice that the eigenvalues are 0 and 1, the signature of a pure state, a state that a single vector describes. The rest of this unit meets a one-qubit `ρ` whose eigenvalues are both 1/2."
+  code = '''
+using LinearAlgebra
+ψ = ComplexF64[1, 1] / sqrt(2)
+ρ = ψ * ψ'                                       # column times conjugate row: 2×2
+println("ρ = ", round.(real.(ρ); digits = 4), ",  tr ρ = ", round(real(tr(ρ)); digits = 12))
+println("eigenvalues: ", round.(eigvals(Hermitian(ρ)); digits = 12) .+ 0.0)
+'''
+
+[[section]]
+title = "The question: can two players who cannot talk win more often by sharing qubits?"
+body = '''
+The **CHSH game** has two players, Alice and Bob, in separate rooms. A
+referee sends Alice a random bit `x` and Bob a random bit `y`. Without
+talking, Alice answers a bit `a` and Bob a bit `b`. They win when
+
+```
+a ⊻ b == x & y        (answers differ exactly when both questions are 1)
+```
+
+They may agree on a strategy beforehand, and share any random numbers they
+like, but they cannot communicate once the questions arrive.
+
+A **deterministic** strategy fixes Alice's answer for each of her two
+questions and Bob's for each of his: `2^2 · 2^2 = 16` strategies, few enough
+to try them all. A strategy that uses shared randomness picks one of the 16
+at random, so its winning probability is an average of theirs and cannot
+exceed the best of them. Whatever the 16 give is therefore the best any
+classical strategy can do, an instance of Bell's theorem: correlations
+explained by values fixed in advance obey a bound.
+
+The rest of this unit shows that two players who each hold one qubit of an
+entangled pair, and measure it in a direction chosen by their question,
+win more often than that bound allows. No message is sent; the qubits were
+prepared together before the game.
+'''
+refs = ["bell-1964", "chsh-1969"]
+
+  [[section.diagram]]
+  file = "chsh-game.svg"
+  alt = "The CHSH game. A referee in the middle sends a random bit x to Alice on the left and a random bit y to Bob on the right. Each answers one bit, a and b, without communicating. They win when a XOR b equals x AND y. Optionally they share a Bell pair prepared before the game, one qubit each."
+  caption = "The CHSH game: random questions x and y, answers a and b, no communication. The shared Bell pair is the only quantum ingredient; it carries no message."
+
+  [[section.example]]
+  caption = "Every deterministic strategy for the CHSH game, and the best winning probability among them (each of the four question pairs has probability 1/4)."
+  code = '''
+best, nbest = 0.0, 0
+for a0 in 0:1, a1 in 0:1, b0 in 0:1, b1 in 0:1          # Alice answers a_x, Bob answers b_y
+    a, b = (a0, a1), (b0, b1)
+    p = sum((a[x + 1] ⊻ b[y + 1]) == (x & y) for x in 0:1, y in 0:1) / 4
+    if p > best
+        global best, nbest = p, 1
+    elseif p == best
+        global nbest += 1
+    end
+end
+println("16 strategies, best winning probability: ", best, " (reached by ", nbest, " of them)")
+'''
+
+    [section.example.predict]
+    kc = "chsh"
+    prompt = "There are 16 deterministic strategies. Before the output is shown: what is the best winning probability among them?"
+    choices = ["1.0, always winning", "0.75", "0.5, no better than guessing"]
+    measure = 'best winning probability: ([0-9.]+)'
+    values = ["1.0", "0.75", "0.5"]
+    answer = 2
+    explain = "Answering `a = b = 0` always wins three of the four question pairs and loses only `x = y = 1`. No deterministic strategy wins all four: the four winning conditions add up (mod 2) to `0 = 1`, a contradiction, so at least one pair is always lost. Eight of the 16 strategies reach 3/4."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Alice and Bob may share random numbers. Why can that not beat the best deterministic strategy?"
+  choices = [
+    "Shared randomness is against the rules of the game",
+    "Its win rate is an average over deterministic strategies",
+    "Random answers are uncorrelated, so they win only half the time",
+  ]
+  answer = 2
+  explain = "With shared randomness they pick one deterministic strategy at random, and the winning probability is the average of the chosen strategies' probabilities, weighted by how often each is chosen. An average never exceeds its largest term, 3/4."
+  misconceptions = [
+    "The rules allow any agreement made before the game, including a list of shared random numbers; only communication after the questions is forbidden.",
+    "",
+    "Shared random numbers make the answers correlated, as much as the players want; the reason they do not help is that every such strategy is a mixture of the 16 deterministic ones.",
+  ]
+
+[[section]]
+title = "Bell and GHZ states from H and CNOT"
+body = '''
+A two-qubit state is a **product state** when it can be written as
+`kron(ψ1, ψ0)`, one state per qubit (unit 50's order: qubit 1 on the left).
+Otherwise it is **entangled**: no description of the qubits one at a time
+reproduces it.
+
+The simplest entangled state is the **Bell state**
+
+```
+|Φ+⟩ = (|00⟩ + |11⟩) / √2
+```
+
+made from `|00⟩` by `H` on qubit 0 and then CNOT from qubit 0 to qubit 1:
+`H` gives `(|00⟩ + |01⟩)/√2`, and CNOT flips qubit 1 in the second term.
+Measuring it gives `00` or `11`, each with probability 1/2, never `01` or
+`10`: the two qubits always agree.
+
+A further CNOT from qubit 1 to qubit 2, and so on, gives the **GHZ state**
+`(|0…0⟩ + |1…1⟩)/√2` on `n` qubits, named after Greenberger, Horne and
+Zeilinger.
+
+**A test for two qubits.** Write the four amplitudes as a `2×2` matrix `M`
+with `M[i, j]` the amplitude of qubit 0 = `i - 1` and qubit 1 = `j - 1`.
+That is exactly `reshape(ψ, 2, 2)` (column-major, unit 50). A product state
+gives `M = ψ0 · transpose(ψ1)`, a matrix of rank 1, so `det(M) = 0`. A
+nonzero determinant therefore proves entanglement. For `|Φ+⟩`, `det(M) =
+1/2`, the largest possible value.
+'''
+refs = ["ghz-1990", "nielsen-chuang-2010"]
+
+  [[section.diagram]]
+  file = "ghz-circuit.svg"
+  alt = "A quantum circuit on three qubit lines, labelled q0 at the top to q2 at the bottom, each starting in |0⟩. An H gate on q0, then a CNOT with control q0 and target q1, then a CNOT with control q1 and target q2. The first two gates alone make the Bell state on q0 and q1; all three make the GHZ state (|000⟩ + |111⟩)/√2."
+  caption = "The circuit for the Bell pair (first two gates) and the 3-qubit GHZ state (all three). Each CNOT copies the bit of its control into its target, term by term of the superposition."
+
+  [[section.analogy]]
+  title = "A pair of gloves in two boxes"
+  text = '''
+Put a pair of gloves into two boxes, one glove each, and send the boxes to
+two cities. Opening one box tells you at once which glove is in the other,
+however far away it is. Measuring one qubit of `|Φ+⟩` is like that: it
+gives 0 or 1 at random, and the other qubit, measured in the same basis,
+always gives the same.
+'''
+  breaks = '''
+The gloves were left and right all along; opening a box only reveals it.
+That is exactly the kind of explanation, values fixed in advance, that the
+CHSH game rules out: with such values the players could reproduce the
+correlations with a deterministic strategy, and the 16-strategy bound would
+hold. The Bell pair beats it, so its correlations are not gloves in boxes.
+Nor can the pair send a message: each qubit on its own gives a fair coin
+flip whatever is done to the other.
+'''
+
+  [[section.example]]
+  caption = "The Bell state and the GHZ state on 3 qubits, built gate by gate, and the determinant test for two qubits."
+  code = '''
+using LinearAlgebra
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+function ghz(n)
+    ψ = zeros(ComplexF64, 2^n); ψ[1] = 1
+    apply_1q!(ψ, H, 0)
+    for q in 1:n-1
+        apply_cx!(ψ, q - 1, q)
+    end
+    return ψ
+end
+bell = ghz(2)
+println("Bell amplitudes: ", round.(real.(bell); digits = 4))
+println("GHZ(3) nonzero outcomes: ", [k for k in 0:7 if abs(ghz(3)[k + 1]) > 1e-12])
+product = kron(ComplexF64[1, 1] / sqrt(2), ComplexF64[0.6, 0.8])       # qubit 1 ⊗ qubit 0
+println("det test: Bell ", round(real(det(reshape(bell, 2, 2))); digits = 12), ",  product ", round(abs(det(reshape(product, 2, 2))); digits = 12))
+'''
+
+    [section.example.predict]
+    kc = "entanglement"
+    prompt = "The GHZ circuit on 3 qubits is `H` on qubit 0, then CNOT 0→1 and CNOT 1→2. Before the output is shown: which outcomes have a nonzero amplitude?"
+    choices = ["0 and 7", "0 and 1", "All eight"]
+    measure = 'GHZ\(3\) nonzero outcomes: (\[[0-9, ]*\])'
+    values = ["[0, 7]", "[0, 1]", "[0, 1, 2, 3, 4, 5, 6, 7]"]
+    answer = 1
+    explain = "`H` makes `(|000⟩ + |001⟩)/√2`. CNOT 0→1 flips qubit 1 in the second term, `|011⟩`, and CNOT 1→2 flips qubit 2 there, `|111⟩`: outcomes `000` = 0 and `111` = 7. Without the CNOTs only `H` acts, giving 0 and 1; all eight would need an `H` on every qubit."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Which of these two-qubit states is entangled?"
+  choices = [
+    "`(|00⟩ + |01⟩) / √2`",
+    "`(|00⟩ + |11⟩) / √2`",
+    "`(|00⟩ + |01⟩ + |10⟩ + |11⟩) / 2`",
+  ]
+  answer = 2
+  explain = "Its matrix `M = [1 0; 0 1]/√2` has determinant 1/2, not 0. The first is `|0⟩ ⊗ (|0⟩ + |1⟩)/√2` (`M` has one zero column), and the third is `|+⟩ ⊗ |+⟩` (all four entries equal, determinant 0)."
+  misconceptions = [
+    "Qubit 1 is 0 in both terms, so the state is `|0⟩ ⊗ |+⟩`, a product: `M = [1 0; 1 0]/√2` has determinant 0.",
+    "",
+    "A superposition of all four outcomes can be a product: this one is `|+⟩ ⊗ |+⟩`, since every entry of `M` is 1/2 and its determinant is 0.",
+  ]
+
+[[section]]
+title = "Half of a Bell pair: the reduced density matrix and its entropy"
+body = '''
+What does qubit 0 of `|Φ+⟩` look like *on its own*, to someone who never
+sees qubit 1? No vector describes it: every one-qubit vector predicts a
+direction where measuring it always gives the same outcome (its Bloch
+vector, unit 51), and qubit 0 of a Bell pair has no such direction. The
+**reduced density matrix** does describe it. It is the density matrix with
+the other qubits summed out, the **partial trace**:
+
+```
+ρ_q[a + 1, b + 1] = Σ over the other bits r of   ψ[k(r, a)] · conj(ψ[k(r, b)])
+```
+
+where `k(r, a)` is the outcome with qubit `q` equal to `a` and the other
+qubits equal to `r`. In the bit language of unit 52: for each `k` with bit
+`q` clear, `k` and `k | (1 << q)` are the two outcomes, and the four entries
+collect the products of their amplitudes.
+
+For a product state, `ρ_q` is the pure `φ φ'` of that qubit's own vector `φ`,
+with eigenvalues 0 and 1. For half a Bell pair it is `I/2`: eigenvalues
+1/2 and 1/2, a fair coin in every direction.
+
+The **entanglement entropy** turns this into one number. With `λ` the
+eigenvalues of `ρ_q`,
+
+```
+S = -Σ λ log2(λ)       (in bits; 0 · log2(0) counts as 0)
+```
+
+`S = 0` for a qubit of a product state and `S = 1` bit, the maximum, for
+half a Bell pair. For a pure state of all the qubits, `S > 0` means the
+qubit is entangled with the rest.
+
+**The term `0 · log2(0)`.** Computed eigenvalues of a pure `ρ` are 0 only up
+to rounding, and can come out as `-1e-17`, where `log2` throws a
+`DomainError`. So eigenvalues below `1e-12` are skipped. The error that
+causes is at most `λ log2(1/λ) ≤ 1e-12 · 40 = 4e-11` bits, far below
+anything this unit measures.
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.example]]
+  caption = "The reduced density matrix of qubit 0 for a Bell pair and for a product state, their entropies, and one qubit of a 5-qubit GHZ state."
+  code = '''
+using LinearAlgebra
+function reduced_density(ψ, q)
+    ρ = zeros(ComplexF64, 2, 2)
+    m = 1 << q
+    for k in 0:length(ψ)-1
+        if k & m == 0
+            a0, a1 = ψ[k + 1], ψ[(k | m) + 1]           # qubit q = 0 and = 1, other bits equal
+            ρ[1, 1] += abs2(a0);           ρ[1, 2] += a0 * conj(a1)
+            ρ[2, 1] += a1 * conj(a0);      ρ[2, 2] += abs2(a1)
+        end
+    end
+    return ρ
+end
+entropy(ρ) = -sum((λ * log2(λ) for λ in eigvals(Hermitian(ρ)) if λ > 1e-12); init = 0.0)
+bell = ComplexF64[1, 0, 0, 1] / sqrt(2)
+product = kron(ComplexF64[1, 1] / sqrt(2), ComplexF64[0.6, 0.8])
+ghz5 = zeros(ComplexF64, 32); ghz5[1] = ghz5[32] = 1 / sqrt(2)
+println("Bell, qubit 0: ρ = ", round.(real.(reduced_density(bell, 0)); digits = 4), ",  S = ", round(entropy(reduced_density(bell, 0)); digits = 12))
+println("product, qubit 0: ρ = ", round.(real.(reduced_density(product, 0)); digits = 4), ",  S = ", round(entropy(reduced_density(product, 0)); digits = 12) + 0.0)
+println("GHZ(5), qubit 2: S = ", round(entropy(reduced_density(ghz5, 2)); digits = 12))
+'''
+
+    [section.example.predict]
+    kc = "partial-trace"
+    prompt = "The last line computes the entropy of qubit 2 of the 5-qubit GHZ state `(|00000⟩ + |11111⟩)/√2`. Before the output is shown: about what is it?"
+    choices = ["1 bit", "0 bits", "More than 1 bit, since five qubits are entangled"]
+    measure = 'GHZ\(5\), qubit 2: S = ([0-9.]+)'
+    ranges = [[0.999, 1.001], [-0.001, 0.001], [1.001, 100]]
+    answer = 1
+    explain = "Summing out the other four qubits leaves `ρ = I/2`: the outcome `00000` contributes `|0⟩⟨0|/2`, `11111` contributes `|1⟩⟨1|/2`, and the cross terms vanish because the two outcomes differ in the other qubits too. Its entropy is 1 bit. One qubit has only two eigenvalues, so its entropy can never exceed `log2(2) = 1` bit, however many qubits it is entangled with."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Where on the Bloch sphere (unit 51) is qubit 0 of the Bell state `|Φ+⟩`?"
+  choices = [
+    "At the north pole, `|0⟩`, its first term",
+    "At the centre, Bloch vector 0",
+    "On the equator",
+  ]
+  answer = 2
+  explain = "Its reduced density matrix is `I/2`, and `ρ = (I + r_x X + r_y Y + r_z Z)/2` gives `r = 0`. A point inside the sphere is a **mixed** state; the centre is the maximally mixed one, the same fair coin in every direction."
+  misconceptions = [
+    "Both terms count equally: qubit 0 is 0 in `|00⟩` and 1 in `|11⟩`, each with probability 1/2, so `⟨Z⟩ = 0`, not 1.",
+    "",
+    "A point on the equator, such as `|+⟩`, is a pure state with a definite outcome in some direction (`X` for `|+⟩`). Half a Bell pair has none: `⟨X⟩ = ⟨Y⟩ = ⟨Z⟩ = 0`.",
+  ]
+
+[[section]]
+title = "CHSH: the quantum value 2√2, exactly and from shots"
+body = '''
+Write each answer as a sign, `A = (-1)^a`, so that `+1` means 0 and `-1`
+means 1. For questions `x`, `y` the **correlator** `E_xy` is the expected
+product `A·B`: `+1` when the answers always agree, `-1` when they always
+differ. Winning means agreeing on three question pairs and differing on
+`x = y = 1`, so the winning probability is
+
+```
+P(win) = 1/2 + S/8,      S = E_00 + E_01 + E_10 - E_11
+```
+
+The classical 3/4 is `S = 2`: the **CHSH inequality** `|S| ≤ 2` of Clauser,
+Horne, Shimony and Holt.
+
+**The quantum strategy.** Alice and Bob share `|Φ+⟩` (Alice qubit 0, Bob
+qubit 1). Each measures their qubit along an angle `θ` in the x-z plane of
+the Bloch sphere, chosen by their question: the observable
+
+```
+A(θ) = cos(θ) Z + sin(θ) X        (eigenvalues +1 and -1)
+```
+
+The correlator of Alice at `a` and Bob at `b` is `E(a, b) = ψ' * kron(A(b),
+A(a)) * ψ`, with Bob's factor on the left because he holds qubit 1 (unit 50).
+For `|Φ+⟩` it works out to `cos(a - b)`. With Alice's angles `0` and `π/2`
+and Bob's `π/4` and `-π/4`, three correlators are `cos(π/4) = 1/√2` and the
+fourth, `E(π/2, -π/4) = cos(3π/4) = -1/√2`, carries the minus sign:
+
+```
+S = 4/√2 = 2√2 ≈ 2.828,      P(win) = 1/2 + √2/4 ≈ 0.854
+```
+
+Tsirelson proved that no quantum strategy does better: `2√2` is the quantum
+maximum.
+
+**Which term carries the minus sign** has to match the angles: with the same
+four correlators and the minus on another term, the sum is 0. A check that
+only compares `abs(S)` with 2 would not notice that mistake.
+
+**From shots.** An experiment never sees `E` directly, only outcomes. To
+measure along `θ`, rotate the qubit by `RY(-θ)`, which takes the `θ`
+direction to `z`, and measure as usual; `E = P(same) - P(different)`. Each
+correlator estimated from `N` shots has a standard deviation of at most
+`1/√N`, so `S` from four of them has at most `2/√N`: `0.0063` for `N =
+100 000`. A sampled `S` within `5σ` of `2√2` and more than `5σ` above 2
+shows the violation with no doubt left to sampling.
+'''
+refs = ["chsh-1969", "tsirelson-1980", "bell-1964"]
+
+  [[section.example]]
+  caption = "The four correlators of `|Φ+⟩` at the optimal angles, the exact `S`, and the check that `E(a, b) = cos(a - b)` on a grid of angles."
+  code = '''
+using LinearAlgebra
+X = ComplexF64[0 1; 1 0];  Z = ComplexF64[1 0; 0 -1]
+A(θ) = cos(θ) * Z + sin(θ) * X
+E(ψ, a, b) = real(ψ' * kron(A(b), A(a)) * ψ)           # Bob holds qubit 1: his factor is on the left
+bell = ComplexF64[1, 0, 0, 1] / sqrt(2)
+a, a2, b, b2 = 0.0, pi / 2, pi / 4, -pi / 4
+S = E(bell, a, b) + E(bell, a, b2) + E(bell, a2, b) - E(bell, a2, b2)
+println("correlators: ", round.([E(bell, a, b), E(bell, a, b2), E(bell, a2, b), E(bell, a2, b2)]; digits = 6))
+println("S = ", round(S; digits = 10), ",  2√2 = ", round(2sqrt(2); digits = 10), ",  P(win) = ", round(1/2 + S/8; digits = 6))
+println("E(a, b) == cos(a - b) within 1e-12 on a 7×7 grid: ", all(abs(E(bell, x, y) - cos(x - y)) < 1e-12 for x in 0:0.5:3, y in 0:0.5:3))
+'''
+
+  [[section.example]]
+  caption = "The same four correlators, with the minus sign on the first term instead of the last."
+  code = '''
+using LinearAlgebra
+X = ComplexF64[0 1; 1 0];  Z = ComplexF64[1 0; 0 -1]
+A(θ) = cos(θ) * Z + sin(θ) * X
+E(ψ, a, b) = real(ψ' * kron(A(b), A(a)) * ψ)
+bell = ComplexF64[1, 0, 0, 1] / sqrt(2)
+a, a2, b, b2 = 0.0, pi / 2, pi / 4, -pi / 4
+S_wrong = -E(bell, a, b) + E(bell, a, b2) + E(bell, a2, b) + E(bell, a2, b2)
+println("S with the minus on E(a, b): ", round(S_wrong; digits = 10) + 0.0)
+'''
+
+    [section.example.predict]
+    kc = "chsh"
+    prompt = "At these angles the correlators are `1/√2, 1/√2, 1/√2, -1/√2`. Before the output is shown: what is `S` when the minus sign is put on the first one instead of the last?"
+    choices = ["0", "√2", "-2√2"]
+    measure = 'S with the minus on E\(a, b\): (-?[0-9.]+)'
+    ranges = [[-1e-6, 1e-6], [1.41, 1.42], [-2.83, -2.82]]
+    answer = 1
+    explain = "`-1/√2 + 1/√2 + 1/√2 - 1/√2 = 0`. The CHSH combination is only maximal when the minus sign sits on the one correlator that is negative; with these angles that is `E(a2, b2)`. Choosing angles and signs together is part of the strategy."
+
+  [[section.example]]
+  caption = "S estimated from 100 000 simulated shots per correlator: rotate each qubit by `RY(-θ)`, sample outcomes with the Born rule, and count agreements."
+  notice = "Notice that the sampled `S` differs from `2√2` by about one standard deviation, as it should, and that it exceeds the classical bound 2 by more than a hundred of them."
+  code = '''
+using Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+RY(θ) = ComplexF64[cos(θ/2) -sin(θ/2); sin(θ/2) cos(θ/2)]
+function sampled_E(a, b, shots, rng)
+    ψ = ComplexF64[1, 0, 0, 1] / sqrt(2)
+    apply_1q!(ψ, RY(-a), 0); apply_1q!(ψ, RY(-b), 1)   # the a and b directions become z
+    c = cumsum(abs2.(ψ))
+    same = 0
+    for _ in 1:shots
+        k = min(searchsortedfirst(c, rand(rng)), 4) - 1  # inverse CDF (unit 51)
+        same += (k == 0 || k == 3)                        # outcomes 00 and 11 agree
+    end
+    return (2same - shots) / shots                        # P(same) - P(different)
+end
+rng = Xoshiro(2026)
+N = 100_000
+a, a2, b, b2 = 0.0, pi / 2, pi / 4, -pi / 4
+S = sampled_E(a, b, N, rng) + sampled_E(a, b2, N, rng) + sampled_E(a2, b, N, rng) - sampled_E(a2, b2, N, rng)
+σ = 2 / sqrt(N)
+println("sampled S = ", round(S; digits = 4), ",  σ ≤ ", round(σ; digits = 4))
+println("within 5σ of 2√2: ", abs(S - 2sqrt(2)) < 5σ, ",  above 2 + 5σ: ", S > 2 + 5σ)
+println("(S - 2√2)/σ = ", round((S - 2sqrt(2)) / σ; digits = 1), ",  (S - 2)/σ = ", round((S - 2) / σ; digits = 0))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "For `|Φ+⟩`, `E(a, b)` comes out the same whether it is computed with `kron(A(b), A(a))` or with `kron(A(a), A(b))`. Why does the order still matter?"
+  choices = [
+    "It does not: `kron` is commutative for two `2×2` matrices",
+    "`|Φ+⟩` is unchanged when the two qubits are swapped",
+    "Only the eigenvalues of the operator enter the expectation value",
+  ]
+  answer = 2
+  explain = "Swapping the two `kron` factors is the same as swapping the qubits. `|Φ+⟩ = (|00⟩ + |11⟩)/√2` does not change under that swap, so this state cannot tell the orders apart. A random two-qubit state can, which is why the practice problem tests `chsh_value` on random states."
+  misconceptions = [
+    "`kron(P, Q)` and `kron(Q, P)` are different matrices in general (their entries are arranged differently); they are related by swapping the two qubits.",
+    "",
+    "`kron(A(a), A(b))` and `kron(A(b), A(a))` have the same eigenvalues but different eigenvectors, and `ψ' O ψ` depends on both.",
+  ]
+
+[[problem]]
+id = "ec-reduced-density"
+title = "The reduced density matrix of one qubit"
+difficulty = "core"
+kcs = ["partial-trace"]
+entry = "reduced_density"
+packages = []
+prompt = '''
+Write `reduced_density(ψ, q)` that returns the `2×2` reduced density matrix
+(a `Matrix{ComplexF64}`) of qubit `q` of the state `ψ`, little-endian as in
+unit 50: `ρ[a + 1, b + 1]` is the sum, over all settings of the other
+qubits, of `ψ[k_a + 1] * conj(ψ[k_b + 1])`, where `k_a` and `k_b` are the
+outcomes with qubit `q` equal to `a` and `b` and the other qubits equal.
+
+```julia
+reduced_density(ComplexF64[1, 0, 0, 1] / sqrt(2), 0)     # I/2: half a Bell pair
+reduced_density(ComplexF64[1, im, 0, 0] / sqrt(2), 0)    # [1 -im; im 1] / 2: |+i⟩ on qubit 0
+```
+
+Results are compared as whole matrices with `rtol = 1e-12`. Each entry is a
+sum of `2^(n-1)` products, so two correct summation orders differ by about
+`2^(n-1) · u` relative at most, below `1e-13` for the 7 qubits graded here;
+a wrong pairing or a missing `conj` changes entries by order 1.
+'''
+starter = '''
+function reduced_density(ψ, q)
+    # your code here
+end
+'''
+reference = '''
+function reduced_density(ψ, q)
+    ρ = zeros(ComplexF64, 2, 2)
+    m = 1 << q
+    for k in 0:length(ψ)-1
+        if k & m == 0                              # k has qubit q = 0; its partner has qubit q = 1
+            a0, a1 = ψ[k + 1], ψ[(k | m) + 1]
+            ρ[1, 1] += abs2(a0);       ρ[1, 2] += a0 * conj(a1)
+            ρ[2, 1] += a1 * conj(a0);  ρ[2, 2] += abs2(a1)
+        end
+    end
+    return ρ
+end
+'''
+cases = [
+  "ComplexF64[1, 0, 0, 1] / sqrt(2), 0",
+  "ComplexF64[1, im, 0, 0] / sqrt(2), 0",
+  "ComplexF64[1, im, 0, 0] / sqrt(2), 1",
+  "ComplexF64[0.6, 0, 0, 0, 0, 0, 0, 0.8im], 1",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8] / sqrt(204), 2",
+]
+gen = "rng -> [(n = rand(rng, 1:7); v = randn(rng, ComplexF64, 2^n); (v ./ sqrt(sum(abs2, v)), rand(rng, 0:n-1))) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "Only pairs of outcomes that agree on every other qubit contribute. Which two outcomes agree on everything except qubit `q`?",
+  "Loop over `k` with `k & (1 << q) == 0`; with `a0 = ψ[k + 1]` and `a1 = ψ[(k | (1 << q)) + 1]`, add `a0 * conj(a0)`, `a0 * conj(a1)`, `a1 * conj(a0)` and `a1 * conj(a1)` to the four entries.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, n); v ./ sqrt(sum(abs2, v))), 3"
+  sizes = [4096]
+
+  [[problem.variant]]
+  label = "textbook qubit order (bit n - 1 - q)"
+  code = '''
+function reduced_density(ψ, q)
+    ρ = zeros(ComplexF64, 2, 2)
+    m = 1 << (trailing_zeros(length(ψ)) - 1 - q)
+    for k in 0:length(ψ)-1
+        if k & m == 0
+            a0, a1 = ψ[k + 1], ψ[(k | m) + 1]
+            ρ[1, 1] += abs2(a0); ρ[1, 2] += a0 * conj(a1); ρ[2, 1] += a1 * conj(a0); ρ[2, 2] += abs2(a1)
+        end
+    end
+    return ρ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "conj on the wrong factor (returns the transpose)"
+  code = '''
+function reduced_density(ψ, q)
+    ρ = zeros(ComplexF64, 2, 2)
+    m = 1 << q
+    for k in 0:length(ψ)-1
+        if k & m == 0
+            a0, a1 = ψ[k + 1], ψ[(k | m) + 1]
+            ρ[1, 1] += abs2(a0); ρ[1, 2] += conj(a0) * a1; ρ[2, 1] += conj(a1) * a0; ρ[2, 2] += abs2(a1)
+        end
+    end
+    return ρ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "sums over every pair of outcomes with the right qubit-q bits, not only matching ones"
+  code = '''
+function reduced_density(ψ, q)
+    ρ = zeros(ComplexF64, 2, 2)
+    for k in 0:length(ψ)-1, j in 0:length(ψ)-1
+        ρ[((k >> q) & 1) + 1, ((j >> q) & 1) + 1] += ψ[k + 1] * conj(ψ[j + 1])
+    end
+    return ρ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the full 2^n × 2^n density matrix, then the partial trace"
+  code = '''
+function reduced_density(ψ, q)
+    R = ψ * ψ'
+    ρ = zeros(ComplexF64, 2, 2)
+    for k in 0:length(ψ)-1
+        if k & (1 << q) == 0
+            j = k | (1 << q)
+            ρ[1, 1] += R[k + 1, k + 1]; ρ[1, 2] += R[k + 1, j + 1]; ρ[2, 1] += R[j + 1, k + 1]; ρ[2, 2] += R[j + 1, j + 1]
+        end
+    end
+    return ρ
+end
+'''
+  expect = ["correct", "allocates"]
+
+[[problem]]
+id = "ec-entropy"
+title = "Entanglement entropy of one qubit"
+difficulty = "core"
+kcs = ["partial-trace", "entanglement"]
+entry = "entanglement_entropy"
+packages = []
+prompt = '''
+Write `entanglement_entropy(ψ, q)` that returns the entropy, in bits, of the
+reduced density matrix of qubit `q` of the pure state `ψ` (little-endian):
+`S = -Σ λ log2(λ)` over its eigenvalues, with `0 · log2(0)` counted as 0.
+Return a `Float64`.
+
+```julia
+entanglement_entropy(ComplexF64[1, 0, 0, 1] / sqrt(2), 0)    # 1.0: half a Bell pair
+entanglement_entropy(ComplexF64[1, 1, 0, 0] / sqrt(2), 0)    # 0.0: |0⟩ ⊗ |+⟩ is a product
+```
+
+You may use `LinearAlgebra`. Results are compared with an absolute tolerance
+of `1e-10` bits. A computed eigenvalue that should be 0 can be about `±1e-16`
+and must not reach `log2` (it would throw, or give `NaN`); skipping
+eigenvalues below `1e-12` changes `S` by at most `4e-11`, and an eigenvalue
+error of a few `u` changes it by less than `1e-13` elsewhere.
+'''
+starter = '''
+using LinearAlgebra
+
+function entanglement_entropy(ψ, q)
+    # your code here
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function entanglement_entropy(ψ, q)
+    ρ = zeros(ComplexF64, 2, 2)
+    m = 1 << q
+    for k in 0:length(ψ)-1
+        if k & m == 0
+            a0, a1 = ψ[k + 1], ψ[(k | m) + 1]
+            ρ[1, 1] += abs2(a0);       ρ[1, 2] += a0 * conj(a1)
+            ρ[2, 1] += a1 * conj(a0);  ρ[2, 2] += abs2(a1)
+        end
+    end
+    return -sum((λ * log2(λ) for λ in eigvals(Hermitian(ρ)) if λ > 1e-12); init = 0.0)
+end
+'''
+cases = [
+  "ComplexF64[1, 0, 0, 1] / sqrt(2), 0",
+  "ComplexF64[1, 1, 0, 0] / sqrt(2), 0",
+  "ComplexF64[1, 0, 0, 0], 1",
+  "ComplexF64[cos(0.4), 0, 0, sin(0.4)], 1",
+  "ComplexF64[1, 0, 0, 0, 0, 0, 0, 1] / sqrt(2), 2",
+]
+gen = "rng -> [(n = rand(rng, 1:6); isprod = rand(rng, Bool) && n >= 2; v = isprod ? (a = randn(rng, ComplexF64, 2); b = randn(rng, ComplexF64, 2^(n-1)); [x * y for y in b for x in a]) : randn(rng, ComplexF64, 2^n); (v ./ sqrt(sum(abs2, v)), isprod ? 0 : rand(rng, 0:n-1))) for _ in 1:25]"
+compare = "custom"
+checker = '''
+(got, expected) -> got isa Float64 && abs(got - expected) <= 1e-10
+'''
+check_type = true
+hints = [
+  "First build the `2×2` reduced density matrix of qubit `q`, as in the previous problem; then the entropy needs its two eigenvalues.",
+  "`eigvals(Hermitian(ρ))` gives the eigenvalues as real numbers. Sum `-λ * log2(λ)` only over those above `1e-12`, starting from `0.0` (`init = 0.0`, in case none qualifies).",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, n); v ./ sqrt(sum(abs2, v))), 3"
+  sizes = [1024]
+
+  [[problem.variant]]
+  label = "natural logarithm (nats, not bits)"
+  code = '''
+using LinearAlgebra
+function entanglement_entropy(ψ, q)
+    ρ = zeros(ComplexF64, 2, 2); m = 1 << q
+    for k in 0:length(ψ)-1
+        if k & m == 0
+            a0, a1 = ψ[k + 1], ψ[(k | m) + 1]
+            ρ[1, 1] += abs2(a0); ρ[1, 2] += a0 * conj(a1); ρ[2, 1] += a1 * conj(a0); ρ[2, 2] += abs2(a1)
+        end
+    end
+    return -sum((λ * log(λ) for λ in eigvals(Hermitian(ρ)) if λ > 1e-12); init = 0.0)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "no threshold: every eigenvalue reaches log2, including 0 and -1e-17"
+  code = '''
+using LinearAlgebra
+function entanglement_entropy(ψ, q)
+    ρ = zeros(ComplexF64, 2, 2); m = 1 << q
+    for k in 0:length(ψ)-1
+        if k & m == 0
+            a0, a1 = ψ[k + 1], ψ[(k | m) + 1]
+            ρ[1, 1] += abs2(a0); ρ[1, 2] += a0 * conj(a1); ρ[2, 1] += a1 * conj(a0); ρ[2, 2] += abs2(a1)
+        end
+    end
+    return -sum(λ * log2(λ) for λ in eigvals(Hermitian(ρ)))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "entropy of the measurement probabilities of qubit q (the diagonal only)"
+  code = '''
+function entanglement_entropy(ψ, q)
+    p1 = sum(abs2(ψ[k + 1]) for k in 0:length(ψ)-1 if k & (1 << q) != 0; init = 0.0)
+    return -sum((p * log2(p) for p in (1 - p1, p1) if p > 1e-12); init = 0.0)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "eigenvalues (1 ± |r|)/2 from the Bloch vector r, no eigvals"
+  code = '''
+function entanglement_entropy(ψ, q)
+    m = 1 << q
+    z, c = 0.0, zero(ComplexF64)
+    for k in 0:length(ψ)-1
+        if k & m == 0
+            a0, a1 = ψ[k + 1], ψ[(k | m) + 1]
+            z += abs2(a0) - abs2(a1)
+            c += conj(a0) * a1                     # ⟨X⟩ = 2 Re c, ⟨Y⟩ = 2 Im c
+        end
+    end
+    r = min(sqrt(z^2 + 4abs2(c)), 1.0)
+    return -sum((λ * log2(λ) for λ in ((1 - r) / 2, (1 + r) / 2) if λ > 1e-12); init = 0.0)
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "ec-chsh-value"
+title = "The CHSH value of a two-qubit state"
+difficulty = "core"
+kcs = ["chsh"]
+entry = "chsh_value"
+packages = []
+prompt = '''
+Write `chsh_value(ψ, a, a2, b, b2)` for a two-qubit state `ψ` (4
+amplitudes) where Alice holds qubit 0 and measures along angle `a` or `a2`,
+and Bob holds qubit 1 and measures along `b` or `b2`. With `A(θ) = cos(θ) Z +
+sin(θ) X` and the correlator `E(α, β) = real(ψ' * kron(A(β), A(α)) * ψ)`
+(Bob's factor first: he holds qubit 1), return the `Float64`
+
+```
+S = E(a, b) + E(a, b2) + E(a2, b) - E(a2, b2)
+```
+
+```julia
+chsh_value(ComplexF64[1, 0, 0, 1] / sqrt(2), 0.0, pi/2, pi/4, -pi/4)    # 2√2 ≈ 2.8284
+chsh_value(ComplexF64[1, 0, 0, 0], 0.0, pi/2, pi/4, -pi/4)              # √2: |00⟩ is a product state
+```
+
+The graded states are random, so `|Φ+⟩`'s symmetry does not hide a wrong
+qubit order. Results are compared with an absolute tolerance of `1e-12`:
+each correlator sums 16 products of numbers at most 1 in size, with an
+error of a few times `16u ≈ 4e-15`.
+'''
+starter = '''
+using LinearAlgebra
+
+function chsh_value(ψ, a, a2, b, b2)
+    # your code here
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function chsh_value(ψ, a, a2, b, b2)
+    X = ComplexF64[0 1; 1 0]; Z = ComplexF64[1 0; 0 -1]
+    A(θ) = cos(θ) * Z + sin(θ) * X
+    E(α, β) = real(ψ' * kron(A(β), A(α)) * ψ)        # Bob (qubit 1) is the left factor
+    return E(a, b) + E(a, b2) + E(a2, b) - E(a2, b2)
+end
+'''
+cases = [
+  "ComplexF64[1, 0, 0, 1] / sqrt(2), 0.0, pi/2, pi/4, -pi/4",
+  "ComplexF64[1, 0, 0, 0], 0.0, pi/2, pi/4, -pi/4",
+  "ComplexF64[0, 1, -1, 0] / sqrt(2), 0.0, pi/2, pi/4, -pi/4",
+  "ComplexF64[0.6, 0, 0.8im, 0], 0.3, 1.1, -0.4, 2.0",
+  "ComplexF64[1, 2, 3im, 4] / sqrt(30), 0.0, pi/2, pi/4, -pi/4",
+]
+gen = "rng -> [(v = randn(rng, ComplexF64, 4); (v ./ sqrt(sum(abs2, v)), (2pi .* rand(rng, 4))...)) for _ in 1:25]"
+compare = "custom"
+checker = '''
+(got, expected) -> got isa Float64 && abs(got - expected) <= 1e-12
+'''
+check_type = true
+hints = [
+  "Write the observable `A(θ)` and the correlator `E` first, as small functions; `S` is then one line. Which `kron` factor acts on qubit 0?",
+  "`kron(P, Q)` puts `P` on qubit 1 and `Q` on qubit 0 (unit 50), so Alice's `A(α)` goes second: `E(α, β) = real(ψ' * kron(A(β), A(α)) * ψ)`; the minus sign goes on `E(a2, b2)`.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, 4); v ./ sqrt(sum(abs2, v))), 0.0, pi/2, pi/4, -pi/4"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "Alice's factor on the left (qubit order swapped)"
+  code = '''
+using LinearAlgebra
+function chsh_value(ψ, a, a2, b, b2)
+    X = ComplexF64[0 1; 1 0]; Z = ComplexF64[1 0; 0 -1]
+    A(θ) = cos(θ) * Z + sin(θ) * X
+    E(α, β) = real(ψ' * kron(A(α), A(β)) * ψ)
+    return E(a, b) + E(a, b2) + E(a2, b) - E(a2, b2)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the minus sign on E(a, b)"
+  code = '''
+using LinearAlgebra
+function chsh_value(ψ, a, a2, b, b2)
+    X = ComplexF64[0 1; 1 0]; Z = ComplexF64[1 0; 0 -1]
+    A(θ) = cos(θ) * Z + sin(θ) * X
+    E(α, β) = real(ψ' * kron(A(β), A(α)) * ψ)
+    return -E(a, b) + E(a, b2) + E(a2, b) + E(a2, b2)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "E = cos(α - β), which holds only for |Φ+⟩"
+  code = '''
+chsh_value(ψ, a, a2, b, b2) = cos(a - b) + cos(a - b2) + cos(a2 - b) - cos(a2 - b2)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "rotate by RY(-θ) and take P(same) - P(different), no kron"
+  code = '''
+function chsh_value(ψ, a, a2, b, b2)
+    RY(θ) = ComplexF64[cos(θ/2) -sin(θ/2); sin(θ/2) cos(θ/2)]
+    function E(α, β)
+        φ = copy(ψ)
+        for (U, q) in ((RY(-α), 0), (RY(-β), 1))
+            s = 1 << q
+            for k in 0:3
+                if k & s == 0
+                    x, y = φ[k + 1], φ[k + s + 1]
+                    φ[k + 1], φ[k + s + 1] = U[1, 1] * x + U[1, 2] * y, U[2, 1] * x + U[2, 2] * y
+                end
+            end
+        end
+        return abs2(φ[1]) - abs2(φ[2]) - abs2(φ[3]) + abs2(φ[4])
+    end
+    return E(a, b) + E(a, b2) + E(a2, b) - E(a2, b2)
+end
+'''
+  expect = ["correct"]
+
+[[reference]]
+id = "bell-1964"
+authors = "Bell, J. S."
+title = "On the Einstein Podolsky Rosen paradox"
+venue = "Physics Physique Fizika 1, 195-200"
+year = 1964
+url = "https://doi.org/10.1103/PhysicsPhysiqueFizika.1.195"
+note = "Shows that no theory of local hidden variables, values fixed in advance, reproduces the quantum correlations of an entangled pair, by deriving an inequality they must obey: the idea behind the classical bound of this unit's section 2."
+
+[[reference]]
+id = "chsh-1969"
+authors = "Clauser, J. F.; Horne, M. A.; Shimony, A.; Holt, R. A."
+title = "Proposed experiment to test local hidden-variable theories"
+venue = "Physical Review Letters 23, 880-884"
+year = 1969
+url = "https://doi.org/10.1103/PhysRevLett.23.880"
+note = "The CHSH inequality: four correlators of two settings per side, whose combination is at most 2 in absolute value for any local hidden-variable theory: the bound of this unit's sections 2 and 5."
+
+[[reference]]
+id = "tsirelson-1980"
+authors = "Cirel'son, B. S."
+title = "Quantum generalizations of Bell's inequality"
+venue = "Letters in Mathematical Physics 4, 93-100"
+year = 1980
+url = "https://doi.org/10.1007/BF00417500"
+note = "Proves that quantum correlations give at most 2√2 for the CHSH combination (Tsirelson's bound), the maximum reached in this unit's section 5."
+
+[[reference]]
+id = "ghz-1990"
+authors = "Greenberger, D. M.; Horne, M. A.; Shimony, A.; Zeilinger, A."
+title = "Bell's theorem without inequalities"
+venue = "American Journal of Physics 58, 1131-1143"
+year = 1990
+url = "https://doi.org/10.1119/1.16243"
+note = "The entangled state of three or more particles now called the GHZ state, `(|0…0⟩ + |1…1⟩)/√2`, built in this unit's section 3."
+
+[[reference]]
+id = "nielsen-chuang-2010"
+authors = "Nielsen, M. A.; Chuang, I. L."
+title = "Quantum Computation and Quantum Information"
+venue = "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)"
+year = 2012
+url = "https://doi.org/10.1017/CBO9780511976667"
+note = "The textbook treatment of Bell states and their circuit, and of the density operator and the reduced density operator obtained by the partial trace, used in this unit's sections 3 and 4."

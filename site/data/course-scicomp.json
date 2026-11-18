@@ -15,6 +15,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "02-numbers",
         "14-performance",
@@ -267,6 +268,88 @@
           ],
           "starter": "function kahan_sum(x)\n    # put the lines here, in order\n    return s\nend\n",
           "title": "Parsons: the lines of Kahan's loop, in order"
+        },
+        {
+          "bug": {
+            "fixed": "return sum(x -> (x - m)^2, v) / (n - 1)",
+            "kc": "cancellation",
+            "misconception": "The planted line uses the \"computational formula\" `Σx² - n m²`, which is\nalgebraically equal to `Σ(x - m)²` and needs one pass less. In floating point\nit subtracts two numbers that both carry the square of the data's offset: at\n`1e8` each is near `4e16`, where floats are 8 apart, and the true difference is\n5. The subtraction itself is exact; the rounding already made in forming\n`Σx²` is what remains, and it is as large as the answer. Subtracting the mean\nfirst makes every term small, so nothing large cancels.",
+            "planted": "return (sum(abs2, v) - n * m^2) / (n - 1)",
+            "starter_expect": [],
+            "tests": [
+              {
+                "code": "println(\"error: \", abs(sample_var([1.0, 2.0, 3.0, 4.0]) - 5 / 3))",
+                "expect": [
+                  0.0,
+                  1.0e-12
+                ],
+                "explain": "The variance of four small numbers, minus its exact value 5/3. Zero means the\nformula is right where nothing large is involved.",
+                "name": "variance of [1, 2, 3, 4], against 5/3",
+                "row": "^error: (?<m>\\S+)$"
+              },
+              {
+                "code": "println(\"error: \", abs(sample_var(1e8 .+ [1.0, 2.0, 3.0, 4.0]) - 5 / 3))",
+                "expect": [
+                  0.0,
+                  1.0e-12
+                ],
+                "explain": "The same data shifted by `1e8`. A shift does not change a variance, so the\nanswer is still 5/3. An error near 1 is the rounding of the sum of squares,\nabout `4e16`, showing through once the two large terms cancel.",
+                "name": "variance of 1e8 + [1, 2, 3, 4], against 5/3",
+                "row": "^error: (?<m>\\S+)$"
+              },
+              {
+                "code": "println(\"error: \", abs(sample_var(1e9 .+ [1.0, 2.0, 3.0, 4.0]) - 5 / 3))",
+                "expect": [
+                  0.0,
+                  1.0e-12
+                ],
+                "explain": "The data shifted by `1e9`. Now the squares are near `4e18`, where floats are\n512 apart, far wider than the answer: an error of 5/3 means the result was 0.",
+                "name": "variance of 1e9 + [1, 2, 3, 4], against 5/3",
+                "row": "^error: (?<m>\\S+)$"
+              }
+            ]
+          },
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "sample_var",
+          "hints": [
+            "The first test, on small numbers, passes. The next two shift the same data by `1e8` and `1e9`, which does not change its variance. Which quantities in the planted line grow with the shift, and how large are they compared with the answer?",
+            "`sum(abs2, v)` and `n * m^2` are both near `4e16` when the data is near `1e8`; floats there are 8 apart, and their difference is about 5. Subtract the mean from each entry before squaring."
+          ],
+          "id": "sample-var-find-the-bug",
+          "kcs": [
+            "cancellation",
+            "backward-stability"
+          ],
+          "perf": null,
+          "prompt": "`sample_var(v)` returns the sample variance of a `Vector{Float64}` with at\nleast two entries: the sum of `(x - m)^2` over the entries, where `m` is\ntheir mean, divided by `length(v) - 1`.\n\nOne line of the code in the editor is wrong. It is a formula you will find in\ntextbooks, and on data near zero it gives the right answer. Find the line and\nfix it; change nothing else.\n\n```julia\nsample_var([1.0, 2.0, 3.0, 4.0])          # 1.6666666666666667\nsample_var(1e8 .+ [1.0, 2.0, 3.0, 4.0])   # 1.6666666666666667 as well\n```\n\nThe tests print the variance's error against the exact value. Results are\ncompared with `rtol = 1e-9`.",
+          "random_cases": true,
+          "rtol": 1.0e-9,
+          "samples": [
+            {
+              "call": "sample_var([1.0, 2.0, 3.0, 4.0])",
+              "result": "1.6666666666666667"
+            },
+            {
+              "call": "sample_var(1e8 .+ [1.0, 2.0, 3.0, 4.0])",
+              "result": "1.6666666666666667"
+            },
+            {
+              "call": "sample_var(1e9 .+ [1.0, 2.0, 3.0, 4.0])",
+              "result": "1.6666666666666667"
+            },
+            {
+              "call": "sample_var([-3.5, 0.25, 7.0])",
+              "result": "28.3125"
+            },
+            {
+              "call": "sample_var(1e6 .+ [0.1, 0.7, 0.3, 0.9, 0.5])",
+              "result": "0.1"
+            }
+          ],
+          "starter": "function sample_var(v)\n    n = length(v)\n    m = sum(v) / n\n    return (sum(abs2, v) - n * m^2) / (n - 1)\nend\n",
+          "title": "Find the bug: a variance that cancels"
         }
       ],
       "references": [
@@ -355,6 +438,82 @@
               "output": "exact sum:  1.000000000001\nloop returns 1.0:        true\nloop error > sum error:  true\nsum error > Kahan error: true\nKahan error:             0.0\n"
             },
             {
+              "breakit": {
+                "close": 1.25,
+                "edge": [
+                  9000.0,
+                  11000.0
+                ],
+                "explain": "The spacing of floats just above 1 is `eps() ≈ 2.2e-16`, so `1.0 + 1e-16` rounds back to `1.0`, and so does every later addition: the loop returns exactly `1.0`. The true sum is `1 + n × 1e-16`, so the relative error is about `n × 1e-16`, and it reaches `1e-12` at `n = 10_000`. The sweep shows `9.0e-13` at 9000 and `1.1e-12` at 11000. The loop does not lose a little in each addition: it loses every term, completely.",
+                "fails": "above",
+                "kc": "floating-point-rounding",
+                "limit": 1.0e-12,
+                "measure": "relative error of the plain loop",
+                "param": "n",
+                "past": "That many terms already puts the error above `1e-12`. Every term is rounded away, so the error is about `n × 1e-16`; the largest `n` is where that equals `1e-12`.",
+                "probe": "function loop_sum(x)\n    s = 0.0\n    for v in x\n        s += v\n    end\n    return s\nend\nn = round(Int, {{p}})\nx = [1.0; fill(1e-16, n)]\nexact = Float64(sum(big.(x)))\nprintln(\"n = \", n, \"  loop relative error: \", abs(loop_sum(x) - exact) / exact)",
+                "prompt": "The plain loop adds `1.0` and then `n` terms of `1e-16`. You need the sum to a relative error of `1e-12`. Find the largest `n` that still gets there. Each `1e-16` is below half the spacing of floats near 1; work out what the loop returns, or try values of `n` with the probe if a server is connected, then commit your `n`.",
+                "row": "n = (?<p>\\S+)  loop relative error: (?<m>\\S+)",
+                "rows": [
+                  {
+                    "failed": false,
+                    "m": "9.99200722162541e-14",
+                    "p": 1000.0
+                  },
+                  {
+                    "failed": false,
+                    "m": "2.9998226125362733e-13",
+                    "p": 3000.0
+                  },
+                  {
+                    "failed": false,
+                    "m": "5.000444502909205e-13",
+                    "p": 5000.0
+                  },
+                  {
+                    "failed": false,
+                    "m": "7.001066393281336e-13",
+                    "p": 7000.0
+                  },
+                  {
+                    "failed": false,
+                    "m": "8.99946783760342e-13",
+                    "p": 9000.0
+                  },
+                  {
+                    "failed": true,
+                    "m": "1.100008972797395e-12",
+                    "p": 11000.0
+                  },
+                  {
+                    "failed": true,
+                    "m": "1.3000711618343682e-12",
+                    "p": 13000.0
+                  },
+                  {
+                    "failed": true,
+                    "m": "1.9999557565557572e-12",
+                    "p": 20000.0
+                  },
+                  {
+                    "failed": true,
+                    "m": "5.0000004136768546e-12",
+                    "p": 50000.0
+                  }
+                ],
+                "short": "That many terms still keeps the error below `1e-12`, and more would too. Every term is rounded away, so the error is about `n × 1e-16`: solve `n × 1e-16 = 1e-12`.",
+                "side": "high"
+              },
+              "caption": "The plain loop on `1.0` followed by `n` terms of `1e-16`, for a range of `n`, against the exact sum in `BigFloat`. The loop is written out, without `@simd`, so its digits are the same on every CPU.",
+              "check": true,
+              "code": "function loop_sum(x)\n    s = 0.0\n    for v in x\n        s += v\n    end\n    return s\nend\nfor n in (1000, 3000, 5000, 7000, 9000, 11000, 13000, 20000, 50000)\n    x = [1.0; fill(1e-16, n)]\n    exact = Float64(sum(big.(x)))\n    println(\"n = \", n, \"  loop relative error: \", abs(loop_sum(x) - exact) / exact)\nend",
+              "images": [],
+              "mode": "repl",
+              "notice": "Notice that the error is almost exactly `n × 1e-16`: every term is rounded away, so the loop returns `1.0` whatever `n` is, and the error is the part of the sum it never added.",
+              "ok": true,
+              "output": "n = 1000  loop relative error: 9.99200722162541e-14\nn = 3000  loop relative error: 2.9998226125362733e-13\nn = 5000  loop relative error: 5.000444502909205e-13\nn = 7000  loop relative error: 7.001066393281336e-13\nn = 9000  loop relative error: 8.99946783760342e-13\nn = 11000  loop relative error: 1.100008972797395e-12\nn = 13000  loop relative error: 1.3000711618343682e-12\nn = 20000  loop relative error: 1.9999557565557572e-12\nn = 50000  loop relative error: 5.0000004136768546e-12\n"
+            },
+            {
               "caption": "How the error grows with `n`: `n` copies of `0.1` summed by the plain loop, by pairwise summation written out (halves down to 8 terms, no `@simd`, so its digits are the same on every CPU), and by Kahan's loop. The exact sum of `n` copies of the stored `0.1` is computed in `BigFloat`.",
               "check": true,
               "code": "function loop_sum(x)\n    s = 0.0\n    for v in x\n        s += v\n    end\n    return s\nend\nfunction pairwise_sum(x, lo = 1, hi = length(x))\n    hi - lo < 8 && return loop_sum(view(x, lo:hi))\n    mid = (lo + hi) ÷ 2\n    return pairwise_sum(x, lo, mid) + pairwise_sum(x, mid + 1, hi)\nend\nfunction kahan_sum(x)\n    s = 0.0; c = 0.0\n    for v in x\n        y = v - c; t = s + y\n        c = (t - s) - y; s = t\n    end\n    return s\nend\nfor (name, total) in ((\"loop\", loop_sum), (\"pairwise\", pairwise_sum), (\"Kahan\", kahan_sum)),\n        n in (10, 30, 100, 300, 1000, 3000, 10^4, 30_000, 10^5, 300_000, 10^6, 3_000_000, 10^7)\n    x = fill(0.1, n)\n    exact = n * big(0.1)              # the exact sum of n copies of the Float64 nearest 0.1\n    err = Float64(abs(total(x) - exact) / exact)\n    println(rpad(name, 9), \"n = \", rpad(n, 9), \"relative error = \", round(err; sigdigits = 2))\nend",
@@ -414,6 +573,33 @@
                 "label": "relative error of the sum",
                 "log": true,
                 "prompt": "Move `n` up with the plain loop and watch the error against `u = 1.1e-16`. Then switch to pairwise and to Kahan at the largest `n`. Which grows like `n`, which barely grows, and which does not grow at all?",
+                "question": {
+                  "along": "n",
+                  "answer": [
+                    0,
+                    8
+                  ],
+                  "explain": "The loop first passes `1e-12` at `n = 100000` (`1.9e-12`), below the bound `n u` (`1.1e-11` there) as at every `n`; `n = 3000` reads lower than `n = 1000` because individual rounding errors can cancel, and `n u` is the worst case. Switch to pairwise at `n = 100000`: `5.6e-17`, the stored `0.1`'s own error. The terms are the same, only the order of the additions changed.",
+                  "holds": "above",
+                  "holdsAt": [
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    true,
+                    true,
+                    true,
+                    true,
+                    true
+                  ],
+                  "limit": 1.0e-12,
+                  "pick": "smallest",
+                  "prompt": "Set the summation to the plain loop and move `n` up. Find the smallest `n` at which the relative error passes `1e-12`, about ten thousand `u`, and commit that point."
+                },
                 "series": "method",
                 "values": [
                   "1.7e-16",
@@ -775,6 +961,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "24-differential-equations",
         "30-floating-point"
@@ -925,6 +1112,7 @@
             "kc": "convergence-order",
             "misconception": "The planted line evaluates the second stage at the start of the step, `t`,\nwhile its state is the Euler prediction at the midpoint. The belief it models:\na stage is defined by its `y` argument, and the time argument is bookkeeping.\nFor `y' = f(y)` that is true, which is why the first test measured order 4\nand why tests on autonomous problems alone cannot see this error. As soon as\n`f` depends on `t`, each stage must pair the time and the state of the same\npoint inside the step, and a mismatch costs the method its order: here it fell\nfrom 4 to about 1.",
             "planted": "k2 = f(t, y + h / 2 * k1)",
+            "starter_expect": [],
             "tests": [
               {
                 "code": "let ns = [10, 20, 40, 80, 160]\n    errs = [abs(rk4_solve((t, y) -> -y, 1.0, 1.0, n) - exp(-1.0)) for n in ns]\n    x = log.(1 ./ ns); z = log.(errs)\n    p = sum((x .- sum(x) / 5) .* (z .- sum(z) / 5)) / sum((x .- sum(x) / 5) .^ 2)\n    println(\"observed order: \", round(p; digits = 2))\nend",
@@ -1241,6 +1429,26 @@
                 "label": "error at t = 2",
                 "log": true,
                 "prompt": "Pick a method and move `h`. Each step halves `h`: by what factor does each method's error shrink? Read the slope shown with each point, and find the step sizes where RK4's slope is furthest from 4.",
+                "question": {
+                  "along": "h",
+                  "answer": [
+                    1,
+                    2
+                  ],
+                  "explain": "Heun meets `1e-4` up to `h = 0.05` (`9.6e-5`); at `h = 0.1` it is `3.7e-4`. Now switch to RK4: it meets the same tolerance at every step on the grid, up to `h = 0.4` (`2.0e-5`). To reach `t = 2`, Heun at `h = 0.05` takes 40 steps of 2 evaluations, 80 in all; RK4 at `h = 0.4` takes 5 steps of 4, 20 in all. The higher order buys a larger step, and the larger step is what makes it cheaper.",
+                  "holds": "below",
+                  "holdsAt": [
+                    true,
+                    true,
+                    true,
+                    false,
+                    false,
+                    false
+                  ],
+                  "limit": 0.0001,
+                  "pick": "largest",
+                  "prompt": "You need the error at `t = 2` below `1e-4`. Set the method to Heun and find the largest step `h` that meets it, then commit that point."
+                },
                 "series": "method",
                 "values": [
                   "0.00082",
@@ -1573,6 +1781,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "14-performance",
         "20-stdlib-tour",
@@ -2136,6 +2345,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "30-floating-point",
         "32-dense-linear-algebra"
@@ -2274,6 +2484,87 @@
           ],
           "starter": "using LinearAlgebra\n\nfunction pcg_jacobi(A, b, tol)\n    x = zeros(length(b))\n    d = Vector(diag(A))\n    # preconditioned CG iterations\n    return x\nend\n",
           "title": "CG with a Jacobi preconditioner"
+        },
+        {
+          "bug": {
+            "fixed": "s[rows[k]] += vals[k]",
+            "kc": "sparse-storage",
+            "misconception": "The planted line treats the loop's `j` as the row of the entry, as it would be\nwhen walking a dense matrix row by row. In CSC storage `j` is the column:\n`nzrange(A, j)` gives the positions of column `j`'s entries, and each entry's\nrow is stored beside it, in `rowvals(A)[k]`. With `j` as the index, the loop\nadds up each column instead, which equals the row sums only when they happen\nto agree: for every symmetric matrix, such as the Poisson matrix, and for a\nfew others. That is why the test on the Poisson matrix passed.",
+            "planted": "s[j] += vals[k]",
+            "starter_expect": [],
+            "tests": [
+              {
+                "code": "using SparseArrays, LinearAlgebra\nN = 3\nT = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))\nId = sparse(1.0I, N, N)\nA = kron(Id, T) + kron(T, Id)\nprintln(\"error: \", maximum(abs, row_sums(A) - vec(sum(A; dims = 2))))",
+                "expect": [
+                  0.0,
+                  1.0e-12
+                ],
+                "explain": "Row sums of the symmetric Poisson matrix, against `sum(A; dims = 2)`. Zero\nmeans each stored entry was added to the right row, or that the matrix cannot\ntell rows from columns.",
+                "name": "the 2D Poisson matrix (N = 3), symmetric",
+                "row": "^error: (?<m>\\S+)$"
+              },
+              {
+                "code": "using SparseArrays\nA = sparse([2, 3, 4, 1], [1, 2, 3, 4], [1.0, 1.0, 1.0, 1.0])\nprintln(\"error: \", maximum(abs, row_sums(A) - vec(sum(A; dims = 2))))",
+                "expect": [
+                  0.0,
+                  1.0e-12
+                ],
+                "explain": "A permutation that moves each index one place: not symmetric, but each row\nand each column holds exactly one 1. Zero here says little, because column\nsums and row sums agree.",
+                "name": "a cyclic shift: not symmetric, equal row and column sums",
+                "row": "^error: (?<m>\\S+)$"
+              },
+              {
+                "code": "using SparseArrays\nA = sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 2.0, 3.0, 5.0])\nprintln(\"error: \", maximum(abs, row_sums(A) - vec(sum(A; dims = 2))))",
+                "expect": [
+                  0.0,
+                  1.0e-12
+                ],
+                "explain": "A matrix whose one off-diagonal entry, 5 at row 1 and column 3, makes its\nrows and columns sum differently. An error of 5 means that entry was counted\nin row 3, its column, instead of row 1.",
+                "name": "an upper triangular matrix with an off-diagonal 5",
+                "row": "^error: (?<m>\\S+)$"
+              }
+            ]
+          },
+          "check_type": true,
+          "compare": "isapprox",
+          "difficulty": "core",
+          "entry": "row_sums",
+          "hints": [
+            "The first test is on a symmetric matrix and passes. The second uses a matrix that is not symmetric but whose rows and columns have the same sums. The third has neither. What would the code compute if it confused rows with columns?",
+            "In CSC storage the outer loop runs over columns: `j` is a column index. The row of the stored entry `vals[k]` is not `j`; it is stored next to the value."
+          ],
+          "id": "csc-row-sums-find-the-bug",
+          "kcs": [
+            "sparse-storage"
+          ],
+          "perf": null,
+          "prompt": "`row_sums(A)` returns the sum of each row of a `SparseMatrixCSC{Float64}` as\na `Vector{Float64}` of length `size(A, 1)`. It walks the stored entries\ncolumn by column, as compressed sparse column storage allows, using\n`rowvals`, `nonzeros` and `nzrange` from this unit's first section.\n\nOne line of the code in the editor is wrong. On the Poisson matrix it gives\nthe right answer. Find the line and fix it; change nothing else.\n\n```julia\nA = sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 2.0, 3.0, 5.0])\nrow_sums(A)    # [6.0, 2.0, 3.0]\n```\n\nThe tests print the largest error against `sum(A; dims = 2)`. Results are\ncompared with `rtol = 1e-12`.",
+          "random_cases": true,
+          "rtol": 1.0e-12,
+          "samples": [
+            {
+              "call": "row_sums(sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 2.0, 3.0, 5.0]))",
+              "result": "3-element Vector{Float64}:\n 6.0\n 2.0\n 3.0"
+            },
+            {
+              "call": "row_sums(sparse([2, 3, 4], [1, 2, 3], [1.0, 2.0, 3.0], 4, 4))",
+              "result": "4-element Vector{Float64}:\n 0.0\n 1.0\n 2.0\n 3.0"
+            },
+            {
+              "call": "row_sums(sparse([1, 3, 4, 2], [1, 1, 2, 2], [0.5, -1.0, 2.0, 4.0], 4, 2))",
+              "result": "4-element Vector{Float64}:\n  0.5\n  4.0\n -1.0\n  2.0"
+            },
+            {
+              "call": "row_sums(sparse([1, 2], [3, 1], [7.0, 9.0], 2, 3))",
+              "result": "2-element Vector{Float64}:\n 7.0\n 9.0"
+            },
+            {
+              "call": "row_sums(spzeros(3, 3))",
+              "result": "3-element Vector{Float64}:\n 0.0\n 0.0\n 0.0"
+            }
+          ],
+          "starter": "using SparseArrays\n\nfunction row_sums(A)\n    s = zeros(size(A, 1))\n    rows = rowvals(A)\n    vals = nonzeros(A)\n    for j in 1:size(A, 2)\n        for k in nzrange(A, j)\n            s[j] += vals[k]\n        end\n    end\n    return s\nend\n",
+          "title": "Find the bug: row sums from compressed columns"
         }
       ],
       "references": [
@@ -2715,6 +3006,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "07-broadcasting",
         "14-performance",
@@ -2854,6 +3146,7 @@
             "kc": "boundary-conditions",
             "misconception": "The planted line divides the interval into `n` gaps, as if the `n` points were\nall the points. With two boundary points held at zero there are `n + 2`\npoints and `n + 1` gaps. The belief it models: \"n points, so the spacing is\n1/n\", an off-by-one that ignores the boundary. The grid then ends at\n`x = 1` with an unknown where the boundary value should be, every equation is\nscaled by the wrong `dx^2`, and the error falls like `1/n`, not `1/n^2`. The\nlast unknown sits on the right boundary while the first sits one gap inside\nthe left one, so the two ends are treated differently: the symmetry test\nmeasured an asymmetry of about 1%. The values still look like a plausible\nsolution and still improve with `n`, so a plot alone rarely shows it.",
             "planted": "dx = 1 / n",
+            "starter_expect": [],
             "tests": [
               {
                 "code": "let ns = [9, 19, 39, 79, 159]\n    errs = [(x = (1:n) ./ (n + 1); maximum(abs.(poisson_dirichlet(x -> pi^2 * sinpi(x), n) .- sinpi.(x)))) for n in ns]\n    a = log.(1 ./ (ns .+ 1)); z = log.(errs)\n    p = sum((a .- sum(a) / 5) .* (z .- sum(z) / 5)) / sum((a .- sum(a) / 5) .^ 2)\n    println(\"observed order: \", round(p; digits = 2))\nend",
@@ -3189,6 +3482,31 @@
                 "label": "max |u| after 100 steps (it starts at 1)",
                 "log": true,
                 "prompt": "With forward Euler, move `r = dt / dx^2` up from 0.3 and find where `max |u|` jumps. Then change the grid: does the jump move? Switch to backward Euler at the same `r`.",
+                "question": {
+                  "along": "r",
+                  "answer": [
+                    0,
+                    1,
+                    4
+                  ],
+                  "explain": "On 39 points forward Euler stays below 1.5 up to `r = 0.5` (`0.908`), and at `r = 0.52` it is already `3.6`: the zig-zag mode's factor `1 - 4r sin^2(...)` has left `[-1, 1]`. Move `n` to 19 or 79 at `r = 0.52`: it grows on every grid, because the limit is on `r`, not on `dt`. Then switch to backward Euler at `r = 1.0`: below 1 on every grid.",
+                  "holds": "below",
+                  "holdsAt": [
+                    true,
+                    true,
+                    true,
+                    true,
+                    true,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false
+                  ],
+                  "limit": 1.5,
+                  "pick": "largest",
+                  "prompt": "Set forward Euler on 39 interior points. Find the largest `r` at which `max |u|` after 100 steps stays below 1.5 (it starts at 1), and commit that point."
+                },
                 "series": "scheme",
                 "values": [
                   "0.605",
@@ -3448,6 +3766,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives",
         "24-differential-equations",
@@ -4119,6 +4438,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "23-derivatives",
         "24-differential-equations",
@@ -4722,6 +5042,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "24-differential-equations",
         "31-convergence"
@@ -5278,6 +5599,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "25-optimization",
         "32-dense-linear-algebra"
@@ -5739,6 +6061,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "25-optimization",
         "38-constrained-optimization"
@@ -6215,6 +6538,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "14-performance",
         "18-concurrency",
@@ -6822,6 +7146,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "24-differential-equations",
         "31-convergence",
@@ -7384,6 +7709,7 @@
       ],
       "lessons": [],
       "outline": [],
+      "placement": [],
       "prerequisites": [
         "36-daes",
         "38-constrained-optimization",

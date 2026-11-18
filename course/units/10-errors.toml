@@ -650,3 +650,28 @@ function apply_withdrawals(balance, amounts)
 end
 '''
   expect = ["correct"]
+
+[[placement]]
+prompt = "What does this print?"
+code = '''
+r = try
+    sqrt(-1.0)
+catch e
+    typeof(e)
+end
+r
+'''
+choices = [
+  "NaN",
+  "ArgumentError",
+  "0.0 + 1.0im",
+  "DomainError",
+]
+answer = 4
+explain = "`sqrt` of a negative `Float64` throws a `DomainError` instead of returning `NaN`; for a complex result call `sqrt(complex(-1.0))`. `try` is an expression, so `r` is the value of the `catch` branch."
+misconceptions = [
+  "Julia's `sqrt` throws on a negative real instead of returning `NaN` (as C's would).",
+  "The argument has the right type but is outside the function's domain: that is a `DomainError`.",
+  "The result type depends only on the argument types, so `sqrt(::Float64)` never returns a complex number.",
+  "",
+]

@@ -1,0 +1,889 @@
+id = "57-qft"
+title = "The quantum Fourier transform"
+track = "quantum"
+env = "base"
+status = "ready"
+summary = "The discrete Fourier transform of the 2^n amplitudes of an n-qubit state, done by n Hadamards, n(n-1)/2 controlled phases and n/2 swaps. The unit builds the circuit in place, checks its unitary against the DFT matrix for n = 1 to 7 (worst entry error 1.2e-14), checks it again against a radix-2 FFT written from scratch, shows that leaving out the swaps reverses the output, and finds the peaks of periodic input at multiples of N/r, or near them when r does not divide N."
+kcs = ["qft", "fourier-transform"]
+prerequisites = ["56-grover"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit uses `apply_1q!` and the Hadamard gate `H` (units 51 and 52), the
+little-endian order of unit 50, and one more two-qubit gate:
+
+* The **controlled phase** `CP(λ)` on qubits `c` and `t` multiplies the
+  amplitude of every outcome with **both** bits set by `cis(λ) = e^(iλ)`.
+  Like CZ (unit 54), which is `CP(π)`, it is symmetric in its two qubits.
+* The **swap** exchanges the bits of two qubits in every outcome.
+
+**The discrete Fourier transform** (DFT) of a vector `x` of length `N` is
+`y = F x` with
+
+```
+F[y + 1, x + 1] = ω^(x·y) / √N,      ω = cis(2π / N),   x, y in 0:N-1
+```
+
+with a `+` sign in the exponent, the convention of quantum computing (many
+signal-processing libraries use `-`), and `1/√N` so that `F` is unitary.
+'''
+
+  [[section.example]]
+  caption = "The DFT matrix for `N = 4`, rounded, and a check that it is unitary."
+  notice = "Notice that the matrix is symmetric (`F[y, x] = F[x, y]`, since `x·y = y·x`): this matters for the inverse later in the unit."
+  code = '''
+dft(N) = [cis(2π * x * y / N) for y in 0:N-1, x in 0:N-1] / sqrt(N)
+F = dft(4)
+display(round.(2F; digits = 12) .+ (0.0 + 0.0im))   # times 2 = √4, to show the powers of ω = i; + 0 clears -0.0
+println("F' F == I within 1e-15: ", maximum(abs.(F' * F - [i == j for i in 1:4, j in 1:4])) < 1e-15)
+println("symmetric: ", F == transpose(F))
+'''
+
+[[section]]
+title = "The question: can n qubits Fourier-transform 2^n numbers?"
+body = '''
+A state of `n` qubits holds `N = 2^n` amplitudes. A classical fast Fourier
+transform (FFT) of `N` numbers takes about `N log2 N = n 2^n` arithmetic
+operations, the method of Cooley and Tukey. The **quantum Fourier transform**
+(QFT) applies the same DFT matrix to the amplitudes with a circuit of only
+
+```
+n Hadamards + n(n-1)/2 controlled phases + ⌊n/2⌋ swaps
+```
+
+gates: 480 for `n = 30`, against about `3 · 10^10` operations for an FFT of
+`2^30` numbers.
+
+The catch is what can be read out. The transformed amplitudes are not
+available as numbers: a measurement returns one outcome `y` with
+probability `|y-th amplitude|²`. The QFT is useful inside algorithms that
+need only that kind of sample, such as phase estimation (unit 58) and
+period finding (the last section).
+'''
+refs = ["cooley-tukey-1965", "coppersmith-1994"]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "How many gates does the QFT circuit on 30 qubits use?"
+  choices = [
+    "About 3 · 10^10, the operation count of a classical FFT on 2^30 numbers",
+    "480: 30 H gates, 435 controlled phases and 15 swaps",
+    "2^30, one gate for every amplitude of the state",
+  ]
+  answer = 2
+  explain = "`30 + 30·29/2 + 15 = 480`. The gate count grows like `n²/2`, while the FFT's operation count grows like `n 2^n`. Simulating the circuit on a classical computer still costs about `2^n` operations per gate, so the saving exists only on quantum hardware."
+  misconceptions = [
+    "That is the cost of the classical FFT, which the circuit does not carry out step by step: each gate acts on all `2^n` amplitudes at once.",
+    "",
+    "A gate acts on one or two qubits and changes all amplitudes together; the circuit never touches the amplitudes one at a time.",
+  ]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why can the QFT not replace the FFT for transforming an audio signal?"
+  choices = [
+    "It computes a different transform",
+    "Measuring gives one outcome, not the 2^n outputs",
+    "Its gates are slower than the arithmetic of an FFT step",
+  ]
+  answer = 2
+  explain = "The QFT leaves the transform in the amplitudes, and a measurement samples one outcome from them. Reading all `2^n` values would take many repetitions, each from a freshly prepared state, and loading `2^n` arbitrary samples into a state is itself a costly circuit."
+  misconceptions = [
+    "It computes the same DFT, as this unit checks entry by entry; only the sign convention in the exponent differs from some libraries.",
+    "",
+    "Gate speed is not the obstacle: even with instant gates, the output is a sample, not a list of numbers.",
+  ]
+
+[[section]]
+title = "The QFT circuit"
+body = '''
+The circuit works from the top qubit down. For `j = n-1, n-2, …, 0`:
+
+1. apply `H` to qubit `j`;
+2. for each lower qubit `k = j-1, …, 0`, apply `CP(π / 2^(j-k))` between
+   `k` and `j`.
+
+Then swap qubit `i` with qubit `n-1-i` for `i < n/2`.
+
+**Why it works.** Write the output index `y` in bits. The DFT of the basis
+state `|x⟩` factors into a product of one-qubit states, one per bit of `y`:
+bit `m` of `y` carries the phase `cis(2π x 2^m / N)`, which depends only on
+the low `n - m` bits of `x`. The `H` on qubit `j` contributes the phase of
+bit `j` of `x` (a sign, `cis(π x_j)`), and the controlled phases add the
+finer contributions `cis(π x_k / 2^(j-k))` of the lower bits. The circuit
+builds these factors in the reverse qubit order, which the swaps at the end
+put right. The derivation is in Nielsen and Chuang's chapter on the QFT;
+this unit checks the result numerically.
+'''
+refs = ["nielsen-chuang-2010", "coppersmith-1994"]
+
+  [[section.diagram]]
+  file = "qft-circuit.svg"
+  alt = "The QFT circuit on three qubits q0, q1, q2. On q2: H, then a controlled phase π/2 from q1, then a controlled phase π/4 from q0. On q1: H, then a controlled phase π/2 from q0. On q0: H. Finally a swap between q0 and q2. Labels give the phase angle of each controlled-phase gate."
+  caption = "The QFT on 3 qubits: 3 Hadamards, 3 controlled phases (angles π/2^(j-k)) and 1 swap. A controlled phase is drawn with two dots, since it is symmetric in its qubits."
+
+  [[section.analogy]]
+  title = "A prism"
+  text = '''
+A prism takes white light, a mix of frequencies, and spreads it into a
+spectrum, each frequency in its own direction. The QFT does the same to a
+state: a pattern that repeats with some frequency across the amplitudes
+becomes weight on the outcomes that name that frequency.
+'''
+  breaks = '''
+A screen behind the prism shows the whole spectrum at once. Measuring after
+the QFT shows one outcome, picked with probability given by the spectrum,
+and the state is then gone; seeing the whole spectrum would take many
+copies of the input. The prism also works on any light; the QFT's input has
+to be prepared as a quantum state first.
+'''
+
+  [[section.example]]
+  caption = "The circuit applied in place, its unitary built column by column for `n = 1` to 7 and compared with the DFT matrix; the same circuit without the final swaps as a control."
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cp!(ψ, c, t, λ)                     # phase cis(λ) where bits c and t are both 1
+    m = (1 << c) | (1 << t); z = cis(λ)
+    for k in 0:length(ψ)-1
+        k & m == m && (ψ[k + 1] *= z)
+    end
+    return ψ
+end
+function apply_swap!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if (k >> a) & 1 == 1 && (k >> b) & 1 == 0
+            j = k ⊻ (1 << a) ⊻ (1 << b)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+function apply_qft!(ψ; swaps = true)
+    n = trailing_zeros(length(ψ))
+    for j in n-1:-1:0
+        apply_1q!(ψ, H, j)
+        for k in j-1:-1:0
+            apply_cp!(ψ, k, j, π / 2^(j - k))
+        end
+    end
+    swaps && for i in 0:n÷2-1; apply_swap!(ψ, i, n - 1 - i); end
+    return ψ
+end
+dft(N) = [cis(2π * x * y / N) for y in 0:N-1, x in 0:N-1] / sqrt(N)
+unitary(f!, N) = reduce(hcat, [f!(Vector{ComplexF64}(1:N .== x)) for x in 1:N])   # column x = image of |x-1⟩
+worst = maximum(maximum(abs.(unitary(apply_qft!, 2^n) - dft(2^n))) for n in 1:7)
+println("n = 1..7: largest |U - F| entry ", worst < 1e-12 ? "below 1e-12" : "too large", " (", round(worst; sigdigits = 2), ")")
+noswap = maximum(abs.(unitary(ψ -> apply_qft!(ψ; swaps = false), 2^6) - dft(2^6)))
+println("n = 6 without the swaps: largest |U - F| entry ", round(noswap; digits = 2))
+'''
+
+    [section.example.predict]
+    kc = "qft"
+    prompt = "The control leaves out the final swaps, for `n = 6`. Before the output is shown: how large is the largest entry of `U - F`?"
+    choices = ["Below 1e-12: the swaps only relabel qubits", "Between 0.1 and 1", "Exactly 2"]
+    measure = 'without the swaps: largest \|U - F\| entry ([0-9.]+)'
+    ranges = [[0, 1e-12], [0.1, 1.0], [2.0, 2.01]]
+    answer = 2
+    explain = "Without the swaps the circuit outputs the DFT with its qubits in reverse order: the same entries, of size `1/√64 = 0.125`, in permuted rows. Two entries of that size differ by at most `0.25`, when their phases are opposite, and the measured largest difference is that, 0.25. Permuting the rows of a matrix changes it unless the permutation happens to leave every row in place."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Without the final swaps, what does the circuit compute?"
+  choices = [
+    "The inverse DFT",
+    "The DFT with the output qubits in reverse order",
+    "Exactly the DFT; the swaps only tidy up the order of the qubits in a diagram",
+  ]
+  answer = 2
+  explain = "The `H` and controlled phases build the factor for bit `m` of `y` on qubit `n-1-m`. Without the swaps, outcome `k` holds the amplitude of `y = bitreverse(k)`: the same numbers, at bit-reversed positions."
+  misconceptions = [
+    "The inverse comes from negating the phases (next section); leaving out the swaps keeps every phase.",
+    "",
+    "The swaps change which outcome holds which amplitude, so they change the matrix. The control above measures a difference of 0.25.",
+  ]
+
+[[section]]
+title = "A second reference: an FFT from scratch"
+body = '''
+Comparing with `F` built from its definition is one check. A second,
+independent one is a classical FFT, which shares no code with the circuit.
+The radix-2 FFT of Cooley and Tukey splits `x` into its even- and
+odd-indexed halves, transforms each (half the size), and combines them with
+**twiddle factors** `cis(2π k / N)`:
+
+```
+y[k]         = (E[k] + w^k O[k]) / √2
+y[k + N/2]   = (E[k] - w^k O[k]) / √2,     k in 0:N/2-1,  w = cis(2π / N)
+```
+
+where `E` and `O` are the transforms of the halves. The `1/√2` at each of
+the `n` levels gives the overall `1/√N`. It costs `O(N log N)` operations,
+against `O(N²)` for multiplying by `F`.
+'''
+refs = ["cooley-tukey-1965"]
+
+  [[section.example]]
+  caption = "A recursive radix-2 FFT with the QFT's sign and normalisation, against the circuit and against `F x` on a random 64-entry state."
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cp!(ψ, c, t, λ)
+    m = (1 << c) | (1 << t); z = cis(λ)
+    for k in 0:length(ψ)-1
+        k & m == m && (ψ[k + 1] *= z)
+    end
+    return ψ
+end
+function apply_swap!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if (k >> a) & 1 == 1 && (k >> b) & 1 == 0
+            j = k ⊻ (1 << a) ⊻ (1 << b)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+function apply_qft!(ψ)
+    n = trailing_zeros(length(ψ))
+    for j in n-1:-1:0
+        apply_1q!(ψ, H, j)
+        for k in j-1:-1:0; apply_cp!(ψ, k, j, π / 2^(j - k)); end
+    end
+    for i in 0:n÷2-1; apply_swap!(ψ, i, n - 1 - i); end
+    return ψ
+end
+function fft_plus(x)
+    N = length(x)
+    N == 1 && return ComplexF64.(x)
+    E, O = fft_plus(x[1:2:end]), fft_plus(x[2:2:end])     # 1-based: odd positions hold even indices
+    tw = [cis(2π * k / N) for k in 0:N÷2-1]
+    return vcat(E .+ tw .* O, E .- tw .* O) ./ sqrt(2)
+end
+using Random
+x = randn(Xoshiro(57), ComplexF64, 64); x ./= sqrt(sum(abs2, x))
+F = [cis(2π * a * b / 64) for b in 0:63, a in 0:63] / 8
+println("FFT vs circuit: below 1e-13: ", maximum(abs.(fft_plus(x) - apply_qft!(copy(x)))) < 1e-13)
+println("FFT vs F x:     below 1e-13: ", maximum(abs.(fft_plus(x) - F * x)) < 1e-13)
+'''
+
+[[section]]
+title = "The inverse QFT, and periodic input"
+body = '''
+**The inverse.** A circuit is undone by its gates in reverse order, each
+inverted: `H` and swaps are their own inverses, and `CP(λ)⁻¹ = CP(-λ)`.
+That gives the inverse QFT, which unit 58 needs. Since `F` is symmetric,
+`F⁻¹ = F' = conj(F)`, so negating every phase while keeping the gate order
+also gives `F⁻¹`: the conjugate of each gate in the original order is a
+circuit for `conj(F)`. A test for the inverse cannot tell these two circuits
+apart, and should not try to.
+
+**Periodic input.** Take amplitudes that are equal on `x0, x0 + r,
+x0 + 2r, …` and 0 elsewhere. If `r` divides `N`, the QFT puts all the weight
+on the `r` outcomes `0, N/r, 2N/r, …`, each with probability `1/r`; the
+offset `x0` changes only phases. If `r` does not divide `N`, the weight
+concentrates **near** the multiples of `N/r`. Reading the period from such
+a sample is how Shor's algorithm factors numbers.
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.example]]
+  caption = "The QFT of periodic input on 6 qubits (`N = 64`), with period `r = 8` and with `r = 6`."
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cp!(ψ, c, t, λ)
+    m = (1 << c) | (1 << t); z = cis(λ)
+    for k in 0:length(ψ)-1
+        k & m == m && (ψ[k + 1] *= z)
+    end
+    return ψ
+end
+function apply_swap!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if (k >> a) & 1 == 1 && (k >> b) & 1 == 0
+            j = k ⊻ (1 << a) ⊻ (1 << b)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+function apply_qft!(ψ)
+    n = trailing_zeros(length(ψ))
+    for j in n-1:-1:0
+        apply_1q!(ψ, H, j)
+        for k in j-1:-1:0; apply_cp!(ψ, k, j, π / 2^(j - k)); end
+    end
+    for i in 0:n÷2-1; apply_swap!(ψ, i, n - 1 - i); end
+    return ψ
+end
+function periodic(N, r, x0)
+    v = zeros(ComplexF64, N); v[(x0:r:N-1) .+ 1] .= 1
+    return v ./ sqrt(sum(abs2, v))
+end
+p = abs2.(apply_qft!(periodic(64, 8, 3)))
+peaks = findall(>(1e-12), p) .- 1
+println("r = 8: nonzero outcomes ", peaks, ", each with P = 1/8: ", all(abs.(p[peaks .+ 1] .- 1/8) .< 1e-12))
+p6 = abs2.(apply_qft!(periodic(64, 6, 3)))
+top = sort(partialsortperm(p6, 1:6; rev = true) .- 1)
+println("r = 6: the six most likely outcomes are ", join(top, " "), ", holding ", round(sum(p6[top .+ 1]); digits = 3), " of the probability")
+'''
+
+    [section.example.predict]
+    kc = "fourier-transform"
+    prompt = "Period 6 does not divide 64. Before the output is shown: which are the six most likely outcomes?"
+    choices = ["0, 8, 16, …: multiples of 8", "0, 11, 21, 32, …: near multiples of 64/6", "0, 6, 12, 18, …: multiples of 6"]
+    measure = 'the six most likely outcomes are 0 (\d+)'
+    ranges = [[8, 9], [11, 12], [6, 7]]
+    answer = 2
+    explain = "The peaks sit near the multiples of `N/r = 10.67`: 0, 10.67, 21.3, 32, 42.7, 53.3, rounded to 0, 11, 21, 32, 43, 53. Multiples of 6 is a common slip: the period of the input shows up as a spacing of `N/r` in the output, not of `r`."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Negate every controlled phase of the QFT circuit but keep the gate order. What does the new circuit compute?"
+  choices = [
+    "The QFT again, since the phases cancel in the swaps",
+    "The inverse QFT, since the DFT matrix is symmetric",
+    "Nothing useful: an inverse must also reverse the gates",
+  ]
+  answer = 2
+  explain = "Negating every phase conjugates every gate (`H` and swaps are real), so the circuit computes `conj(F)`. Since `F` is symmetric, `conj(F) = F' = F⁻¹`. Reversing the order and negating also gives `F⁻¹`; the two circuits differ gate by gate and agree as matrices."
+  misconceptions = [
+    "Swaps permute amplitudes and do not touch phases; negating the angles changes the matrix to its conjugate.",
+    "",
+    "Reversing is needed for a general circuit, but here the conjugate of the circuit is already the inverse. A seeded bug that only negated the phases survived the tests of this course's simulator project for this reason, and was replaced.",
+  ]
+
+[[problem]]
+id = "qf-dft-matrix"
+title = "The DFT matrix"
+difficulty = "warm-up"
+kcs = ["fourier-transform"]
+entry = "dft_matrix"
+packages = []
+prompt = '''
+Write `dft_matrix(N)` that returns the `N × N` unitary DFT matrix as a
+`Matrix{ComplexF64}`, with the quantum convention of this unit:
+
+```
+F[y + 1, x + 1] = cis(2π x y / N) / √N,     x, y in 0:N-1
+```
+
+```julia
+dft_matrix(2)       # [1 1; 1 -1] / √2, the Hadamard gate
+```
+
+Results are compared with `isapprox` at `rtol = 1e-12` (Frobenius norm of
+the difference over that of the reference): each entry is one `cis` and one
+division, a few `eps` each.
+'''
+starter = '''
+function dft_matrix(N)
+    # your code here
+end
+'''
+reference = '''
+function dft_matrix(N)
+    return [cis(2π * x * y / N) for y in 0:N-1, x in 0:N-1] / sqrt(N)
+end
+'''
+cases = ["1", "2", "4", "8", "6"]
+gen = "rng -> [(rand(rng, 1:40),) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "Each entry depends on its 0-based row and column numbers only. A comprehension over two ranges builds the whole matrix.",
+  "`[cis(2π * x * y / N) for y in 0:N-1, x in 0:N-1] / sqrt(N)`: the first range in a matrix comprehension runs down the rows.",
+]
+
+  [problem.perf]
+  args = "n"
+  sizes = [256]
+
+  [[problem.variant]]
+  label = "the signal-processing sign: cis(-2π x y / N)"
+  code = '''
+function dft_matrix(N)
+    return [cis(-2π * x * y / N) for y in 0:N-1, x in 0:N-1] / sqrt(N)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "no 1/√N (not unitary)"
+  code = '''
+function dft_matrix(N)
+    return [cis(2π * x * y / N) for y in 0:N-1, x in 0:N-1]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "1-based exponents: cis(2π (x+1)(y+1) / N)"
+  code = '''
+function dft_matrix(N)
+    return [cis(2π * x * y / N) for y in 1:N, x in 1:N] / sqrt(N)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "rows and columns swapped (the matrix is symmetric)"
+  code = '''
+function dft_matrix(N)
+    return [cis(2π * x * y / N) for x in 0:N-1, y in 0:N-1] / sqrt(N)
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "qf-fft"
+title = "A radix-2 FFT from scratch"
+difficulty = "core"
+kcs = ["fourier-transform"]
+entry = "fft_plus"
+packages = []
+prompt = '''
+Write `fft_plus(x)` that returns the DFT of `x` (length `N = 2^n`, `n ≥ 0`)
+with this unit's convention, `cis(+2π x y / N) / √N`, as a new
+`Vector{ComplexF64}`, using the radix-2 recursion of section 3: transform
+the even-indexed and the odd-indexed entries, then combine them with the
+twiddle factors `cis(2π k / N)` and a factor `1/√2`.
+
+```julia
+fft_plus(ComplexF64[1, 0, 0, 0])      # [1, 1, 1, 1] / 2
+fft_plus(ComplexF64[0, 1, 0, 0])      # [1, im, -1, -im] / 2
+```
+
+Results are compared with `isapprox` at `rtol = 1e-12`: each of the
+`log2(N) ≤ 10` levels adds a rounding error of a few `eps` (one complex
+multiply-add and one division per entry), far below that. Speed is graded against the reference, which is
+`O(N log N)`.
+'''
+starter = '''
+function fft_plus(x)
+    # your code here
+end
+'''
+reference = '''
+function fft_plus(x)
+    N = length(x)
+    N == 1 && return ComplexF64[x[1]]
+    E = fft_plus(x[1:2:end])                 # 0-based even indices sit at odd 1-based positions
+    O = fft_plus(x[2:2:end])
+    y = Vector{ComplexF64}(undef, N)
+    for k in 0:N÷2-1
+        t = cis(2π * k / N) * O[k + 1]
+        y[k + 1] = (E[k + 1] + t) / sqrt(2)
+        y[k + N÷2 + 1] = (E[k + 1] - t) / sqrt(2)
+    end
+    return y
+end
+'''
+cases = [
+  "ComplexF64[1, 0, 0, 0]",
+  "ComplexF64[0, 1, 0, 0]",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8]",
+  "ComplexF64[0.6, 0.8im]",
+  "ComplexF64[1im]",
+]
+gen = "rng -> [(randn(rng, ComplexF64, 2^rand(rng, 0:10)),) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "A DFT of length `N` is two DFTs of length `N/2`, one of the entries at even 0-based indices and one at odd, combined entry by entry. The recursion stops at length 1, where the DFT is the number itself.",
+  "With `E = fft_plus(x[1:2:end])` and `O = fft_plus(x[2:2:end])`: `y[k+1] = (E[k+1] + cis(2πk/N) O[k+1]) / √2` and `y[k+N/2+1] = (E[k+1] - cis(2πk/N) O[k+1]) / √2`.",
+]
+
+  [problem.perf]
+  args = "randn(rng, ComplexF64, n)"
+  sizes = [1024]
+
+  [[problem.variant]]
+  label = "twiddles cis(-2πk/N): the signal-processing sign"
+  code = '''
+function fft_plus(x)
+    N = length(x)
+    N == 1 && return ComplexF64[x[1]]
+    E, O = fft_plus(x[1:2:end]), fft_plus(x[2:2:end])
+    tw = [cis(-2π * k / N) for k in 0:N÷2-1]
+    return vcat(E .+ tw .* O, E .- tw .* O) ./ sqrt(2)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "no 1/√2 per level"
+  code = '''
+function fft_plus(x)
+    N = length(x)
+    N == 1 && return ComplexF64[x[1]]
+    E, O = fft_plus(x[1:2:end]), fft_plus(x[2:2:end])
+    tw = [cis(2π * k / N) for k in 0:N÷2-1]
+    return vcat(E .+ tw .* O, E .- tw .* O)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "splits into first and second halves instead of even and odd"
+  code = '''
+function fft_plus(x)
+    N = length(x)
+    N == 1 && return ComplexF64[x[1]]
+    E, O = fft_plus(x[1:N÷2]), fft_plus(x[N÷2+1:end])
+    tw = [cis(2π * k / N) for k in 0:N÷2-1]
+    return vcat(E .+ tw .* O, E .- tw .* O) ./ sqrt(2)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "multiplies by the dense DFT matrix, O(N²)"
+  code = '''
+function fft_plus(x)
+    N = length(x)
+    return [cis(2π * a * b / N) for b in 0:N-1, a in 0:N-1] * x / sqrt(N)
+end
+'''
+  expect = ["correct", "slow"]
+
+[[problem]]
+id = "qf-apply-qft"
+title = "The QFT circuit in place"
+difficulty = "core"
+kcs = ["qft"]
+entry = "apply_qft!"
+packages = []
+prompt = '''
+Write `apply_qft!(ψ)` that applies the QFT circuit of section 3 to the
+state `ψ` (length `2^n`) in place and returns `ψ`: for `j = n-1` down to 0,
+`H` on qubit `j` followed by `CP(π / 2^(j-k))` between `k` and `j` for
+`k = j-1` down to 0; then swap qubit `i` with `n-1-i` for `i < n/2`. The
+starter defines `apply_1q!`, `apply_cp!` and `apply_swap!`.
+
+```julia
+apply_qft!(ComplexF64[0, 1, 0, 0])     # [1, im, -1, -im] / 2: column 1 of F
+```
+
+The result must equal `F ψ`. Results are compared with `isapprox` at
+`rtol = 1e-12`: the circuit has fewer than 50 gates for the tested `n ≤ 8`,
+each adding a rounding error of a few `eps` (unit 52), and the worst error
+measured in section 3 was `1.2e-14`.
+'''
+starter = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cp!(ψ, c, t, λ)
+    m = (1 << c) | (1 << t); z = cis(λ)
+    for k in 0:length(ψ)-1
+        k & m == m && (ψ[k + 1] *= z)
+    end
+    return ψ
+end
+function apply_swap!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if (k >> a) & 1 == 1 && (k >> b) & 1 == 0
+            j = k ⊻ (1 << a) ⊻ (1 << b)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+
+function apply_qft!(ψ)
+    # your code here
+end
+'''
+reference = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cp!(ψ, c, t, λ)
+    m = (1 << c) | (1 << t); z = cis(λ)
+    for k in 0:length(ψ)-1
+        k & m == m && (ψ[k + 1] *= z)
+    end
+    return ψ
+end
+function apply_swap!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if (k >> a) & 1 == 1 && (k >> b) & 1 == 0
+            j = k ⊻ (1 << a) ⊻ (1 << b)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+
+function apply_qft!(ψ)
+    n = trailing_zeros(length(ψ))
+    H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    for j in n-1:-1:0
+        apply_1q!(ψ, H, j)
+        for k in j-1:-1:0
+            apply_cp!(ψ, k, j, π / 2^(j - k))
+        end
+    end
+    for i in 0:n÷2-1
+        apply_swap!(ψ, i, n - 1 - i)
+    end
+    return ψ
+end
+'''
+cases = [
+  "ComplexF64[0, 1, 0, 0]",
+  "ComplexF64[1, 0]",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8] / sqrt(204)",
+  "ComplexF64[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+]
+gen = "rng -> [(v = randn(rng, ComplexF64, 2^rand(rng, 1:8)); (v ./ sqrt(sum(abs2, v)),)) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "Three nested pieces: a loop over the target qubit from the top down; inside it an `H` and a loop over the lower qubits adding controlled phases; after both loops, the swaps.",
+  "`for j in n-1:-1:0`: `apply_1q!(ψ, H, j)`, then `apply_cp!(ψ, k, j, π / 2^(j - k))` for `k in j-1:-1:0`. Afterwards `apply_swap!(ψ, i, n - 1 - i)` for `i in 0:n÷2-1`.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, n); v ./ sqrt(sum(abs2, v)))"
+  sizes = [1024]
+  mutates = true
+
+  [[problem.variant]]
+  label = "forgets the final swaps"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cp!(ψ, c, t, λ)
+    m = (1 << c) | (1 << t); z = cis(λ)
+    for k in 0:length(ψ)-1
+        k & m == m && (ψ[k + 1] *= z)
+    end
+    return ψ
+end
+function apply_qft!(ψ)
+    n = trailing_zeros(length(ψ)); H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    for j in n-1:-1:0
+        apply_1q!(ψ, H, j)
+        for k in j-1:-1:0; apply_cp!(ψ, k, j, π / 2^(j - k)); end
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "controlled phases off by one: π / 2^(j - k + 1)"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cp!(ψ, c, t, λ)
+    m = (1 << c) | (1 << t); z = cis(λ)
+    for k in 0:length(ψ)-1
+        k & m == m && (ψ[k + 1] *= z)
+    end
+    return ψ
+end
+function apply_swap!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if (k >> a) & 1 == 1 && (k >> b) & 1 == 0
+            j = k ⊻ (1 << a) ⊻ (1 << b)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+function apply_qft!(ψ)
+    n = trailing_zeros(length(ψ)); H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    for j in n-1:-1:0
+        apply_1q!(ψ, H, j)
+        for k in j-1:-1:0; apply_cp!(ψ, k, j, π / 2^(j - k + 1)); end
+    end
+    for i in 0:n÷2-1; apply_swap!(ψ, i, n - 1 - i); end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "negative phases: computes the inverse QFT"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cp!(ψ, c, t, λ)
+    m = (1 << c) | (1 << t); z = cis(λ)
+    for k in 0:length(ψ)-1
+        k & m == m && (ψ[k + 1] *= z)
+    end
+    return ψ
+end
+function apply_swap!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if (k >> a) & 1 == 1 && (k >> b) & 1 == 0
+            j = k ⊻ (1 << a) ⊻ (1 << b)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+function apply_qft!(ψ)
+    n = trailing_zeros(length(ψ)); H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    for j in n-1:-1:0
+        apply_1q!(ψ, H, j)
+        for k in j-1:-1:0; apply_cp!(ψ, k, j, -π / 2^(j - k)); end
+    end
+    for i in 0:n÷2-1; apply_swap!(ψ, i, n - 1 - i); end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the qubits worked from the bottom up (j = 0 first, phases from higher qubits)"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cp!(ψ, c, t, λ)
+    m = (1 << c) | (1 << t); z = cis(λ)
+    for k in 0:length(ψ)-1
+        k & m == m && (ψ[k + 1] *= z)
+    end
+    return ψ
+end
+function apply_swap!(ψ, a, b)
+    for k in 0:length(ψ)-1
+        if (k >> a) & 1 == 1 && (k >> b) & 1 == 0
+            j = k ⊻ (1 << a) ⊻ (1 << b)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+function apply_qft!(ψ)
+    n = trailing_zeros(length(ψ)); H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    for j in 0:n-1
+        apply_1q!(ψ, H, j)
+        for k in j+1:n-1; apply_cp!(ψ, k, j, π / 2^(k - j)); end
+    end
+    for i in 0:n÷2-1; apply_swap!(ψ, i, n - 1 - i); end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "multiplies by the dense DFT matrix"
+  code = '''
+function apply_qft!(ψ)
+    N = length(ψ)
+    ψ .= ([cis(2π * x * y / N) for y in 0:N-1, x in 0:N-1] / sqrt(N)) * ψ
+    return ψ
+end
+'''
+  expect = ["correct", "slow", "allocates"]
+
+[[reference]]
+id = "cooley-tukey-1965"
+authors = "Cooley, J. W.; Tukey, J. W."
+title = "An algorithm for the machine calculation of complex Fourier series"
+venue = "Mathematics of Computation 19(90), 297-301"
+year = 1965
+url = "https://doi.org/10.1090/S0025-5718-1965-0178586-1"
+note = "The fast Fourier transform: a DFT of composite length computed from DFTs of its factors, with an operation count proportional to N log N, the method of section 3's radix-2 recursion."
+
+[[reference]]
+id = "coppersmith-1994"
+authors = "Coppersmith, D."
+title = "An approximate Fourier transform useful in quantum factoring"
+venue = "IBM Research Report RC19642 (1994); posted as arXiv:quant-ph/0201067 (2002)"
+year = 1994
+url = "https://arxiv.org/abs/quant-ph/0201067"
+note = "A Fourier transform on 2^L elements built for a quantum computer, and an approximate version of it, for Shor's factoring algorithm (from the abstract; the circuit details of section 3 follow Nielsen and Chuang)."
+
+[[reference]]
+id = "nielsen-chuang-2010"
+authors = "Nielsen, M. A.; Chuang, I. L."
+title = "Quantum Computation and Quantum Information"
+venue = "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)"
+year = 2012
+url = "https://doi.org/10.1017/CBO9780511976667"
+note = "The QFT circuit of Hadamards, controlled phase rotations and final swaps, its derivation from the product form of the transformed basis states, and the use of the QFT in period finding (this unit's sections 3 and 5)."

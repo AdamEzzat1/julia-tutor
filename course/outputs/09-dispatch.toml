@@ -21,6 +21,10 @@ output = """ERROR: MethodError: combine(::Int64, ::Int64) is ambiguous.\n\nCandi
 ok = false
 output = """(1.0, 2.5) (1//1, 2//3) Float64\n3.0 3\nERROR: InexactError: Int64(3.5)\n  @ top-level scope at line 3\n"""
 
+[examples.58ee0bd8ecf5e81b]
+ok = true
+output = """(\"int first\", \"numbers\")\n"""
+
 [examples.693df6718a181138]
 ok = true
 output = """\"both ints\"\n"""
@@ -36,6 +40,10 @@ output = """numbers | int first | int second\nint first\n"""
 [examples.f0aec7a3adad8780]
 ok = true
 output = """false 2\ntrue 2\n1\n"""
+
+[examples.fcb6e88da95dbe5f]
+ok = false
+output = """ERROR: MethodError: no method matching area(::Float64)\n\nClosest candidates are:\n  area(!Matched::Int64)\n   @ Main main.jl:1\n\n  @ top-level scope at line 2\n"""
 
 [[samples.describe-by-type]]
 call = "kind(3)"

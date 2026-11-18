@@ -1,0 +1,913 @@
+id = "60-variational"
+title = "Variational algorithms"
+track = "quantum"
+env = "base"
+status = "ready"
+summary = "A variational quantum eigensolver (VQE) tunes the angles of a small circuit to minimise an energy. The unit computes expectation values of Pauli strings without forming their 2^n × 2^n matrices, derives the parameter-shift rule (an exact gradient from two shifted runs per angle) and checks it against central differences, reaches the ground energy -√2 of a two-qubit Ising Hamiltonian within 1e-12 from five random starts, and shows with a control that circuits without an entangling gate stop at -1.25."
+kcs = ["parameter-shift", "vqe"]
+prerequisites = ["59-noise-density-matrices"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit uses `apply_1q!` and `apply_cx!` (unit 52), the rotation
+`RY(θ) = [cos(θ/2) -sin(θ/2); sin(θ/2) cos(θ/2)]` of unit 51, and the
+reduced density matrix and entropy of unit 53.
+
+**Energies.** A Hamiltonian `H` is a Hermitian matrix; its eigenvalues are
+the energies a measurement can give, and the smallest one, `E0`, is the
+**ground energy**. The energy of a state is the expectation value
+`E(ψ) = ψ' H ψ`, a real number. Since `ψ` is a combination of
+eigenvectors, `E(ψ)` is an average of eigenvalues, so
+
+```
+E(ψ) ≥ E0     for every normalised ψ          (the variational principle)
+```
+
+with equality only for ground states. The test case of this unit is the
+two-qubit transverse-field Ising model
+
+```
+H = Z⊗Z + h (X⊗I + I⊗X),      h = 1/2,      E0 = -√(1 + 4h²) = -√2
+```
+'''
+
+  [[section.example]]
+  caption = "The Ising Hamiltonian as a 4 × 4 matrix, its eigenvalues, and the entanglement of its ground state."
+  code = '''
+using LinearAlgebra
+I2 = ComplexF64[1 0; 0 1]; X = ComplexF64[0 1; 1 0]; Z = ComplexF64[1 0; 0 -1]
+H = kron(Z, Z) + 0.5 * (kron(X, I2) + kron(I2, X))
+λ, V = eigen(Hermitian(H))
+println("energies: ", round.(λ; digits = 6))
+println("E0 = ", round(λ[1]; digits = 10), ",  -√2 = ", round(-sqrt(2); digits = 10))
+g = V[:, 1]
+ρA = [g[1] * conj(g[1]) + g[3] * conj(g[3])  g[1] * conj(g[2]) + g[3] * conj(g[4]);
+      g[2] * conj(g[1]) + g[4] * conj(g[3])  g[2] * conj(g[2]) + g[4] * conj(g[4])]   # qubit 0's reduced state
+S = -sum(p * log2(p) for p in eigvals(Hermitian(ρA)) if p > 1e-12)
+println("entanglement entropy of the ground state: ", round(S; digits = 4), " bits")
+'''
+
+    [section.example.predict]
+    kc = "vqe"
+    prompt = "`Z⊗Z` alone has smallest eigenvalue -1, and each `h X` term ranges over `±1/2`. Before the output is shown: what is the ground energy `E0`?"
+    choices = ["-2, the sum of the three smallest parts", "About -1.414", "About -1.25"]
+    measure = 'E0 = (-[0-9.]+)'
+    ranges = [[-2.01, -1.99], [-1.42, -1.41], [-1.26, -1.24]]
+    answer = 2
+    explain = "`E0 = -√(1 + 4 · 0.25) = -√2 ≈ -1.4142`. The parts do not commute (`Z⊗Z` and `X⊗I` anticommute), so no state minimises all three at once and `-2` is not reached. -1.25 is the best a product state can do, as section 5 shows; the ground state is entangled (0.60 bits)."
+
+[[section]]
+title = "The question: how do you compute the gradient of a circuit you can only run?"
+body = '''
+A **variational** algorithm prepares `ψ(θ)` with a circuit whose gates have
+angles `θ = (θ_1, …, θ_m)`, measures the energy `E(θ)`, and adjusts `θ` to
+lower it. On hardware, `E(θ)` is never available as a formula: each value
+is an average over repeated runs, with a statistical error of order
+`1/√(runs)`. Peruzzo and coauthors ran such a variational eigenvalue solver
+on a photonic processor.
+
+Gradient descent needs `∂E/∂θ_k`. A central finite difference,
+`(E(θ + ε e_k) - E(θ - ε e_k)) / 2ε`, divides the statistical error of
+each energy by `2ε`: with `ε = 0.01` an error of `0.001` per energy becomes
+0.1 in the gradient. A small `ε` is exactly what a finite difference needs,
+and exactly what noise punishes.
+
+The **parameter-shift rule** of the next sections gives the exact gradient
+from two energies at angles shifted by `±π/2`, a large step, so the
+statistical error is not amplified.
+'''
+refs = ["peruzzo-2014", "mitarai-2018"]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why is a finite-difference gradient a poor choice on quantum hardware?"
+  choices = [
+    "They need each gate's derivative formula",
+    "Shot noise in each energy gets divided by the small ε",
+    "Hardware cannot run the same circuit twice with different angles",
+  ]
+  answer = 2
+  explain = "Each energy is a sample mean with an error of order `1/√(runs)`. The difference of two such estimates, divided by `2ε`, has an error of order `1/(ε √runs)`, which grows as `ε` shrinks."
+  misconceptions = [
+    "Finite differences need no derivative formula at all; that is their appeal. Their problem is noise amplification.",
+    "",
+    "Changing an angle and rerunning is the basic operation of every variational algorithm; it is what both methods do.",
+  ]
+
+[[section]]
+title = "Pauli strings without their matrices"
+body = '''
+Hamiltonians are written as sums of **Pauli strings**, products of `I`,
+`X`, `Y`, `Z` on each qubit, such as `"ZZ"` or `"XI"`. This unit writes a
+string with **character `q + 1` for qubit `q`**, so `"XI"` is `X` on qubit 0,
+matching the little-endian order (as a `kron`, it is `I ⊗ X`).
+
+The matrix of an `n`-qubit string has `4^n` entries. It is not needed: a
+Pauli string maps each basis state `|k⟩` to a single basis state times a
+phase,
+
+```
+P |k⟩ = phase(k) |k ⊻ m⟩
+```
+
+where `m` has the bits of the qubits with `X` or `Y` (those flip), and
+`phase(k)` collects `-1` for each `Z` on a 1 bit, and `i` or `-i` for each
+`Y` on a 0 or 1 bit (`Y|0⟩ = i|1⟩`, `Y|1⟩ = -i|0⟩`). Then
+
+```
+ψ' P ψ = Σ over k of conj(ψ[(k ⊻ m) + 1]) · phase(k) · ψ[k + 1]
+```
+
+which is real for a Hermitian `P`, and costs `O(n 2^n)` with no extra
+memory. The energy is a sum of such terms with their coefficients.
+'''
+
+  [[section.example]]
+  caption = "`ψ' P ψ` by bit operations against the dense `kron` matrix, for all 16 two-qubit Pauli strings on a random state."
+  code = '''
+using Random
+function pauli_expectation(ψ, s)                   # s[q + 1] is the Pauli on qubit q
+    m = 0
+    for (i, c) in enumerate(s)
+        (c == 'X' || c == 'Y') && (m |= 1 << (i - 1))
+    end
+    acc = zero(ComplexF64)
+    for k in 0:length(ψ)-1
+        ph = one(ComplexF64)
+        for (i, c) in enumerate(s)
+            b = (k >> (i - 1)) & 1
+            c == 'Z' && b == 1 && (ph = -ph)
+            c == 'Y' && (ph *= b == 0 ? im : -im)
+        end
+        acc += conj(ψ[(k ⊻ m) + 1]) * ph * ψ[k + 1]
+    end
+    return real(acc)
+end
+P = Dict('I' => ComplexF64[1 0; 0 1], 'X' => ComplexF64[0 1; 1 0], 'Y' => ComplexF64[0 -im; im 0], 'Z' => ComplexF64[1 0; 0 -1])
+dense(s) = reduce(kron, [P[c] for c in reverse(s)])           # qubit 0 is the rightmost factor
+v = randn(Xoshiro(60), ComplexF64, 4); v ./= sqrt(sum(abs2, v))
+worst = maximum(abs(pauli_expectation(v, a * b) - real(v' * dense(a * b) * v)) for a in "IXYZ", b in "IXYZ")
+println("16 strings: largest difference from the dense matrix below 1e-14: ", worst < 1e-14)
+println("dense matrix entries for n = 20: ", 4^20, ",  amplitudes: ", 2^20)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why can `ψ' P ψ` for a Pauli string `P` be computed in `O(n 2^n)` time without forming `P`?"
+  choices = [
+    "P is diagonal, so only the probabilities matter",
+    "P maps each basis state to one other basis state times a phase",
+    "The kron product of 2×2 matrices is never actually needed by Julia, which optimises it away",
+  ]
+  answer = 2
+  explain = "Each column of `P` has a single nonzero entry, so `P ψ` is a permutation of `ψ` with phases. The sum over `k` touches each amplitude once, with `n` bit checks for the phase."
+  misconceptions = [
+    "Only strings made of `I` and `Z` are diagonal. `X` and `Y` flip bits, and their expectation values depend on the phases of the amplitudes, not just the probabilities.",
+    "",
+    "Julia forms the `kron` matrix if asked to, with all its `4^n` entries; avoiding it is the algorithm's choice, not the compiler's.",
+  ]
+
+[[section]]
+title = "The parameter-shift rule"
+body = '''
+Take one gate `RY(θ) = exp(-iθY/2)`. Its matrix entries are `cos(θ/2)` and
+`sin(θ/2)`, and the energy is quadratic in them, so with all other angles
+fixed
+
+```
+E(θ) = a + b cos θ + c sin θ          (since cos²(θ/2) = (1 + cos θ)/2, and so on)
+```
+
+for some constants `a`, `b`, `c`. For such a function, two values half a
+period apart give the derivative exactly:
+
+```
+(E(θ + π/2) - E(θ - π/2)) / 2  =  -b sin θ + c cos θ  =  E'(θ)
+```
+
+This is the **parameter-shift rule**, given for gates generated by Pauli
+operators by Mitarai et al. and generalised by Schuld et al. It costs two
+energy evaluations per angle, like a central difference, but has no step
+size to choose and no truncation error, and its large step does not
+amplify noise.
+'''
+refs = ["mitarai-2018", "schuld-2019"]
+
+  [[section.diagram]]
+  file = "parameter-shift.svg"
+  alt = "A sinusoidal curve E of theta over one period. A point at theta has a tangent line. Two further points at theta minus pi/2 and theta plus pi/2 are joined by a dashed chord; the chord's rise divided by 2 equals the slope of the tangent at theta. A small pair of points close to theta, labelled finite difference, has a tiny rise that noise bars swamp."
+  caption = "For `E(θ) = a + b cos θ + c sin θ`, the difference of the values at `θ ± π/2`, halved, is exactly the slope at `θ`. A finite difference uses two close points whose small difference is easily lost in measurement noise."
+
+  [[section.analogy]]
+  title = "Reading the tide from two clocks"
+  text = '''
+A tide rises and falls like a sine wave. To know how fast it is rising now,
+you could compare the water level a minute ago and a minute from now: a
+tiny difference, easily lost in waves. Or, knowing it is a pure sine with a
+known period, compare the levels a quarter period before and after, a big
+difference, and get the rate now exactly.
+'''
+  breaks = '''
+Real tides are only approximately sinusoidal, and the quarter-period trick
+would then be approximate. For a circuit energy as a function of one `RY`
+angle it is exact, because the energy is a sum of `1`, `cos θ` and `sin θ`
+with nothing else. For gates whose generator has more than two eigenvalues
+the rule needs more shifts.
+'''
+
+  [[section.example]]
+  caption = "The parameter-shift gradient of a 4-angle two-qubit circuit against central differences with `ε = 1e-6`, at 5 random angle vectors."
+  code = '''
+using Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+RY(θ) = ComplexF64[cos(θ/2) -sin(θ/2); sin(θ/2) cos(θ/2)]
+function ansatz(θ)                                   # RY, RY, CX 0→1, RY, RY
+    ψ = ComplexF64[1, 0, 0, 0]
+    apply_1q!(ψ, RY(θ[1]), 0); apply_1q!(ψ, RY(θ[2]), 1); apply_cx!(ψ, 0, 1)
+    apply_1q!(ψ, RY(θ[3]), 0); apply_1q!(ψ, RY(θ[4]), 1)
+    return ψ
+end
+function energy(θ)                                   # ZZ + (X on q0 + X on q1)/2, by bit operations
+    ψ = ansatz(θ)
+    zz = sum(abs2(ψ[k + 1]) * (isodd(count_ones(k)) ? -1 : 1) for k in 0:3)
+    x0 = real(sum(conj(ψ[(k ⊻ 1) + 1]) * ψ[k + 1] for k in 0:3))
+    x1 = real(sum(conj(ψ[(k ⊻ 2) + 1]) * ψ[k + 1] for k in 0:3))
+    return zz + 0.5 * (x0 + x1)
+end
+unit(k, m) = [i == k ? 1.0 : 0.0 for i in 1:m]
+shift_gradient(f, θ) = [(f(θ + π/2 * unit(k, length(θ))) - f(θ - π/2 * unit(k, length(θ)))) / 2 for k in eachindex(θ)]
+fd_gradient(f, θ; ε = 1e-6) = [(f(θ + ε * unit(k, length(θ))) - f(θ - ε * unit(k, length(θ)))) / 2ε for k in eachindex(θ)]
+rng = Xoshiro(60)
+diff = maximum(maximum(abs.(shift_gradient(energy, θ) - fd_gradient(energy, θ))) for θ in [2π * rand(rng, 4) for _ in 1:5])
+println("largest |shift - finite difference|: ", round(diff; sigdigits = 2))
+'''
+
+    [section.example.predict]
+    kc = "parameter-shift"
+    prompt = "Both gradients are computed in floating point, without noise. Before the output is shown: how large is the largest difference between them?"
+    choices = ["Below 1e-13: both are exact here", "Between 1e-12 and 1e-8: the finite difference's own error", "About 1e-3"]
+    measure = 'largest \|shift - finite difference\|: ([0-9.e-]+)'
+    ranges = [[0, 1e-13], [1e-12, 1e-8], [1e-4, 1e-2]]
+    answer = 2
+    explain = "The shift rule is exact up to a few `eps`. The central difference has a truncation error of order `ε² E''' / 6 ≈ 1e-13` and a rounding error of order `eps · |E| / ε ≈ 1e-10`, which dominates: the measured difference is the finite difference's error. The two methods agree to about 1e-10, which a test can use as its tolerance."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why is the shift of `π/2` exact, not an approximation?"
+  choices = [
+    "π/2 is small enough that higher-order terms vanish",
+    "E(θ) is a + b cos θ + c sin θ in each angle",
+    "It is not exact, only close",
+  ]
+  answer = 2
+  explain = "A function with only the frequencies 0 and 1 has its derivative determined by two values half a period apart, at any `θ`. That is a fact about this function class, not a Taylor approximation."
+  misconceptions = [
+    "`π/2` is a large step; for a general function it would give a poor estimate. The rule is exact because `E` has no higher frequencies, not because the step is small.",
+    "",
+    "It is exact: the measured difference from finite differences comes from the finite difference's own error, about `1e-10`.",
+  ]
+
+[[section]]
+title = "VQE reaches -√2; a circuit without entanglement cannot"
+body = '''
+Gradient descent with the shift rule, `θ ← θ - 0.2 ∇E(θ)` for 400 steps,
+from five random starting angles, reaches the ground energy. By the
+variational principle no angle can go below `E0`, which 10 000 random angle
+vectors confirm.
+
+**Control.** Remove the CNOT. Then the circuit can only make product
+states `RY(b)|0⟩ ⊗ RY(a)|0⟩`, whose energy is
+`z_0 z_1 + (x_0 + x_1)/2` with Bloch vectors in the `x`-`z` plane. The best
+product state has `x_0 = x_1 = -1/2` and `z_0 = -z_1 = √3/2`, giving
+`-3/4 - 1/2 = -1.25`. Since the ground state is entangled (0.60 bits), no
+product state reaches `-√2`, and a VQE that passed with this circuit would
+point to a bug in the check, not a success.
+'''
+refs = ["peruzzo-2014"]
+
+  [[section.example]]
+  caption = "Gradient descent from 5 random starts, the variational principle on 10 000 random angle vectors, and the product-state control on a 400 × 400 grid."
+  code = '''
+using Random
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+RY(θ) = ComplexF64[cos(θ/2) -sin(θ/2); sin(θ/2) cos(θ/2)]
+function state_energy(ψ)
+    zz = sum(abs2(ψ[k + 1]) * (isodd(count_ones(k)) ? -1 : 1) for k in 0:3)
+    x0 = real(sum(conj(ψ[(k ⊻ 1) + 1]) * ψ[k + 1] for k in 0:3))
+    x1 = real(sum(conj(ψ[(k ⊻ 2) + 1]) * ψ[k + 1] for k in 0:3))
+    return zz + 0.5 * (x0 + x1)
+end
+function ansatz(θ; entangle = true)
+    ψ = ComplexF64[1, 0, 0, 0]
+    apply_1q!(ψ, RY(θ[1]), 0); apply_1q!(ψ, RY(θ[2]), 1); entangle && apply_cx!(ψ, 0, 1)
+    apply_1q!(ψ, RY(θ[3]), 0); apply_1q!(ψ, RY(θ[4]), 1)
+    return ψ
+end
+energy(θ) = state_energy(ansatz(θ))
+unit(k, m) = [i == k ? 1.0 : 0.0 for i in 1:m]
+shift_gradient(f, θ) = [(f(θ + π/2 * unit(k, length(θ))) - f(θ - π/2 * unit(k, length(θ)))) / 2 for k in eachindex(θ)]
+function vqe(f, rng)
+    θ = 2π * rand(rng, 4)
+    for _ in 1:400
+        θ .-= 0.2 * shift_gradient(f, θ)
+    end
+    return f(θ)
+end
+rng = Xoshiro(60)
+E0 = -sqrt(2)
+best = minimum(vqe(energy, rng) for _ in 1:5)
+println("VQE best of 5 starts: ", round(best; digits = 10), ",  |best - E0| below 1e-12: ", abs(best - E0) < 1e-12)
+println("smallest energy over 10 000 random angles ≥ E0: ", minimum(energy(2π * rand(rng, 4)) for _ in 1:10_000) >= E0 - 1e-12)
+product(a, b) = state_energy(kron(RY(b) * ComplexF64[1, 0], RY(a) * ComplexF64[1, 0]))
+println("product states, best on the grid: ", round(minimum(product(a, b) for a in range(0, 2π, 400), b in range(0, 2π, 400)); digits = 3))
+'''
+
+    [section.example.predict]
+    kc = "vqe"
+    prompt = "Without the CNOT, the circuit makes only product states. Before the output is shown: what is the lowest energy it reaches on the grid?"
+    choices = ["-√2 ≈ -1.414, the same", "About -1.25", "-1, the ZZ part alone"]
+    measure = 'product states, best on the grid: (-[0-9.]+)'
+    ranges = [[-1.42, -1.40], [-1.26, -1.24], [-1.01, -0.99]]
+    answer = 2
+    explain = "The best product state has `z_0 z_1 = -3/4` and `(x_0 + x_1)/2 = -1/2`, for `-1.25`. Trading some `ZZ` energy for `X` energy beats -1, but only an entangled state reaches `-√2`. A gap of 0.16 is far larger than the grid's resolution, so the control fails clearly."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The circuit without the CNOT stops at -1.25, above `E0 = -√2`. Why?"
+  choices = [
+    "Gradient descent got stuck in a local minimum",
+    "It has too few parameters: two angles instead of four",
+    "The ground state is entangled",
+  ]
+  answer = 3
+  explain = "Without an entangling gate every reachable state is a product, and the ground state has 0.60 bits of entanglement, so it is out of reach for any angles; -1.25 is the minimum over all product states, found on a grid, not by descent."
+  misconceptions = [
+    "The control minimises over a fine grid of every angle pair, not by descent, so there is no local minimum to get stuck in; -1.25 is the global minimum over product states.",
+    "More single-qubit angles would not help: any number of them still makes only product states.",
+    "",
+  ]
+
+[[problem]]
+id = "va-pauli-expectation"
+title = "Expectation of a Pauli string"
+difficulty = "warm-up"
+kcs = ["vqe"]
+entry = "pauli_expectation"
+packages = []
+prompt = '''
+Write `pauli_expectation(ψ, s)` that returns `ψ' P ψ` as a `Float64`, where
+`P` is the Pauli string `s` (a `String` of the characters `I`, `X`, `Y`,
+`Z`, character `q + 1` acting on qubit `q`, little-endian) and `ψ` a state
+of `length(s)` qubits. Work with bit operations as in section 3, or form
+the matrix if you prefer.
+
+```julia
+pauli_expectation(ComplexF64[1, 0, 0, 0], "ZZ")          # 1.0
+pauli_expectation(ComplexF64[1, 1] / sqrt(2), "X")       # 1.0
+pauli_expectation(ComplexF64[1, im] / sqrt(2), "Y")      # 1.0
+```
+
+Results are compared with an absolute tolerance of `1e-12`: the value is a
+sum of `2^n` products of unit-modulus phases and amplitudes of a
+normalised state, with a rounding error of a few `eps`.
+'''
+starter = '''
+function pauli_expectation(ψ, s)
+    # your code here
+end
+'''
+reference = '''
+function pauli_expectation(ψ, s)
+    m = 0
+    for (i, c) in enumerate(s)
+        (c == 'X' || c == 'Y') && (m |= 1 << (i - 1))
+    end
+    acc = zero(ComplexF64)
+    for k in 0:length(ψ)-1
+        ph = one(ComplexF64)
+        for (i, c) in enumerate(s)
+            b = (k >> (i - 1)) & 1
+            c == 'Z' && b == 1 && (ph = -ph)
+            c == 'Y' && (ph *= b == 0 ? im : -im)
+        end
+        acc += conj(ψ[(k ⊻ m) + 1]) * ph * ψ[k + 1]
+    end
+    return real(acc)
+end
+'''
+cases = [
+  "ComplexF64[1, 0, 0, 0], \"ZZ\"",
+  "ComplexF64[1, 1] / sqrt(2), \"X\"",
+  "ComplexF64[1, im] / sqrt(2), \"Y\"",
+  "ComplexF64[0, 1, 0, 0], \"ZI\"",
+  "ComplexF64[0, 1, 0, 0], \"IZ\"",
+  "ComplexF64[1, 0, 0, 1] / sqrt(2), \"YY\"",
+]
+gen = "rng -> [(n = rand(rng, 1:5); v = randn(rng, ComplexF64, 2^n); (v ./ sqrt(sum(abs2, v)), String(rand(rng, ['I', 'X', 'Y', 'Z'], n)))) for _ in 1:30]"
+compare = "custom"
+checker = '''
+(got, expected) -> got isa Float64 && abs(got - expected) <= 1e-12
+'''
+check_type = true
+hints = [
+  "A Pauli string sends `|k⟩` to one basis state with a phase: `X` and `Y` flip their qubit's bit, `Z` and `Y` contribute a phase that depends on the bit.",
+  "Build the flip mask `m` from the `X` and `Y` positions; for each `k`, the phase is `-1` per `Z` on a 1 bit and `i` (bit 0) or `-i` (bit 1) per `Y`; sum `conj(ψ[(k ⊻ m) + 1]) * phase * ψ[k + 1]` and return the real part.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, n); v ./ sqrt(sum(abs2, v))), \"XYZXYZXYZX\""
+  sizes = [1024]
+
+  [[problem.variant]]
+  label = "the string read in textbook order (first character = highest qubit)"
+  code = '''
+function pauli_expectation(ψ, s)
+    s = reverse(s)
+    m = 0
+    for (i, c) in enumerate(s)
+        (c == 'X' || c == 'Y') && (m |= 1 << (i - 1))
+    end
+    acc = zero(ComplexF64)
+    for k in 0:length(ψ)-1
+        ph = one(ComplexF64)
+        for (i, c) in enumerate(s)
+            b = (k >> (i - 1)) & 1
+            c == 'Z' && b == 1 && (ph = -ph)
+            c == 'Y' && (ph *= b == 0 ? im : -im)
+        end
+        acc += conj(ψ[(k ⊻ m) + 1]) * ph * ψ[k + 1]
+    end
+    return real(acc)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "Y's phases swapped (-i on bit 0, i on bit 1)"
+  code = '''
+function pauli_expectation(ψ, s)
+    m = 0
+    for (i, c) in enumerate(s)
+        (c == 'X' || c == 'Y') && (m |= 1 << (i - 1))
+    end
+    acc = zero(ComplexF64)
+    for k in 0:length(ψ)-1
+        ph = one(ComplexF64)
+        for (i, c) in enumerate(s)
+            b = (k >> (i - 1)) & 1
+            c == 'Z' && b == 1 && (ph = -ph)
+            c == 'Y' && (ph *= b == 0 ? -im : im)
+        end
+        acc += conj(ψ[(k ⊻ m) + 1]) * ph * ψ[k + 1]
+    end
+    return real(acc)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "returns the complex sum instead of its real part"
+  code = '''
+function pauli_expectation(ψ, s)
+    m = 0
+    for (i, c) in enumerate(s)
+        (c == 'X' || c == 'Y') && (m |= 1 << (i - 1))
+    end
+    acc = zero(ComplexF64)
+    for k in 0:length(ψ)-1
+        ph = one(ComplexF64)
+        for (i, c) in enumerate(s)
+            b = (k >> (i - 1)) & 1
+            c == 'Z' && b == 1 && (ph = -ph)
+            c == 'Y' && (ph *= b == 0 ? im : -im)
+        end
+        acc += conj(ψ[(k ⊻ m) + 1]) * ph * ψ[k + 1]
+    end
+    return acc
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the dense 2^n × 2^n matrix from kron"
+  code = '''
+function pauli_expectation(ψ, s)
+    P = Dict('I' => ComplexF64[1 0; 0 1], 'X' => ComplexF64[0 1; 1 0], 'Y' => ComplexF64[0 -im; im 0], 'Z' => ComplexF64[1 0; 0 -1])
+    M = reduce(kron, [P[c] for c in reverse(s)])
+    return real(ψ' * M * ψ)
+end
+'''
+  expect = ["correct", "slow", "allocates"]
+
+[[problem]]
+id = "va-shift-gradient"
+title = "The parameter-shift gradient"
+difficulty = "core"
+kcs = ["parameter-shift"]
+entry = "shift_gradient"
+packages = []
+prompt = '''
+Write `shift_gradient(f, θ)` that returns the gradient of `f` at the angle
+vector `θ` (a `Vector{Float64}`) by the parameter-shift rule, as a
+`Vector{Float64}` of the same length:
+
+```
+∂f/∂θ_k = (f(θ + (π/2) e_k) - f(θ - (π/2) e_k)) / 2
+```
+
+where `e_k` is the `k`-th unit vector. `f` is promised to be of the form
+`a + b cos θ_k + c sin θ_k` in each angle separately (as every energy of a
+circuit of `RY` gates is), so the rule is exact. Do not modify `θ`.
+
+```julia
+shift_gradient(θ -> cos(θ[1]), [0.3])                        # [-sin(0.3)]
+shift_gradient(θ -> sin(θ[1]) * cos(θ[2]), [0.3, 1.1])
+```
+
+Results are compared entry by entry with an absolute tolerance of `1e-12`:
+the rule's only error is the rounding of two function values (a few `eps`
+for the tested functions, whose values stay below 10). A finite difference
+does not meet it: its rounding error is about `eps / ε`.
+'''
+starter = '''
+function shift_gradient(f, θ)
+    # your code here
+end
+'''
+reference = '''
+function shift_gradient(f, θ)
+    g = similar(θ)
+    for k in eachindex(θ)
+        θp = copy(θ); θp[k] += π / 2
+        θm = copy(θ); θm[k] -= π / 2
+        g[k] = (f(θp) - f(θm)) / 2
+    end
+    return g
+end
+'''
+cases = [
+  "θ -> cos(θ[1]), [0.3]",
+  "θ -> sin(θ[1]) * cos(θ[2]), [0.3, 1.1]",
+  "θ -> 0.5 + 2cos(θ[1]) - sin(θ[2]) + cos(θ[1]) * sin(θ[3]), [1.0, 2.0, 3.0]",
+]
+gen = "rng -> [(m = rand(rng, 1:4); c = randn(rng, 3, m); (θ -> prod(c[1, i] + c[2, i] * cos(θ[i]) + c[3, i] * sin(θ[i]) for i in 1:m), 2pi .* rand(rng, m))) for _ in 1:25]"
+compare = "custom"
+checker = '''
+(got, expected) -> got isa Vector{Float64} && length(got) == length(expected) && maximum(abs.(got .- expected)) <= 1e-12
+'''
+check_type = true
+hints = [
+  "One partial derivative at a time: shift only angle `k`, up and down, and leave the others alone. Work on copies so that `θ` itself is not changed.",
+  "For each `k`: `θp = copy(θ); θp[k] += π/2`, `θm = copy(θ); θm[k] -= π/2`, then `(f(θp) - f(θm)) / 2`.",
+]
+
+  [problem.perf]
+  args = "θ -> sum(cos, θ), 2pi .* rand(rng, n)"
+  sizes = [64]
+
+  [[problem.variant]]
+  label = "shift of π/4"
+  code = '''
+function shift_gradient(f, θ)
+    g = similar(θ)
+    for k in eachindex(θ)
+        θp = copy(θ); θp[k] += π / 4
+        θm = copy(θ); θm[k] -= π / 4
+        g[k] = (f(θp) - f(θm)) / 2
+    end
+    return g
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "forgets the division by 2"
+  code = '''
+function shift_gradient(f, θ)
+    g = similar(θ)
+    for k in eachindex(θ)
+        θp = copy(θ); θp[k] += π / 2
+        θm = copy(θ); θm[k] -= π / 2
+        g[k] = f(θp) - f(θm)
+    end
+    return g
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "central finite difference with ε = 1e-6"
+  code = '''
+function shift_gradient(f, θ)
+    g = similar(θ); ε = 1e-6
+    for k in eachindex(θ)
+        θp = copy(θ); θp[k] += ε
+        θm = copy(θ); θm[k] -= ε
+        g[k] = (f(θp) - f(θm)) / 2ε
+    end
+    return g
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "shifts in place and restores θ afterwards"
+  code = '''
+function shift_gradient(f, θ)
+    g = similar(θ)
+    for k in eachindex(θ)
+        t = θ[k]
+        θ[k] = t + π / 2; up = f(θ)
+        θ[k] = t - π / 2; down = f(θ)
+        θ[k] = t
+        g[k] = (up - down) / 2
+    end
+    return g
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "va-ising-energy"
+title = "The energy of the variational circuit"
+difficulty = "core"
+kcs = ["vqe"]
+entry = "ising_energy"
+packages = []
+prompt = '''
+Write `ising_energy(θ)` that prepares the two-qubit state of this unit's
+circuit from `|00⟩`, with `θ` a vector of 4 angles,
+
+```
+RY(θ[1]) on qubit 0,  RY(θ[2]) on qubit 1,  CNOT 0 → 1,  RY(θ[3]) on qubit 0,  RY(θ[4]) on qubit 1
+```
+
+and returns its energy `ψ' H ψ` for `H = Z⊗Z + (X⊗I + I⊗X)/2` as a
+`Float64`. The starter defines `apply_1q!`, `apply_cx!` and `RY`.
+
+```julia
+ising_energy(zeros(4))           # 1.0: |00⟩ has ZZ = 1 and no X component
+ising_energy([π, 0, 0, 0])       # 1.0: RY(π) flips qubit 0, the CNOT then flips qubit 1, giving |11⟩
+```
+
+The second example checks the qubit order: with the CNOT reversed, qubit 1
+would stay 0, giving `|01⟩` with `ZZ = -1` and energy `-1.0`.
+
+Results are compared with an absolute tolerance of `1e-12`.
+'''
+starter = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+RY(θ) = ComplexF64[cos(θ/2) -sin(θ/2); sin(θ/2) cos(θ/2)]
+
+function ising_energy(θ)
+    # your code here
+end
+'''
+reference = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+RY(θ) = ComplexF64[cos(θ/2) -sin(θ/2); sin(θ/2) cos(θ/2)]
+
+function ising_energy(θ)
+    ψ = ComplexF64[1, 0, 0, 0]
+    apply_1q!(ψ, RY(θ[1]), 0); apply_1q!(ψ, RY(θ[2]), 1); apply_cx!(ψ, 0, 1)
+    apply_1q!(ψ, RY(θ[3]), 0); apply_1q!(ψ, RY(θ[4]), 1)
+    zz = sum(abs2(ψ[k + 1]) * (isodd(count_ones(k)) ? -1 : 1) for k in 0:3)
+    x0 = real(sum(conj(ψ[(k ⊻ 1) + 1]) * ψ[k + 1] for k in 0:3))
+    x1 = real(sum(conj(ψ[(k ⊻ 2) + 1]) * ψ[k + 1] for k in 0:3))
+    return zz + (x0 + x1) / 2
+end
+'''
+cases = ["zeros(4)", "[π, 0.0, 0.0, 0.0]", "[0.3, 1.2, -0.7, 2.5]", "[π/2, π/2, 0.0, 0.0]"]
+gen = "rng -> [(2pi .* rand(rng, 4),) for _ in 1:25]"
+compare = "custom"
+checker = '''
+(got, expected) -> got isa Float64 && abs(got - expected) <= 1e-12
+'''
+check_type = true
+hints = [
+  "Two steps: build the state with the five gates in order, then add up three expectation values. `Z⊗Z` is diagonal; each `X` term pairs amplitudes whose index differs in one bit.",
+  "`ZZ`: `Σ |ψ[k+1]|² · (-1)^count_ones(k)`. `X` on qubit `q`: `real(Σ conj(ψ[(k ⊻ (1 << q)) + 1]) ψ[k+1])`. Return `zz + (x0 + x1) / 2`.",
+]
+
+  [problem.perf]
+  args = "2pi .* rand(rng, 4)"
+  sizes = [4]
+
+  [[problem.variant]]
+  label = "CNOT with control and target swapped (1 → 0)"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+RY(θ) = ComplexF64[cos(θ/2) -sin(θ/2); sin(θ/2) cos(θ/2)]
+function ising_energy(θ)
+    ψ = ComplexF64[1, 0, 0, 0]
+    apply_1q!(ψ, RY(θ[1]), 0); apply_1q!(ψ, RY(θ[2]), 1); apply_cx!(ψ, 1, 0)
+    apply_1q!(ψ, RY(θ[3]), 0); apply_1q!(ψ, RY(θ[4]), 1)
+    zz = sum(abs2(ψ[k + 1]) * (isodd(count_ones(k)) ? -1 : 1) for k in 0:3)
+    x0 = real(sum(conj(ψ[(k ⊻ 1) + 1]) * ψ[k + 1] for k in 0:3))
+    x1 = real(sum(conj(ψ[(k ⊻ 2) + 1]) * ψ[k + 1] for k in 0:3))
+    return zz + (x0 + x1) / 2
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "RY with the full angle: cos θ, sin θ instead of θ/2"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+RYfull(θ) = ComplexF64[cos(θ) -sin(θ); sin(θ) cos(θ)]
+function ising_energy(θ)
+    ψ = ComplexF64[1, 0, 0, 0]
+    apply_1q!(ψ, RYfull(θ[1]), 0); apply_1q!(ψ, RYfull(θ[2]), 1); apply_cx!(ψ, 0, 1)
+    apply_1q!(ψ, RYfull(θ[3]), 0); apply_1q!(ψ, RYfull(θ[4]), 1)
+    zz = sum(abs2(ψ[k + 1]) * (isodd(count_ones(k)) ? -1 : 1) for k in 0:3)
+    x0 = real(sum(conj(ψ[(k ⊻ 1) + 1]) * ψ[k + 1] for k in 0:3))
+    x1 = real(sum(conj(ψ[(k ⊻ 2) + 1]) * ψ[k + 1] for k in 0:3))
+    return zz + (x0 + x1) / 2
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "the X terms weighted 1 instead of 1/2"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function apply_cx!(ψ, c, t)
+    for k in 0:length(ψ)-1
+        if k & (1 << c) != 0 && k & (1 << t) == 0
+            j = k | (1 << t)
+            ψ[k + 1], ψ[j + 1] = ψ[j + 1], ψ[k + 1]
+        end
+    end
+    return ψ
+end
+RY(θ) = ComplexF64[cos(θ/2) -sin(θ/2); sin(θ/2) cos(θ/2)]
+function ising_energy(θ)
+    ψ = ComplexF64[1, 0, 0, 0]
+    apply_1q!(ψ, RY(θ[1]), 0); apply_1q!(ψ, RY(θ[2]), 1); apply_cx!(ψ, 0, 1)
+    apply_1q!(ψ, RY(θ[3]), 0); apply_1q!(ψ, RY(θ[4]), 1)
+    zz = sum(abs2(ψ[k + 1]) * (isodd(count_ones(k)) ? -1 : 1) for k in 0:3)
+    x0 = real(sum(conj(ψ[(k ⊻ 1) + 1]) * ψ[k + 1] for k in 0:3))
+    x1 = real(sum(conj(ψ[(k ⊻ 2) + 1]) * ψ[k + 1] for k in 0:3))
+    return zz + x0 + x1
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "dense matrices: kron of the gates and of H"
+  code = '''
+function ising_energy(θ)
+    I2 = ComplexF64[1 0; 0 1]; X = ComplexF64[0 1; 1 0]; Z = ComplexF64[1 0; 0 -1]
+    RY(t) = ComplexF64[cos(t/2) -sin(t/2); sin(t/2) cos(t/2)]
+    CX = ComplexF64[1 0 0 0; 0 0 0 1; 0 0 1 0; 0 1 0 0]       # control qubit 0 (low bit), target qubit 1
+    ψ = kron(RY(θ[4]), RY(θ[3])) * CX * kron(RY(θ[2]), RY(θ[1])) * ComplexF64[1, 0, 0, 0]
+    H = kron(Z, Z) + (kron(I2, X) + kron(X, I2)) / 2
+    return real(ψ' * H * ψ)
+end
+'''
+  expect = ["correct"]
+
+[[reference]]
+id = "peruzzo-2014"
+authors = "Peruzzo, A.; McClean, J.; Shadbolt, P.; Yung, M.-H.; Zhou, X.-Q.; Love, P. J.; Aspuru-Guzik, A.; O'Brien, J. L."
+title = "A variational eigenvalue solver on a photonic quantum processor"
+venue = "Nature Communications 5, 4213"
+year = 2014
+url = "https://doi.org/10.1038/ncomms5213"
+note = "The variational eigensolver: a quantum processor prepares and measures a parameterised state, and a classical optimiser adjusts the parameters to minimise the energy, demonstrated on a photonic chip."
+
+[[reference]]
+id = "mitarai-2018"
+authors = "Mitarai, K.; Negoro, M.; Kitagawa, M.; Fujii, K."
+title = "Quantum circuit learning"
+venue = "Physical Review A 98, 032309"
+year = 2018
+url = "https://doi.org/10.1103/PhysRevA.98.032309"
+note = "Parameterised circuits trained by gradient descent, with gradients of measured expectation values obtained from runs at shifted parameters: the shift rule of section 4."
+
+[[reference]]
+id = "schuld-2019"
+authors = "Schuld, M.; Bergholm, V.; Gogolin, C.; Izaac, J.; Killoran, N."
+title = "Evaluating analytic gradients on quantum hardware"
+venue = "Physical Review A 99, 032331"
+year = 2019
+url = "https://doi.org/10.1103/PhysRevA.99.032331"
+note = "Exact gradients of quantum circuits evaluated on hardware by shifting gate parameters, extending the parameter-shift rule beyond the simplest gates."

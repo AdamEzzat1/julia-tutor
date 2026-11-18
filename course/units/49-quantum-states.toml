@@ -1,0 +1,705 @@
+id = "49-quantum-states"
+title = "States as vectors"
+track = "quantum"
+env = "base"
+status = "ready"
+summary = "A qubit state is a vector of complex amplitudes, and n qubits need 2^n of them: why a 30-qubit state takes 16 GiB, the Born rule that turns amplitudes into probabilities, basis states as plain `Vector{ComplexF64}`, Julia's `ψ[k+1]` for the amplitude of |k⟩, and a norm check with a tolerance derived from the number of terms."
+kcs = ["state-vector", "born-rule"]
+prerequisites = ["core/06-collections", "core/20-stdlib-tour"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This course builds a quantum simulator out of Julia's standard library, so
+it needs no physics beyond what each unit explains, and no package beyond
+`LinearAlgebra` and `Random`. It relies on four things from Core Julia:
+
+* **Vectors and 1-based indexing**: `v[1]` is the first element, and
+  `zeros(T, n)` makes `n` zeros of type `T` (unit 6, "Collections").
+* **`LinearAlgebra`**: `norm(v)`, `dot(u, v)` and `'` for the conjugate
+  transpose (unit 20, "A tour of the standard library").
+* **Complex numbers**, built into Julia: `im` is the imaginary unit, so
+  `0.6 + 0.8im` is a `ComplexF64`. `abs2(z)` is `|z|²` (cheaper than
+  `abs(z)^2`, no square root), `conj(z)` flips the sign of the imaginary
+  part, and `cis(θ)` is `e^{iθ} = cos θ + i sin θ`.
+* **Floating point is not exact**: compare computed numbers with a tolerance,
+  never with `==` (Core Julia's numbers unit, and invariant 9 of this
+  repository).
+
+A word you will meet in every unit: an **amplitude** is one complex number
+of a quantum state, one per possible measurement outcome.
+'''
+
+  [[section.example]]
+  caption = "The complex-number operations this course uses most."
+  notice = "Notice that `abs2` of `0.6 + 0.8im` is `1.0` here, but `0.8^2` alone is `0.6400000000000001`: each operation rounds, and whether the rounding errors cancel depends on the numbers."
+  code = '''
+z = 0.6 + 0.8im
+println(typeof(z))
+println(abs2(z), "   ", 0.8^2)
+println(conj(z))
+println(cis(pi / 2))           # e^{iπ/2} = i, up to rounding in cos(π/2)
+'''
+
+[[section]]
+title = "The question: how much memory does a 30-qubit state need?"
+body = '''
+A classical register of `n` bits holds one of its `2^n` possible values at a
+time, and `n` bits store it. A register of `n` **qubits** (quantum bits) is
+described by one complex amplitude for *every* one of the `2^n` values at
+once. Simulating it on a classical computer means storing all of them.
+
+Julia's `ComplexF64` is two `Float64`s, 16 bytes, so a state of `n` qubits
+needs `16 · 2^n` bytes. Each added qubit doubles the memory. That doubling is
+why Feynman argued in 1982 that simulating quantum systems on classical
+computers costs resources exponential in their size, and why he proposed
+computers built from quantum systems instead. It is also the practical limit
+of the simulator you build in this course: state-vector simulation of 45
+qubits needed half a pebibyte of memory spread over a supercomputer.
+
+The rest of this unit is about what those `2^n` numbers mean and how to
+store them in Julia.
+'''
+refs = ["feynman-1982", "haner-steiger-2017"]
+
+  [[section.diagram]]
+  file = "state-memory.svg"
+  alt = "A bar chart on a logarithmic scale of the memory a state vector of ComplexF64 amplitudes needs: 16 KiB at 10 qubits, 16 MiB at 20, 16 GiB at 30, 16 TiB at 40 and 512 TiB at 45: ten doublings from each bar to the next, five for the last step."
+  caption = "Every 10 qubits multiply the memory by 2^10 = 1024; the values are 16 · 2^n bytes, the same as the example prints."
+
+  [[section.analogy]]
+  title = "A light-switch panel and its book of settings"
+  text = '''
+Picture a panel of `n` light switches. Writing down which switches are on
+takes `n` marks: that is a classical register. Now picture a book with one
+page for every possible setting of the panel, `2^n` pages, each holding a
+number. A quantum state of `n` qubits is that book, and a simulator must
+store every page. Adding one switch doubles the book.
+'''
+  breaks = '''
+The pages are not settings the panel secretly holds, with the measurement
+just reading one off. The numbers are complex and can cancel each other (the
+next units use exactly that), and a measurement returns one setting, `n`
+bits, not the book. The `2^n` numbers are the cost of *simulating* the
+qubits, not information that could be read out of them.
+'''
+
+  [[section.example]]
+  caption = "The memory of an `n`-qubit state vector, `16 · 2^n` bytes, printed with Julia's own byte formatter. `big(2)^n` avoids `Int` overflow, which `2^n` would hit at `n = 63`."
+  code = '''
+for n in (1, 10, 20, 30, 40, 45)
+    println("n = ", lpad(n, 2), ": ", Base.format_bytes(16 * big(2)^n))
+end
+println("measured: sizeof(zeros(ComplexF64, 2^20)) == 16 * 2^20: ", sizeof(zeros(ComplexF64, 2^20)) == 16 * 2^20)
+'''
+
+    [section.example.predict]
+    kc = "state-vector"
+    prompt = "Each amplitude is a `ComplexF64` of 16 bytes. Before the output is shown: how much memory does a state vector of **30** qubits take?"
+    choices = ["About 480 bytes", "About 16 GiB", "About 1 GiB", "About 16 TiB"]
+    measure = 'n = 30: ([^\n]+)'
+    values = ["480 bytes", "16.000 GiB", "1.000 GiB", "16.000 TiB"]
+    answer = 2
+    explain = "Thirty qubits have `2^30` basis states, about a billion, and each needs its own 16-byte amplitude: `16 · 2^30` bytes = 16 GiB. `30 × 16` bytes would describe 30 separate numbers, which is how classical bits are stored, not qubits. 16 TiB is 40 qubits: ten more doublings."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A simulator holds a 30-qubit state in 16 GiB. How much does it need after one more qubit is added?"
+  choices = [
+    "16.5 GiB: one more amplitude of 16 bytes for the new qubit",
+    "32 GiB: the number of amplitudes doubles",
+    "16 GiB: the new qubit starts in |0⟩, which costs nothing",
+  ]
+  answer = 2
+  explain = "The state of 31 qubits has `2^31` amplitudes, one per basis state, twice as many as 30 qubits have. A qubit's value is not stored in one place: every amplitude belongs to a setting of *all* the qubits."
+  misconceptions = [
+    "That is how classical bits add up (one more bit, one more slot). For qubits, each of the `2^30` existing basis states splits into two, so the count doubles.",
+    "",
+    "Even a qubit in `|0⟩` doubles the vector: the amplitudes with that qubit set to 1 are zero, but a state-vector simulator stores them anyway, because later gates can make them nonzero.",
+  ]
+
+[[section]]
+title = "Amplitudes, normalisation and the Born rule"
+body = '''
+Write the `2^n` possible outcomes of measuring all `n` qubits as integers
+`k = 0, 1, …, 2^n - 1`, and the state as `|ψ⟩ = Σ_k ψ_k |k⟩`, where `|k⟩`
+(read "ket k") is the outcome `k` and `ψ_k` its amplitude. For one qubit that
+is `α|0⟩ + β|1⟩`.
+
+The **Born rule** connects amplitudes to experiments: measuring all qubits
+gives outcome `k` with probability
+
+```
+P(k) = |ψ_k|²        (in Julia: abs2(ψ[k + 1]))
+```
+
+Probabilities must add up to 1, so a valid state is **normalised**:
+`Σ_k |ψ_k|² = 1`, which is `norm(ψ) = 1`.
+
+Two details matter later. First, only magnitudes enter `P(k)`: `0.8` and
+`0.8im` give the same probability `0.64`, so measuring this way cannot tell
+the phases of the amplitudes apart. The phases are not decoration, though;
+gates make amplitudes add and cancel, and the phases decide which (unit 51
+shows two states with equal probabilities that a gate tells apart). Second,
+the computed probabilities are floating-point numbers, so their sum is 1
+only up to rounding (the last section of this unit derives how far).
+'''
+refs = ["born-1926", "nielsen-chuang-2010"]
+
+  [[section.analogy]]
+  title = "A loaded die whose weights are squares"
+  text = '''
+A measurement behaves like rolling a loaded die with one face per outcome
+`k`. The amplitudes do not give the weights directly: the weight of face `k`
+is `|ψ_k|²`, the squared magnitude, which is why `0.6` and `0.8` make a fair
+pair of weights `0.36` and `0.64`, and normalisation is the rule that the
+weights of a die add up to 1.
+'''
+  breaks = '''
+A die has a face up before anyone looks, and the throw only reveals it. A
+quantum state has no outcome until it is measured; the amplitudes are not
+hidden probabilities of a hidden answer. And die weights cannot cancel,
+while amplitudes are complex numbers that do: two paths to the same outcome
+with amplitudes `+0.5` and `-0.5` give probability 0, not 0.5 (unit 51 and
+the interference units after it). The die only describes one measurement of
+a state that is not changed further.
+'''
+
+  [[section.example]]
+  caption = "Probabilities of a two-qubit state with amplitudes on |0⟩ and |3⟩, and of the equal superposition of one qubit."
+  notice = "Notice that `0.8im` gives the same probability as `0.8` would, and that the equal superposition's probabilities add up to `0.9999999999999998`, not 1: `1/sqrt(2)` is rounded, and so is its square."
+  code = '''
+ψ = ComplexF64[0.6, 0, 0, 0.8im]          # 0.6|0⟩ + 0.8i|3⟩
+println("P(k) for k = 0..3: ", abs2.(ψ), "   sum = ", sum(abs2, ψ))
+a = 1 / sqrt(2)
+φ = ComplexF64[a, a]                       # (|0⟩ + |1⟩)/√2
+p = abs2.(φ)
+println("equal superposition: ", p, "   sum = ", sum(p), "   sum == 1: ", sum(p) == 1)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "One qubit is in the state `0.6|0⟩ - 0.8i|1⟩`. What is the probability of measuring 1?"
+  choices = [
+    "-0.8i, the amplitude of |1⟩",
+    "0.8, the magnitude of the amplitude",
+    "0.64, the squared magnitude",
+    "-0.64, the square of -0.8i",
+  ]
+  answer = 3
+  explain = "The Born rule squares the magnitude: `|-0.8i|² = 0.64`, which is `abs2(-0.8im)`. The phase (here the factor `-i`) does not change it. `0.36 + 0.64 = 1`, so the state is normalised."
+  misconceptions = [
+    "An amplitude is a complex number and cannot be a probability. The probability is computed from it.",
+    "The magnitude is 0.8, but the Born rule uses its square: `0.6` and `0.8` would add up to 1.4, not 1.",
+    "",
+    "`(-0.8i)² = -0.64` squares the complex number itself; the Born rule multiplies it by its conjugate, `z · conj(z) = |z|²`, which is never negative.",
+  ]
+
+[[section]]
+title = "States as plain vectors"
+body = '''
+In code, the state is a `Vector{ComplexF64}` of length `2^n`, and nothing
+more: no struct around it. A plain vector is what `LinearAlgebra` already
+understands, so `norm(ψ)`, `dot(φ, ψ)` (which conjugates its first
+argument: `⟨φ|ψ⟩ = Σ conj(φ_k) ψ_k`), `ψ'` and `kron` work on it at once, and
+the simulator's functions can be tested against textbook linear algebra
+without conversions. The number of qubits is not stored either: it is
+`log2(length(ψ))`, and the simulator checks that the length is a power of 2.
+
+Two states are worth naming:
+
+* the **zero state** `|0…0⟩`, the usual start of a computation: amplitude
+  1 on `k = 0`, zero elsewhere;
+* the **basis state** `|k⟩`: amplitude 1 on outcome `k`, zero elsewhere.
+
+Distinct basis states are **orthonormal**: `⟨j|k⟩` is 1 when `j = k` and 0
+otherwise. Every state is a combination of them, which is what the vector
+`ψ` lists.
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.diagram]]
+  file = "basis-state-layout.svg"
+  alt = "The eight entries of basis_state(3, 5) drawn as a column: for each outcome k from 0 to 7 the diagram shows k in binary, the Julia index k + 1 that holds its amplitude, and the amplitude, which is 1 at k = 5 (Julia index 6) and 0 elsewhere."
+  caption = "Outcome k is stored at Julia index k + 1: the 1 of |5⟩ sits at ψ[6]. Which bit of k is which qubit is the subject of the next unit."
+
+  [[section.example]]
+  caption = "`zero_state` and `basis_state` as plain functions, and the inner products of basis states."
+  notice = "Notice that the vector has eight entries for three qubits, that the 1 of `|2⟩` is the third entry, and that `dot` gives 1 for a state with itself and 0 for two different basis states."
+  code = '''
+using LinearAlgebra
+zero_state(n) = (ψ = zeros(ComplexF64, 2^n); ψ[1] = 1; ψ)
+basis_state(n, k) = (ψ = zeros(ComplexF64, 2^n); ψ[k + 1] = 1; ψ)
+println("length of a 3-qubit state: ", length(zero_state(3)))
+println("⟨5|5⟩ = ", dot(basis_state(3, 5), basis_state(3, 5)), ",  ⟨4|5⟩ = ", dot(basis_state(3, 4), basis_state(3, 5)))
+basis_state(2, 2)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does the simulator store a state as a plain `Vector{ComplexF64}` instead of a `struct QuantumState` with the vector and `n` as fields?"
+  choices = [
+    "A struct field cannot hold a vector of complex numbers",
+    "Plain vectors are faster to index than struct fields",
+    "`norm`, `dot` and `kron` then work on it directly",
+  ]
+  answer = 3
+  explain = "With a plain vector, every function of `LinearAlgebra` applies without unwrapping, and tests can compare the simulator with textbook linear algebra directly. `n` is derived from the length, so it cannot disagree with the data."
+  misconceptions = [
+    "Structs hold vectors fine (`struct S; v::Vector{ComplexF64}; end` is a common pattern); the reason is interoperability, not what a struct can store.",
+    "A concretely typed struct field costs nothing to access in Julia; the compiler sees through it. Speed is not the reason.",
+    "",
+  ]
+
+[[section]]
+title = "Julia is 1-based: the amplitude of |k⟩ lives at ψ[k+1]"
+body = '''
+Outcomes are numbered from 0, because they are binary numbers (`|000⟩` is
+0). Julia's arrays are numbered from 1. So the amplitude of `|k⟩` is
+`ψ[k + 1]`, and the outcome stored at index `i` is `i - 1`.
+
+This shift is the first of two classic off-by-one bugs in simulators (the
+second, which bit is which qubit, is unit 50). It bites in two directions:
+
+* **writing**: `ψ[k] = 1` puts the 1 on the wrong outcome for `k ≥ 1`, and
+  throws a `BoundsError` for `k = 0`, which is the lucky case;
+* **reading**: `argmax(abs2.(ψ))` returns an *index*, so the most likely
+  outcome is `argmax(abs2.(ψ)) - 1`.
+
+Python and C number from 0, and quantum computing papers write `|0⟩` for
+the first state; in those languages index and outcome coincide, which is
+why code translated to Julia often carries this bug.
+'''
+
+  [[section.example]]
+  caption = "A `basis_state` written with `ψ[k] = 1`: the lucky case, where the bug throws."
+  notice = "Notice that the error names index `[0]`: outcome 0 asked for array position 0, which Julia does not have. For `k = 5` the same code would silently set outcome 4."
+  code = '''
+basis_state_wrong(n, k) = (ψ = zeros(ComplexF64, 2^n); ψ[k] = 1; ψ)
+basis_state_wrong(3, 0)
+'''
+
+  [[section.example]]
+  caption = "The most probable outcome of the basis state |5⟩ on three qubits, read with `argmax`."
+  code = '''
+basis_state(n, k) = (ψ = zeros(ComplexF64, 2^n); ψ[k + 1] = 1; ψ)
+ψ = basis_state(3, 5)
+argmax(abs2.(ψ))
+'''
+
+    [section.example.predict]
+    kc = "state-vector"
+    prompt = "`ψ` is the basis state `|5⟩` on three qubits. Before the output is shown: what does `argmax(abs2.(ψ))` return?"
+    choices = ["5", "6", "4"]
+    measure = '^(\d+)\s*$'
+    values = ["5", "6", "4"]
+    answer = 2
+    explain = "`argmax` returns the position in the array, and the amplitude of outcome 5 sits at position 6. The most likely outcome is `argmax(abs2.(ψ)) - 1 = 5`. A result of 4 would come from shifting the wrong way."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`ψ` is a 2-qubit state and `i = 4`. Which outcome's amplitude is `ψ[i]`?"
+  choices = ["Outcome 4, which does not exist on 2 qubits", "Outcome 3, written `|11⟩` in binary", "Outcome 5"]
+  answer = 2
+  explain = "Index `i` holds outcome `i - 1`, so `ψ[4]` is outcome 3, binary `11`: the last of the four outcomes 0 to 3 of two qubits."
+  misconceptions = [
+    "That reads the index as the outcome, as in a 0-based language. Two qubits have outcomes 0 to 3, stored at indices 1 to 4.",
+    "",
+    "That shifts in the wrong direction: the index is one *more* than the outcome, so the outcome is one less.",
+  ]
+
+[[section]]
+title = "Check: every state you build has norm 1 to a stated tolerance"
+body = '''
+A simulator must keep states normalised, and every test of that needs a
+tolerance. `norm(ψ) == 1` is the wrong test: the example of section 3 shows
+an exactly normalised state whose computed probabilities add up to
+`0.9999999999999998`.
+
+The tolerance comes from the summation. `norm(ψ)²` adds `2N` real squares
+(a real and an imaginary part for each of the `N = 2^n` amplitudes). Whatever
+order the additions run in, the computed sum `ŝ` of nonnegative terms
+satisfies `|ŝ - s| ≤ γ_{2N} s` with `γ_m = m u / (1 - m u)` and the unit
+roundoff `u = eps() / 2` (Higham, chapters 3 and 4). The square root halves
+that relative error and adds at most `u` of its own, and the normalisation
+`ψ ./= norm(ψ)` rounds each amplitude once more. Adding these up, a
+normalised state built this way satisfies
+
+```
+|norm(ψ) - 1| ≤ 2N u + O(u) ≈ 2^n · eps()
+```
+
+and the check below allows twice that, `2^(n+1) · eps()`. This is a
+worst-case bound: it assumes every rounding error goes the same way. Real
+errors partly cancel, and `norm` sums in blocks, so measured errors are much
+smaller, as the example shows. A tolerance from the bound can still never
+fail a correct implementation, which is what a test needs.
+'''
+refs = ["higham-2002"]
+
+  [[section.example]]
+  caption = "Random states of 1 to 20 qubits, normalised with `ψ ./= norm(ψ)`: is `|norm(ψ) - 1|` within the derived tolerance, and how close does it come?"
+  notice = "Notice that every state passes, and that the worst error uses less than a hundredth of the tolerance: the bound is pessimistic, as the section says. The digits of the errors themselves depend on the BLAS that computes `norm`, so the example prints comparisons only."
+  code = '''
+using LinearAlgebra, Random
+rng = Xoshiro(2026)
+worst = 0.0
+for n in 1:20
+    ψ = randn(rng, ComplexF64, 2^n)
+    ψ ./= norm(ψ)
+    tol = 2.0^(n + 1) * eps()
+    global worst = max(worst, abs(norm(ψ) - 1) / tol)
+end
+println("all 20 states within |norm(ψ) - 1| ≤ 2^(n+1)·eps(): ", worst <= 1)
+println("worst error as a fraction of its tolerance below 0.01: ", worst < 0.01)
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A test checks `abs(norm(ψ) - 1) < 1e-15` for states of up to 20 qubits. Why is that a poor test?"
+  choices = [
+    "It is too loose: rounding errors are always below `eps()`",
+    "It can fail a correct implementation: the bound grows with `2^n`",
+    "`norm` of a complex vector is complex, so the comparison throws",
+  ]
+  answer = 2
+  explain = "For 20 qubits the worst-case error of the computed norm is about `2^20 · eps() ≈ 2e-10`. Measured errors are usually far smaller, so the test may pass for years, then fail on another CPU or summation order with a correct simulator. A tolerance must come from a bound, not from the errors seen so far."
+  misconceptions = [
+    "One rounding is below `eps()`, but a norm adds about two million squares on 20 qubits, and their errors can add up: the bound for 20 qubits is about `2e-10`, five orders of magnitude above `1e-15`.",
+    "",
+    "`norm` always returns a real, nonnegative number, also for complex vectors: it is `sqrt(Σ |ψ_k|²)`.",
+  ]
+
+[[problem]]
+id = "qs-basis-state"
+title = "The basis state |k⟩"
+difficulty = "warm-up"
+kcs = ["state-vector"]
+entry = "basis_state"
+packages = []
+prompt = '''
+Write `basis_state(n, k)` that returns the basis state `|k⟩` of `n` qubits
+as a `Vector{ComplexF64}` of length `2^n`: amplitude 1 on outcome `k`, zero
+everywhere else. Outcomes run from `0` to `2^n - 1`; for any other `k`,
+throw an `ArgumentError`.
+
+```julia
+basis_state(1, 1)          # ComplexF64[0, 1]
+basis_state(3, 5)          # a 1 at index 6, zeros elsewhere
+basis_state(2, 4)          # throws ArgumentError: 2 qubits have outcomes 0..3
+```
+
+Results are compared exactly (`isequal`) and must have the type
+`Vector{ComplexF64}`.
+'''
+starter = '''
+function basis_state(n, k)
+    # your code here
+end
+'''
+reference = '''
+function basis_state(n, k)
+    0 <= k < 2^n || throw(ArgumentError("outcome $k is out of range for $n qubits"))
+    ψ = zeros(ComplexF64, 2^n)
+    ψ[k + 1] = 1                 # outcome k lives at index k + 1
+    return ψ
+end
+'''
+cases = ["1, 0", "1, 1", "3, 5", "4, 15", "2, 4", "3, -1"]
+gen = "rng -> [(n = rand(rng, 1:8); (n, rand(rng, 0:2^n-1))) for _ in 1:20]"
+compare = "isequal"
+check_type = true
+hints = [
+  "Outcomes are numbered from 0 and Julia's indices from 1. Where does the amplitude of outcome `k` go?",
+  "`zeros(ComplexF64, 2^n)` makes the vector; set index `k + 1`. Check the range first with `0 <= k < 2^n`.",
+]
+
+  [problem.perf]
+  args = "16, rand(rng, 0:2^16-1)"
+  sizes = [1]
+
+  [[problem.variant]]
+  label = "puts the 1 at index k (0-based thinking)"
+  code = '''
+function basis_state(n, k)
+    0 <= k < 2^n || throw(ArgumentError("out of range"))
+    ψ = zeros(ComplexF64, 2^n)
+    ψ[k] = 1
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a real vector, Vector{Float64}"
+  code = '''
+function basis_state(n, k)
+    0 <= k < 2^n || throw(ArgumentError("out of range"))
+    ψ = zeros(2^n)
+    ψ[k + 1] = 1
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "no range check (k = 2^n throws a BoundsError instead)"
+  code = '''
+function basis_state(n, k)
+    ψ = zeros(ComplexF64, 2^n)
+    ψ[k + 1] = 1
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a comprehension over the outcomes"
+  code = '''
+function basis_state(n, k)
+    0 <= k < 2^n || throw(ArgumentError("outcome $k out of range"))
+    return [ComplexF64(j == k) for j in 0:2^n-1]
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "qs-most-likely"
+title = "The most likely outcome"
+difficulty = "core"
+kcs = ["state-vector", "born-rule"]
+entry = "most_likely"
+packages = []
+prompt = '''
+Write `most_likely(ψ)` that returns a tuple `(k, p)`: the outcome `k` (an
+`Int`, numbered from 0 like `|k⟩`) that a measurement of the state `ψ` gives
+with the highest probability, and that probability `p` (a `Float64`). If
+several outcomes tie, return the smallest `k`.
+
+```julia
+most_likely(ComplexF64[0.6, 0, 0, 0.8im])    # (3, 0.6400000000000001)
+most_likely(ComplexF64[1, 0])                # (0, 1.0)
+```
+
+Results are compared with `rtol = 1e-12` (the probability is one `abs2`,
+exact to a rounding or two; the outcome must match exactly). Speed and
+allocations are graded against the reference, which reads the vector once
+and allocates nothing.
+'''
+starter = '''
+function most_likely(ψ)
+    # your code here
+end
+'''
+reference = '''
+function most_likely(ψ)
+    best_k, best_p = 0, abs2(ψ[1])
+    for i in 2:length(ψ)
+        p = abs2(ψ[i])
+        if p > best_p                  # strict: the first of tied outcomes wins
+            best_k, best_p = i - 1, p  # index i holds outcome i - 1
+        end
+    end
+    return (best_k, best_p)
+end
+'''
+cases = [
+  "ComplexF64[0.6, 0, 0, 0.8im]",
+  "ComplexF64[1, 0]",
+  "ComplexF64[0, 1]",
+  "ComplexF64[0.5, 0.5, 0.5im, -0.5]",
+  "ComplexF64[0, 0.6, 0, 0, 0, 0, 0.8, 0]",
+]
+gen = "rng -> [(v = randn(rng, ComplexF64, 2^rand(rng, 1:6)); (v ./ sqrt(sum(abs2, v)),)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "The probability of an outcome is `abs2` of its amplitude. Which index holds outcome `k`?",
+  "`argmax` returns an index, not an outcome; or keep a running best in a loop over `eachindex(ψ)`, remembering that index `i` is outcome `i - 1`.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, n); v ./ sqrt(sum(abs2, v)))"
+  sizes = [65536]
+
+  [[problem.variant]]
+  label = "returns the index from argmax, not the outcome"
+  code = '''
+function most_likely(ψ)
+    p = abs2.(ψ)
+    i = argmax(p)
+    return (i, p[i])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "uses abs, the magnitude, as the probability"
+  code = '''
+function most_likely(ψ)
+    i = argmax(abs.(ψ))
+    return (i - 1, abs(ψ[i]))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "argmax over a new array of probabilities"
+  code = '''
+function most_likely(ψ)
+    p = abs2.(ψ)
+    i = argmax(p)
+    return (i - 1, p[i])
+end
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "findmax with a function, no temporary array"
+  code = '''
+function most_likely(ψ)
+    p, i = findmax(abs2, ψ)
+    return (i - 1, p)
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "qs-outcome-probability"
+title = "The probability of a set of outcomes"
+difficulty = "core"
+kcs = ["born-rule"]
+entry = "outcome_probability"
+packages = []
+prompt = '''
+Write `outcome_probability(ψ, ks)` that returns the probability (a
+`Float64`) that measuring the state `ψ` gives one of the outcomes in the
+vector `ks`. Outcomes are numbered from 0 and the entries of `ks` are
+distinct; an empty `ks` has probability `0.0`.
+
+```julia
+ψ = ComplexF64[0.6, 0, 0, 0.8im]
+outcome_probability(ψ, [3])        # 0.6400000000000001
+outcome_probability(ψ, [0, 3])     # 1.0
+outcome_probability(ψ, Int[])      # 0.0
+```
+
+Results are compared with `rtol = 1e-10`. Derivation: the sums have at
+most `2^16` terms, and two summation orders of `m` nonnegative terms differ
+by at most about `2 m u ≈ 7e-12` relative (section "Check: every state you
+build has norm 1"); `1e-10` leaves a factor of more than 10. Speed and
+allocations are graded against the reference.
+'''
+starter = '''
+function outcome_probability(ψ, ks)
+    # your code here
+end
+'''
+reference = '''
+function outcome_probability(ψ, ks)
+    p = 0.0
+    for k in ks
+        p += abs2(ψ[k + 1])      # outcome k lives at index k + 1
+    end
+    return p
+end
+'''
+cases = [
+  "ComplexF64[0.6, 0, 0, 0.8im], [3]",
+  "ComplexF64[0.6, 0, 0, 0.8im], [0, 3]",
+  "ComplexF64[0.6, 0, 0, 0.8im], Int[]",
+  "ComplexF64[0.5, 0.5, 0.5im, -0.5], [1, 2]",
+  "ComplexF64[0, 0.6, 0, 0, 0, 0, 0.8, 0], [0, 1, 7]",
+]
+gen = "rng -> [(m = 2^rand(rng, 1:6); v = randn(rng, ComplexF64, m); (v ./ sqrt(sum(abs2, v)), randperm(rng, m)[1:rand(rng, 0:m)] .- 1)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-10
+check_type = true
+hints = [
+  "Outcomes that cannot happen together have probabilities that add. What is the probability of one outcome `k`, and where is its amplitude?",
+  "Loop over `ks` and add `abs2(ψ[k + 1])`, starting from `0.0` so the empty case is a `Float64`.",
+]
+
+  [problem.perf]
+  args = "(v = randn(rng, ComplexF64, n); v ./ sqrt(sum(abs2, v))), collect(0:2:n-1)"
+  sizes = [65536]
+
+  [[problem.variant]]
+  label = "reads ψ[k], the amplitude of the outcome before"
+  code = '''
+function outcome_probability(ψ, ks)
+    p = 0.0
+    for k in ks
+        p += abs2(ψ[k])
+    end
+    return p
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "adds the magnitudes instead of their squares"
+  code = '''
+outcome_probability(ψ, ks) = sum((abs(ψ[k + 1]) for k in ks); init = 0.0)
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "slices ψ with ks .+ 1 and broadcasts"
+  code = '''
+outcome_probability(ψ, ks) = sum(abs2.(ψ[ks .+ 1]); init = 0.0)
+'''
+  expect = ["correct", "allocates"]
+
+  [[problem.variant]]
+  label = "a generator with sum"
+  code = '''
+outcome_probability(ψ, ks) = sum((abs2(ψ[k + 1]) for k in ks); init = 0.0)
+'''
+  expect = ["correct"]
+
+[[reference]]
+id = "feynman-1982"
+authors = "Feynman, R. P."
+title = "Simulating physics with computers"
+venue = "International Journal of Theoretical Physics 21, 467-488"
+year = 1982
+url = "https://doi.org/10.1007/BF02650179"
+note = "Argues that simulating a quantum system on a classical computer takes resources that grow exponentially with its size, and proposes computers made of quantum systems: the doubling per qubit of section 2."
+
+[[reference]]
+id = "haner-steiger-2017"
+authors = "Häner, T.; Steiger, D. S."
+title = "0.5 petabyte simulation of a 45-qubit quantum circuit"
+venue = "Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis (SC17), 1-10"
+year = 2017
+url = "https://doi.org/10.1145/3126908.3126947"
+note = "A state-vector simulation of 45 qubits on a supercomputer, with half a petabyte of memory for the 2^45 amplitudes: the practical limit quoted in section 2 (16 · 2^45 bytes = 512 TiB). An arXiv copy is at https://arxiv.org/abs/1704.01127."
+
+[[reference]]
+id = "born-1926"
+authors = "Born, M."
+title = "Zur Quantenmechanik der Stoßvorgänge"
+venue = "Zeitschrift für Physik 37, 863-867"
+year = 1926
+url = "https://doi.org/10.1007/BF01397477"
+note = "The paper on collisions in which Born first read the squared magnitude of a quantum amplitude as a probability: the Born rule of section 3. In German."
+
+[[reference]]
+id = "nielsen-chuang-2010"
+authors = "Nielsen, M. A.; Chuang, I. L."
+title = "Quantum Computation and Quantum Information"
+venue = "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)"
+year = 2012
+url = "https://doi.org/10.1017/CBO9780511976667"
+note = "The standard textbook: qubits, kets and amplitudes, the measurement postulate and normalisation (chapters 1 and 2), as used in sections 3 and 4."
+
+[[reference]]
+id = "higham-2002"
+authors = "Higham, N. J."
+title = "Accuracy and Stability of Numerical Algorithms"
+venue = "SIAM, second edition"
+year = 2002
+url = "https://doi.org/10.1137/1.9780898718027"
+note = "The rounding-error bound for sums and inner products used in section 6: a computed sum of `m` terms has relative error at most `γ_m = m u / (1 - m u)` for nonnegative terms, in any summation order (chapters 3 and 4)."

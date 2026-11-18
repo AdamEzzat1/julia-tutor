@@ -65,6 +65,10 @@ output = """Num[cos(θ) -r*sin(θ); sin(θ) cos(θ)*r]\nr\n"""
 ok = true
 output = """2\n"""
 
+[examples.b1ae11b2f8f23d02]
+ok = true
+output = """h = 1.0e-5  central error: 1.1140866007508521e-11\nh = 3.0e-5  central error: 8.145495389300095e-11\nh = 0.0001  central error: 9.004295087322589e-10\nh = 0.0002  central error: 3.6021572391575774e-9\nh = 0.0003  central error: 8.104481641346695e-9\nh = 0.0005  central error: 2.251258601759787e-8\nh = 0.001  central error: 9.005045020771263e-8\nh = 0.003  central error: 8.104531136199356e-7\nh = 0.01  central error: 9.004993406280803e-6\n"""
+
 [examples.bd72bef1557e47fb]
 ok = true
 output = """(-0.8414709848078965, -0.8414709848078965)\n"""
@@ -112,6 +116,22 @@ output = """3y + 2sin(x)*x + cos(x)*(x^2)\nDifferential(x, 1)(3x*y + sin(x)*(x^2
 [examples.f88dd6e5d596a8cf]
 ok = true
 output = """1.0\n-1.0\n0.9959309045195699605782345466931724042234999707488149015050333517302081498814874\n"""
+
+[[samples.dual-chain-find-the-bug]]
+call = "dual_slope(sin, 1.0)"
+result = "0.5403023058681398"
+[[samples.dual-chain-find-the-bug]]
+call = "dual_slope(x -> sin(3x), 1.0)"
+result = "-2.9699774898013365"
+[[samples.dual-chain-find-the-bug]]
+call = "dual_slope(x -> x * sin(x), 2.0)"
+result = "0.0770037537313969"
+[[samples.dual-chain-find-the-bug]]
+call = "dual_slope(x -> sin(sin(x)), 0.5)"
+result = "0.7786439483717796"
+[[samples.dual-chain-find-the-bug]]
+call = "dual_slope(x -> 2x * x + 1, -1.5)"
+result = "-6.0"
 
 [[samples.dual-horner]]
 call = "value_and_slope([1.0, 2.0, 3.0], 2.0)"

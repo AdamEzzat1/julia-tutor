@@ -361,6 +361,15 @@ end
       group = "r"
       label = "r = dt / dx²"
 
+      [section.example.explore.question]
+      prompt = "Set forward Euler on 39 interior points. Find the largest `r` at which `max |u|` after 100 steps stays below 1.5 (it starts at 1), and commit that point."
+      along = "r"
+      at = { scheme = "forward", n = "39" }
+      pick = "largest"
+      holds = "below"
+      limit = 1.5
+      explain = "On 39 points forward Euler stays below 1.5 up to `r = 0.5` (`0.908`), and at `r = 0.52` it is already `3.6`: the zig-zag mode's factor `1 - 4r sin^2(...)` has left `[-1, 1]`. Move `n` to 19 or 79 at `r = 0.52`: it grows on every grid, because the limit is on `r`, not on `dt`. Then switch to backward Euler at `r = 1.0`: below 1 on every grid."
+
   [[section.question]]
   kind = "choice"
   prompt = "You refine the grid from `dx = 0.02` to `dx = 0.01`. What happens to the most negative eigenvalue of the discrete Laplacian?"

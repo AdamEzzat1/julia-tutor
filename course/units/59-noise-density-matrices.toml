@@ -1,0 +1,680 @@
+id = "59-noise-density-matrices"
+title = "Noise and density matrices"
+track = "quantum"
+env = "base"
+status = "ready"
+summary = "Real qubits lose information to their surroundings. The unit describes that with density matrices and Kraus channels (ρ → Σ K ρ K'), shows that using transpose(K) instead of K' loses probability (the trace drops to 1 - p/2), checks the Bloch-vector formulas of depolarising, amplitude damping (T1) and dephasing (T2), finds the depolarising level p = 1 - 1/√2 ≈ 0.293 where CHSH stops beating every classical strategy, and checks the density-matrix result against 40 000 Monte Carlo trajectories within the 5σ bound."
+kcs = ["density-matrix", "kraus-channels", "decoherence"]
+prerequisites = ["58-phase-estimation"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit uses the density matrix `ρ = ψ ψ'` and the reduced density matrix
+of unit 53, the Bloch vector of unit 51, and the CHSH value `S` of unit 53
+(at most 2 for any classical strategy, `2√2` for a Bell pair).
+
+Three facts about density matrices, each checked in the example:
+
+* `ρ` is Hermitian, has trace 1 and no negative eigenvalues. Its diagonal
+  holds the outcome probabilities.
+* For one qubit, `ρ = (I + x X + y Y + z Z) / 2` with the Bloch vector
+  `(x, y, z) = (tr(ρX), tr(ρY), tr(ρZ))`, of length at most 1.
+* The **purity** `tr(ρ²)` is 1 for a pure state `ψψ'` and smaller for a
+  mixture; for one qubit it is `(1 + x² + y² + z²) / 2`.
+'''
+
+  [[section.example]]
+  caption = "The density matrix of `|+⟩`, its Bloch vector and purity, and the same for an equal mixture of `|0⟩` and `|1⟩`."
+  code = '''
+using LinearAlgebra
+X = ComplexF64[0 1; 1 0]; Y = ComplexF64[0 -im; im 0]; Z = ComplexF64[1 0; 0 -1]
+bloch(ρ) = round.(real.([tr(ρ * X), tr(ρ * Y), tr(ρ * Z)]); digits = 12) .+ 0.0
+plus = ComplexF64[1, 1] / sqrt(2)
+ρ_plus = plus * plus'
+ρ_mix = 0.5 * ComplexF64[1 0; 0 0] + 0.5 * ComplexF64[0 0; 0 1]     # |0⟩ or |1⟩ with probability 1/2 each
+for (name, ρ) in (("|+⟩", ρ_plus), ("mixture of |0⟩ and |1⟩", ρ_mix))
+    println(rpad(name, 24), " P(0) = ", real(ρ[1, 1]), ",  Bloch ", bloch(ρ), ",  purity ", round(real(tr(ρ * ρ)); digits = 12))
+end
+'''
+
+    [section.example.predict]
+    kc = "density-matrix"
+    prompt = "Both states give 0 and 1 with probability 1/2 when measured in the 0/1 basis. Before the output is shown: what is the purity `tr(ρ²)` of the equal mixture of `|0⟩` and `|1⟩`?"
+    choices = ["1, the same as |+⟩", "0.5", "0"]
+    measure = 'mixture of \|0⟩ and \|1⟩\s+P\(0\) = \S+\s+Bloch \S+ \S+ \S+\s+purity ([0-9.]+)'
+    ranges = [[0.99, 1.01], [0.45, 0.55], [0, 0.05]]
+    answer = 2
+    explain = "The mixture is `ρ = I/2`, with Bloch vector `(0, 0, 0)` and purity `(1 + 0)/2 = 1/2`, the smallest a qubit can have. `|+⟩` has Bloch vector `(1, 0, 0)` and purity 1: the two give the same 0/1 statistics and different `X` statistics. Purity is never 0, since `tr(ρ²) ≥ 1/d` for a `d × d` density matrix."
+
+[[section]]
+title = "The question: how much noise destroys a quantum advantage?"
+body = '''
+Unit 53's Bell pair wins the CHSH game with `S = 2√2`, above every
+classical strategy's 2. A real qubit interacts with its surroundings, and
+the pair degrades. At what noise level does the advantage disappear?
+
+To answer, the state has to describe uncertainty about which pure state the
+qubits are in. A **mixed state** is an ensemble: pure state `ψ_i` with
+probability `p_i`, described by
+
+```
+ρ = Σ p_i ψ_i ψ_i'
+```
+
+Every prediction of a measurement depends on the ensemble only through
+`ρ`. Two different ensembles with the same `ρ` cannot be told apart by any
+experiment, which is why `ρ`, and not the list of `ψ_i`, is the state.
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "`|+⟩` and the equal mixture of `|0⟩` and `|1⟩` both give 0 and 1 with probability 1/2 in the 0/1 basis. How can an experiment tell them apart?"
+  choices = [
+    "Measure Z many more times; small differences add up",
+    "Measure X: |+⟩ always gives +, the mixture is 50/50",
+    "They cannot be told apart by any measurement",
+  ]
+  answer = 2
+  explain = "Their density matrices differ: `ρ_plus` has off-diagonal entries 1/2, the mixture has 0. A measurement of `X` reads exactly those (`tr(ρX)` is 1 against 0)."
+  misconceptions = [
+    "The `Z` statistics are identical, not nearly identical: both diagonals are `(1/2, 1/2)`. More repetitions only confirm the same frequencies.",
+    "",
+    "States with different density matrices can always be distinguished statistically; only ensembles with the same `ρ` cannot.",
+  ]
+
+[[section]]
+title = "Kraus channels: K' and not transpose(K)"
+body = '''
+A noise process on a qubit is described by a **channel** in Kraus form, a
+list of matrices `K_1, …, K_m`:
+
+```
+ρ  →  Σ over i of  K_i ρ K_i'          with   Σ K_i' K_i = I
+```
+
+Read it as: with probability `tr(K_i ρ K_i')` the environment did "event
+`i`", and the state became `K_i ρ K_i'` normalised. The condition
+`Σ K_i' K_i = I` makes those probabilities add up to 1, so the trace stays
+1. Three standard channels:
+
+```
+depolarising(p):       √(1 - 3p/4) I,  √(p/4) X,  √(p/4) Y,  √(p/4) Z
+amplitude damping(γ):  [1 0; 0 √(1-γ)],  [0 √γ; 0 0]
+dephasing(λ):          [1 0; 0 √(1-λ)],  [0 0; 0 √λ]
+```
+
+The `'` is Julia's **conjugate** transpose. For a real `K` it equals
+`transpose(K)`, so a bug that writes `transpose(K)` passes every test that
+uses only real Kraus operators. Depolarising contains `Y`, which is
+imaginary: `transpose(Y) = -Y`, so the `Y` term enters with the wrong sign,
+and the trace becomes `1 - p/2`. This exact bug is one of the 22 seeded
+mutants of this course's simulator project, where the cross-check against
+Qiskit caught it and the one against Yao, which has no noise check, did not.
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.example]]
+  caption = "Depolarising with `p = 0.4` applied to `|+i⟩ = (|0⟩ + i|1⟩)/√2` (Bloch vector along `y`), with `K'` and with `transpose(K)`."
+  code = '''
+using LinearAlgebra
+I2 = ComplexF64[1 0; 0 1]; X = ComplexF64[0 1; 1 0]; Y = ComplexF64[0 -im; im 0]; Z = ComplexF64[1 0; 0 -1]
+depolarizing(p) = [sqrt(1 - 3p/4) * I2, sqrt(p/4) * X, sqrt(p/4) * Y, sqrt(p/4) * Z]
+apply_channel(ρ, Ks) = sum(K * ρ * K' for K in Ks)
+apply_channel_transpose(ρ, Ks) = sum(K * ρ * transpose(K) for K in Ks)     # the bug
+bloch(ρ) = round.(real.([tr(ρ * X), tr(ρ * Y), tr(ρ * Z)]); digits = 12) .+ 0.0
+ψ = ComplexF64[1, im] / sqrt(2)
+ρ = ψ * ψ'
+Ks = depolarizing(0.4)
+println("Σ K'K == I within 1e-15: ", maximum(abs.(sum(K' * K for K in Ks) - I2)) < 1e-15)
+println("with K':        trace ", round(real(tr(apply_channel(ρ, Ks))); digits = 12), ",  Bloch ", bloch(apply_channel(ρ, Ks)))
+println("with transpose: trace ", round(real(tr(apply_channel_transpose(ρ, Ks))); digits = 12), ",  Bloch ", bloch(apply_channel_transpose(ρ, Ks)))
+'''
+
+    [section.example.predict]
+    kc = "kraus-channels"
+    prompt = "With `transpose(K)`, the `Y` term of depolarising changes sign. Before the output is shown: what is the trace of the result for `p = 0.4`?"
+    choices = ["1, the bug only changes the direction of the Bloch vector", "0.8", "0.6"]
+    measure = 'with transpose: trace ([0-9.]+)'
+    ranges = [[0.99, 1.01], [0.75, 0.85], [0.55, 0.65]]
+    answer = 2
+    explain = "The four terms contribute `(1 - 3p/4) + p/4 + p/4 - p/4 = 1 - p/2 = 0.8` to the trace: probability has leaked away. The Bloch `y` component also comes out wrong (0.4 instead of `(1 - p) = 0.6`). A check of `tr ρ = 1` after every channel would catch this bug on its first complex Kraus operator."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why does a channel apply `K ρ K'` and not `K ρ transpose(K)`?"
+  choices = [
+    "The two agree for every channel, so it is a matter of style",
+    "For complex K, only K' keeps ρ Hermitian with trace 1",
+    "transpose(K) applies the channel to the other qubit",
+  ]
+  answer = 2
+  explain = "`ρ → K ρ K'` is what `ψ → K ψ` does to `ψ ψ'`: `(Kψ)(Kψ)' = K ψ ψ' K'`. With `transpose`, the result is not that of any state vector, and for complex `K` its trace and Hermiticity are lost, as the example shows."
+  misconceptions = [
+    "They agree only for real `K`. Depolarising's `Y` is imaginary, and the trace drops to `1 - p/2`.",
+    "",
+    "Transposing a `2 × 2` matrix does not move it to another qubit; on two qubits, which qubit a gate acts on is decided by the `kron` order, as in unit 50.",
+  ]
+
+[[section]]
+title = "Three channels on the Bloch sphere: depolarising, T1 and T2"
+body = '''
+Each channel moves the Bloch vector `(x, y, z)` in a fixed way, which the
+example checks on random states:
+
+* **Depolarising** (`p`): `(x, y, z) → (1 - p)(x, y, z)`. The sphere shrinks
+  uniformly toward the centre, `I/2`.
+* **Amplitude damping** (`γ`): `(x, y, z) → (√(1-γ) x, √(1-γ) y, γ + (1-γ) z)`.
+  Energy leaks out: `|1⟩` decays toward `|0⟩` (the north pole, `z = 1`).
+  Applied `k` times, the population of `|1⟩` is `(1 - γ)^k`, an exponential
+  decay; for steps of duration `Δt`, its time constant is
+  `T1 = -Δt / ln(1 - γ)`.
+* **Dephasing** (`λ`): `(x, y, z) → (√(1-λ) x, √(1-λ) y, z)`. The
+  populations stay, and the coherences (the off-diagonal entries) decay.
+  Its time constant is the `T2` of hardware data sheets.
+
+All three lower the purity of a pure state, and none ever makes a Bloch
+vector longer than 1.
+'''
+refs = ["nielsen-chuang-2010"]
+
+  [[section.diagram]]
+  file = "bloch-channels.svg"
+  alt = "Three panels, each showing a cross-section of the Bloch sphere in the x-z plane as a unit circle with |0⟩ at the top and |1⟩ at the bottom. Depolarising: the circle shrinks to a smaller concentric circle. Amplitude damping: it shrinks to an ellipse narrower in x and flatter in z, shifted up toward |0⟩. Dephasing: it shrinks only in x, to an ellipse that still touches |0⟩ and |1⟩."
+  caption = "Where each channel sends the surface of the Bloch sphere (cut in the `x`-`z` plane), for `p = γ = λ = 0.4`. Depolarising shrinks it, amplitude damping shrinks it toward `|0⟩`, dephasing squeezes it onto the `z` axis."
+
+  [[section.analogy]]
+  title = "A photograph fading in the sun"
+  text = '''
+A photograph left in the sun keeps its outlines but loses contrast, until
+only a uniform grey is left. Depolarising does that to a qubit: the Bloch
+vector keeps its direction and gets shorter, until only `I/2`, the uniform
+mixture, is left.
+'''
+  breaks = '''
+Fading is the same everywhere on a photograph; other channels are not.
+Amplitude damping drifts every state toward `|0⟩`, not toward grey, and
+dephasing erases the `x` and `y` components while keeping `z` exactly. A
+photograph also fades continuously in time, while a channel is one step;
+repeated steps give the exponential decay with `T1` or `T2`.
+'''
+
+  [[section.example]]
+  caption = "Bloch-vector formulas of the three channels on 5 random pure states, and the population of `|1⟩` under 40 steps of amplitude damping with `γ = 0.05`."
+  code = '''
+using LinearAlgebra, Random
+I2 = ComplexF64[1 0; 0 1]; X = ComplexF64[0 1; 1 0]; Y = ComplexF64[0 -im; im 0]; Z = ComplexF64[1 0; 0 -1]
+depolarizing(p) = [sqrt(1 - 3p/4) * I2, sqrt(p/4) * X, sqrt(p/4) * Y, sqrt(p/4) * Z]
+amp_damping(γ) = [ComplexF64[1 0; 0 sqrt(1 - γ)], ComplexF64[0 sqrt(γ); 0 0]]
+dephasing(λ) = [ComplexF64[1 0; 0 sqrt(1 - λ)], ComplexF64[0 0; 0 sqrt(λ)]]
+apply_channel(ρ, Ks) = sum(K * ρ * K' for K in Ks)
+bloch(ρ) = real.([tr(ρ * X), tr(ρ * Y), tr(ρ * Z)])
+rng = Xoshiro(59)
+worst = 0.0
+for _ in 1:5
+    v = randn(rng, ComplexF64, 2); v ./= norm(v); ρ = v * v'
+    x, y, z = bloch(ρ)
+    p, γ, λ = rand(rng, 3)
+    global worst = max(worst,
+        maximum(abs.(bloch(apply_channel(ρ, depolarizing(p))) - (1 - p) .* [x, y, z])),
+        maximum(abs.(bloch(apply_channel(ρ, amp_damping(γ))) - [sqrt(1 - γ) * x, sqrt(1 - γ) * y, γ + (1 - γ) * z])),
+        maximum(abs.(bloch(apply_channel(ρ, dephasing(λ))) - [sqrt(1 - λ) * x, sqrt(1 - λ) * y, z])))
+end
+println("Bloch formulas, 5 states x 3 channels: largest error below 1e-14: ", worst < 1e-14)
+ρ = ComplexF64[0 0; 0 1]                              # |1⟩
+for _ in 1:40
+    global ρ = apply_channel(ρ, amp_damping(0.05))
+end
+println("after 40 damping steps: P(1) = ", round(real(ρ[2, 2]); digits = 4), ",  0.95^40 = ", round(0.95^40; digits = 4))
+'''
+
+    [section.example.predict]
+    kc = "decoherence"
+    prompt = "Each damping step moves 5% of the remaining `|1⟩` population to `|0⟩`. Before the output is shown: what is `P(1)` after 40 steps?"
+    choices = ["0, since 40 · 5% = 200% is gone", "About 0.13", "About 0.5, the mixed state"]
+    measure = 'after 40 damping steps: P\(1\) = ([0-9.]+)'
+    ranges = [[0, 0.01], [0.1, 0.16], [0.45, 0.55]]
+    answer = 2
+    explain = "Each step keeps the fraction `1 - γ = 0.95` of what is left, so after 40 steps `0.95^40 ≈ 0.128` remains: exponential, not linear, decay. Amplitude damping relaxes toward `|0⟩`, the ground state, not toward the mixture `I/2`; that is depolarising's end point."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Which of the three channels leaves the probabilities of 0 and 1 unchanged?"
+  choices = [
+    "Depolarising, since it treats all directions alike",
+    "Dephasing: it shrinks x and y and keeps z",
+    "Amplitude damping",
+  ]
+  answer = 2
+  explain = "`P(0) = (1 + z)/2`, so the 0/1 probabilities are fixed exactly when `z` is. Dephasing keeps `z` and destroys only the coherences, which a 0/1 measurement cannot see."
+  misconceptions = [
+    "Depolarising shrinks `z` too, toward 0, so the probabilities move toward 1/2 each.",
+    "",
+    "Amplitude damping moves `z` toward 1: population flows from `|1⟩` to `|0⟩`.",
+  ]
+
+[[section]]
+title = "CHSH under depolarising noise"
+body = '''
+Depolarise Alice's qubit of the Bell pair `|Φ+⟩` with probability `p` and
+compute `S` from the density matrix, `E(a, b) = tr(ρ · A(b) ⊗ A(a))` with the
+observables `A(θ) = cos θ Z + sin θ X` of unit 53. Depolarising Alice's
+qubit multiplies every correlator by `1 - p` (the `X`, `Y`, `Z` parts of
+her qubit shrink by `1 - p`, as on the Bloch sphere), so
+
+```
+S(p) = 2√2 (1 - p)
+```
+
+and `S > 2` exactly when `p < 1 - 1/√2 ≈ 0.2929`. Above that level, the
+measured correlations no longer exceed what a classical strategy can
+produce. That does not mean the pair has lost all its entanglement: CHSH
+is one test, and a pair can be entangled without violating it. Whether it
+is entangled needs a different check, which this course does not cover.
+'''
+refs = ["chsh-1969", "nielsen-chuang-2010"]
+
+  [[section.example]]
+  caption = "`S` from the density matrix of the depolarised Bell pair, against `2√2 (1 - p)`."
+  code = '''
+using LinearAlgebra
+I2 = ComplexF64[1 0; 0 1]; X = ComplexF64[0 1; 1 0]; Y = ComplexF64[0 -im; im 0]; Z = ComplexF64[1 0; 0 -1]
+depolarizing(p) = [sqrt(1 - 3p/4) * I2, sqrt(p/4) * X, sqrt(p/4) * Y, sqrt(p/4) * Z]
+on_qubit0(ρ, Ks) = sum((Kf = kron(I2, K); Kf * ρ * Kf') for K in Ks)     # qubit 0 is the right factor
+A(θ) = cos(θ) * Z + sin(θ) * X
+E(ρ, a, b) = real(tr(ρ * kron(A(b), A(a))))                                 # Alice's qubit 0, Bob's qubit 1
+S(ρ) = E(ρ, 0, π/4) + E(ρ, 0, -π/4) + E(ρ, π/2, π/4) - E(ρ, π/2, -π/4)
+bell = ComplexF64[1, 0, 0, 1] / sqrt(2)
+for p in (0.0, 0.1, 0.25, 0.29, 0.30, 0.6)
+    ρ = on_qubit0(bell * bell', depolarizing(p))
+    println("p = ", rpad(p, 4), ": S = ", rpad(round(S(ρ); digits = 4), 6), "  2√2(1-p) = ", round(2sqrt(2) * (1 - p); digits = 4))
+end
+println("threshold 1 - 1/√2 = ", round(1 - 1 / sqrt(2); digits = 4))
+'''
+
+    [section.example.predict]
+    kc = "decoherence"
+    prompt = "Alice's qubit is depolarised with `p = 0.30`. Before the output is shown: what is `S`?"
+    choices = ["About 2.83: noise on one qubit leaves the correlations intact", "About 1.98, just below 2", "0"]
+    measure = 'p = 0\.3 : S = ([0-9.]+)'
+    ranges = [[2.8, 2.9], [1.9, 2.0], [0, 0.1]]
+    answer = 2
+    explain = "`2√2 · 0.7 = 1.980`, just below the classical bound, since 0.30 is above the threshold 0.2929; at `p = 0.29` it is 2.008, just above. Noise on one qubit is enough, because every correlator involves both qubits. `S = 0` needs `p = 1`, full depolarisation."
+
+[[section]]
+title = "An independent method: quantum trajectories"
+body = '''
+The density matrix gives the averaged effect of noise. A second method
+follows single runs instead, one pure state at a time, as Dalibard, Castin
+and Mølmer did for dissipative quantum optics. For each channel on the way:
+
+1. compute the candidate states `K_i ψ` and their weights `w_i = ‖K_i ψ‖²`
+   (which add up to 1, by `Σ K_i' K_i = I`);
+2. pick `i` with probability `w_i` and continue with `K_i ψ / √w_i`.
+
+Averaging `ψ ψ'` over `R` runs approaches `ρ`, and the two methods share no
+code beyond the Kraus matrices. Each entry of `ψ ψ'` has modulus at most
+1, so each entry of the average has a standard deviation of at most
+`1/√R`; a deviation beyond `5/√R` would point to a bug, and a correct
+implementation exceeds it with negligible probability (unit 51's 5σ rule).
+'''
+refs = ["dalibard-1992"]
+
+  [[section.example]]
+  caption = "Amplitude damping (`γ = 0.3`) on qubit 1 and depolarising (`p = 0.2`) on qubit 2 of a 3-qubit GHZ state: the density matrix against 40 000 trajectories."
+  code = '''
+using LinearAlgebra, Random
+I2 = ComplexF64[1 0; 0 1]; X = ComplexF64[0 1; 1 0]; Y = ComplexF64[0 -im; im 0]; Z = ComplexF64[1 0; 0 -1]
+depolarizing(p) = [sqrt(1 - 3p/4) * I2, sqrt(p/4) * X, sqrt(p/4) * Y, sqrt(p/4) * Z]
+amp_damping(γ) = [ComplexF64[1 0; 0 sqrt(1 - γ)], ComplexF64[0 sqrt(γ); 0 0]]
+full(K, q, n) = kron(Matrix{ComplexF64}(I, 2^(n - q - 1), 2^(n - q - 1)), K, Matrix{ComplexF64}(I, 2^q, 2^q))
+channel(ρ, Ks, q, n) = sum((F = full(K, q, n); F * ρ * F') for K in Ks)
+ghz = zeros(ComplexF64, 8); ghz[1] = ghz[8] = 1 / sqrt(2)
+steps = [(amp_damping(0.3), 1), (depolarizing(0.2), 2)]
+ρ_exact = channel(channel(ghz * ghz', steps[1]..., 3), steps[2]..., 3)
+function trajectory(ψ, steps, rng)
+    for (Ks, q) in steps
+        candidates = [full(K, q, 3) * ψ for K in Ks]
+        w = [sum(abs2, c) for c in candidates]
+        i = min(searchsortedfirst(cumsum(w), rand(rng)), length(w))
+        ψ = candidates[i] / sqrt(w[i])
+    end
+    return ψ
+end
+rng = Xoshiro(59)
+R = 40_000
+ρ_mc = sum((ψ = trajectory(ghz, steps, rng); ψ * ψ') for _ in 1:R) / R
+dev = maximum(abs.(ρ_mc - ρ_exact))
+println("largest |ρ_trajectories - ρ_exact| entry: ", round(dev; digits = 4), ",  within 5/√R = ", 5 / sqrt(R), ": ", dev < 5 / sqrt(R))
+'''
+
+    [section.example.predict]
+    kc = "kraus-channels"
+    prompt = "40 000 random trajectories against the exact density matrix. Before the output is shown: how large is the largest entry-wise difference?"
+    choices = ["About 1e-15: the two methods are exact", "A few thousandths: statistical error of order 1/√R", "About 0.5"]
+    measure = 'largest \|ρ_trajectories - ρ_exact\| entry: ([0-9.e-]+)'
+    ranges = [[0, 1e-10], [0.0005, 0.025], [0.1, 1.0]]
+    answer = 2
+    explain = "The trajectory average is a sample mean, so its error is statistical, of order `1/√R = 0.005` per entry at most and smaller for entries with less spread. A difference of `1e-15` would mean no randomness at all, and one of 0.5 would be a bug far outside `5/√R = 0.025`."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Each trajectory ends in a pure state. How can their average be the mixed `ρ`?"
+  choices = [
+    "An average of different pure states ψψ' is mixed",
+    "Rounding errors add up across trajectories into mixedness",
+    "It cannot: the trajectories only approximate the diagonal of ρ",
+  ]
+  answer = 1
+  explain = "A mixed state is by definition an average of pure ones, `ρ = Σ p_i ψ_i ψ_i'` (section 2). Different runs pick different Kraus branches and end in different pure states, and their average has purity below 1."
+  misconceptions = [
+    "",
+    "Rounding errors are of order `1e-16`; the measured purity is far below 1, which needs genuinely different states.",
+    "The comparison covers every entry, off-diagonal ones included, and they agree within the statistical bound too.",
+  ]
+
+[[problem]]
+id = "nd-apply-channel"
+title = "Apply a Kraus channel"
+difficulty = "warm-up"
+kcs = ["kraus-channels"]
+entry = "apply_channel"
+packages = []
+prompt = '''
+Write `apply_channel(ρ, Ks)` that applies the channel with Kraus matrices
+`Ks` (a vector of matrices the size of `ρ`) to the density matrix `ρ` and
+returns the new density matrix `Σ K ρ K'`.
+
+```julia
+X = ComplexF64[0 1; 1 0]
+apply_channel(ComplexF64[1 0; 0 0], [sqrt(0.5) * X, sqrt(0.5) * [1 0; 0 1]])   # [0.5 0; 0 0.5]
+```
+
+Results are compared with `isapprox` at `rtol = 1e-12`: each entry is a sum
+of a few products of matrix entries.
+'''
+starter = '''
+function apply_channel(ρ, Ks)
+    # your code here
+end
+'''
+reference = '''
+function apply_channel(ρ, Ks)
+    return sum(K * ρ * K' for K in Ks)
+end
+'''
+cases = [
+  "ComplexF64[1 0; 0 0], [sqrt(0.5) * ComplexF64[0 1; 1 0], sqrt(0.5) * ComplexF64[1 0; 0 1]]",
+  "ComplexF64[0.5 -0.5im; 0.5im 0.5], [sqrt(0.9) * ComplexF64[1 0; 0 1], sqrt(0.1) * ComplexF64[0 -im; im 0]]",
+  "ComplexF64[0 0; 0 1], [ComplexF64[1 0; 0 sqrt(0.7)], ComplexF64[0 sqrt(0.3); 0 0]]",
+]
+gen = "rng -> [(A = randn(rng, ComplexF64, 2, 2); ρ = A * A' ./ sum(abs2, A); a = 2pi .* rand(rng, 3); U = ComplexF64[cos(a[1]) -cis(a[3])*sin(a[1]); cis(a[2])*sin(a[1]) cis(a[2]+a[3])*cos(a[1])]; q = rand(rng); (ρ, [sqrt(q) * U, sqrt(1 - q) * ComplexF64[1 0; 0 1]])) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "The result is a sum with one term per Kraus matrix, and each term sandwiches `ρ` between a matrix and its adjoint.",
+  "`sum(K * ρ * K' for K in Ks)`: `'` is the conjugate transpose, which is what keeps the result Hermitian with trace 1 for complex `K`.",
+]
+
+  [problem.perf]
+  args = "(A = randn(rng, ComplexF64, n, n); A * A' ./ sum(abs2, A)), [sqrt(0.5) * ComplexF64[i == j for i in 1:n, j in 1:n], sqrt(0.5) * ComplexF64[i == j for i in 1:n, j in 1:n]]"
+  sizes = [64]
+
+  [[problem.variant]]
+  label = "transpose(K) instead of K'"
+  code = '''
+function apply_channel(ρ, Ks)
+    return sum(K * ρ * transpose(K) for K in Ks)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "K' ρ K: the adjoint on the wrong side"
+  code = '''
+function apply_channel(ρ, Ks)
+    return sum(K' * ρ * K for K in Ks)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "only the first Kraus matrix"
+  code = '''
+function apply_channel(ρ, Ks)
+    K = first(Ks)
+    return K * ρ * K'
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "an explicit loop accumulating into a zero matrix"
+  code = '''
+function apply_channel(ρ, Ks)
+    out = zero(ρ)
+    for K in Ks
+        out += K * ρ * K'
+    end
+    return out
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "nd-channel-on-qubit"
+title = "A one-qubit channel inside an n-qubit density matrix"
+difficulty = "core"
+kcs = ["kraus-channels", "density-matrix"]
+entry = "apply_channel_on_qubit"
+packages = []
+prompt = '''
+Write `apply_channel_on_qubit(ρ, Ks, q)` that applies a one-qubit channel
+(Kraus matrices `Ks`, each `2 × 2`) to qubit `q` of an `n`-qubit density
+matrix `ρ` (`2^n × 2^n`, little-endian as in unit 50), and returns the new
+density matrix. Each `K` acts as `I ⊗ … ⊗ K ⊗ … ⊗ I` with `K` in qubit `q`'s
+place; in Julia's `kron`, qubit `q` is the factor with `q` factors to its
+right.
+
+```julia
+I2 = ComplexF64[1 0; 0 1]; X = ComplexF64[0 1; 1 0]
+ρ = zeros(ComplexF64, 4, 4); ρ[1, 1] = 1                  # |00⟩
+apply_channel_on_qubit(ρ, [X], 1)                          # |10⟩⟨10|: entry [3, 3] is 1
+```
+
+You may use `LinearAlgebra`. Results are compared with `isapprox` at
+`rtol = 1e-12`.
+'''
+starter = '''
+using LinearAlgebra
+
+function apply_channel_on_qubit(ρ, Ks, q)
+    # your code here
+end
+'''
+reference = '''
+using LinearAlgebra
+
+function apply_channel_on_qubit(ρ, Ks, q)
+    n = trailing_zeros(size(ρ, 1))
+    high = Matrix{ComplexF64}(I, 2^(n - q - 1), 2^(n - q - 1))   # qubits above q
+    low = Matrix{ComplexF64}(I, 2^q, 2^q)                        # qubits below q
+    return sum((F = kron(high, K, low); F * ρ * F') for K in Ks)
+end
+'''
+cases = [
+  "(ρ = zeros(ComplexF64, 4, 4); ρ[1, 1] = 1; ρ), [ComplexF64[0 1; 1 0]], 1",
+  "(ρ = zeros(ComplexF64, 4, 4); ρ[1, 1] = 1; ρ), [ComplexF64[0 1; 1 0]], 0",
+  "ComplexF64[1 0 0 1; 0 0 0 0; 0 0 0 0; 1 0 0 1] / 2, [sqrt(0.75) * ComplexF64[1 0; 0 1], sqrt(0.25) * ComplexF64[0 -im; im 0]], 0",
+  "ComplexF64[1 0 0 1; 0 0 0 0; 0 0 0 0; 1 0 0 1] / 2, [ComplexF64[1 0; 0 sqrt(0.6)], ComplexF64[0 sqrt(0.4); 0 0]], 1",
+]
+gen = "rng -> [(n = rand(rng, 1:4); A = randn(rng, ComplexF64, 2^n, 2^n); a = 2pi .* rand(rng, 3); U = ComplexF64[cos(a[1]) -cis(a[3])*sin(a[1]); cis(a[2])*sin(a[1]) cis(a[2]+a[3])*cos(a[1])]; g = rand(rng); (A * A' ./ sum(abs2, A), rand(rng, Bool) ? [sqrt(g) * U, sqrt(1 - g) * ComplexF64[1 0; 0 1]] : [ComplexF64[1 0; 0 sqrt(1 - g)], ComplexF64[0 sqrt(g); 0 0]], rand(rng, 0:n-1))) for _ in 1:25]"
+compare = "isapprox"
+rtol = 1e-12
+check_type = true
+hints = [
+  "Each Kraus matrix becomes a `2^n × 2^n` matrix acting on qubit `q` only; then the channel is applied as in the previous problem. The question is where `K` goes in the `kron`.",
+  "Qubit `q` has `q` qubits below it (the right factors) and `n - q - 1` above it (the left): `kron(I_(2^(n-q-1)), K, I_(2^q))`, with `Matrix{ComplexF64}(I, m, m)` for an identity.",
+]
+
+  [problem.perf]
+  args = "(A = randn(rng, ComplexF64, n, n); A * A' ./ sum(abs2, A)), [ComplexF64[1 0; 0 sqrt(0.6)], ComplexF64[0 sqrt(0.4); 0 0]], 1"
+  sizes = [32]
+
+  [[problem.variant]]
+  label = "kron order reversed (textbook qubit order)"
+  code = '''
+using LinearAlgebra
+function apply_channel_on_qubit(ρ, Ks, q)
+    n = trailing_zeros(size(ρ, 1))
+    return sum((F = kron(Matrix{ComplexF64}(I, 2^q, 2^q), K, Matrix{ComplexF64}(I, 2^(n - q - 1), 2^(n - q - 1))); F * ρ * F') for K in Ks)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "transpose(F) instead of F'"
+  code = '''
+using LinearAlgebra
+function apply_channel_on_qubit(ρ, Ks, q)
+    n = trailing_zeros(size(ρ, 1))
+    return sum((F = kron(Matrix{ComplexF64}(I, 2^(n - q - 1), 2^(n - q - 1)), K, Matrix{ComplexF64}(I, 2^q, 2^q)); F * ρ * transpose(F)) for K in Ks)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "index loops: K applied to row and column bits of qubit q, no kron"
+  code = '''
+function apply_channel_on_qubit(ρ, Ks, q)
+    N = size(ρ, 1); m = 1 << q
+    out = zeros(ComplexF64, N, N)
+    for K in Ks, i in 0:N-1, j in 0:N-1
+        bi, bj = (i & m) != 0, (j & m) != 0
+        acc = zero(ComplexF64)
+        for a in 0:1, b in 0:1
+            ii = a == 1 ? (i | m) : (i & ~m)
+            jj = b == 1 ? (j | m) : (j & ~m)
+            acc += K[bi + 1, a + 1] * ρ[ii + 1, jj + 1] * conj(K[bj + 1, b + 1])
+        end
+        out[i + 1, j + 1] += acc
+    end
+    return out
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "nd-trace-preserving"
+title = "Is it a valid channel?"
+difficulty = "core"
+kcs = ["kraus-channels"]
+entry = "is_trace_preserving"
+packages = []
+prompt = '''
+Write `is_trace_preserving(Ks)` that returns `true` when the Kraus matrices
+`Ks` (each `d × d`) satisfy `Σ K' K = I` to within `1e-12` in every entry,
+and `false` otherwise.
+
+```julia
+is_trace_preserving([ComplexF64[1 0; 0 sqrt(0.7)], ComplexF64[0 sqrt(0.3); 0 0]])   # true: amplitude damping
+is_trace_preserving([0.9 * ComplexF64[1 0; 0 1]])                                    # false: loses 19%
+```
+
+Results are compared with `isequal`. The tolerance: `Σ K'K` for a valid
+channel computed in floating point differs from `I` by a few `eps` per
+entry (for example `sqrt(1 - 3p/4)^2` is not always exactly `1 - 3p/4`), and
+the invalid channels tested differ by far more than `1e-12`.
+'''
+starter = '''
+function is_trace_preserving(Ks)
+    # your code here
+end
+'''
+reference = '''
+function is_trace_preserving(Ks)
+    S = sum(K' * K for K in Ks)
+    d = size(S, 1)
+    return all(abs(S[i, j] - (i == j)) <= 1e-12 for i in 1:d, j in 1:d)
+end
+'''
+cases = [
+  "[ComplexF64[1 0; 0 sqrt(0.7)], ComplexF64[0 sqrt(0.3); 0 0]]",
+  "[0.9 * ComplexF64[1 0; 0 1]]",
+  "[sqrt(1 - 3 * 0.3 / 4) * ComplexF64[1 0; 0 1], sqrt(0.3 / 4) * ComplexF64[0 1; 1 0], sqrt(0.3 / 4) * ComplexF64[0 -im; im 0], sqrt(0.3 / 4) * ComplexF64[1 0; 0 -1]]",
+  "[sqrt(2) * ComplexF64[1 0; 0 0]]",
+  "[ComplexF64[1 0; 0 sqrt(0.7)], ComplexF64[0 0; sqrt(0.3) 0]]",
+]
+gen = "rng -> [(p = rand(rng); s = rand(rng, [1.0, 1.0, 0.99, 1.01, 0.9]); k = rand(rng, 1:4); (k == 1 ? [s * sqrt(1 - 3p/4) * ComplexF64[1 0; 0 1], sqrt(p/4) * ComplexF64[0 1; 1 0], sqrt(p/4) * ComplexF64[0 -im; im 0], sqrt(p/4) * ComplexF64[1 0; 0 -1]] : k == 2 ? [s * ComplexF64[1 0; 0 sqrt(1 - p)], ComplexF64[0 sqrt(p); 0 0]] : k == 3 ? [ComplexF64[1 0; 0 sqrt(1 - p)], ComplexF64[0 0; sqrt(p) 0]] : [s * ComplexF64[1 0; 0 sqrt(1 - p)], ComplexF64[0 0; 0 sqrt(p)]],)) for _ in 1:40]"
+compare = "isequal"
+check_type = true
+hints = [
+  "Add up `K' * K` over the Kraus matrices and compare the sum with the identity, entry by entry, allowing for rounding.",
+  "`S = sum(K' * K for K in Ks)`; then `all(abs(S[i, j] - (i == j)) <= 1e-12 for i in 1:d, j in 1:d)`.",
+]
+
+  [problem.perf]
+  args = "[sqrt(0.5) * ComplexF64[i == j for i in 1:n, j in 1:n], sqrt(0.5) * ComplexF64[i == j for i in 1:n, j in 1:n]]"
+  sizes = [64]
+
+  [[problem.variant]]
+  label = "Σ K K' instead of Σ K' K"
+  code = '''
+function is_trace_preserving(Ks)
+    S = sum(K * K' for K in Ks)
+    d = size(S, 1)
+    return all(abs(S[i, j] - (i == j)) <= 1e-12 for i in 1:d, j in 1:d)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "exact comparison with I (no tolerance)"
+  code = '''
+function is_trace_preserving(Ks)
+    S = sum(K' * K for K in Ks)
+    d = size(S, 1)
+    return all(S[i, j] == (i == j) for i in 1:d, j in 1:d)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "checks only that the trace of Σ K'K is d"
+  code = '''
+function is_trace_preserving(Ks)
+    S = sum(K' * K for K in Ks)
+    d = size(S, 1)
+    return abs(sum(S[i, i] for i in 1:d) - d) <= 1e-12
+end
+'''
+  expect = ["incorrect"]
+
+[[reference]]
+id = "nielsen-chuang-2010"
+authors = "Nielsen, M. A.; Chuang, I. L."
+title = "Quantum Computation and Quantum Information"
+venue = "Cambridge University Press, 10th anniversary edition (printed 2010; Crossref dates the online edition 2012)"
+year = 2012
+url = "https://doi.org/10.1017/CBO9780511976667"
+note = "Density matrices and mixed states, the operator-sum (Kraus) representation of quantum channels with its completeness condition, and the depolarising, amplitude damping and phase damping channels with their action on the Bloch vector (this unit's sections 2 to 4)."
+
+[[reference]]
+id = "chsh-1969"
+authors = "Clauser, J. F.; Horne, M. A.; Shimony, A.; Holt, R. A."
+title = "Proposed experiment to test local hidden-variable theories"
+venue = "Physical Review Letters 23, 880-884"
+year = 1969
+url = "https://doi.org/10.1103/PhysRevLett.23.880"
+note = "The CHSH inequality: the combination S of four correlators is at most 2 in absolute value for any local hidden-variable theory, the classical bound of section 5."
+
+[[reference]]
+id = "dalibard-1992"
+authors = "Dalibard, J.; Castin, Y.; Mølmer, K."
+title = "Wave-function approach to dissipative processes in quantum optics"
+venue = "Physical Review Letters 68(5), 580-583"
+year = 1992
+url = "https://doi.org/10.1103/PhysRevLett.68.580"
+note = "Simulating dissipation by stochastic evolution of a wave function and averaging over runs instead of evolving a density matrix: the idea behind the trajectories of section 6, whose discrete Kraus-branch version is used here."

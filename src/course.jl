@@ -25,11 +25,13 @@ export Unit, Section, Example, Question, Problem, Perf, Variant, load_course, va
        CourseInfo, Outcome, load_courses, validate_courses, course_of, prereq_unit, prereq_course
 
 const COURSE_DIR = normpath(joinpath(@__DIR__, "..", "course"))
-const TRACKS = ["foundations", "core", "advanced", "ecosystem", "scicomp", "sciml"]
+const TRACKS = ["foundations", "core", "advanced", "ecosystem", "scicomp", "sciml", "quantum"]
 # A track that assumes whole earlier tracks: every unit of those comes first in
 # the syllabus, and each of its units names the earlier units it builds on.
+# The quantum course needs only Core Julia, so its track assumes Core's tracks.
 const TRACK_REQUIRES = Dict("scicomp" => ["foundations", "core", "advanced", "ecosystem"],
-                            "sciml" => ["foundations", "core", "advanced", "ecosystem", "scicomp"])
+                            "sciml" => ["foundations", "core", "advanced", "ecosystem", "scicomp"],
+                            "quantum" => ["foundations", "core", "advanced"])
 const DIFFICULTIES = ["warm-up", "core", "stretch"]
 const VARIANT_EXPECT = ["correct", "incorrect", "load-error", "slow", "allocates", "unstable", "scaling", "fast"]
 
@@ -51,6 +53,27 @@ struct Prediction
     values::Vector{String}                   # word predictions (empty for numeric ones)
     answer::Int                              # 1-based; must be the choice the measurement selects
     explain::String                          # shown with the output, whatever was picked
+    # A typed-number prediction (no choices): the learner types a number, and it
+    # is a hit when it lies within `tolerance` of the measured value. NaN for a
+    # choice prediction.
+    tolerance::Float64
+    within::String                           # "abs": |x - v| <= tol; "rel": <= tol*|v|; "factor": v/tol <= x <= v*tol
+    unit::String                             # shown after the input box ("digits", "iterations"); may be ""
+end
+Prediction(kc, prompt, measure, choices, ranges, values, answer, explain) =
+    Prediction(kc, prompt, measure, choices, ranges, values, answer, explain, NaN, "", "")
+
+"""Whether a prediction asks for a typed number (no choices) rather than a pick."""
+typed(p::Prediction) = !isnan(p.tolerance)
+
+const TOLERANCE_KINDS = ["abs", "rel", "factor"]
+
+"""Whether a typed number `x` is within the prediction's tolerance of the measured `v`."""
+function within_tolerance(p::Prediction, x::Real, v::Real)
+    isfinite(x) || return false
+    p.within == "rel" && return abs(x - v) <= p.tolerance * abs(v)
+    p.within == "factor" && return x > 0 && v > 0 && v / p.tolerance <= x <= v * p.tolerance
+    return abs(x - v) <= p.tolerance
 end
 
 """
@@ -124,6 +147,55 @@ end
 # The sweep needs this many rows for an edge to mean something.
 const BREAK_MIN_ROWS = 4
 
+"""
+Pick the implementation that wins: the example runs two to six
+implementations of the same computation and prints one measurement per
+implementation (a time, or bytes allocated), and the learner picks the one
+that wins before the output is shown. Nothing is typed as a key: `rows[i]` is
+a regex with a named group `m`, matched on exactly one output line, and the
+smallest `m` wins. `tutor course verify` re-runs the example and fails unless
+the winner is `answer` and it beats every other choice by at least `margin`
+(a ratio), so the verdict cannot flip with machine load. Because the check is
+on that ratio, a race may sit on a `check = false` example (times differ from
+run to run); its digits are not compared, its winner is.
+"""
+struct Race
+    kc::String
+    prompt::String
+    choices::Vector{String}        # the implementations; the table shows the text before ": "
+    rows::Vector{String}           # one regex per choice, with a named group `m` (the measurement)
+    by::String                     # "time" or "bytes": what `m` is (smaller wins)
+    unit::String                   # how `m` is printed ("μs", "bytes"), shown in the table
+    margin::Float64                # the winner beats every other choice by at least this factor
+    answer::Int
+    explain::String
+    misconceptions::Vector{String} # one per choice; "" for the answer
+end
+
+const RACE_BY = ["time", "bytes"]
+# A smaller margin on times would flip with load on a shared machine.
+const RACE_MIN_MARGIN = Dict("time" => 3.0, "bytes" => 2.0)
+
+"""
+A question attached to an explorer: the learner answers by moving the
+sliders, not by reading a value off them. "Set the method to RK4 and find the
+largest h where the error stays below 1e-6", committed as the point the
+sliders are at. The key is the grid: among the values of axis `along`, with
+every other axis held at `at`, the `pick` ("largest" or "smallest") value
+where the measure is `holds` ("below" or "above") `limit`. `tutor course
+verify` fails unless the condition holds at some values of `along` and fails
+at others (a question every point answers teaches nothing).
+"""
+struct ExploreQuestion
+    prompt::String
+    along::String                  # the axis the learner searches (numeric)
+    at::Dict{String,String}        # every other axis, at a value as printed
+    pick::String                   # "largest" or "smallest"
+    holds::String                  # "below": measure < limit; "above": measure > limit
+    limit::Float64
+    explain::String                # shown once committed, whatever was picked
+end
+
 """One axis of an explorer's grid: a named group of `row`, its label, and whether it is drawn on a log scale."""
 struct ExploreAxis
     group::String
@@ -156,7 +228,10 @@ struct Explorer
     label::String                  # what the measure is ("max error at t = 2")
     log::Bool                      # the measure on a log scale
     explain::String                # shown under the explorer
+    question::Union{Nothing,ExploreQuestion}   # required: the sliders answer a question
 end
+Explorer(kc, prompt, row, axes, x, series, measure, label, log, explain) =
+    Explorer(kc, prompt, row, axes, x, series, measure, label, log, explain, nothing)
 
 # Grids bigger than this make the site data heavy and the sliders coarse to use.
 const EXPLORE_MAX_POINTS = 400
@@ -172,32 +247,57 @@ struct Example
     choose::Union{Nothing,Checkpoint}    # pick a method and give a reason before the output is shown
     breakit::Union{Nothing,BreakIt}      # find where the method fails before the sweep is shown
     explore::Union{Nothing,Explorer}     # sliders over the grid the output recorded
+    race::Union{Nothing,Race}            # pick the implementation that wins before the measurements are shown
 end
-Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing, nothing, nothing, nothing)
-Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing, nothing, nothing, nothing)
+Example(code, check, caption, mode) = Example(code, check, caption, mode, "", nothing, nothing, nothing, nothing, nothing)
+Example(code, check, caption, mode, notice) = Example(code, check, caption, mode, notice, nothing, nothing, nothing, nothing, nothing)
 Example(code, check, caption, mode, notice, predict) =
-    Example(code, check, caption, mode, notice, predict, nothing, nothing, nothing)
+    Example(code, check, caption, mode, notice, predict, nothing, nothing, nothing, nothing)
 Example(code, check, caption, mode, notice, predict, choose) =
-    Example(code, check, caption, mode, notice, predict, choose, nothing, nothing)
+    Example(code, check, caption, mode, notice, predict, choose, nothing, nothing, nothing)
 Example(code, check, caption, mode, notice, predict, choose, breakit) =
-    Example(code, check, caption, mode, notice, predict, choose, breakit, nothing)
+    Example(code, check, caption, mode, notice, predict, choose, breakit, nothing, nothing)
+Example(code, check, caption, mode, notice, predict, choose, breakit, explore) =
+    Example(code, check, caption, mode, notice, predict, choose, breakit, explore, nothing)
 
 """
 A concept question shown after a section's examples. `choice`: pick the
 right statement. `output`: `code` is run when the unit is recorded, and the
 right choice must be exactly its output (so the key is measured, not typed).
+`error`: reading an error message. `code` is run when the unit is recorded,
+its output (an `ERROR:` or a logged `Warning:`) is shown under it, and the
+learner picks what is wrong and what fixes it; `verify` fails unless the
+recorded output contains `shows` on an `ERROR:` or `Warning:` line, so the
+message the question is about is the one Julia printed.
 Every wrong choice carries the misconception it stands for, shown when the
 learner picks it.
 """
 struct Question
-    kind::String                  # "choice" or "output"
+    kind::String                  # "choice", "output" or "error"
     prompt::String
     code::String                  # shown above the choices; required for "output"
     choices::Vector{String}
     answer::Int                   # 1-based index into `choices`
     explain::String               # why the right answer is right (shown after any answer)
     misconceptions::Vector{String}  # one per choice; "" for the right one
+    shows::String                 # "error": text the recorded ERROR or Warning line must contain
 end
+Question(kind, prompt, code, choices, answer, explain, mis) = Question(kind, prompt, code, choices, answer, explain, mis, "")
+
+"""
+A placement item: an `output` question in the unit it tests. A course's
+placement check is its units' items in course order; answering an item right
+(one pick, scored once) suggests skipping every unit in `covers`, which always
+holds the item's own unit and may name earlier units of the same course. A
+unit is suggested for skipping only when every item covering it was right.
+"""
+struct Placement
+    q::Question
+    covers::Vector{String}
+end
+
+"""Question kinds whose code is run when the unit is recorded."""
+const RECORDED_KINDS = ("output", "error")
 
 """
 An analogy shown beside a section's prose, for readers new to the field.
@@ -286,6 +386,13 @@ failing tests and what each measures, then the problem's `hints` one at a
 time; `answer_tokens` (pieces of the fix) may not appear in a test's text or
 the first hint. Once the learner's code passes the grader, `misconception`
 says what belief the planted line models.
+
+A *performance* bug leaves every answer right: the planted line allocates or
+makes a variable's type unstable. Its `starter_expect` lists the verdicts the
+grader must give the planted starter, `"correct"` plus `"allocates"` and/or
+`"unstable"` (counted, never timed, so they hold on any machine); verify then
+checks those instead of requiring the starter to fail. Its tests measure with
+`@allocated` and inference, as the grader does.
 """
 struct Bug
     kc::String
@@ -294,7 +401,13 @@ struct Bug
     tests::Vector{BugTest}
     misconception::String
     answer_tokens::Vector{String}
+    starter_expect::Vector{String}   # empty: the planted starter gives wrong answers
 end
+Bug(kc, find, replace, tests, misconception, answer_tokens) =
+    Bug(kc, find, replace, tests, misconception, answer_tokens, String[])
+
+# Verdicts a performance bug's starter may be declared to get: counted ones only.
+const BUG_STARTER_VERDICTS = ("correct", "allocates", "unstable")
 
 """
 A distractor line of a Parsons problem: it can take the place of the movable
@@ -377,9 +490,12 @@ struct Unit
     sections::Vector{Section}
     problems::Vector{Problem}
     references::Vector{Reference}
+    placement::Vector{Placement}  # its course's placement check: output questions that let a learner skip units
 end
 Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems) =
     Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems, Reference[])
+Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems, refs::Vector{Reference}) =
+    Unit(id, title, track, env, status, summary, kcs, prerequisites, outline, lessons, sections, problems, refs, Placement[])
 
 getstr(d, k, default = "") = String(get(d, k, default))
 
@@ -387,15 +503,18 @@ function load_question(q)
     choices = String.(get(q, "choices", String[]))
     mis = String.(get(q, "misconceptions", fill("", length(choices))))
     return Question(getstr(q, "kind", "choice"), getstr(q, "prompt"), getstr(q, "code"), choices,
-                    Int(get(q, "answer", 0)), getstr(q, "explain"), mis)
+                    Int(get(q, "answer", 0)), getstr(q, "explain"), mis, getstr(q, "shows"))
 end
 
 """Every concept question of a unit, in order."""
 questions(u) = [q for s in u.sections for q in s.questions]
 
-"""Code a unit records: its examples, then the code of its `output` questions (REPL mode)."""
+"""Questions whose code a unit records: its `output` and `error` questions, then its placement items."""
+recorded_questions(u) = vcat([q for q in questions(u) if q.kind in RECORDED_KINDS], [p.q for p in u.placement])
+
+"""Code a unit records: its examples, then the code of its recorded questions (REPL mode)."""
 recorded_code(u) = vcat([(e.code, e.mode) for s in u.sections for e in s.examples],
-                        [(q.code, "repl") for q in questions(u) if q.kind == "output"])
+                        [(q.code, "repl") for q in recorded_questions(u)])
 
 function load_problem(d)
     perf = haskey(d, "perf") ?
@@ -429,7 +548,7 @@ function load_bug(b)
         push!(tests, BugTest(getstr(t, "name"), getstr(t, "code"), getstr(t, "row"), expect, getstr(t, "explain")))
     end
     return Bug(getstr(b, "kc"), getstr(b, "find"), getstr(b, "replace"), tests, getstr(b, "misconception"),
-               String.(get(b, "answer_tokens", String[])))
+               String.(get(b, "answer_tokens", String[])), String.(get(b, "starter_expect", String[])))
 end
 
 """The line numbers (1-based) where two texts differ, or `nothing` when their line counts differ."""
@@ -460,6 +579,17 @@ function bug_problems(p::Problem, kcs)
         occursin(tok, b.replace) && push!(out, "answer token \"$tok\" also appears in the planted line, so it cannot give the fix away")
     end
     isempty(p.hints) && push!(out, "no hints (they fade in after the measured tests)")
+    if !isempty(b.starter_expect)
+        se = b.starter_expect
+        for x in se
+            x in BUG_STARTER_VERDICTS ||
+                push!(out, "starter_expect: '$x' is not one of $(BUG_STARTER_VERDICTS) (timed verdicts vary by machine)")
+        end
+        "correct" in se || push!(out, "starter_expect must include \"correct\": a performance bug keeps every answer right")
+        any(in(se), ("allocates", "unstable")) ||
+            push!(out, "starter_expect must include \"allocates\" or \"unstable\": what the planted line costs")
+        p.perf === nothing && push!(out, "a performance bug needs [problem.perf]: its verdicts are measured there")
+    end
     length(b.tests) >= 1 || push!(out, "no convergence tests")
     names = Set{String}()
     for (i, t) in enumerate(b.tests)
@@ -755,8 +885,27 @@ function load_prediction(p)
     p === nothing && return nothing
     ranges = Tuple{Float64,Float64}[(Float64(r[1]), Float64(r[2])) for r in get(p, "ranges", Any[]) if length(r) == 2]
     length(ranges) == length(get(p, "ranges", Any[])) || (ranges = [(NaN, NaN)])   # malformed: validation says so
+    tol = get(p, "tolerance", nothing)
     return Prediction(getstr(p, "kc"), getstr(p, "prompt"), getstr(p, "measure"), String.(get(p, "choices", String[])),
-                      ranges, String.(get(p, "values", String[])), Int(get(p, "answer", 0)), getstr(p, "explain"))
+                      ranges, String.(get(p, "values", String[])), Int(get(p, "answer", 0)), getstr(p, "explain"),
+                      tol isa Real ? Float64(tol) : tol === nothing ? NaN : -1.0,   # malformed: validation says so
+                      getstr(p, "within", tol === nothing ? "" : "abs"), getstr(p, "unit"))
+end
+
+function load_race(r)
+    r === nothing && return nothing
+    choices = String.(get(r, "choices", String[]))
+    by = getstr(r, "by", "time")
+    return Race(getstr(r, "kc"), getstr(r, "prompt"), choices, String.(get(r, "rows", String[])), by, getstr(r, "unit"),
+                Float64(get(r, "margin", get(RACE_MIN_MARGIN, by, 3.0))), Int(get(r, "answer", 0)), getstr(r, "explain"),
+                String.(get(r, "misconceptions", fill("", length(choices)))))
+end
+
+function load_explore_question(q)
+    q === nothing && return nothing
+    at = Dict{String,String}(String(k) => string(v) for (k, v) in get(q, "at", Dict()))
+    return ExploreQuestion(getstr(q, "prompt"), getstr(q, "along"), at, getstr(q, "pick"), getstr(q, "holds"),
+                           Float64(get(q, "limit", NaN)), getstr(q, "explain"))
 end
 
 function load_checkpoint(c)
@@ -780,7 +929,8 @@ function load_explorer(x)
     x === nothing && return nothing
     axes = [ExploreAxis(getstr(a, "group"), getstr(a, "label"), get(a, "log", false) === true) for a in get(x, "axis", Any[])]
     return Explorer(getstr(x, "kc"), getstr(x, "prompt"), getstr(x, "row"), axes, getstr(x, "x"), getstr(x, "series"),
-                    getstr(x, "measure"), getstr(x, "label"), get(x, "log", false) === true, getstr(x, "explain"))
+                    getstr(x, "measure"), getstr(x, "label"), get(x, "log", false) === true, getstr(x, "explain"),
+                    load_explore_question(get(x, "question", nothing)))
 end
 
 function load_unit(path::String)
@@ -789,7 +939,7 @@ function load_unit(path::String)
                         [Example(e["code"], get(e, "check", true), getstr(e, "caption"), getstr(e, "mode", "repl"),
                                  getstr(e, "notice"), load_prediction(get(e, "predict", nothing)),
                                  load_checkpoint(get(e, "choose", nothing)), load_breakit(get(e, "breakit", nothing)),
-                                 load_explorer(get(e, "explore", nothing)))
+                                 load_explorer(get(e, "explore", nothing)), load_race(get(e, "race", nothing)))
                          for e in get(s, "example", Any[])],
                         [load_question(q) for q in get(s, "question", Any[])],
                         [Analogy(getstr(a, "title"), getstr(a, "text"), getstr(a, "breaks")) for a in get(s, "analogy", Any[])],
@@ -800,7 +950,13 @@ function load_unit(path::String)
     return Unit(d["id"], d["title"], d["track"], getstr(d, "env", "base"), getstr(d, "status", "ready"),
                 d["summary"], String.(get(d, "kcs", String[])), String.(get(d, "prerequisites", String[])),
                 String.(get(d, "outline", String[])), String.(get(d, "lessons", String[])), sections,
-                [load_problem(p) for p in get(d, "problem", Any[])], refs)
+                [load_problem(p) for p in get(d, "problem", Any[])], refs,
+                [load_placement(p, d["id"]) for p in get(d, "placement", Any[])])
+end
+
+function load_placement(p, uid)
+    q = load_question(merge(Dict{String,Any}("kind" => "output"), p))
+    return Placement(q, unique(vcat(String.(get(p, "covers", String[])), [String(uid)])))
 end
 
 """All units in syllabus order (file names start with a sortable number)."""
@@ -865,6 +1021,7 @@ A course's time estimate from its counts: ready units, their practice
 problems, guided projects and hole projects, at `ESTIMATE_RATES`. Returns
 (low hours, high hours, basis), rounded out to whole hours; the basis says
 what was counted and at what rate, so the number can be checked by hand.
+A course with no ready unit estimates (0, 0), whatever projects it lists.
 """
 function time_estimate(c::CourseInfo, units::Vector{Unit})
     byid = Dict(u.id => u for u in units)
@@ -880,6 +1037,9 @@ function time_estimate(c::CourseInfo, units::Vector{Unit})
             "$(Int(r.guided[1]))–$(Int(r.guided[2])) h per guided project ($(n.guided)), " *
             "$(Int(r.project[1]))–$(Int(r.project[2])) h per hole project ($(n.project)); " *
             "guessed rates, not measured"
+    # Before any unit is published there is no course to time: a project
+    # alone (a course's last part) would understate it, so no number at all.
+    isempty(ready) && return 0, 0, "no estimate until a unit is published; it will count " * basis
     return floor(Int, low), ceil(Int, high), basis
 end
 
@@ -1011,6 +1171,14 @@ function validate_courses(courses::Vector{CourseInfo}, units::Vector{Unit};
         for id in c.units
             haskey(byid, id) || push!(problems, "course $(c.id): no unit $id")
         end
+        # placement items cover their own unit and earlier units of the same course
+        for (k, id) in enumerate(c.units), (i, pl) in enumerate(haskey(byid, id) ? byid[id].placement : Placement[])
+            for v in pl.covers
+                j = findfirst(==(v), c.units)
+                j === nothing && (push!(problems, "$id placement $i: covers $v, which is not a unit of course $(c.id)"); continue)
+                j <= k || push!(problems, "$id placement $i: covers $v, which comes after $id in course $(c.id)")
+            end
+        end
         known = filter(id -> haskey(byid, id), c.units)
         issorted(known; by = id -> global_order[id]) ||
             push!(problems, "course $(c.id): units must be listed in syllabus order")
@@ -1097,7 +1265,7 @@ env_packages(env::AbstractString, dir::String = COURSE_DIR) =
 """What is structurally wrong with a concept question (empty = nothing)."""
 function question_problems(q::Question)
     out = String[]
-    q.kind in ("choice", "output") || push!(out, "kind must be choice or output")
+    q.kind in ("choice", "output", "error") || push!(out, "kind must be choice, output or error")
     isempty(strip(q.prompt)) && push!(out, "no prompt")
     2 <= length(q.choices) <= 6 || push!(out, "needs 2 to 6 choices")
     allunique(strip.(q.choices)) || push!(out, "choices must differ")
@@ -1109,10 +1277,35 @@ function question_problems(q::Question)
         i != q.answer && isempty(strip(m)) && push!(out, "wrong choice $i has no misconception")
     end
     q.kind == "output" && isempty(strip(q.code)) && push!(out, "an output question needs code")
+    if q.kind == "error"
+        isempty(strip(q.code)) && push!(out, "an error question needs code (its output is the message shown)")
+        isempty(strip(q.shows)) && push!(out, "an error question needs `shows`: the text of the ERROR or Warning line")
+    else
+        isempty(q.shows) || push!(out, "`shows` belongs to error questions only")
+    end
+    return out
+end
+
+"""
+What is structurally wrong with a placement item: it is an `output` question
+(predict the output; the key is measured when the unit is recorded).
+`covers` is checked against the course in `validate_courses`.
+"""
+function placement_problems(p::Placement)
+    out = question_problems(p.q)
+    p.q.kind == "output" || push!(out, "a placement item is an output question (kind = \"output\")")
     return out
 end
 
 compile_measure(s) = isempty(s) ? nothing : try Regex(s) catch; nothing end
+
+"""
+Whether an error question's recorded `output` shows its message: a line that
+starts with `ERROR:` (as the sandbox prints an uncaught exception) or holds a
+logged `Warning:`, and contains `shows`.
+"""
+shows_message(q::Question, output::AbstractString) =
+    any(l -> (startswith(l, "ERROR:") || occursin("Warning:", l)) && occursin(q.shows, l), eachline(IOBuffer(output)))
 
 """What is structurally wrong with an example's prediction (empty = nothing)."""
 function prediction_problems(p::Prediction, e::Example, kcs)
@@ -1120,12 +1313,21 @@ function prediction_problems(p::Prediction, e::Example, kcs)
     p.kc in kcs || push!(out, "kc '$(p.kc)' is not one of the unit's kcs $(kcs)")
     isempty(strip(p.prompt)) && push!(out, "no prompt")
     isempty(strip(p.explain)) && push!(out, "no explanation")
-    2 <= length(p.choices) <= 6 || push!(out, "needs 2 to 6 choices")
-    allunique(strip.(p.choices)) || push!(out, "choices must differ")
-    1 <= p.answer <= length(p.choices) || push!(out, "answer must index a choice (1-based)")
     # A key read from an output that is recorded but never compared could change unnoticed.
     e.check || push!(out, "the example has check = false: a prediction needs an output that verify compares")
     compile_measure(p.measure) === nothing && push!(out, "measure is not a regular expression")
+    if typed(p)
+        (isempty(p.choices) && isempty(p.ranges) && isempty(p.values) && p.answer == 0) ||
+            push!(out, "a typed-number prediction (tolerance) has no choices, ranges, values or answer: the measured value is the key")
+        p.tolerance > 0 && isfinite(p.tolerance) || push!(out, "tolerance must be a positive number")
+        p.within in TOLERANCE_KINDS || push!(out, "within must be one of $(TOLERANCE_KINDS)")
+        p.within == "factor" && !(p.tolerance > 1) && push!(out, "a factor tolerance must be above 1 (2 = within a factor of 2)")
+        return out
+    end
+    isempty(p.within) && isempty(p.unit) || push!(out, "within and unit belong to a typed-number prediction (give tolerance)")
+    2 <= length(p.choices) <= 6 || push!(out, "needs 2 to 6 choices")
+    allunique(strip.(p.choices)) || push!(out, "choices must differ")
+    1 <= p.answer <= length(p.choices) || push!(out, "answer must index a choice (1-based)")
     if isempty(p.ranges) == isempty(p.values)
         push!(out, "give either ranges (a numeric prediction) or values (a word prediction), not both or neither")
     elseif !isempty(p.ranges)
@@ -1145,6 +1347,7 @@ The choices a recorded output selects, and the text `measure` captured from it
 (`nothing` if it does not match, or has no single capture group).
 """
 function measured_choices(p::Prediction, output::AbstractString)
+    typed(p) && return measured_number(p, output)
     re = compile_measure(p.measure)
     re === nothing && return (Int[], nothing)
     m = match(re, output)
@@ -1156,6 +1359,21 @@ function measured_choices(p::Prediction, output::AbstractString)
         return ([i for (i, (lo, hi)) in enumerate(p.ranges) if lo <= x < hi], cap)
     end
     return ([i for (i, v) in enumerate(p.values) if lowercase(v) == lowercase(cap)], cap)
+end
+
+"""
+A typed-number prediction's measured value: `([1], text)` when `measure`
+captures a finite number (the one "choice" is the measured value), else
+`(Int[], text or nothing)`.
+"""
+function measured_number(p::Prediction, output::AbstractString)
+    re = compile_measure(p.measure)
+    re === nothing && return (Int[], nothing)
+    m = match(re, output)
+    (m === nothing || length(m.captures) != 1 || m.captures[1] === nothing) && return (Int[], nothing)
+    cap = String(m.captures[1])
+    x = tryparse(Float64, cap)
+    return (x !== nothing && isfinite(x) ? [1] : Int[], cap)
 end
 
 """
@@ -1175,6 +1393,8 @@ function prediction_key_problems(u::Unit, rec)
         hold, cap = measured_choices(p, r["output"])
         if cap === nothing
             push!(out, "$where: `measure` does not match the recorded output with one capture group")
+        elseif typed(p)
+            isempty(hold) && push!(out, "$where: the measured value $cap is not a finite number")
         elseif length(hold) != 1
             push!(out, "$where: the measured value $cap selects $(length(hold)) choices (exactly one must hold)")
         elseif only(hold) != p.answer
@@ -1425,8 +1645,14 @@ function explorer_problems(x::Explorer, e::Example, kcs)
     end
     # The grid is read from the output; an output verify does not compare could change unnoticed.
     e.check || push!(out, "the example has check = false: an explorer's grid needs an output that verify compares")
-    (e.choose === nothing && e.breakit === nothing) ||
-        push!(out, "an example with an explorer carries no checkpoint or break-it challenge (both hide the output)")
+    (e.choose === nothing && e.breakit === nothing && e.race === nothing) ||
+        push!(out, "an example with an explorer carries no checkpoint, break-it challenge or race (they hide the output)")
+    # Sliders alone drift into watching: each explorer asks a question the sliders answer.
+    if x.question === nothing
+        push!(out, "an explorer needs a question ([section.example.explore.question]) that the learner answers with the sliders")
+    else
+        append!(out, ["question: $m" for m in explore_question_problems(x.question, x)])
+    end
     groups = [a.group for a in x.axes]
     1 <= length(x.axes) <= EXPLORE_MAX_AXES || push!(out, "an explorer has 1 to $EXPLORE_MAX_AXES axes")
     allunique(groups) || push!(out, "an axis is named twice")
@@ -1502,6 +1728,137 @@ function explorer_grid(x::Explorer, output::AbstractString)
     return (; axes, values)
 end
 
+"""What is structurally wrong with an example's race (empty = nothing)."""
+function race_problems(r::Race, e::Example, kcs)
+    out = String[]
+    r.kc in kcs || push!(out, "kc '$(r.kc)' is not one of the unit's kcs $(kcs)")
+    isempty(strip(r.prompt)) && push!(out, "no prompt")
+    isempty(strip(r.explain)) && push!(out, "no explanation")
+    2 <= length(r.choices) <= 6 || push!(out, "needs 2 to 6 choices")
+    allunique(strip.(r.choices)) || push!(out, "choices must differ")
+    length(r.rows) == length(r.choices) || push!(out, "one row regex per choice")
+    for (i, row) in enumerate(r.rows)
+        re = compile_measure(row)
+        re === nothing ? push!(out, "row $i is not a regular expression") :
+            has_group(re, "m") || push!(out, "row $i has no named group `m` (the measurement)")
+    end
+    r.by in RACE_BY || push!(out, "by must be one of $(RACE_BY)")
+    isempty(strip(r.unit)) && push!(out, "no unit: say how the measurement is printed (\"μs\", \"bytes\")")
+    r.margin >= get(RACE_MIN_MARGIN, r.by, 3.0) ||
+        push!(out, "margin must be at least $(get(RACE_MIN_MARGIN, r.by, 3.0)) for by = $(r.by): a closer race flips with load")
+    1 <= r.answer <= length(r.choices) || return push!(out, "answer must index a choice (1-based)")
+    length(r.misconceptions) == length(r.choices) || return push!(out, "one misconception per choice (\"\" for the answer)")
+    isempty(strip(r.misconceptions[r.answer])) || push!(out, "the answer has a misconception")
+    for (i, m) in enumerate(r.misconceptions)
+        i != r.answer && isempty(strip(m)) && push!(out, "wrong choice $i has no misconception")
+    end
+    count(!isnothing, (e.predict, e.choose, e.breakit, e.explore)) == 0 ||
+        push!(out, "an example carries one of a prediction, a checkpoint, a break-it challenge, an explorer or a race")
+    return out
+end
+
+"""
+The measured race: per choice the measurement as printed and as a number, the
+winner, and the ratio of every choice to the winner. A String says why the
+output cannot be scored (a row matching no line or several, a value that is
+not a number).
+"""
+function score_race(r::Race, output::AbstractString)
+    lines = collect(eachline(IOBuffer(output)))
+    texts = String[]
+    for (i, row) in enumerate(r.rows)
+        re = compile_measure(row)
+        re === nothing && return "row $i is not a regular expression"
+        ms = [m for m in (match(re, l) for l in lines) if m !== nothing]
+        length(ms) == 1 || return "row $i matches $(length(ms)) output lines (exactly one must)"
+        t = something(ms[1]["m"], "")
+        x = tryparse(Float64, t)
+        (x === nothing || !isfinite(x) || x < 0) && return "row $i measured '$t', not a non-negative number"
+        push!(texts, t)
+    end
+    vals = parse.(Float64, texts)
+    w = argmin(vals)
+    # a tie with the winner is ratio 1 (it fails any margin); 0 bytes beats any positive count by Inf
+    ratios = [i == w ? 1.0 : vals[w] == 0 ? (v == 0 ? 1.0 : Inf) : v / vals[w] for (i, v) in enumerate(vals)]
+    return (; texts, values = vals, winner = w, ratios)
+end
+
+"""Why `output` does not support the race's declared answer (empty = it does)."""
+function race_output_problems(r::Race, output::AbstractString)
+    sc = score_race(r, output)
+    sc isa String && return [sc]
+    out = String[]
+    sc.winner == r.answer ||
+        push!(out, "choice $(sc.winner) wins ($(sc.texts[sc.winner]) $(r.unit)), but the answer is $(r.answer)")
+    for (i, x) in enumerate(sc.ratios)
+        i == sc.winner && continue
+        x >= r.margin || push!(out, "choice $i is within $(round(x; sigdigits = 3))× of the winner " *
+                                     "(the margin is $(r.margin)): the race could flip with load")
+    end
+    return out
+end
+
+"""Each race is measured on the fresh run (`rec`): the declared winner wins, by the margin."""
+function race_key_problems(u::Unit, rec)
+    out = String[]
+    exs = get(rec, "examples", Dict())
+    for s in u.sections, e in s.examples
+        r = e.race
+        r === nothing && continue
+        where = "$(u.id) '$(s.title)' race"
+        x = get(exs, example_key(e.code, e.mode), nothing)
+        x === nothing && (push!(out, "$where: its example has no recorded output"); continue)
+        append!(out, ["$where: $m" for m in race_output_problems(r, x["output"])])
+    end
+    return out
+end
+
+"""What is structurally wrong with an explorer's question (empty = nothing)."""
+function explore_question_problems(q::ExploreQuestion, x::Explorer)
+    out = String[]
+    isempty(strip(q.prompt)) && push!(out, "no prompt")
+    isempty(strip(q.explain)) && push!(out, "no explanation")
+    groups = [a.group for a in x.axes]
+    q.along in groups || push!(out, "along = '$(q.along)' is not one of the axes $(groups)")
+    others = setdiff(groups, [q.along])
+    Set(keys(q.at)) == Set(others) || push!(out, "at must give every axis other than along, $(others), a value")
+    q.pick in ("largest", "smallest") || push!(out, "pick must be largest or smallest")
+    q.holds in ("below", "above") || push!(out, "holds must be below or above")
+    isfinite(q.limit) || push!(out, "limit must be a number")
+    return out
+end
+
+"""
+An explorer question's key, read from the grid: the index (into the `along`
+axis's values) of the answer, with the index of every other axis held at
+`at`. A String says why there is no single answer.
+"""
+function explore_question_key(q::ExploreQuestion, x::Explorer, g)
+    ai = findfirst(a -> a.group == q.along, g.axes)
+    ai === nothing && return "along = '$(q.along)' is not an axis"
+    g.axes[ai].numeric || return "the along axis $(q.along) must be numbers"
+    sel = zeros(Int, length(g.axes))
+    for (k, a) in enumerate(g.axes)
+        k == ai && continue
+        v = get(q.at, a.group, nothing)
+        j = v === nothing ? nothing : findfirst(==(v), a.texts)
+        j === nothing && return "at.$(a.group) = '$(something(v, ""))' is not one of its printed values $(a.texts)"
+        sel[k] = j
+    end
+    shape = [length(a.texts) for a in g.axes]
+    flat(s) = foldl((acc, (k, i)) -> acc * shape[k] + (i - 1), enumerate(s); init = 0) + 1
+    holds = Bool[]
+    for j in eachindex(g.axes[ai].texts)
+        s = copy(sel); s[ai] = j
+        v = parse(Float64, g.values[flat(s)])
+        push!(holds, !isnan(v) && (q.holds == "below" ? v < q.limit : v > q.limit))
+    end
+    any(holds) || return "the measure is $(q.holds) $(q.limit) at no value of $(q.along): nothing answers the question"
+    all(holds) && return "the measure is $(q.holds) $(q.limit) at every value of $(q.along): every point answers the question"
+    idx = findall(holds)
+    return (; along = ai, index = q.pick == "largest" ? last(idx) : first(idx), at = sel, holds)
+end
+
 """Explorer grids are measured: in `rec`, each explorer's example output must be a full grid."""
 function explorer_key_problems(u::Unit, rec)
     out = String[]
@@ -1513,7 +1870,11 @@ function explorer_key_problems(u::Unit, rec)
         r = get(exs, example_key(e.code, e.mode), nothing)
         r === nothing && (push!(out, "$where: its example has no recorded output"); continue)
         g = explorer_grid(x, r["output"])
-        g isa String && push!(out, "$where: $g")
+        g isa String && (push!(out, "$where: $g"); continue)
+        if x.question !== nothing
+            k = explore_question_key(x.question, x, g)
+            k isa String && push!(out, "$where question: $k")
+        end
     end
     return out
 end
@@ -1756,6 +2117,11 @@ function validate_course(units::Vector{Unit}; dir::String = COURSE_DIR, strict::
                 append!(problems, ["$(u.id) '$(s.title)' break-it: $m" for m in breakit_problems(e.breakit, e, u.kcs)])
             e.explore === nothing ||
                 append!(problems, ["$(u.id) '$(s.title)' explorer: $m" for m in explorer_problems(e.explore, e, u.kcs)])
+            e.race === nothing ||
+                append!(problems, ["$(u.id) '$(s.title)' race: $m" for m in race_problems(e.race, e, u.kcs)])
+        end
+        for (i, pl) in enumerate(u.placement)
+            append!(problems, ["$(u.id) placement $i: $m" for m in placement_problems(pl)])
         end
         for s in u.sections, (i, q) in enumerate(s.questions)
             append!(problems, ["$(u.id) '$(s.title)' question $i: $m" for m in question_problems(q)])

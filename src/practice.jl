@@ -634,16 +634,25 @@ choice must equal it (trailing whitespace aside) and no other choice may.
 """
 function question_key_problems(u::Course.Unit, rec)
     out = String[]
-    for (i, q) in enumerate(Course.questions(u))
-        q.kind == "output" || continue
+    labelled = vcat([("question $i", q) for (i, q) in enumerate(Course.questions(u))],
+                    [("placement $i", p.q) for (i, p) in enumerate(u.placement)])
+    for (label, q) in labelled
+        q.kind in Course.RECORDED_KINDS || continue
         r = get(rec["examples"], Course.example_key(q.code, "repl"), nothing)
-        r === nothing && (push!(out, "$(u.id) question $i: its code was not run"); continue)
+        r === nothing && (push!(out, "$(u.id) $label: its code was not run"); continue)
+        if q.kind == "error"
+            # An error question is about the message Julia printed: it must be in the output.
+            Course.shows_message(q, r["output"]) ||
+                push!(out, "$(u.id) $label: no ERROR or Warning line of the output contains `shows` " *
+                           "($(repr(q.shows)))\n--- output\n$(rstrip(r["output"]))")
+            continue
+        end
         got = rstrip(r["output"])
         comparable(q.choices[q.answer]) == comparable(got) ||
-            push!(out, "$(u.id) question $i: the answer is not the code's output\n--- answer\n$(q.choices[q.answer])\n--- output\n$got")
+            push!(out, "$(u.id) $label: the answer is not the code's output\n--- answer\n$(q.choices[q.answer])\n--- output\n$got")
         # (no matching choice at all is the message above: the answer is not the output)
         count(c -> comparable(c) == comparable(got), q.choices) > 1 &&
-            push!(out, "$(u.id) question $i: more than one choice equals the output")
+            push!(out, "$(u.id) $label: more than one choice equals the output")
     end
     return out
 end
@@ -785,7 +794,7 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
         for (k, v) in rec["examples"]
             old = get(get(stored, "examples", Dict()), k, nothing)
             checkable = any(e -> Course.example_key(e.code, e.mode) == k && e.check, (e for s in u.sections for e in s.examples)) ||
-                        any(q -> q.kind == "output" && Course.example_key(q.code, "repl") == k, Course.questions(u))
+                        any(q -> Course.example_key(q.code, "repl") == k, Course.recorded_questions(u))
             if old === nothing
                 push!(problems, "$(u.id): example $k has no recorded output")
             elseif checkable && !same_example(old, v)
@@ -803,14 +812,17 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
     append!(problems, Course.checkpoint_key_problems(u, rec))   # on the fresh run: checked even for check = false
     append!(problems, Course.breakit_key_problems(u, rec))
     append!(problems, Course.explorer_key_problems(u, rec))
+    append!(problems, Course.race_key_problems(u, rec))          # on the fresh run: checked even for check = false
     append!(problems, breakit_probe_problems(u, rec; log))
     grade_variants || return problems
     append!(problems, bug_problems(u; log))
     for p in u.problems
         # "fast" only exists when there is a performance section to measure.
         ref_expect = p.perf === nothing ? ["correct"] : ["correct", "fast"]
+        # A performance bug's starter is correct by design: check its declared verdicts instead.
+        perf_bug = p.bug !== nothing && !isempty(p.bug.starter_expect)
         jobs = Tuple{String,String,Vector{String}}[("reference", p.reference, ref_expect),
-                                                   ("starter", p.starter, String[])]
+                                                   ("starter", p.starter, perf_bug ? p.bug.starter_expect : String[])]
         append!(jobs, [(v.label, v.code, v.expect) for v in p.variants])
         # Sequential: performance verdicts are measured, and parallel runs would
         # compete for the CPU. Each run is still self-relative (learner vs reference).
@@ -828,7 +840,7 @@ function verify_unit(u::Course.Unit; grade_variants::Bool = true, ntasks::Int = 
                 println(log, "  ", rpad(p.id * "/" * label, 46), "  ", r["status"], "  ", join(r["verdicts"], ","),
                         ratio_note(r), "  (re-measured: '", join(missing_perf, "', '"), "' was missing)")
             end
-            label == "starter" && r["status"] == "passed" &&
+            label == "starter" && r["status"] == "passed" && !perf_bug &&
                 push!(problems, "$(p.id): the starter already passes (the problem is trivial)")
             r["status"] == "internal-error" && push!(problems, "$(p.id): $(r["feedback"][1]["detail"])")
             for x in expect

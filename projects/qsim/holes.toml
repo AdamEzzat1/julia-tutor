@@ -1,0 +1,430 @@
+# Holes for the qsim project (the Quantum computing course), in teaching order.
+# stage: a hole is opened in every starter stage >= its stage (fading).
+#   Stage 1 is states, qubit order, one rotation and applying a gate (units 49-52);
+#   stage 2 adds controlled gates, the partial trace, the Bloch vector and
+#   measurement (units 53-54); stage 3 opens everything: the algorithms and
+#   noise channels too (units 55-60).
+# trivial: plausible-but-wrong bodies, each a mistake learners make (the
+#   misconception is named above it). `tutor holemap qsim --check` requires each
+#   to make at least one test fail. The 22 mutants of the original simulator are
+#   in mutants.toml.
+
+project = "qsim"
+package = "QSim"
+stages = [1, 2, 3]
+
+[[hole]]
+id = "basis_state"
+stage = 1
+kc = "one-based-indexing"
+file = "src/QSim.jl"
+summary = "basis_state(n, k): the vector with a 1 on basis state k (0-based k, 1-based Julia)"
+trivial = [
+  # 0-based k used as a 1-based index
+  """
+  0 ≤ k < 2^n || throw(ArgumentError("basis index $k out of range for $n qubits"))
+  ψ = zeros(C64, 2^n)
+  ψ[k] = 1
+  return ψ
+  """,
+  # no range check: an out-of-range k is a BoundsError, not an ArgumentError
+  """
+  ψ = zeros(C64, 2^n)
+  ψ[k+1] = 1
+  return ψ
+  """,
+]
+
+[[hole]]
+id = "bitstring"
+stage = 1
+kc = "little-endian-order"
+file = "src/QSim.jl"
+summary = "bitstring_of(k, n): qubit n-1 on the left, qubit 0 on the right"
+trivial = [
+  # qubit 0 printed first (big-endian reading)
+  "return join(((k >> q) & 1 for q in 0:n-1))",
+  # no padding to n characters
+  "return string(k; base = 2)",
+]
+
+[[hole]]
+id = "kron_operator"
+stage = 1
+kc = "little-endian-order"
+file = "src/QSim.jl"
+summary = "full_operator_kron(U, q, n): I ⊗ ... ⊗ U ⊗ ... ⊗ I with qubit n-1 leftmost"
+trivial = [
+  # textbook big-endian order: qubit 0 leftmost
+  """
+  size(U) == (2, 2) || throw(ArgumentError("kron path is for single-qubit gates"))
+  return reduce(kron, [i == q ? U : I2 for i in 0:n-1])
+  """,
+]
+
+[[hole]]
+id = "ry"
+stage = 1
+kc = "half-angle"
+file = "src/QSim.jl"
+summary = "RY(θ) = exp(-iθY/2): the y rotation, with its half angle"
+trivial = [
+  # the rotation angle used where the half angle belongs
+  "return C64[cos(θ) -sin(θ); sin(θ) cos(θ)]",
+  # rotating the wrong way
+  "c, s = cos(θ / 2), sin(θ / 2)\nreturn C64[c s; -s c]",
+]
+
+[[hole]]
+id = "apply_gate"
+stage = 1
+kc = "gather-scatter"
+file = "src/QSim.jl"
+summary = "apply!(ψ, U, qubits): apply a k-qubit gate in place, without a 2^n × 2^n matrix"
+trivial = [
+  # qubit q read as bit n-1-q (big-endian), the most common real-world bug
+  """
+  n = nqubits(ψ)
+  k = length(qubits)
+  offsets = zeros(Int, 2^k)
+  for j in 0:2^k-1, (pos, q) in enumerate(qubits)
+      if (j >> (pos - 1)) & 1 == 1
+          offsets[j+1] |= 1 << (n - 1 - q)
+      end
+  end
+  mask = sum(1 << (n - 1 - q) for q in qubits)
+  buf = similar(ψ, 2^k)
+  for base in 0:2^n-1
+      base & mask == 0 || continue
+      for j in 1:2^k
+          buf[j] = ψ[base + offsets[j] + 1]
+      end
+      out = U * buf
+      for j in 1:2^k
+          ψ[base + offsets[j] + 1] = out[j]
+      end
+  end
+  return ψ
+  """,
+  # transpose where the matrix-vector product belongs
+  """
+  n = nqubits(ψ)
+  k = length(qubits)
+  offsets = zeros(Int, 2^k)
+  for j in 0:2^k-1, (pos, q) in enumerate(qubits)
+      if (j >> (pos - 1)) & 1 == 1
+          offsets[j+1] |= 1 << q
+      end
+  end
+  mask = sum(1 << q for q in qubits)
+  buf = similar(ψ, 2^k)
+  for base in 0:2^n-1
+      base & mask == 0 || continue
+      for j in 1:2^k
+          buf[j] = ψ[base + offsets[j] + 1]
+      end
+      out = transpose(U) * buf
+      for j in 1:2^k
+          ψ[base + offsets[j] + 1] = out[j]
+      end
+  end
+  return ψ
+  """,
+  # every base visited, so each block is transformed more than once
+  """
+  n = nqubits(ψ)
+  k = length(qubits)
+  offsets = zeros(Int, 2^k)
+  for j in 0:2^k-1, (pos, q) in enumerate(qubits)
+      if (j >> (pos - 1)) & 1 == 1
+          offsets[j+1] |= 1 << q
+      end
+  end
+  buf = similar(ψ, 2^k)
+  for base in 0:2^n-1
+      all(base + offsets[j] < 2^n for j in 1:2^k) || continue
+      for j in 1:2^k
+          buf[j] = ψ[base + offsets[j] + 1]
+      end
+      out = U * buf
+      for j in 1:2^k
+          ψ[base + offsets[j] + 1] = out[j]
+      end
+  end
+  return ψ
+  """,
+]
+
+[[hole]]
+id = "apply_controlled"
+stage = 2
+kc = "controlled-gates"
+file = "src/QSim.jl"
+summary = "apply_controlled!(ψ, U, controls, targets): U only where every control is |1>"
+trivial = [
+  # the U block placed where all controls are 0
+  """
+  k_t, k_c = length(targets), length(controls)
+  d = 2^(k_t + k_c)
+  CU = Matrix{C64}(I, d, d)
+  CU[1:2^k_t, 1:2^k_t] = U
+  return apply!(ψ, CU, vcat(targets, controls))
+  """,
+  # controls listed first, so they are the low bits the block assumes are targets
+  """
+  k_t, k_c = length(targets), length(controls)
+  d = 2^(k_t + k_c)
+  CU = Matrix{C64}(I, d, d)
+  lo = (2^k_c - 1) * 2^k_t
+  CU[lo+1:lo+2^k_t, lo+1:lo+2^k_t] = U
+  return apply!(ψ, CU, vcat(controls, targets))
+  """,
+]
+
+[[hole]]
+id = "partial_trace"
+stage = 2
+kc = "partial-trace"
+file = "src/QSim.jl"
+summary = "reduced_density(ψ, keep): trace out every qubit not in keep"
+trivial = [
+  # transpose instead of the conjugate transpose
+  """
+  n = nqubits(ψ)
+  rest = [q for q in 0:n-1 if q ∉ keep]
+  A = permutedims(reshape(ψ, ntuple(_ -> 2, n)), vcat(keep, rest) .+ 1)
+  M = reshape(A, 2^length(keep), :)
+  return M * transpose(M)
+  """,
+  # the traced-out qubits kept, the kept ones traced out
+  """
+  n = nqubits(ψ)
+  rest = [q for q in 0:n-1 if q ∉ keep]
+  A = permutedims(reshape(ψ, ntuple(_ -> 2, n)), vcat(rest, keep) .+ 1)
+  M = reshape(A, 2^length(keep), :)
+  return M * M'
+  """,
+]
+
+[[hole]]
+id = "bloch"
+stage = 2
+kc = "bloch-sphere"
+file = "src/QSim.jl"
+summary = "bloch_vector(ρ): (<X>, <Y>, <Z>) of a single-qubit density matrix"
+trivial = [
+  # the y component with the wrong sign
+  "return real.([tr(ρ * X), -tr(ρ * Y), tr(ρ * Z)])",
+  # read off the matrix entries instead of the expectations
+  "return real.([ρ[1, 2], ρ[2, 1], ρ[1, 1]])",
+]
+
+[[hole]]
+id = "sample_counts"
+stage = 2
+kc = "born-rule-sampling"
+file = "src/QSim.jl"
+summary = "sample_counts(ψ, shots; rng): Born-rule samples, as bitstring => count"
+trivial = [
+  # a biased uniform draw
+  """
+  n = nqubits(ψ)
+  cdf = cumsum(probabilities(ψ))
+  cdf ./= cdf[end]
+  counts = Dict{String,Int}()
+  for _ in 1:shots
+      key = bitstring_of(searchsortedfirst(cdf, rand(rng)^1.05) - 1, n)
+      counts[key] = get(counts, key, 0) + 1
+  end
+  return counts
+  """,
+  # amplitudes used as probabilities (no square)
+  """
+  n = nqubits(ψ)
+  cdf = cumsum(abs.(ψ))
+  cdf ./= cdf[end]
+  counts = Dict{String,Int}()
+  for _ in 1:shots
+      key = bitstring_of(searchsortedfirst(cdf, rand(rng)) - 1, n)
+      counts[key] = get(counts, key, 0) + 1
+  end
+  return counts
+  """,
+]
+
+[[hole]]
+id = "measure_qubit"
+stage = 2
+kc = "measurement-collapse"
+file = "src/QSim.jl"
+summary = "measure!(ψ, q; rng): draw one qubit's outcome, collapse and renormalise ψ"
+trivial = [
+  # reports the opposite outcome (and collapses onto it consistently)
+  """
+  p1 = sum(abs2(ψ[k+1]) for k in 0:length(ψ)-1 if (k >> q) & 1 == 1; init=0.0)
+  outcome = rand(rng) < p1 ? 0 : 1
+  for k in 0:length(ψ)-1
+      (k >> q) & 1 != outcome && (ψ[k+1] = 0)
+  end
+  normalize_state!(ψ)
+  return outcome
+  """,
+  # collapses without renormalising
+  """
+  p1 = sum(abs2(ψ[k+1]) for k in 0:length(ψ)-1 if (k >> q) & 1 == 1; init=0.0)
+  outcome = rand(rng) < p1 ? 1 : 0
+  for k in 0:length(ψ)-1
+      (k >> q) & 1 != outcome && (ψ[k+1] = 0)
+  end
+  return outcome
+  """,
+]
+
+[[hole]]
+id = "kraus"
+stage = 3
+kc = "kraus-channels"
+file = "src/QSim.jl"
+summary = "apply_kraus(ρ, kraus, q): ρ ↦ Σ K ρ K† on one qubit, checking trace preservation"
+trivial = [
+  # K^T where K† belongs
+  """
+  n = nqubits(view(ρ, :, 1))
+  out = zeros(C64, size(ρ))
+  for K in kraus
+      Kf = full_operator(K, [q], n)
+      out .+= Kf * ρ * transpose(Kf)
+  end
+  return out
+  """,
+  # the dagger on the wrong side
+  """
+  n = nqubits(view(ρ, :, 1))
+  isapprox(sum(K' * K for K in kraus), I2, atol=1e-12) ||
+      throw(ArgumentError("Kraus operators are not trace preserving"))
+  out = zeros(C64, size(ρ))
+  for K in kraus
+      Kf = full_operator(K, [q], n)
+      out .+= Kf' * ρ * Kf
+  end
+  return out
+  """,
+]
+
+[[hole]]
+id = "grover"
+stage = 3
+kc = "grover-rotation"
+file = "src/Algorithms.jl"
+summary = "grover_circuit(n, marked, k): k rounds of oracle then diffuser"
+trivial = [
+  # the diffuser without its reflection about |0...0>
+  """
+  c = Circuit(n)
+  for q in 0:n-1; add!(c, :h, q); end
+  for _ in 1:k
+      for w in marked; _flip_basis_state!(c, w); end
+      for q in 0:n-1; add!(c, :h, q); end
+      for q in 0:n-1; add!(c, :h, q); end
+  end
+  return c
+  """,
+  # the oracle only: phases flip, no amplitude moves
+  """
+  c = Circuit(n)
+  for q in 0:n-1; add!(c, :h, q); end
+  for _ in 1:k
+      for w in marked; _flip_basis_state!(c, w); end
+  end
+  return c
+  """,
+]
+
+[[hole]]
+id = "qft"
+stage = 3
+kc = "qft-circuit"
+file = "src/Algorithms.jl"
+summary = "qft!(c, qubits): H and controlled phases, then the swap layer"
+trivial = [
+  # controlled phases off by a factor 2
+  """
+  m = length(qubits)
+  for j in m:-1:1
+      add!(c, :h, qubits[j])
+      for k in j-1:-1:1
+          add!(c, :cp, qubits[k], qubits[j]; λ = π / 2^(j - k + 1))
+      end
+  end
+  for i in 1:m÷2
+      add!(c, :swap, qubits[i], qubits[m+1-i])
+  end
+  return c
+  """,
+  # no swap layer: the output comes out bit-reversed
+  """
+  m = length(qubits)
+  for j in m:-1:1
+      add!(c, :h, qubits[j])
+      for k in j-1:-1:1
+          add!(c, :cp, qubits[k], qubits[j]; λ = π / 2^(j - k))
+      end
+  end
+  return c
+  """,
+]
+
+[[hole]]
+id = "iqft"
+stage = 3
+kc = "inverse-circuit"
+file = "src/Algorithms.jl"
+summary = "iqft!(c, qubits): the QFT's gates reversed, each inverted"
+trivial = [
+  # reversed but the phases not negated
+  """
+  tmp = qft!(Circuit(c.n), qubits)
+  for g in reverse(tmp.gates)
+      push!(c.gates, g)
+  end
+  return c
+  """,
+  # the QFT applied again, as if it were its own inverse like H (QFT^2 is the
+  # permutation x -> -x mod N, not the identity). Not used: "negated but not
+  # reversed", which is a CORRECT inverse (an equivalent mutant): the DFT
+  # matrix is symmetric, so QFT' = conj(QFT), and conjugating each gate in
+  # forward order (H and SWAP are real, conj(CP(l)) = CP(-l)) gives conj(QFT).
+  """
+  return qft!(c, qubits)
+  """,
+]
+
+[[hole]]
+id = "qpe"
+stage = 3
+kc = "phase-kickback"
+file = "src/Algorithms.jl"
+summary = "qpe_circuit(t, φ): prepare |1>, controlled-U^(2^j) on each counting qubit, inverse QFT"
+trivial = [
+  # U^(j+1) where U^(2^j) belongs
+  """
+  c = Circuit(t + 1)
+  add!(c, :x, t)
+  for j in 0:t-1
+      add!(c, :h, j)
+      add!(c, :cp, j, t; λ = 2π * φ * (j + 1))
+  end
+  iqft!(c, collect(0:t-1))
+  return c
+  """,
+  # the eigenstate never prepared: |0> picks up no phase
+  """
+  c = Circuit(t + 1)
+  for j in 0:t-1
+      add!(c, :h, j)
+      add!(c, :cp, j, t; λ = 2π * φ * 2^j)
+  end
+  iqft!(c, collect(0:t-1))
+  return c
+  """,
+]

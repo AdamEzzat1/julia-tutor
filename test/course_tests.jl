@@ -42,7 +42,8 @@ end
     units = Course.load_course()
     courses = Course.load_courses()
     @test Course.validate_courses(courses, units) == String[]
-    @test [c.id for c in courses] == ["core", "science", "scicomp", "sciml"]
+    @test [c.id for c in courses] == ["core", "science", "scicomp", "sciml", "quantum"]
+    @test Course.course_of(courses, "50-qubit-order") == "quantum"
     # every unit in exactly one course; the split keeps the syllabus order
     @test sort!(vcat([c.units for c in courses]...)) == sort!([u.id for u in units])
     @test vcat([c.units for c in courses]...) == [u.id for u in units]
@@ -98,11 +99,14 @@ end
     @test hi == ceil(Int, nready * r.unit[2] + nprob * r.problem[2] + length(core.projects) * r.project[2])
     @test 0 < lo < hi
     @test occursin("($nready)", basis) && occursin("($nprob)", basis) && endswith(basis, "not measured")
-    # planned units count for nothing: a course of planned units only estimates 0
+    # planned units count for nothing: a course of planned units only estimates 0,
+    # even when it lists a project (a project alone would understate the course)
     planned_only = [Course.Unit(u.id, u.title, u.track, u.env, "planned", u.summary, u.kcs, u.prerequisites,
                                 u.outline, u.lessons, u.sections, u.problems) for u in units]
-    @test Course.time_estimate(C(core; guided = String[]), planned_only)[1:2] == (floor(Int, length(core.projects) * r.project[1]),
-                                                                                  ceil(Int, length(core.projects) * r.project[2]))
+    @test !isempty(core.projects)
+    lo0, hi0, basis0 = Course.time_estimate(C(core; guided = String[]), planned_only)
+    @test (lo0, hi0) == (0, 0)
+    @test startswith(basis0, "no estimate until a unit is published") && endswith(basis0, "not measured")
     # a prerequisite cycle, even one the file order would not show
     cyc = setpre("01-first-steps", ["03-strings"])
     @test Course.prereq_cycle(cyc) == ["01-first-steps", "03-strings", "01-first-steps"]
@@ -128,9 +132,13 @@ end
     @test by["science"] == ["guided/epidemic:C:/Users/learner/work/epidemic", "guided/tidy:/home/learner/tidy"]
     @test isempty(by["scicomp"]) && isempty(by["sciml"])
     # an entry for something no course has is reported, never dropped silently
-    _, um = Course.state_by_course(Dict("holes" => Dict("qsim/apply_gate" => Dict())), Dict(),
+    _, um = Course.state_by_course(Dict("holes" => Dict("no-such-project/apply_gate" => Dict())), Dict(),
                                    Course.load_courses(), Course.load_course())
-    @test um == ["holes/qsim/apply_gate"]
+    @test um == ["holes/no-such-project/apply_gate"]
+    # qsim's hole attempts belong to the quantum course
+    byq, umq = Course.state_by_course(Dict("holes" => Dict("qsim/apply_gate" => Dict())), Dict(),
+                                      Course.load_courses(), Course.load_course())
+    @test umq == String[] && byq["quantum"] == ["holes/qsim/apply_gate"]
 end
 
 P_with(; compare = "isequal", checker = "", packages = String[]) =
@@ -160,6 +168,43 @@ P_with(; compare = "isequal", checker = "", packages = String[]) =
         String[], u.outline, u.lessons, u.sections, [p])]; strict = false)
     @test any(contains("checker"), bad(P_with(compare = "custom")))
     @test any(contains("not in course/envs"), bad(P_with(packages = ["Flux"])))
+end
+
+@testset "placement check: items, covers and measured keys" begin
+    units = Course.load_course()
+    courses = Course.load_courses()
+    byid = Dict(u.id => u for u in units)
+    # the core check: 12 output items, each covering its own unit
+    core = filter(u -> u.id in courses[1].units, units)
+    @test sum(u -> length(u.placement), core) == 12
+    @test all(pl.q.kind == "output" for u in core for pl in u.placement)
+    @test all(u -> all(pl -> u.id in pl.covers, u.placement), units)
+    @test byid["02-numbers"].placement[1].covers == ["01-first-steps", "02-numbers"]   # own unit added last
+    # loading: kind defaults to output, the unit is added to covers once
+    pl = Course.load_placement(Dict{String,Any}("prompt" => "p", "code" => "1", "choices" => ["1", "2"], "answer" => 1,
+                                                "explain" => "e", "misconceptions" => ["", "m"], "covers" => ["u"]), "u")
+    @test pl.q.kind == "output" && pl.covers == ["u"]
+    @test Course.placement_problems(pl) == String[]
+    choice = Course.Placement(Course.Question("choice", "p", "", ["a", "b"], 1, "e", ["", "m"]), ["u"])
+    @test any(contains("output question"), Course.placement_problems(choice))
+    # covers: units of the same course, at or before the item's unit
+    with(u, covers) = Course.Unit(u.id, u.title, u.track, u.env, u.status, u.summary, u.kcs, u.prerequisites, u.outline,
+                                  u.lessons, u.sections, u.problems, u.references, [Course.Placement(pl.q, covers)])
+    swapped(id, covers) = [u.id == id ? with(u, covers) : u for u in units]
+    has(msg, us) = any(contains(msg), Course.validate_courses(courses, us))
+    @test !has("placement", swapped("05-functions", ["04-control-flow", "05-functions"]))
+    @test has("comes after 05-functions", swapped("05-functions", ["06-collections", "05-functions"]))
+    @test has("not a unit of course core", swapped("05-functions", ["35-stiffness", "05-functions"]))
+    # verify checks a placement item's key against the recorded output, like an output question
+    u = with(byid["05-functions"], ["05-functions"])
+    u = Course.Unit(u.id, u.title, u.track, u.env, u.status, u.summary, u.kcs, u.prerequisites, u.outline, u.lessons,
+                    Course.Section[], u.problems, u.references, u.placement)
+    k = Course.example_key("1", "repl")
+    @test ("1", "repl") in Course.recorded_code(u)
+    @test Practice.question_key_problems(u, Dict("examples" => Dict(k => Dict("output" => "1\n")))) == String[]
+    @test any(contains("placement 1: the answer is not"),
+              Practice.question_key_problems(u, Dict("examples" => Dict(k => Dict("output" => "2\n")))))
+    @test any(contains("placement 1: its code was not run"), Practice.question_key_problems(u, Dict("examples" => Dict())))
 end
 
 @testset "predict, then run: the key is read from the recorded output" begin
@@ -461,6 +506,20 @@ end
     @test !Course.bug_test_passes(t, 1.0) && !Course.bug_test_passes(t, nothing) && !Course.bug_test_passes(t, NaN)
     @test Course.bug_test_code("f(h) = h\n\n", t) == "f(h) = h\n\nprintln(\"order: \", f(1.0))"
 
+    # a performance bug: the planted starter's answers are right, so it declares the counted verdicts
+    # it must get instead (never timed ones), and it needs a perf section where they are measured
+    @test Bg().starter_expect == String[]
+    Bp(se) = Course.Bug("k", "a = h / 2", "a = h", [T()], "the belief", ["h / 2"], se)
+    Pp(b) = Course.Problem("p", "t", "core", ["k"], "", "f", something(Course.plant(ref, b), ""), ref, ["1.0"], "", "isequal",
+                           "", 1e-8, true, false, ["look at the scale"], Course.Perf("n", [10], false), Course.Variant[],
+                           1, 1, String[], b)
+    pprobs(se) = Course.bug_problems(Pp(Bp(se)), ["k"])
+    @test isempty(pprobs(["correct", "allocates"])) && isempty(pprobs(["correct", "allocates", "unstable"]))
+    @test any(contains("timed verdicts"), pprobs(["correct", "unstable", "slow"]))
+    @test any(contains("must include \"correct\""), pprobs(["allocates"]))
+    @test any(contains("\"allocates\" or \"unstable\""), pprobs(["correct"]))
+    @test any(contains("needs [problem.perf]"), probs(Bp(["correct", "allocates"])))
+
     # loading: a hand-written starter is refused, a generated one is the planted reference
     d = Dict("id" => "p", "title" => "t", "difficulty" => "core", "prompt" => "", "entry" => "f", "reference" => ref,
              "bug" => Dict("kc" => "k", "find" => "a = h / 2", "replace" => "a = h", "misconception" => "m",
@@ -469,6 +528,9 @@ end
     p = Course.load_problem(d)
     @test p.starter == Course.plant(ref, p.bug) && p.bug.tests[1].expect == (1.0, 2.0)
     @test Course.load_problem(merge(d, Dict("starter" => "f(h) = h"))).starter == Course.BUG_STARTER_GIVEN
+    @test p.bug.starter_expect == String[]
+    @test Course.load_problem(merge(d, Dict("bug" => merge(d["bug"], Dict("starter_expect" => ["correct", "unstable"]))))).bug.starter_expect ==
+          ["correct", "unstable"]
     @test Course.load_problem(merge(d, Dict("bug" => merge(d["bug"], Dict("test" => [Dict("expect" => [1])]))))).bug.tests[1].expect |>
           x -> all(isnan, x)
 
@@ -484,13 +546,24 @@ end
     for p in filter(p -> haskey(p, "bug"), site)
         @test occursin(p["bug"]["planted"], p["starter"]) && !occursin(p["bug"]["fixed"], p["starter"])
     end
+    # Core has find-the-bug problems too: performance bugs measured with @allocated and inference
+    core = Set(only(c for c in Course.load_courses() if c.id == "core").units)
+    perf_bugs = [(u.id, p) for u in units if u.id in core for p in u.problems if p.bug !== nothing && !isempty(p.bug.starter_expect)]
+    @test length(perf_bugs) >= 4
+    @test any(((_, p),) -> "allocates" in p.bug.starter_expect, perf_bugs) && any(((_, p),) -> "unstable" in p.bug.starter_expect, perf_bugs)
+    @test all(((_, p),) -> any(t -> occursin("@allocated", t.code) || occursin("code_typed", t.code) ||
+                                     occursin("return_types", t.code), p.bug.tests), perf_bugs)
+    sited = Dict(p["id"] => p for p in site)
+    @test all(((_, p),) -> sited[p.id]["bug"]["starter_expect"] == p.bug.starter_expect, perf_bugs)
 end
 
 @testset "precomputed explorers: the grid is read from the recorded output" begin
     row = raw"(?<m>\S+) +h = (?<h>\S+) +err = (?<e>\S+)"
     A(g, l = g; log = false) = Course.ExploreAxis(g, l, log)
+    XQ0 = Course.ExploreQuestion("Find the largest h below 1e-5 with RK4.", "h", Dict("m" => "RK4"), "largest", "below", 1e-5, "why")
     X(; kc = "k", row = row, axes = [A("m", "method"), A("h", "step"; log = true)], x = "h", series = "m", measure = "e",
-      label = "error", log = true) = Course.Explorer(kc, "Move h.", row, axes, x, series, measure, label, log, "why")
+      label = "error", log = true, question = XQ0) =
+        Course.Explorer(kc, "Move h.", row, axes, x, series, measure, label, log, "why", question)
     E(x; check = true, predict = nothing, choose = nothing, breakit = nothing) =
         Course.Example("println(1)", check, "c", "repl", "", predict, choose, breakit, x)
     bad(x; kw...) = Course.explorer_problems(x, E(x; kw...), ["k"])
@@ -498,7 +571,16 @@ end
     @test any(contains("not one of the unit's kcs"), bad(X(; kc = "z")))
     @test any(contains("check = false"), bad(X(); check = false))          # the grid needs a compared output
     C = Course.Checkpoint("k", "p", ["a", "b"], ["x", "y"], "calls", 2.0, [1], "e", ["", "m"])
-    @test any(contains("no checkpoint or break-it"), bad(X(); choose = C))
+    @test any(contains("no checkpoint, break-it challenge or race"), bad(X(); choose = C))
+    # sliders alone drift into watching: an explorer asks a question the sliders answer
+    @test any(contains("needs a question"), bad(X(; question = nothing)))
+    XQ(; along = "h", at = Dict("m" => "RK4"), pick = "largest", holds = "below", limit = 1e-5) =
+        Course.ExploreQuestion("q", along, at, pick, holds, limit, "why")
+    @test any(contains("along = 'q'"), bad(X(; question = XQ(; along = "q"))))
+    @test any(contains("at must give every axis"), bad(X(; question = XQ(; at = Dict{String,String}()))))
+    @test any(contains("pick must be"), bad(X(; question = XQ(; pick = "most"))))
+    @test any(contains("holds must be"), bad(X(; question = XQ(; holds = "near"))))
+    @test any(contains("limit must be a number"), bad(X(; question = XQ(; limit = NaN))))
     P = Course.Prediction("k", "p", raw"(\d)", ["a", "b"], [(0.0, 1.0), (1.0, 2.0)], String[], 1, "e")
     @test bad(X(); predict = P) == String[]                                # a prediction only delays the output
     @test any(contains("1 to 3 axes"), bad(X(; axes = Course.ExploreAxis[], x = "h", series = "")))
@@ -543,6 +625,18 @@ end
     # Inf and NaN are numbers here (a blow-up is a result); the site draws what it can
     @test Course.explorer_grid(X(; log = false), replace(out, "0.01" => "Inf", "0.02" => "NaN")).values[1:2] == ["Inf", "NaN"]
 
+    # the question's key is read from the grid: RK4's errors are 6.2e-8, 1.0e-6, 1.6e-5 at h = 0.05, 0.1, 0.2
+    key(q) = Course.explore_question_key(q, X(), g)
+    k = key(XQ())
+    @test k.along == 2 && k.index == 2 && k.at == [2, 0] && k.holds == [true, true, false]   # largest h below 1e-5: 0.1
+    @test key(XQ(; pick = "smallest")).index == 1
+    @test key(XQ(; holds = "above", limit = 1e-7)).index == 3                                 # above 1e-7: 0.1 and 0.2
+    @test key(XQ(; at = Dict("m" => "Euler"), limit = 0.03)).index == 2
+    @test contains(key(XQ(; limit = 1.0)), "every value")                                     # every point answers it
+    @test contains(key(XQ(; limit = 1e-9)), "no value")
+    @test contains(key(XQ(; at = Dict("m" => "RK45"))), "is not one of its printed values")
+    @test contains(key(XQ(; along = "m", at = Dict("h" => "0.1"))), "must be numbers")
+
     # the course's explorers: each recorded output is a full grid, and the site gets exactly those
     units = Course.load_course()
     xs = [(u, e) for u in units for s in u.sections for e in s.examples if e.explore !== nothing]
@@ -562,6 +656,93 @@ end
     @test any(contains("explorer: no output line matches"), Course.explorer_key_problems(u, broken))
     @test any(contains("no recorded output"), Course.explorer_key_problems(u, Dict{String,Any}("examples" => Dict{String,Any}())))
     @test haskey(rec["examples"], k)
+end
+
+@testset "typed-number predictions: the measured value is the key" begin
+    T(; tol = 0.5, within = "abs", choices = String[], answer = 0, measure = raw"order (\S+)") =
+        Course.Prediction("k", "What order?", measure, choices, Tuple{Float64,Float64}[], String[], answer, "why", tol, within, "")
+    E(p; check = true) = Course.Example("println(1)", check, "c", "repl", "", p)
+    ok(p; check = true) = Course.prediction_problems(p, E(p; check), ["k"])
+    @test Course.typed(T()) && !Course.typed(Course.Prediction("k", "p", "(x)", ["a", "b"], [(0.0, 1.0), (1.0, 2.0)], String[], 1, "e"))
+    @test ok(T()) == String[]
+    @test ok(T(; within = "rel", tol = 0.1)) == String[] && ok(T(; within = "factor", tol = 2.0)) == String[]
+    @test any(contains("has no choices"), ok(T(; choices = ["a", "b"], answer = 1)))
+    @test any(contains("positive"), ok(T(; tol = 0.0)))
+    @test any(contains("within must be"), ok(T(; within = "near")))
+    @test any(contains("factor tolerance must be above 1"), ok(T(; within = "factor", tol = 0.5)))
+    @test any(contains("check = false"), ok(T(); check = false))
+    @test Course.within_tolerance(T(), 4.5, 4.0) && !Course.within_tolerance(T(), 4.51, 4.0)
+    @test Course.within_tolerance(T(; within = "rel", tol = 0.1), 181, 200) && !Course.within_tolerance(T(; within = "rel", tol = 0.1), 179, 200)
+    @test Course.within_tolerance(T(; within = "factor", tol = 2.0), 5e-7, 1e-6) && !Course.within_tolerance(T(; within = "factor", tol = 2.0), -1e-6, 1e-6)
+    @test !Course.within_tolerance(T(), NaN, 4.0)
+    # the key: a finite number captured from the output
+    @test Course.measured_choices(T(), "order 3.98\n") == ([1], "3.98")
+    @test Course.measured_choices(T(), "order NaN\n") == (Int[], "NaN")
+    @test Course.measured_choices(T(), "no reading\n") == (Int[], nothing)
+    u = Course.Unit("99-x", "x", "core", "base", "ready", "s", ["k"], String[], String[], String[],
+                    [Course.Section("s", "b", [E(T())], Course.Question[])], Course.Problem[])
+    rec(o) = Dict("examples" => Dict(Course.example_key("println(1)", "repl") => Dict("output" => o)))
+    @test Course.prediction_key_problems(u, rec("order 4.01\n")) == String[]
+    @test any(contains("not a finite number"), Course.prediction_key_problems(u, rec("order Inf\n")))
+end
+
+@testset "races: the winner is measured, by a margin" begin
+    rows = [raw"^loop +(?<m>\S+) bytes", raw"^broadcast +(?<m>\S+) bytes", raw"^abs2 +(?<m>\S+) bytes"]
+    R(; kc = "k", choices = ["`a`: loop", "`b`: broadcast", "`c`: abs2"], rows = rows, by = "bytes", unit = "bytes",
+      margin = 2.0, answer = 3, mis = ["m1", "m2", ""]) = Course.Race(kc, "Which allocates least?", choices, rows, by, unit, margin, answer, "why", mis)
+    E(r; predict = nothing) = Course.Example("println(1)", false, "c", "repl", "", predict, nothing, nothing, nothing, r)
+    bad(r; kw...) = Course.race_problems(r, E(r; kw...), ["k"])
+    @test bad(R()) == String[]                                    # check = false is allowed: the winner is checked, not the digits
+    @test any(contains("not one of the unit's kcs"), bad(R(; kc = "z")))
+    @test any(contains("one row regex per choice"), bad(R(; rows = rows[1:2])))
+    @test any(contains("no named group `m`"), bad(R(; rows = [rows[1], rows[2], raw"abs2 (\d+)"])))
+    @test any(contains("by must be"), bad(R(; by = "speed")))
+    @test any(contains("margin must be at least 3.0"), bad(R(; by = "time", unit = "μs", margin = 2.0)))
+    @test any(contains("margin must be at least 2.0"), bad(R(; margin = 1.5)))
+    @test any(contains("no unit"), bad(R(; unit = "")))
+    @test any(contains("wrong choice 1 has no misconception"), bad(R(; mis = ["", "m2", ""])))
+    @test any(contains("the answer has a misconception"), bad(R(; mis = ["m1", "m2", "m3"])))
+    P = Course.Prediction("k", "p", raw"(\d)", ["a", "b"], [(0.0, 1.0), (1.0, 2.0)], String[], 1, "e")
+    @test any(contains("carries one of"), bad(R(); predict = P))
+
+    out = "loop       80 bytes\nbroadcast  80048 bytes\nabs2       0 bytes\n"
+    sc = Course.score_race(R(), out)
+    @test sc.winner == 3 && sc.texts == ["80", "80048", "0"] && sc.ratios == [Inf, Inf, 1.0]
+    @test Course.race_output_problems(R(), out) == String[]
+    @test any(contains("choice 1 wins"), Course.race_output_problems(R(), replace(out, "loop       80" => "loop       0", "abs2       0" => "abs2       10")))
+    # a tie with the winner fails any margin; a close race fails the margin
+    @test any(contains("within 1.0×"), Course.race_output_problems(R(), replace(out, "loop       80" => "loop       0")))
+    tout = "loop 10.0 bytes\nbroadcast 25.0 bytes\nabs2 1.0 bytes\n"
+    @test Course.race_output_problems(R(; margin = 2.0), tout) == String[]
+    @test any(contains("could flip with load"), Course.race_output_problems(R(; margin = 12.0), tout))
+    @test contains(Course.score_race(R(), "loop 1 bytes\nloop 2 bytes\nbroadcast 3 bytes\nabs2 0 bytes\n"), "matches 2 output lines")
+    @test contains(Course.score_race(R(), "loop x bytes\nbroadcast 3 bytes\nabs2 0 bytes\n"), "not a non-negative number")
+    # verify checks the winner on the fresh run
+    u = Course.Unit("99-x", "x", "core", "base", "ready", "s", ["k"], String[], String[], String[],
+                    [Course.Section("s", "b", [E(R())], Course.Question[])], Course.Problem[])
+    rec(o) = Dict("examples" => Dict(Course.example_key("println(1)", "repl") => Dict("output" => o)))
+    @test Course.race_key_problems(u, rec(out)) == String[]
+    @test length(Course.race_key_problems(u, rec("nothing\n"))) == 1
+end
+
+@testset "error questions: the message is the one Julia printed" begin
+    Q(; shows = "InexactError", code = "Int(2.5)") =
+        Course.Question("error", "What is wrong?", code, ["a", "b"], 1, "because", ["", "thinks b"], shows)
+    @test Course.question_problems(Q()) == String[]
+    @test any(contains("needs `shows`"), Course.question_problems(Q(; shows = "")))
+    @test any(contains("needs code"), Course.question_problems(Q(; code = "")))
+    @test any(contains("belongs to error questions"),
+              Course.question_problems(Course.Question("choice", "p", "", ["a", "b"], 1, "e", ["", "m"], "X")))
+    @test Course.shows_message(Q(), "ERROR: InexactError: Int64(2.5)\n  @ top-level scope at line 1\n")
+    @test Course.shows_message(Q(; shows = "mass matrices"), "┌ Warning: Tsit5 is not able to use mass matrices\n")
+    @test !Course.shows_message(Q(), "InexactError is a type\n")                   # not on an ERROR or Warning line
+    @test !Course.shows_message(Q(), "ERROR: MethodError: no method matching f(::Int64)\n")
+    u = Course.Unit("99-x", "x", "core", "base", "ready", "s", String[], String[], String[], String[],
+                    [Course.Section("s", "b", Course.Example[], [Q()])], Course.Problem[])
+    k = Course.example_key("Int(2.5)", "repl")
+    @test Course.recorded_code(u) == [("Int(2.5)", "repl")]                       # recorded like an output question
+    @test Practice.question_key_problems(u, Dict("examples" => Dict(k => Dict("output" => "ERROR: InexactError: Int64(2.5)\n")))) == String[]
+    @test any(contains("contains `shows`"), Practice.question_key_problems(u, Dict("examples" => Dict(k => Dict("output" => "2\n")))))
 end
 
 @testset "Parsons problems: every arrangement measured, distractors never work" begin

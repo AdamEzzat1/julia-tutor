@@ -490,3 +490,26 @@ function sort_words(ws)
 end
 '''
   expect = ["correct", "scaling", "slow"]
+
+[[placement]]
+prompt = "What does this print?"
+code = '''
+function bump(x)
+    x += 1
+    return x
+end
+a = 1
+bump(a), a
+'''
+choices = [
+  "(2, 2)",
+  "(1, 1)",
+  "(2, 1)",
+]
+answer = 3
+explain = "Inside `bump`, `x += 1` rebinds the local name `x` to a new value; the caller's `a` still names `1`. Numbers are immutable, so no function can change `a` from the outside."
+misconceptions = [
+  "Arguments are passed by sharing, not by reference: rebinding `x` inside the function does not rebind the caller's `a`.",
+  "`bump` returns the new local value, `2`; only the caller's `a` stays `1`.",
+  "",
+]

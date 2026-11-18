@@ -1,0 +1,895 @@
+id = "55-oracles"
+title = "Oracles: Deutsch-Jozsa and Bernstein-Vazirani"
+track = "quantum"
+env = "base"
+status = "ready"
+summary = "A function is promised to be constant or balanced. A classical algorithm that must be right needs 5 queries for 3-bit inputs in the worst case, as a run over all 72 such functions shows; one query to a phase oracle settles it with certainty for every one of the 72. The unit builds the phase oracle from a bit oracle by phase kickback, shows with a control that the kickback needs the ancilla in |−⟩, and recovers every hidden string s up to 5 bits from one query to f(x) = s·x ⊕ b (Bernstein-Vazirani)."
+kcs = ["oracles", "phase-kickback"]
+prerequisites = ["54-measurement-teleportation"]
+
+[[section]]
+title = "What you need from earlier units"
+body = '''
+This unit uses `apply_1q!(ψ, U, q)` from unit 52, the Hadamard gate
+`H = [1 1; 1 -1]/√2` of unit 51 and the little-endian order of unit 50
+(outcome `k` has qubit `q` in bit `q`). Each example defines the helpers it
+needs.
+
+**Functions as truth tables.** A function `f` from `n`-bit inputs to one bit
+is stored as a `Vector{Bool}` of length `2^n`, with `f[x + 1]` the value at
+input `x`, the same offset as amplitudes.
+
+**`H` on every qubit.** Applying `H` to each of `n` qubits (written `H⊗n`)
+maps the basis state `|x⟩` to
+
+```
+H⊗n |x⟩  =  2^(-n/2)  Σ over y of  (-1)^(x·y) |y⟩
+```
+
+where `x·y` is the parity of the bits that `x` and `y` share,
+`count_ones(x & y) % 2`. For `x = 0` all signs are `+`: the uniform
+superposition of unit 49. Since `H H = I`, applying `H⊗n` again undoes it.
+'''
+
+  [[section.example]]
+  caption = "`H⊗3` applied to `|5⟩ = |101⟩`, gate by gate, against the sign formula."
+  notice = "Notice that the sign at `y` is `-` exactly when `y` shares an odd number of 1 bits with `x = 5` (bits 0 and 2)."
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+n, x = 3, 5
+ψ = zeros(ComplexF64, 2^n); ψ[x + 1] = 1
+for q in 0:n-1
+    apply_1q!(ψ, H, q)
+end
+formula = [(-1)^count_ones(x & y) / sqrt(2^n) for y in 0:2^n-1]
+println("signs of H⊗3 |5⟩ for y = 0..7: ", join((real(a) > 0 ? "+" : "-" for a in ψ), " "))
+println("largest difference from the formula: ", maximum(abs.(ψ .- formula)) < 1e-15 ? "below 1e-15" : "too large")
+'''
+
+[[section]]
+title = "The question: constant or balanced, with how many queries?"
+body = '''
+A function `f` on `n`-bit inputs is promised to be one of two kinds:
+**constant** (the same value on all `2^n` inputs) or **balanced** (1 on
+exactly half of them). The task is to say which. The function is a black
+box, an **oracle**: the only access is to ask for `f` at an input, a
+**query**, and the cost of an algorithm is the number of queries.
+
+A classical algorithm that must always be right asks for `f(0)`, `f(1)`, ...
+and stops as soon as two answers differ (then `f` is balanced). If the first
+`2^(n-1)` answers are all equal it still cannot stop: the other half of the
+inputs might all hold the other value, which makes `f` balanced. One more
+query settles it, so the worst case is `2^(n-1) + 1` queries. No other
+order of queries does better, since the same argument applies to any `2^(n-1)`
+inputs. For `n = 3` there are 2 constant functions and `C(8, 4) = 70`
+balanced ones, few enough to run the algorithm on all 72.
+
+A randomised algorithm can do better on average, at the price of a small
+chance of being wrong. The quantum algorithm of Deutsch and Jozsa answers
+with **one** query and is never wrong.
+'''
+refs = ["deutsch-jozsa-1992"]
+
+  [[section.example]]
+  caption = "The classical algorithm on every constant or balanced function of 3 bits."
+  code = '''
+fs = [[isodd(m >> x) for x in 0:7] for m in 0:255]          # all 256 functions of 3 bits
+promised = filter(f -> !any(f) || all(f) || count(f) == 4, fs)
+function classical_queries(f)
+    for q in 2:length(f) ÷ 2 + 1                             # query f at inputs 0, 1, 2, ...
+        f[q] != f[1] && return q                             # two answers differ: balanced
+    end
+    return length(f) ÷ 2 + 1                                 # half plus one equal answers: constant
+end
+qs = classical_queries.(promised)
+println(length(promised), " functions: ", count(f -> !any(f) || all(f), promised), " constant, ", count(f -> count(f) == 4, promised), " balanced")
+println("functions needing 2, 3, 4, 5 queries: ", [count(==(k), qs) for k in 2:5])
+println("worst case: ", maximum(qs), " queries")
+'''
+
+    [section.example.predict]
+    kc = "oracles"
+    prompt = "The inputs have 3 bits, so there are 8 of them. Before the output is shown: how many queries does the classical algorithm need in the worst case?"
+    choices = ["2", "4", "5"]
+    measure = 'worst case: (\d+) queries'
+    ranges = [[2, 3], [4, 5], [5, 6]]
+    answer = 3
+    explain = "Four equal answers still leave a balanced function possible (the other four inputs all holding the other value), so a fifth query is needed: `2^(n-1) + 1 = 5`. Only 4 of the 72 functions need it, the 2 constant ones and the 2 balanced ones whose first four values agree, but an algorithm that must always be right has to allow for them. Two queries suffice for most balanced functions, which is the common case, not the worst."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A classical algorithm has queried 4 of the 8 inputs of a 3-bit function and got 0 every time. Why can it not answer \"constant\" yet?"
+  choices = [
+    "Four queries only see half of the inputs, and half is never enough to decide",
+    "The four unseen inputs could all be 1, and then f would be balanced",
+    "Classical answers are noisy, so each one has to be checked again",
+  ]
+  answer = 2
+  explain = "The promise allows exactly two kinds of function. Four zeros fit the constant function 0 and also the balanced function that is 1 on the four unseen inputs, so the algorithm cannot tell them apart until it sees one more value."
+  misconceptions = [
+    "Half the inputs is sometimes enough: two different answers among them already prove `f` balanced. The trouble is only with four equal answers.",
+    "",
+    "The oracle's answers are exact; a query never needs repeating. The extra query is needed because of what the answers so far leave open, not because they might be wrong.",
+  ]
+
+[[section]]
+title = "Phase oracles and phase kickback"
+body = '''
+A quantum oracle has to be a unitary, so it cannot replace `x` by `f(x)`
+(that would lose information whenever two inputs share a value). The
+**bit oracle** keeps the input and adds the answer to an extra qubit, the
+**ancilla**:
+
+```
+U_f |x⟩|y⟩ = |x⟩|y ⊻ f(x)⟩
+```
+
+It is a permutation of basis states, so it is unitary. Now prepare the
+ancilla in `|−⟩ = (|0⟩ - |1⟩)/√2`. If `f(x) = 0` nothing changes. If
+`f(x) = 1` the ancilla's `|0⟩` and `|1⟩` swap, which turns `|−⟩` into
+`-|−⟩`. In both cases
+
+```
+U_f |x⟩|−⟩ = (-1)^f(x) |x⟩|−⟩
+```
+
+The ancilla stays in `|−⟩` and the sign moves to the input register: the
+sign is **kicked back**, in the words of Cleve, Ekert, Macchiavello and
+Mosca. Since the ancilla is left as it was, it can be dropped, and what
+remains is the **phase oracle**
+
+```
+O_f |x⟩ = (-1)^f(x) |x⟩
+```
+
+On a single basis state the sign is a global phase and invisible. On a
+superposition of many `x` it becomes a pattern of relative signs, and a
+second layer of `H` gates can turn that pattern into a measurable result,
+which the next section does.
+'''
+refs = ["cleve-1998"]
+
+  [[section.diagram]]
+  file = "dj-circuit.svg"
+  alt = "The Deutsch-Jozsa circuit. An n-qubit register starts in |0…0⟩, goes through H on every qubit, then into the oracle box U_f, then through H on every qubit again, and is measured. An ancilla qubit starts in |1⟩, goes through H to become |−⟩, passes through the same oracle box and leaves it still in |−⟩. Labels under the register give the state at each stage: the uniform superposition, the same with the signs (−1) to the f(x), and the amplitude of |0…0⟩ at the end, the sum of the signs divided by 2 to the n."
+  caption = "The Deutsch-Jozsa circuit. The oracle acts on the register and the ancilla together; with the ancilla in `|−⟩` its only effect is a sign on each `|x⟩`."
+
+  [[section.analogy]]
+  title = "The recoil of a cannon"
+  text = '''
+When a cannon fires, the push on the ball comes with an equal push back on
+the cannon. The oracle acts on the ancilla, controlled by `x`, and the effect
+shows up on the control side, the register that holds `x`. The ancilla in
+`|−⟩` plays the ball, and the sign on `|x⟩` is the recoil.
+'''
+  breaks = '''
+A fired ball is changed (it flies off), while the ancilla ends exactly as it
+started: `|−⟩` is unchanged by a bit flip apart from a sign, and that sign
+belongs to the whole state, so it can be booked on the register. The
+analogy also suggests that every oracle call produces a recoil; with the
+ancilla in `|0⟩` or `|+⟩` there is no sign to kick back at all, as the
+control in the next section shows.
+'''
+
+  [[section.example]]
+  caption = "The bit oracle on 3 input qubits and an ancilla (qubit 3) in `|−⟩`, against the phase oracle with the ancilla left out."
+  code = '''
+function apply_bit_oracle!(ψ, f, n)              # ancilla is qubit n, the highest bit
+    for x in 0:2^n-1
+        if f[x + 1]                              # swap |x⟩|0⟩ and |x⟩|1⟩
+            ψ[x + 1], ψ[x + 2^n + 1] = ψ[x + 2^n + 1], ψ[x + 1]
+        end
+    end
+    return ψ
+end
+n = 3
+f = Bool[0, 1, 1, 0, 1, 0, 0, 1]                  # a balanced function
+register = fill(ComplexF64(1 / sqrt(8)), 8)       # uniform superposition
+minus = ComplexF64[1, -1] / sqrt(2)
+ψ = [r * a for a in minus for r in register]      # register ⊗ ancilla, ancilla the high bit
+apply_bit_oracle!(ψ, f, n)
+phased = [f[x + 1] ? -register[x + 1] : register[x + 1] for x in 0:7]
+expected = [r * a for a in minus for r in phased]
+println("largest difference from (phase oracle on the register) ⊗ |−⟩: ", maximum(abs.(ψ .- expected)))
+'''
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "Why is the ancilla prepared in `|−⟩` before the bit oracle?"
+  choices = [
+    "It makes the oracle's answer random, which hides f from the ancilla",
+    "A bit flip only multiplies `|−⟩` by -1, so it stays unentangled",
+    "`|−⟩` is the only input state that the bit oracle accepts",
+  ]
+  answer = 2
+  explain = "`|−⟩` is an eigenvector of the bit flip `X` with eigenvalue -1. Whatever `f(x)` is, the ancilla ends in `|−⟩` times a sign, so the state stays a product of register and ancilla, and the sign can be attributed to the register."
+  misconceptions = [
+    "Nothing random happens: the oracle is a fixed permutation, and the state after it is fully determined by `f`.",
+    "",
+    "The bit oracle is a unitary on all `2^(n+1)` basis states and accepts any input. With the ancilla in `|0⟩` it writes `f(x)` into the ancilla and entangles it with the register instead of producing signs.",
+  ]
+
+[[section]]
+title = "Deutsch-Jozsa on all 72 functions"
+body = '''
+The circuit of the diagram: `H⊗n` on `|0…0⟩`, the phase oracle, `H⊗n`
+again, and measure. Follow the amplitude of the outcome `0…0`. After the
+first layer the register is `2^(-n/2) Σ |x⟩`; the oracle gives
+`2^(-n/2) Σ (-1)^f(x) |x⟩`; and by the formula of the first section (with
+`y = 0`, where all signs are `+`) the second layer leaves at `|0…0⟩` the
+amplitude
+
+```
+(1 / 2^n) Σ over x of (-1)^f(x)
+```
+
+If `f` is constant every term has the same sign: the amplitude is `±1` and
+the outcome is `0…0` with probability 1. If `f` is balanced there are as
+many `+1` as `-1` terms: the amplitude is 0 and the outcome is never `0…0`.
+So "outcome `0…0`" means constant and anything else means balanced, after
+one query and with certainty.
+
+This is the one-query form of the algorithm given by Cleve, Ekert,
+Macchiavello and Mosca; Deutsch and Jozsa's original circuit called the
+oracle twice. The example runs it on every one of the 72 functions. The
+two classes are decided by a probability of 1 or 0, so a rounding error of
+a few `eps` in an amplitude, a probability error of order `1e-31` near 0 and
+`1e-15` near 1, cannot move either across the threshold `1/2`.
+'''
+refs = ["cleve-1998", "deutsch-jozsa-1992"]
+
+  [[section.example]]
+  caption = "Deutsch-Jozsa with one phase-oracle query, on all 2 constant and 70 balanced functions of 3 bits."
+  notice = "Notice that the balanced functions give exactly 0.0 here: each `H` step adds and subtracts the same two numbers, so equal terms cancel without rounding."
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+function dj_zero_probability(f)
+    n = trailing_zeros(length(f))
+    ψ = zeros(ComplexF64, length(f)); ψ[1] = 1
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    for k in eachindex(ψ); f[k] && (ψ[k] = -ψ[k]); end   # the phase oracle: one query
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    return abs2(ψ[1])                                      # probability of outcome 0…0
+end
+fs = [[isodd(m >> x) for x in 0:7] for m in 0:255]
+constant = filter(f -> !any(f) || all(f), fs)
+balanced = filter(f -> count(f) == 4, fs)
+println("constant (", length(constant), "): smallest P(000) = ", minimum(dj_zero_probability.(constant)))
+println("balanced (", length(balanced), "): largest P(000) = ", maximum(dj_zero_probability.(balanced)))
+println("all 72 classified correctly: ", all(dj_zero_probability.(constant) .> 0.5) && all(dj_zero_probability.(balanced) .< 0.5))
+'''
+
+  [[section.example]]
+  caption = "Control: the same circuit built from the bit oracle, with the ancilla in `|+⟩` instead of `|−⟩`."
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+function apply_bit_oracle!(ψ, f, n)
+    for x in 0:2^n-1
+        f[x + 1] && ((ψ[x + 1], ψ[x + 2^n + 1]) = (ψ[x + 2^n + 1], ψ[x + 1]))
+    end
+    return ψ
+end
+function dj_with_ancilla(f, ancilla)                 # P(register reads 000)
+    n = trailing_zeros(length(f)); N = length(f)
+    ψ = zeros(ComplexF64, 2N); ψ[1], ψ[N + 1] = ancilla[1], ancilla[2]
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    apply_bit_oracle!(ψ, f, n)
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    return abs2(ψ[1]) + abs2(ψ[N + 1])               # either ancilla value
+end
+balanced = filter(f -> count(f) == 4, [[isodd(m >> x) for x in 0:7] for m in 0:255])
+minus, plus = ComplexF64[1, -1] / sqrt(2), ComplexF64[1, 1] / sqrt(2)
+println("ancilla |−⟩: balanced misclassified as constant: ", count(f -> dj_with_ancilla(f, minus) > 0.5, balanced), " of 70")
+println("ancilla |+⟩: balanced misclassified as constant: ", count(f -> dj_with_ancilla(f, plus) > 0.5, balanced), " of 70")
+'''
+
+    [section.example.predict]
+    kc = "phase-kickback"
+    prompt = "The same circuit, with the bit oracle and the ancilla in `|+⟩` instead of `|−⟩`. Before the output is shown: how many of the 70 balanced functions does it misclassify as constant?"
+    choices = ["None", "About half", "All 70"]
+    measure = 'ancilla \|\+⟩: balanced misclassified as constant: (\d+) of 70'
+    ranges = [[0, 1], [25, 45], [70, 71]]
+    answer = 3
+    explain = "`|+⟩` is unchanged by a bit flip, with eigenvalue `+1`, so the oracle does nothing at all to the state. The two `H⊗n` layers then cancel, and the register reads `000` with certainty for every function. A check that runs the circuit only on constant functions would not notice; the balanced ones are the control."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "The promise is broken: `f` is 1 on exactly one of the 8 inputs. What is the probability of the outcome `000`?"
+  choices = [
+    "0, as for a balanced function, since f is not constant",
+    "`(6/8)² = 0.5625`: the circuit gives no clear answer",
+    "`1/8`, the fraction of inputs where f is 1",
+  ]
+  answer = 2
+  explain = "The amplitude of `000` is the average of the signs: seven `+1` and one `-1` give `6/8`, and the probability is its square, `0.5625`. Neither 0 nor 1, so the outcome says nothing reliable: the algorithm is only exact under the promise."
+  misconceptions = [
+    "The amplitude is 0 only when the `+1` and `-1` terms balance exactly. One `-1` against seven `+1` leaves `6/8`.",
+    "",
+    "The probability is the square of the average sign, `((8 - 2·1)/8)²`, not the fraction of marked inputs.",
+  ]
+
+[[section]]
+title = "Bernstein-Vazirani: a hidden string in one query"
+body = '''
+Now `f(x) = s·x ⊻ b` for a hidden `n`-bit string `s` and a bit `b`, and the
+task is to find `s`. Classically one query returns one bit, and `s` has `n`
+bits, so `n` queries are needed: `f(0) = b`, and `f(2^q) ⊻ f(0)` is bit `q`
+of `s`.
+
+The same circuit as Deutsch-Jozsa finds all of `s` with one query. After
+the oracle the register is
+
+```
+2^(-n/2) Σ over x of (-1)^(s·x ⊻ b) |x⟩  =  (-1)^b · 2^(-n/2) Σ over x of (-1)^(s·x) |x⟩
+```
+
+which is `(-1)^b H⊗n |s⟩` by the formula of the first section. The second
+layer of `H` undoes the first, leaving `(-1)^b |s⟩`: the outcome is `s` with
+probability 1, and `b` is only a global phase. Bernstein and Vazirani
+introduced the problem; Cleve et al. give this one-query circuit. Since
+outcome `k` holds qubit `q` in bit `q`, the measured integer is `s` itself,
+with no bit reversal.
+
+The example runs it for every `s` with `n = 1` to 5 bits, 62 strings in all.
+'''
+refs = ["bernstein-vazirani-1997", "cleve-1998"]
+
+  [[section.example]]
+  caption = "Bernstein-Vazirani on all 62 hidden strings of 1 to 5 bits, with `b = 0` and with `b = 1`."
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+H = ComplexF64[1 1; 1 -1] / sqrt(2)
+function bv_probabilities(f)
+    n = trailing_zeros(length(f))
+    ψ = zeros(ComplexF64, length(f)); ψ[1] = 1
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    for k in eachindex(ψ); f[k] && (ψ[k] = -ψ[k]); end
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    return abs2.(ψ)
+end
+for b in (false, true)
+    found, total = 0, 0
+    for n in 1:5, s in 0:2^n-1
+        f = [isodd(count_ones(s & x)) ⊻ b for x in 0:2^n-1]
+        p = bv_probabilities(f)
+        found += (argmax(p) - 1 == s && p[s + 1] >= 1 - 1e-12)
+        total += 1
+    end
+    println("b = ", Int(b), ": s recovered with P ≥ 1 - 1e-12 for ", found, " of ", total)
+end
+'''
+
+    [section.example.predict]
+    kc = "oracles"
+    prompt = "With `b = 1` the oracle's answer is flipped on every input. Before the output is shown: for how many of the 62 hidden strings does the circuit still return `s` with probability 1?"
+    choices = ["None", "31, the strings with s·s = 0", "All 62"]
+    measure = 'b = 1: s recovered with P ≥ 1 - 1e-12 for (\d+) of 62'
+    ranges = [[0, 1], [31, 32], [62, 63]]
+    answer = 3
+    explain = "Flipping every answer multiplies every sign by -1, which is a global phase: `(-1)^b` comes out of the sum. The measured state is `-|s⟩`, which gives the outcome `s` exactly as often as `|s⟩` does. A classical algorithm, in contrast, has to spend a query on `f(0)` to learn `b` before it can read `s`."
+
+  [[section.question]]
+  kind = "choice"
+  prompt = "A classical loop finds `s` from `n + 1` lookups in the truth table, far faster than simulating the circuit, which takes `n · 2^n` steps. What does Bernstein-Vazirani save, then?"
+  choices = [
+    "Queries to f: one instead of n + 1",
+    "Simulation time on a classical computer, once n is large",
+    "The promise: it works for every f, not only f(x) = s·x ⊻ b",
+  ]
+  answer = 1
+  explain = "The cost model is the number of queries to the oracle, which is the expensive step when `f` is a physical process. Simulating the quantum circuit costs time proportional to `2^n`; the savings are in calls to `f` on quantum hardware, not in classical simulation."
+  misconceptions = [
+    "",
+    "Simulation is never faster: the state vector has `2^n` entries, while the classical loop reads `n + 1` of them. This unit's third problem runs both.",
+    "For a function not of the form `s·x ⊻ b` the outcome is random and says nothing reliable, as with the broken promise of the previous section.",
+  ]
+
+[[problem]]
+id = "or-phase-oracle"
+title = "A phase oracle in place"
+difficulty = "warm-up"
+kcs = ["oracles"]
+entry = "apply_phase_oracle!"
+packages = []
+prompt = '''
+Write `apply_phase_oracle!(ψ, f)` that applies the phase oracle of the
+truth table `f` (a `Vector{Bool}`, `f[x + 1]` the value at input `x`) to the
+state `ψ` in place and returns `ψ`: every amplitude whose input has
+`f(x) = 1` is multiplied by `-1`, and the rest are unchanged.
+
+```julia
+apply_phase_oracle!(ComplexF64[1, 1, 1, 1] / 2, [false, true, true, false])   # [1, -1, -1, 1] / 2
+```
+
+Negating a number is exact, so results are compared with `isequal`. Speed
+and allocations are graded against the reference, which allocates nothing.
+'''
+starter = '''
+function apply_phase_oracle!(ψ, f)
+    # your code here
+end
+'''
+reference = '''
+function apply_phase_oracle!(ψ, f)
+    for k in eachindex(ψ, f)
+        ψ[k] = ifelse(f[k], -ψ[k], ψ[k])
+    end
+    return ψ
+end
+'''
+cases = [
+  "ComplexF64[1, 1, 1, 1] / 2, [false, true, true, false]",
+  "ComplexF64[1, 2, 3, 4, 5, 6, 7, 8], Bool[0, 0, 0, 0, 0, 1, 0, 0]",
+  "ComplexF64[0.6, 0.8im], [true, true]",
+  "ComplexF64[1, 0], [false, false]",
+]
+gen = "rng -> [(n = rand(rng, 1:8); (randn(rng, ComplexF64, 2^n), rand(rng, Bool, 2^n))) for _ in 1:25]"
+compare = "isequal"
+check_type = true
+hints = [
+  "Which amplitudes change? Those at the inputs where the truth table holds `true`, and only by a sign.",
+  "Loop over `eachindex(ψ, f)` and negate `ψ[k]` where `f[k]` is `true`; `ifelse(f[k], -ψ[k], ψ[k])` does it without a branch.",
+]
+
+  [problem.perf]
+  args = "randn(rng, ComplexF64, n), rand(rng, Bool, n)"
+  sizes = [65536]
+  mutates = true
+
+  [[problem.variant]]
+  label = "multiplies by im instead of -1"
+  code = '''
+function apply_phase_oracle!(ψ, f)
+    for k in eachindex(ψ, f)
+        f[k] && (ψ[k] *= im)
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "reads f in textbook qubit order (bit-reversed input)"
+  code = '''
+function apply_phase_oracle!(ψ, f)
+    n = trailing_zeros(length(ψ))
+    for k in 0:length(ψ)-1
+        j = 0
+        for q in 0:n-1
+            j |= ((k >> q) & 1) << (n - 1 - q)
+        end
+        f[j + 1] && (ψ[k + 1] = -ψ[k + 1])
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "negates where f is false"
+  code = '''
+function apply_phase_oracle!(ψ, f)
+    for k in eachindex(ψ, f)
+        f[k] || (ψ[k] = -ψ[k])
+    end
+    return ψ
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "fused broadcast ψ .*= ifelse.(f, -1, 1): one loop, no ±1 vector is built"
+  code = '''
+function apply_phase_oracle!(ψ, f)
+    ψ .*= ifelse.(f, -1, 1)
+    return ψ
+end
+'''
+  expect = ["correct"]
+
+[[problem]]
+id = "or-dj-zero-probability"
+title = "Deutsch-Jozsa: the probability of 0…0"
+difficulty = "core"
+kcs = ["oracles", "phase-kickback"]
+entry = "dj_zero_probability"
+packages = []
+prompt = '''
+Write `dj_zero_probability(f)` that simulates the Deutsch-Jozsa circuit for
+the truth table `f` (a `Vector{Bool}` of length `2^n`): start from
+`|0…0⟩` on `n` qubits, apply `H` to every qubit, apply the phase oracle of
+`f`, apply `H` to every qubit again, and return the probability of the
+outcome `0…0` as a `Float64`.
+
+```julia
+dj_zero_probability(fill(true, 8))                        # 1.0 (up to rounding): constant
+dj_zero_probability(Bool[0, 1, 1, 0, 1, 0, 0, 1])          # 0.0: balanced
+dj_zero_probability([x == 5 for x in 0:7])                # 0.5625: neither
+```
+
+`f` need not be constant or balanced. Results are compared with an absolute
+tolerance of `1e-12`: the exact answer is the square of an average of
+`±1` values, and the circuit computes it with an error of a few `eps`.
+'''
+starter = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+
+function dj_zero_probability(f)
+    # your code here
+end
+'''
+reference = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+
+function dj_zero_probability(f)
+    n = trailing_zeros(length(f))
+    H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    ψ = zeros(ComplexF64, length(f)); ψ[1] = 1
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    for k in eachindex(ψ, f)
+        ψ[k] = ifelse(f[k], -ψ[k], ψ[k])
+    end
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    return abs2(ψ[1])
+end
+'''
+cases = [
+  "fill(true, 8)",
+  "fill(false, 2)",
+  "Bool[0, 1, 1, 0, 1, 0, 0, 1]",
+  "[x == 5 for x in 0:7]",
+  "[x < 8 for x in 0:15]",
+]
+gen = "rng -> [(n = rand(rng, 1:7); N = 2^n; kind = rand(rng, 0:2); (kind == 0 ? fill(rand(rng, Bool), N) : kind == 1 ? shuffle(rng, [fill(true, N ÷ 2); fill(false, N ÷ 2)]) : rand(rng, Bool, N),)) for _ in 1:30]"
+compare = "custom"
+checker = '''
+(got, expected) -> got isa Float64 && abs(got - expected) <= 1e-12
+'''
+check_type = true
+hints = [
+  "The register has `n = trailing_zeros(length(f))` qubits. Three steps act on one state vector: a layer of `H`, the oracle, and the same layer of `H`.",
+  "Start from `ψ = zeros(ComplexF64, length(f)); ψ[1] = 1`, call `apply_1q!(ψ, H, q)` for every `q`, negate `ψ[k]` where `f[k]`, repeat the `H` layer, and return `abs2(ψ[1])`.",
+]
+
+  [problem.perf]
+  args = "rand(rng, Bool, n)"
+  sizes = [1024]
+
+  [[problem.variant]]
+  label = "forgets the second layer of H"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function dj_zero_probability(f)
+    n = trailing_zeros(length(f)); H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    ψ = zeros(ComplexF64, length(f)); ψ[1] = 1
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    for k in eachindex(ψ, f); f[k] && (ψ[k] = -ψ[k]); end
+    return abs2(ψ[1])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "H on qubit 0 only, in both layers"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function dj_zero_probability(f)
+    H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    ψ = zeros(ComplexF64, length(f)); ψ[1] = 1
+    apply_1q!(ψ, H, 0)
+    for k in eachindex(ψ, f); f[k] && (ψ[k] = -ψ[k]); end
+    apply_1q!(ψ, H, 0)
+    return abs2(ψ[1])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "bit oracle with the ancilla in |0⟩ (no kickback)"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function dj_zero_probability(f)
+    N = length(f); n = trailing_zeros(N); H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    ψ = zeros(ComplexF64, 2N); ψ[1] = 1                 # ancilla qubit n in |0⟩
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    for x in 0:N-1
+        f[x + 1] && ((ψ[x + 1], ψ[x + N + 1]) = (ψ[x + N + 1], ψ[x + 1]))
+    end
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    return abs2(ψ[1]) + abs2(ψ[N + 1])
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "closed form: the square of the average sign"
+  code = '''
+function dj_zero_probability(f)
+    return abs2(sum(x -> x ? -1.0 : 1.0, f) / length(f))
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "dense H⊗n from kron, applied as a matrix"
+  code = '''
+using LinearAlgebra
+function dj_zero_probability(f)
+    n = trailing_zeros(length(f))
+    H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    Hn = reduce(kron, fill(H, n))
+    ψ = Hn * ([ifelse(b, -1.0, 1.0) for b in f] .* Hn[:, 1])
+    return abs2(ψ[1])
+end
+'''
+  expect = ["correct", "slow", "allocates"]
+
+[[problem]]
+id = "or-bv-hidden-string"
+title = "Bernstein-Vazirani: read the hidden string"
+difficulty = "core"
+kcs = ["oracles"]
+entry = "bv_hidden_string"
+packages = []
+prompt = '''
+Write `bv_hidden_string(f)` that takes the truth table of
+`f(x) = s·x ⊻ b` (a `Vector{Bool}` of length `2^n`, `f[x + 1]` the value at
+`x`, with `s·x = count_ones(s & x) % 2`) and returns `s` as an `Int`, by
+simulating the Bernstein-Vazirani circuit: `H` on every qubit of `|0…0⟩`,
+the phase oracle, `H` on every qubit, and the most likely outcome.
+
+```julia
+bv_hidden_string([isodd(count_ones(6 & x)) for x in 0:7])          # 6
+bv_hidden_string([!isodd(count_ones(6 & x)) for x in 0:7])         # 6: b = 1 is a global phase
+```
+
+Results are compared with `isequal`. The grader checks the answer, not how
+`f` was read; a classical loop over `n + 1` entries also passes, and is
+faster, which is the point of the last question in this unit's section 5.
+'''
+starter = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+
+function bv_hidden_string(f)
+    # your code here
+end
+'''
+reference = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+
+function bv_hidden_string(f)
+    n = trailing_zeros(length(f))
+    H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    ψ = zeros(ComplexF64, length(f)); ψ[1] = 1
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    for k in eachindex(ψ, f)
+        ψ[k] = ifelse(f[k], -ψ[k], ψ[k])
+    end
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    return argmax(abs2.(ψ)) - 1                     # outcome k is the 1-based index minus 1
+end
+'''
+cases = [
+  "[isodd(count_ones(6 & x)) for x in 0:7]",
+  "[!isodd(count_ones(6 & x)) for x in 0:7]",
+  "[false, true]",
+  "fill(false, 16)",
+  "fill(true, 32)",
+]
+gen = "rng -> [(n = rand(rng, 1:8); s = rand(rng, 0:2^n-1); b = rand(rng, Bool); ([isodd(count_ones(s & x)) ⊻ b for x in 0:2^n-1],)) for _ in 1:30]"
+compare = "isequal"
+check_type = true
+hints = [
+  "The circuit is the Deutsch-Jozsa circuit; only the reading at the end differs. The outcome `s` has probability 1, so it is the largest entry of `abs2.(ψ)`.",
+  "After the two `H` layers and the oracle, `argmax(abs2.(ψ))` is the 1-based index of the outcome, so `s` is one less.",
+]
+
+  [problem.perf]
+  args = "[isodd(count_ones(37 & x)) for x in 0:n-1]"
+  sizes = [4096]
+
+  [[problem.variant]]
+  label = "returns the 1-based index of the largest probability"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function bv_hidden_string(f)
+    n = trailing_zeros(length(f)); H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    ψ = zeros(ComplexF64, length(f)); ψ[1] = 1
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    for k in eachindex(ψ, f); f[k] && (ψ[k] = -ψ[k]); end
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    return argmax(abs2.(ψ))
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "reads the bits of the outcome in textbook order (reversed)"
+  code = '''
+function apply_1q!(ψ, U, q)
+    s = 1 << q
+    for k in 0:length(ψ)-1
+        if k & s == 0
+            a, b = ψ[k + 1], ψ[k + s + 1]
+            ψ[k + 1], ψ[k + s + 1] = U[1, 1] * a + U[1, 2] * b, U[2, 1] * a + U[2, 2] * b
+        end
+    end
+    return ψ
+end
+function bv_hidden_string(f)
+    n = trailing_zeros(length(f)); H = ComplexF64[1 1; 1 -1] / sqrt(2)
+    ψ = zeros(ComplexF64, length(f)); ψ[1] = 1
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    for k in eachindex(ψ, f); f[k] && (ψ[k] = -ψ[k]); end
+    for q in 0:n-1; apply_1q!(ψ, H, q); end
+    k = argmax(abs2.(ψ)) - 1
+    return sum(((k >> q) & 1) << (n - 1 - q) for q in 0:n-1; init = 0)
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "classical, but skips f(0): wrong whenever b = 1"
+  code = '''
+function bv_hidden_string(f)
+    n = trailing_zeros(length(f))
+    s = 0
+    for q in 0:n-1
+        f[(1 << q) + 1] && (s |= 1 << q)
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "classical: f(0) and f(2^q) for each q, n + 1 lookups"
+  code = '''
+function bv_hidden_string(f)
+    n = trailing_zeros(length(f))
+    s = 0
+    for q in 0:n-1
+        f[(1 << q) + 1] != f[1] && (s |= 1 << q)
+    end
+    return s
+end
+'''
+  expect = ["correct"]
+
+[[reference]]
+id = "deutsch-jozsa-1992"
+authors = "Deutsch, D.; Jozsa, R."
+title = "Rapid solution of problems by quantum computation"
+venue = "Proceedings of the Royal Society of London A 439, 553-558"
+year = 1992
+url = "https://doi.org/10.1098/rspa.1992.0167"
+note = "The constant-or-balanced promise problem and a quantum algorithm that solves it with certainty; the one-query circuit of this unit is the later form by Cleve et al., who say that the original used two evaluations of the function."
+
+[[reference]]
+id = "cleve-1998"
+authors = "Cleve, R.; Ekert, A.; Macchiavello, C.; Mosca, M."
+title = "Quantum algorithms revisited"
+venue = "Proceedings of the Royal Society of London A 454, 339-354"
+year = 1998
+url = "https://doi.org/10.1098/rspa.1998.0164"
+note = "Section 3: Deutsch-Jozsa with a single evaluation of f, using an auxiliary qubit in (|0⟩ - |1⟩)/√2 (Fig. 4, Eqs. 3.4 to 3.6), and in Eq. 3.7 the vector a of f(x) = (a·x) ⊕ b from one evaluation, the Bernstein-Vazirani problem. Section 1 describes the phase as kicked back. Also arXiv:quant-ph/9708016."
+
+[[reference]]
+id = "bernstein-vazirani-1997"
+authors = "Bernstein, E.; Vazirani, U."
+title = "Quantum complexity theory"
+venue = "SIAM Journal on Computing 26, 1411-1473"
+year = 1997
+url = "https://doi.org/10.1137/S0097539796300921"
+note = "The paper usually credited with the hidden-string problem of this unit's section 5, as part of a study of quantum Turing machines and their complexity classes."

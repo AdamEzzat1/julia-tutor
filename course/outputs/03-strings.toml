@@ -25,6 +25,10 @@ output = """SubString{String} quick 5\nString\n"""
 ok = true
 output = """a Char true\nñ Char true\no Char true\n['a', 'ñ', 'o']\n5\noña\n"""
 
+[examples.9949ca0cdaadbf8f]
+ok = true
+output = """(5, 6)\n"""
+
 [examples.9c7edee783aeed80]
 ok = false
 output = """43\n2500.0\nnothing\ntrue\n17!\nERROR: ArgumentError: invalid base 10 digit 'x' in \"4x\"\n  @ top-level scope at line 6\n"""

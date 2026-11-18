@@ -584,3 +584,156 @@ end
 total_kinetic(masses, speeds) = sum(b -> 0.5 * b.m * b.v^2, [Body(m, v) for (m, v) in zip(masses, speeds)]; init = 0.0)
 '''
   expect = ["correct", "fast"]
+
+[[placement]]
+prompt = "What does this print?"
+code = '''
+typeof([1, 2.5]), isconcretetype(Real)
+'''
+choices = [
+  "(Vector{Real}, false)",
+  "(Vector{Float64}, false)",
+  "(Vector{Any}, true)",
+  "(Vector{Float64}, true)",
+]
+answer = 2
+explain = "An array literal promotes its elements to a common type, so `1` becomes `1.0` and the array is a `Vector{Float64}`. `Real` is abstract: no value has type exactly `Real`."
+misconceptions = [
+  "The literal promotes to a common concrete type, `Float64`; it does not keep an abstract element type.",
+  "",
+  "Promotion finds `Float64` for `Int` and `Float64`, so no `Any` is needed; and `Real` is abstract.",
+  "`Real` is an abstract type: values are `Int64`, `Float64` and so on, never exactly `Real`.",
+]
+
+[[problem]]
+id = "ring-find-the-abstract-field"
+title = "Find the bug: a struct that hides its field's type"
+difficulty = "core"
+kcs = ["concrete-types", "structs"]
+entry = "wrapped_sums"
+prompt = '''
+`wrapped_sums(v, w)` returns, for each position `i` of the `Float64` vector
+`v`, the sum of the `w` entries starting at `i`, wrapping around past the
+end (so the last positions also add entries from the start). It wraps `v`
+in a small `Ring` struct whose indexing does the wrap-around with `mod1`.
+The code in the editor gives the right answers but runs many times slower
+than it should and allocates far more than its result: one line of the
+struct's definition costs that.
+
+Find it and fix it; change nothing else. The measurement tests ask the
+compiler what type it infers for `r[i]`, and count how the bytes one call
+allocates grow with the length of `v` (after a first call compiles it).
+
+```julia
+wrapped_sums([1.0, 2.0, 3.0, 4.0], 2)   # [3.0, 5.0, 7.0, 5.0]
+```
+
+Results are compared with `rtol = 1e-12`.
+'''
+reference = '''
+struct Ring
+    data::Vector{Float64}
+end
+
+Base.getindex(r::Ring, i::Int) = r.data[mod1(i, length(r.data))]
+
+function wrapped_sums(v, w)
+    r = Ring(v)
+    return [sum(r[i + k] for k in 0:w-1) for i in eachindex(v)]
+end
+'''
+cases = ["[1.0, 2.0, 3.0, 4.0], 2", "[5.0], 3", "[1.0, -1.0, 2.0], 1", "[0.5, 0.25, 0.125, 1.0, 2.0], 5"]
+gen = "rng -> [(randn(rng, m), rand(rng, 1:m)) for m in rand(rng, 1:25, 20)]"
+compare = "isapprox"
+# rtol: every version adds the same w numbers in the same order (k = 0 to w-1), so results agree to the
+# bit; 1e-12 leaves room for a variant that adds them in another order (a few eps per term, w <= 25).
+rtol = 1e-12
+hints = [
+  "The first test shows that the compiler does not know the type of `r[i]`. `r` is a `Ring`; what does the definition of `Ring` let the compiler assume about what `r.data` holds?",
+  "A field's declared type is all the compiler may assume about it. An abstract type there means any value of any subtype could be stored, so every access is looked up at run time. Declare the concrete type the constructor is called with.",
+]
+
+  [problem.bug]
+  kc = "concrete-types"
+  find = "data::Vector{Float64}"
+  replace = "data::AbstractVector"
+  answer_tokens = ["Vector{Float64}"]
+  starter_expect = ["correct", "allocates", "unstable"]
+  misconception = '''
+`data::AbstractVector` accepts any vector, which feels like the flexible,
+generic choice. The belief it models: an abstract type on a field costs
+nothing, as an abstract type on an argument does. Arguments are specialized:
+Julia compiles a method for the concrete types each call passes. Fields are
+not: a `Ring` stores `data` as a pointer to a value whose type is checked at
+run time, so `r.data[...]` is a dynamic call whose result is inferred as
+`Any`, and every result gets a box on the heap (the second test measured
+about 250 bytes per element against the 8 the result itself needs). Declare
+the concrete type, or keep it generic with a type parameter:
+`struct Ring{V<:AbstractVector}; data::V; end`.
+'''
+
+  [[problem.bug.test]]
+  name = "the type inferred for r[i] is concrete"
+  # expect: an indicator (1 = concrete, 0 = not), so [0.5, 1.5] means "concrete". Measured on the
+  # reference: Float64.
+  code = '''
+r = Ring([1.0, 2.0, 3.0])
+println("wrapped_sums(r.data, 2) = ", wrapped_sums(r.data, 2))
+rt = only(Base.return_types(getindex, (typeof(r), Int)))
+println("concrete r[i]: ", Int(isconcretetype(rt)))
+'''
+  row = '^concrete r\[i\]: (?<m>\S+)$'
+  expect = [0.5, 1.5]
+  explain = '''
+Whether the compiler can name one concrete type for an element read through
+the struct. When it cannot, every read is a dynamic call and every value
+read is boxed.
+'''
+
+  [[problem.bug.test]]
+  name = "extra bytes per element of v (1000 elements, then 2000, w = 3)"
+  # expect: the result is a Vector{Float64}, 8 bytes per element, and nothing else should grow with the
+  # length: measured on the reference, 8.0 exactly (the arrays' headers cancel in the difference). One box
+  # per value read adds at least 16 bytes per element per read, so [7.5, 8.5] separates them.
+  code = '''
+_bytes(v) = (wrapped_sums(v, 3); @allocated wrapped_sums(v, 3))
+b1 = _bytes(collect(1.0:1000.0))
+b2 = _bytes(collect(1.0:2000.0))
+println("bytes per element: ", (b2 - b1) / 1000)
+'''
+  row = '^bytes per element: (?<m>\S+)$'
+  expect = [7.5, 8.5]
+  explain = '''
+How the allocation grows with the length of `v`. The result needs one
+`Float64`, 8 bytes, per element; much more than that means values are being
+boxed as they are read.
+'''
+
+  [problem.perf]
+  args = "randn(rng, n), 5"
+  sizes = [20000]
+
+  [[problem.variant]]
+  label = "does not wrap: stops at the end of v"
+  code = '''
+function wrapped_sums(v, w)
+    return [sum(v[j] for j in i:min(i + w - 1, length(v))) for i in eachindex(v)]
+end
+'''
+  expect = ["incorrect"]
+
+  [[problem.variant]]
+  label = "a parametric struct, generic over the vector type"
+  code = '''
+struct Ring{V<:AbstractVector}
+    data::V
+end
+
+Base.getindex(r::Ring, i::Int) = r.data[mod1(i, length(r.data))]
+
+function wrapped_sums(v, w)
+    r = Ring(v)
+    return [sum(r[i + k] for k in 0:w-1) for i in eachindex(v)]
+end
+'''
+  expect = ["correct"]

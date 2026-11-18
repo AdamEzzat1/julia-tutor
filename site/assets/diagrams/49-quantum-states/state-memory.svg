@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 360" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Memory of an n-qubit state vector</title>
+<rect width="720" height="360" fill="#ffffff"/>
+<text x="20" y="28" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">Memory of a state vector: 16 bytes per amplitude, 2^n amplitudes</text>
+<line x1="90" y1="300.0" x2="690" y2="300.0" stroke="#776f82" stroke-opacity="0.25"/>
+<text x="82" y="304.0" font-size="12" fill="#776f82" text-anchor="end" >1 KiB</text>
+<line x1="90" y1="238.5" x2="690" y2="238.5" stroke="#776f82" stroke-opacity="0.25"/>
+<text x="82" y="242.46153846153845" font-size="12" fill="#776f82" text-anchor="end" >1 MiB</text>
+<line x1="90" y1="176.9" x2="690" y2="176.9" stroke="#776f82" stroke-opacity="0.25"/>
+<text x="82" y="180.92307692307693" font-size="12" fill="#776f82" text-anchor="end" >1 GiB</text>
+<line x1="90" y1="115.4" x2="690" y2="115.4" stroke="#776f82" stroke-opacity="0.25"/>
+<text x="82" y="119.38461538461539" font-size="12" fill="#776f82" text-anchor="end" >1 TiB</text>
+<line x1="90" y1="60.0" x2="690" y2="60.0" stroke="#776f82" stroke-opacity="0.25"/>
+<text x="82" y="64.0" font-size="12" fill="#776f82" text-anchor="end" >512 TiB</text>
+<rect x="130" y="275.4" width="70" height="24.6" fill="#3657c8" fill-opacity="0.75"/>
+<text x="165.0" y="267.38461538461536" font-size="13" fill="#2b2733" text-anchor="middle" font-weight="600">16 KiB</text>
+<text x="165.0" y="320" font-size="13" fill="#2b2733" text-anchor="middle" >n = 10</text>
+<rect x="245" y="213.8" width="70" height="86.2" fill="#3657c8" fill-opacity="0.75"/>
+<text x="280.0" y="205.84615384615384" font-size="13" fill="#2b2733" text-anchor="middle" font-weight="600">16 MiB</text>
+<text x="280.0" y="320" font-size="13" fill="#2b2733" text-anchor="middle" >n = 20</text>
+<rect x="360" y="152.3" width="70" height="147.7" fill="#3657c8" fill-opacity="0.75"/>
+<text x="395.0" y="144.3076923076923" font-size="13" fill="#2b2733" text-anchor="middle" font-weight="600">16 GiB</text>
+<text x="395.0" y="320" font-size="13" fill="#2b2733" text-anchor="middle" >n = 30</text>
+<rect x="475" y="90.8" width="70" height="209.2" fill="#3657c8" fill-opacity="0.75"/>
+<text x="510.0" y="82.76923076923077" font-size="13" fill="#2b2733" text-anchor="middle" font-weight="600">16 TiB</text>
+<text x="510.0" y="320" font-size="13" fill="#2b2733" text-anchor="middle" >n = 40</text>
+<rect x="590" y="60.0" width="70" height="240.0" fill="#3657c8" fill-opacity="0.75"/>
+<text x="625.0" y="52.0" font-size="13" fill="#2b2733" text-anchor="middle" font-weight="600">512 TiB</text>
+<text x="625.0" y="320" font-size="13" fill="#2b2733" text-anchor="middle" >n = 45</text>
+<line x1="90" y1="300" x2="690" y2="300" stroke="#776f82"/>
+<text x="20" y="344" font-size="12" fill="#776f82" text-anchor="start" >Logarithmic scale: each grid line is 10 doublings (a factor of 1024). One more qubit doubles the memory.</text>
+</svg>

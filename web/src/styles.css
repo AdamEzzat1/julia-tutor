@@ -556,3 +556,8 @@ body.quarto-dark {
 /* Performance ladder (in the grading result) */
 .jt-perfladder .jt-fb-list li.off .t { color: var(--jt-muted); }
 .jt-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Reviews due (views/Review.tsx) */
+.jt-review { display: grid; gap: 0.6rem; }
+.jt-inlinelink { all: unset; cursor: pointer; color: var(--jt-blue); text-decoration: underline; text-underline-offset: 2px; }
+.jt-inlinelink:focus-visible { outline: 2px solid var(--jt-blue); outline-offset: 2px; border-radius: 3px; }

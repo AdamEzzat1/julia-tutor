@@ -1020,6 +1020,164 @@ end
 '''
   expect = ["correct", "slow"]
 
+
+[[problem]]
+id = "csc-row-sums-find-the-bug"
+title = "Find the bug: row sums from compressed columns"
+difficulty = "core"
+kcs = ["sparse-storage"]
+entry = "row_sums"
+packages = ["SparseArrays"]
+prompt = '''
+`row_sums(A)` returns the sum of each row of a `SparseMatrixCSC{Float64}` as
+a `Vector{Float64}` of length `size(A, 1)`. It walks the stored entries
+column by column, as compressed sparse column storage allows, using
+`rowvals`, `nonzeros` and `nzrange` from this unit's first section.
+
+One line of the code in the editor is wrong. On the Poisson matrix it gives
+the right answer. Find the line and fix it; change nothing else.
+
+```julia
+A = sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 2.0, 3.0, 5.0])
+row_sums(A)    # [6.0, 2.0, 3.0]
+```
+
+The tests print the largest error against `sum(A; dims = 2)`. Results are
+compared with `rtol = 1e-12`.
+'''
+reference = '''
+using SparseArrays
+
+function row_sums(A)
+    s = zeros(size(A, 1))
+    rows = rowvals(A)
+    vals = nonzeros(A)
+    for j in 1:size(A, 2)
+        for k in nzrange(A, j)
+            s[rows[k]] += vals[k]
+        end
+    end
+    return s
+end
+'''
+cases = [
+  "sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 2.0, 3.0, 5.0])",
+  "sparse([2, 3, 4], [1, 2, 3], [1.0, 2.0, 3.0], 4, 4)",
+  "sparse([1, 3, 4, 2], [1, 1, 2, 2], [0.5, -1.0, 2.0, 4.0], 4, 2)",
+  "sparse([1, 2], [3, 1], [7.0, 9.0], 2, 3)",
+  "spzeros(3, 3)",
+]
+# rtol: each row sum adds at most a few stored entries in a different order from `sum(A; dims = 2)`,
+# so two correct versions differ by a few eps relative; 1e-12 is far above that.
+gen = "rng -> [(m = rand(rng, 1:8); n = rand(rng, 1:8); (sprandn(rng, m, n, 0.4),)) for _ in 1:20]"
+compare = "isapprox"
+rtol = 1e-12
+hints = [
+  "The first test is on a symmetric matrix and passes. The second uses a matrix that is not symmetric but whose rows and columns have the same sums. The third has neither. What would the code compute if it confused rows with columns?",
+  "In CSC storage the outer loop runs over columns: `j` is a column index. The row of the stored entry `vals[k]` is not `j`; it is stored next to the value.",
+]
+
+  [problem.bug]
+  kc = "sparse-storage"
+  find = "s[rows[k]] += vals[k]"
+  replace = "s[j] += vals[k]"
+  answer_tokens = ["rows[k]"]
+  misconception = '''
+The planted line treats the loop's `j` as the row of the entry, as it would be
+when walking a dense matrix row by row. In CSC storage `j` is the column:
+`nzrange(A, j)` gives the positions of column `j`'s entries, and each entry's
+row is stored beside it, in `rowvals(A)[k]`. With `j` as the index, the loop
+adds up each column instead, which equals the row sums only when they happen
+to agree: for every symmetric matrix, such as the Poisson matrix, and for a
+few others. That is why the test on the Poisson matrix passed.
+'''
+
+  [[problem.bug.test]]
+  name = "the 2D Poisson matrix (N = 3), symmetric"
+  # expect: every entry is a small integer, so any order of summation gives the exact row sums (0.0).
+  # The planted line passes too: for a symmetric matrix, column sums are the row sums.
+  code = '''
+using SparseArrays, LinearAlgebra
+N = 3
+T = spdiagm(-1 => fill(-1.0, N - 1), 0 => fill(2.0, N), 1 => fill(-1.0, N - 1))
+Id = sparse(1.0I, N, N)
+A = kron(Id, T) + kron(T, Id)
+println("error: ", maximum(abs, row_sums(A) - vec(sum(A; dims = 2))))
+'''
+  row = '^error: (?<m>\S+)$'
+  expect = [0.0, 1e-12]
+  explain = '''
+Row sums of the symmetric Poisson matrix, against `sum(A; dims = 2)`. Zero
+means each stored entry was added to the right row, or that the matrix cannot
+tell rows from columns.
+'''
+
+  [[problem.bug.test]]
+  name = "a cyclic shift: not symmetric, equal row and column sums"
+  # expect: the entries are integers, so the reference reads 0.0 exactly. Every row and every
+  # column holds one 1.0, so the planted line (which sums columns) reads 0.0 as well.
+  code = '''
+using SparseArrays
+A = sparse([2, 3, 4, 1], [1, 2, 3, 4], [1.0, 1.0, 1.0, 1.0])
+println("error: ", maximum(abs, row_sums(A) - vec(sum(A; dims = 2))))
+'''
+  row = '^error: (?<m>\S+)$'
+  expect = [0.0, 1e-12]
+  explain = '''
+A permutation that moves each index one place: not symmetric, but each row
+and each column holds exactly one 1. Zero here says little, because column
+sums and row sums agree.
+'''
+
+  [[problem.bug.test]]
+  name = "an upper triangular matrix with an off-diagonal 5"
+  # expect: small integers again, so the reference reads 0.0. The row sums are [6, 2, 3] and the
+  # column sums [1, 2, 8], so the planted line reads 5.0.
+  code = '''
+using SparseArrays
+A = sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 2.0, 3.0, 5.0])
+println("error: ", maximum(abs, row_sums(A) - vec(sum(A; dims = 2))))
+'''
+  row = '^error: (?<m>\S+)$'
+  expect = [0.0, 1e-12]
+  explain = '''
+A matrix whose one off-diagonal entry, 5 at row 1 and column 3, makes its
+rows and columns sum differently. An error of 5 means that entry was counted
+in row 3, its column, instead of row 1.
+'''
+
+  [[problem.variant]]
+  label = "sums the transpose's columns, through a copy"
+  code = '''
+using SparseArrays
+function row_sums(A)
+    At = sparse(transpose(A))
+    s = zeros(size(A, 1))
+    for i in 1:size(A, 1)
+        s[i] = sum(nonzeros(At)[nzrange(At, i)])
+    end
+    return s
+end
+'''
+  expect = ["correct"]
+
+  [[problem.variant]]
+  label = "uses the column count for the result's length"
+  code = '''
+using SparseArrays
+function row_sums(A)
+    s = zeros(size(A, 2))
+    rows = rowvals(A)
+    vals = nonzeros(A)
+    for j in 1:size(A, 2)
+        for k in nzrange(A, j)
+            s[rows[k]] += vals[k]
+        end
+    end
+    return s
+end
+'''
+  expect = ["incorrect"]
 [[reference]]
 id = "hestenes-stiefel-1952"
 authors = "Hestenes, M. R.; Stiefel, E."

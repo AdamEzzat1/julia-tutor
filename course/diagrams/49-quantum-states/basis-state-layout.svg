@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 400" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" fill="#2b2733">
+<title>Where the amplitude of each outcome is stored</title>
+<rect width="560" height="400" fill="#ffffff"/>
+<text x="20" y="28" font-size="15" fill="#2b2733" text-anchor="start" font-weight="600">basis_state(3, 5): outcome k is stored at Julia index k + 1</text>
+<text x="70" y="64" font-size="13" fill="#776f82" text-anchor="middle" >outcome k</text>
+<text x="190" y="64" font-size="13" fill="#776f82" text-anchor="middle" >k in binary</text>
+<text x="320" y="64" font-size="13" fill="#776f82" text-anchor="middle" >Julia index</text>
+<text x="450" y="64" font-size="13" fill="#776f82" text-anchor="middle" >amplitude</text>
+<text x="70" y="92" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<text x="190" y="92" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">000</text>
+<text x="320" y="92" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[1]</text>
+<text x="450" y="92" font-size="15" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<text x="70" y="128" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">1</text>
+<text x="190" y="128" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">001</text>
+<text x="320" y="128" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[2]</text>
+<text x="450" y="128" font-size="15" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<text x="70" y="164" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">2</text>
+<text x="190" y="164" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">010</text>
+<text x="320" y="164" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[3]</text>
+<text x="450" y="164" font-size="15" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<text x="70" y="200" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">3</text>
+<text x="190" y="200" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">011</text>
+<text x="320" y="200" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[4]</text>
+<text x="450" y="200" font-size="15" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<text x="70" y="236" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">4</text>
+<text x="190" y="236" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">100</text>
+<text x="320" y="236" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[5]</text>
+<text x="450" y="236" font-size="15" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<rect x="20" y="252" width="520" height="30" rx="4" fill="#7b4bb8" fill-opacity="0.14" stroke="#7b4bb8" stroke-width="1.5"/>
+<text x="70" y="272" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">5</text>
+<text x="190" y="272" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">101</text>
+<text x="320" y="272" font-size="15" fill="#7b4bb8" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[6]</text>
+<text x="450" y="272" font-size="15" fill="#7b4bb8" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700">1</text>
+<text x="70" y="308" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">6</text>
+<text x="190" y="308" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">110</text>
+<text x="320" y="308" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[7]</text>
+<text x="450" y="308" font-size="15" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<text x="70" y="344" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">7</text>
+<text x="190" y="344" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">111</text>
+<text x="320" y="344" font-size="15" fill="#2b2733" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ψ[8]</text>
+<text x="450" y="344" font-size="15" fill="#776f82" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<text x="20" y="386" font-size="12" fill="#776f82" text-anchor="start" >zeros(ComplexF64, 8), then ψ[5 + 1] = 1. Writing ψ[5] = 1 would set outcome 4 instead.</text>
+</svg>
