@@ -1,0 +1,9 @@
+name = "StiffKin"
+uuid = "248e8182-449e-4f40-b937-5c6dc71ef06d"
+version = "0.1.0"
+
+[deps]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+julia = "=1.10.13"

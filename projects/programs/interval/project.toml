@@ -1,0 +1,651 @@
+# A program (docs/PROGRAMS.md): a guided-format project the learner builds
+# alone after the course, with the reference sealed (sealed.txt) until the
+# last milestone passes. `tutor program show interval 1` prints a milestone.
+name = "interval"
+package = "TinyIntervals"
+env = "base"
+status = "ready"
+course = "core"
+title = "TinyIntervals: arithmetic that cannot lie about rounding"
+summary = "Build an interval type that works with Julia's generic code: arithmetic rounded outward so every result contains the exact answer, conversion and promotion so `interval(1.0, 2.0) + 1` works, equality and hashing that agree, powers computed as ranges, and finally a root finder whose answer is guaranteed to contain every zero. You write the package and its tests from the spec alone."
+kcs = ["packages", "testing", "types", "multiple-dispatch", "interfaces", "floating-point-rounding", "promotion", "numerical-honesty"]
+reading = '''
+Prerequisites: the whole Core Julia course, in particular units 02
+(numbers), 08 (types), 09 (dispatch), 15 (generic programming) and 17
+(interfaces).
+
+This is a program, not a guided project: it comes after the course and
+checks whether you can work from a spec alone. A check shows the first
+hint level only, and the reference stays sealed until your last milestone
+passes; then `tutor program reveal <this folder>` writes it next to your
+code for comparison.
+
+An interval [lo, hi] stands for every real number between its ends. Each
+operation must return an interval that contains the exact result for every
+choice of points in its inputs, even though every Float64 operation rounds.
+Julia rounds to the nearest float, so the computed sum of two floats is
+within half a float step of the exact one; one step outward
+(`prevfloat` below, `nextfloat` above) is always on the safe side. Tests
+compare against exact values: `big(x)` is the exact value of the double
+`x`, BigFloat sums and products of a few doubles are exact at the default
+256 bits, and `in` compares Julia numbers exactly, so `1//10 in a` asks
+about the real number one tenth.
+
+The checker warns on `==` against a float literal inside `@test`. Here
+most comparisons are exact on purpose: use `isequal(inf(a), 1.0)`,
+`iszero(x)` or `in`, and say in a comment why no tolerance is needed.
+'''
+
+[program]
+follows = "the Core Julia course and the symdiff project"
+hint_cap = 1
+
+[[milestone]]
+id = 0
+title = "A package with a test suite"
+min_score = 1.0
+goal = '''
+Create the package as in the tidy project's milestone 0 (`tutor guided show
+tidy 0` has the full steps): `Pkg.generate("TinyIntervals")`, move
+`Project.toml` and `src/` into this folder, and write `test/runtests.jl`
+with `using TinyIntervals, Test` and one check. The package uses the
+standard library only.
+'''
+
+  [[milestone.api]]
+  signature = "module TinyIntervals"
+  doc = "Defined in src/TinyIntervals.jl."
+
+  [[milestone.behaviour]]
+  id = "package-layout"
+  kc = "packages"
+  spec = "`src/TinyIntervals.jl` defines a module named `TinyIntervals` that loads without errors."
+  hints = [
+    "A package is a module whose name matches its file name under src/.",
+    "Open src/TinyIntervals.jl: its first code line should be `module TinyIntervals` and its last `end`.",
+    "If loading fails, the error above names the line.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Any check that runs counts here.",
+    "`@test TinyIntervals isa Module` is enough for milestone 0.",
+    "Put it inside a `@testset` so the report names it.",
+  ]
+
+[[milestone]]
+id = 1
+title = "The type, membership and show"
+min_score = 1.0
+must_cover = ["construct-invalid", "mid-inside", "diam-upper", "in-exact", "show-exact"]
+goal = '''
+Define the type and everything that reads it without arithmetic on two
+intervals: construction that refuses an empty or NaN interval, the ends, a
+midpoint, a width, membership, and how an interval prints.
+'''
+
+  [[milestone.api]]
+  signature = "struct Interval{T<:AbstractFloat} <: Number"
+  doc = "Two fields of type `T`, the lower and upper end. Exported."
+
+  [[milestone.api]]
+  signature = "interval(lo::AbstractFloat, hi::AbstractFloat) -> Interval; interval(x::AbstractFloat) -> Interval"
+  doc = "The interval [lo, hi], its type the promotion of the two ends' types; `interval(x)` is [x, x]."
+
+  [[milestone.api]]
+  signature = "inf(a) -> T; sup(a) -> T; mid(a) -> T; diam(a) -> T"
+  doc = "Lower end, upper end, a midpoint, a width."
+
+  [[milestone.api]]
+  signature = "x in a -> Bool  (Base.in(x::Real, a::Interval))"
+  doc = "Whether the real number `x` lies in `a`."
+
+  [[milestone.behaviour]]
+  id = "construct"
+  kc = "types"
+  spec = "`interval(1.0, 2.0)` is an `Interval{Float64}` with `inf` 1.0 and `sup` 2.0; Float32 ends give `Interval{Float32}`; mixed Float32 and Float64 ends give `Interval{Float64}`; `interval(x)` has both ends `x`. `Interval{Float64}` is a bits type (concrete fields), and infinite ends on their own side, such as `interval(-Inf, Inf)`, are allowed."
+  hints = [
+    "A parametric struct with both fields of the parameter type, plus a function that promotes the ends.",
+    "Check the case of mixed ends: what is `promote(1.0f0, 2.0)`?",
+    "The two-argument `interval` for two different float types can promote its arguments and call itself again.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Check the type and both ends of a simple interval.",
+    "Check Float32 ends keep Float32, and that mixed ends promote.",
+    "`isbitstype(Interval{Float64})` tells you the fields are concrete.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "construct-invalid"
+  kc = "types"
+  spec = "Construction throws an `ArgumentError` when `lo > hi`, when an end is NaN, and for [Inf, Inf] or [-Inf, -Inf], which contain no real number. The check lives in the type's constructor, so no code path can build an invalid interval."
+  hints = [
+    "An inner constructor is the one place every `Interval` passes through.",
+    "NaN fails every comparison, so `lo <= hi` is false for it; test NaN first to give a clear message.",
+    "Throw with a message that names both ends; the infinite cases compare an end with `typemax(T)` or `typemin(T)`.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Test that a reversed pair throws.",
+    "`@test_throws ArgumentError ...` for NaN and for [Inf, Inf].",
+    "And one valid unbounded interval, so the check is not too strict.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "mid-inside"
+  kc = "floating-point-rounding"
+  spec = "`mid(a)` is a float in `a` within one float step (`eps(mid(a))`) of the true midpoint, also when `lo + hi` overflows, as for [1e308, 1.7e308] or [floatmax(), floatmax()]."
+  hints = [
+    "What is `1e308 + 1.7e308` in Float64?",
+    "When the sum overflows, halve the ends before adding them.",
+    "Detect the overflow with `isfinite` on the first result, and keep the answer inside [lo, hi] at the end.",
+  ]
+  answer_tokens = ["a.lo / 2 + a.hi / 2"]
+  test_hints = [
+    "Compare with the exact midpoint in BigFloat, `(big(lo) + big(hi)) / 2`.",
+    "Include an interval whose ends add to more than `floatmax()`.",
+    "The tolerance is one float step at the result: `eps(m)`.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "diam-upper"
+  kc = "floating-point-rounding"
+  spec = "`diam(a)` is at least the exact width `hi - lo` and at most `nextfloat(hi - lo)`; for a thin interval it is zero. For [-2^-54, 1] the exact width 1 + 2^-54 is not a Float64 and `hi - lo` rounds down to 1.0, so `diam` must be larger than 1."
+  hints = [
+    "A width that is too small would understate the uncertainty.",
+    "Round the difference up by one float step, except when it is exactly zero.",
+    "When the two ends are equal the width is exactly zero and needs no step.",
+  ]
+  answer_tokens = ["nextfloat(a.hi - a.lo)"]
+  test_hints = [
+    "Compare with the exact width `big(hi) - big(lo)`.",
+    "Use [-2.0^-54, 1.0], where the rounded difference is too small.",
+    "Check a thin interval gives zero.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "in-exact"
+  kc = "numerical-honesty"
+  spec = "`x in a` compares the real number `x` with the ends exactly, for any `Real` `x`: `1//10 in interval(0.1)` is false (the double 0.1 is above one tenth), `big(0.1) in interval(0.1)` is true, and `2^53 + 1 in interval(2.0^53)` is false."
+  hints = [
+    "Julia's comparisons between number types are exact; converting first is not.",
+    "Converting `1//10` or `2^53 + 1` to Float64 rounds it, and then a wrong number is compared.",
+    "Compare `x` with `a.lo` and `a.hi` as given, without a conversion.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Test a point inside and one outside.",
+    "Test a rational that is close to, but not equal to, the double.",
+    "An integer above 2^53 is another number Float64 cannot hold exactly.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "show-exact"
+  kc = "interfaces"
+  spec = "An interval prints as `[lo, hi]` with each end shown the way `show` shows that float, so no digit is lost: `repr(interval(0.1, 0.30000000000000004))` is `\"[0.1, 0.30000000000000004]\"` and Float32 ends print as `1.0f0`."
+  hints = [
+    "Extend `Base.show(io::IO, a::Interval)`; print, string and repr all go through it.",
+    "Rounding the ends for display would hide exactly what intervals are for.",
+    "Write the brackets and comma with `print` and each end with `show(io, end)`.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "`repr(...)` gives the printed text to compare as a string.",
+    "Use an end with many digits, such as 0.30000000000000004.",
+    "Check a Float32 interval too.",
+  ]
+
+  [[milestone.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+1//10 < 0.1
+'''
+  choices = ["true", "false"]
+  answer = 1
+  explain = "The double nearest to one tenth is 0.1000000000000000055511151231257827..., slightly above it, and Julia compares a Rational with a Float64 exactly."
+  misconceptions = [
+    "",
+    "The comparison is not done in Float64: Julia compares the exact values, and the double 0.1 is a little more than one tenth.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why does the check that `lo <= hi` belong in an inner constructor rather than in `interval`?"
+  choices = [
+    "No way of building an `Interval` can skip it, not even `Interval{T}(lo, hi)`",
+    "Inner constructors are compiled ahead of time, so the check costs nothing at run time",
+    "Julia requires every struct to have one",
+    "It lets the struct have abstract field types",
+  ]
+  answer = 1
+  explain = "With an inner constructor, the default constructor is replaced, so code elsewhere (including your later milestones) cannot build an interval with lo > hi by mistake."
+  misconceptions = [
+    "",
+    "Both compile to the same kind of code; the reason is that no other path can bypass the check.",
+    "Structs get a default constructor without one; you write one to restrict construction.",
+    "Field types are set in the struct definition; the constructor does not change them.",
+  ]
+
+[[milestone]]
+id = 2
+title = "Arithmetic, rounded outward"
+min_score = 1.0
+must_cover = ["add-encloses", "sub-encloses", "mul-encloses", "div-encloses", "div-zero", "neg", "ops-tight"]
+goal = '''
+Give two intervals of the same type `+`, `-`, `*`, `/` and unary `-`, each
+returning an interval that contains `x op y` for every `x` in the first and
+`y` in the second, at most one float step wider than needed at each end.
+'''
+
+  [[milestone.api]]
+  signature = "a + b, a - b, a * b, a / b, -a  (for a, b::Interval{T})"
+  doc = "Methods of `Base.:+`, `Base.:-`, `Base.:*`, `Base.:/`. Mixed types come in milestone 3."
+
+  [[milestone.behaviour]]
+  id = "add-encloses"
+  kc = "floating-point-rounding"
+  spec = "`a + b` contains the exact sum of every pair of points; for example `big(0.1) + big(0.2) in interval(0.1) + interval(0.2)`, although the Float64 sum 0.30000000000000004 is above the exact one."
+  hints = [
+    "The computed sum can be on either side of the exact one.",
+    "The lower end must not be above the exact lower end; the upper end must not be below the exact upper end.",
+    "Move each computed end one float step away from the middle.",
+  ]
+  answer_tokens = ["prevfloat(a.lo + b.lo)"]
+  test_hints = [
+    "Compare with the exact sum in BigFloat using `in`.",
+    "Pick two doubles whose sum is not a double, such as 0.1 and 0.2.",
+    "A loop over a few intervals catches what one example misses.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "sub-encloses"
+  kc = "floating-point-rounding"
+  spec = "`a - b` contains `x - y` for every `x` in `a` and `y` in `b`; [1, 2] - [1, 2] is about [-1, 1], since the two operands are independent."
+  hints = [
+    "Which ends of `b` give the smallest and the largest `x - y`?",
+    "The lower end pairs the smallest `x` with the largest `y`.",
+    "Then round outward as for `+`.",
+  ]
+  answer_tokens = ["a.lo - b.hi"]
+  test_hints = [
+    "Subtract an interval from itself: the result is not zero.",
+    "Check that -1 is in [1, 2] - [1, 2].",
+    "And an exact BigFloat difference of two doubles.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "mul-encloses"
+  kc = "floating-point-rounding"
+  spec = "`a * b` contains every product; with mixed signs the lowest product can come from any pair of ends, as -2 * 4 in [-2, 1] * [3, 4]."
+  hints = [
+    "With negative numbers the order of products changes.",
+    "There are four products of ends; the range lies between their smallest and largest.",
+    "Take the minimum and maximum of all four, then round outward.",
+  ]
+  answer_tokens = ["min(p1, p2, p3, p4)"]
+  test_hints = [
+    "Use intervals with mixed signs.",
+    "Check that -8 is in [-2, 1] * [3, 4].",
+    "And a product of two doubles that is not a double.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "div-encloses"
+  kc = "floating-point-rounding"
+  spec = "`a / b` contains every quotient when `b` excludes zero; `1//3 in interval(1.0) / interval(3.0)`."
+  hints = [
+    "Division is monotone in each argument while the divisor keeps its sign.",
+    "The four quotients of ends bound the range, as for products.",
+    "A quotient is rounded too, so both ends need the outward step.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "1/3 is not a double: test it with `in`.",
+    "A divisor that is a whole interval, such as 3.0.. 4.0, as well as a thin one.",
+    "A negative divisor flips which end is which.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "div-zero"
+  kc = "numerical-honesty"
+  spec = "Dividing by an interval that contains zero (including at an end, as [0, 1]) throws a `DomainError`: the set of quotients is unbounded or splits in two, which one interval cannot hold."
+  hints = [
+    "What is the set of 1/y for y in [-1, 1]?",
+    "Check whether zero is in the divisor before computing anything.",
+    "Throw `DomainError(b, message)`.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "`@test_throws DomainError` with a divisor around zero.",
+    "And one where zero is an end.",
+    "A thin zero divisor too.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "neg"
+  kc = "floating-point-rounding"
+  spec = "`-a` is [-hi, -lo], exactly: negating a float never rounds, so no step outward is needed."
+  hints = [
+    "Negation swaps which end is lower.",
+    "No rounding happens, so the result can be exact.",
+    "Build the new interval from the negated upper end and the negated lower end.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Check both ends exactly with `isequal`.",
+    "Negating [1.0, 2.5] gives [-2.5, -1.0].",
+    "No tolerance is needed: say so in a comment.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "ops-tight"
+  kc = "floating-point-rounding"
+  spec = "Each end of a result is at most one float step beyond the tightest Float64 enclosure of the exact range, so results do not grow wider than the rounding requires."
+  hints = [
+    "Containment alone is met by [-Inf, Inf]; a useful interval is also narrow.",
+    "One step outward from a nearest-rounded value is always enough.",
+    "Step once at each end, not more.",
+  ]
+  answer_tokens = ["prevfloat(x, 2)"]
+  test_hints = [
+    "An exact sum such as 1 + 2 = 3 shows the width directly.",
+    "Check the lower end is at least `prevfloat(3.0)`.",
+    "And the upper end at most `nextfloat(3.0)`.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why is one `prevfloat` step enough for the lower end of a sum, when Julia rounds to nearest?"
+  choices = [
+    "The rounded sum is within half a step of the exact sum, so one step down is at or below it",
+    "`prevfloat` subtracts machine epsilon, which is an upper bound on the rounding error of every operation",
+    "Sums of floats are exact unless they overflow",
+  ]
+  answer = 1
+  explain = "Round to nearest puts the result within half a unit in the last place of the exact value; the next float down is a whole unit lower, so it cannot be above the exact sum."
+  misconceptions = [
+    "",
+    "`prevfloat` moves to the adjacent float, a step whose size depends on the value; machine epsilon is that step at 1.0 only.",
+    "0.1 + 0.2 already rounds: the exact sum of those two doubles is not a double.",
+  ]
+
+  [[milestone.question]]
+  kind = "output"
+  prompt = "What does this print?"
+  code = '''
+0.1 + 0.2 > big(0.1) + big(0.2)
+'''
+  choices = ["true", "false"]
+  answer = 1
+  explain = "The Float64 sum rounds up to 0.30000000000000004, above the exact sum of the two doubles, which is why the lower end of an interval sum needs a step down."
+  misconceptions = [
+    "",
+    "The rounded sum is the nearest float to the exact one, and here the nearest float is above it.",
+  ]
+
+[[milestone]]
+id = 3
+title = "Base integration: conversion, promotion, equality, powers"
+min_score = 1.0
+must_cover = ["convert-encloses", "promote-mixed", "eq-hash", "pow-range"]
+goal = '''
+Make intervals work with Julia's generic code: numbers of other types
+convert to intervals that contain them, mixed arithmetic promotes, `zero`,
+`one`, `sum` and `evalpoly` work without being written for intervals, `==`
+and `hash` agree, and `a^n` is the range of `x^n`.
+'''
+
+  [[milestone.api]]
+  signature = "convert(Interval{T}, x::Real); Interval{T}(x::Real); Interval{T}(a::Interval); interval(x::Real); interval(lo::Real, hi::Real)"
+  doc = "Conversions that enclose `x`; `interval` of other real types picks `float` of their type."
+
+  [[milestone.api]]
+  signature = "Base.promote_rule for (Interval{T}, S<:Real) and (Interval{T}, Interval{S})"
+  doc = "So that `a + 1`, `2 * a` and `[a, 3]` work."
+
+  [[milestone.api]]
+  signature = "a == b; hash(a, h); a^n for n::Integer"
+  doc = "Set equality with a matching hash; powers as ranges."
+
+  [[milestone.behaviour]]
+  id = "convert-encloses"
+  kc = "numerical-honesty"
+  spec = "Converting a real `x` gives the tightest interval of floats that contains it: thin when `x` is a float of that type, otherwise the two adjacent floats around it. `1//10`, `2^53 + 1` and `π` are inside their conversions, and `Interval{Float32}(interval(0.1))` contains the double 0.1."
+  hints = [
+    "`Float64(1//10)` rounds; a thin interval of it misses one tenth.",
+    "Round to nearest, then compare the result with `x`: the comparison is exact and tells you which side it fell.",
+    "If the rounded value is above `x`, the lower end is one step down; if below, the upper end is one step up.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Use `in` with a Rational that is not a double.",
+    "An integer above 2^53 is another such number.",
+    "Check a double converts to a thin interval.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "promote-mixed"
+  kc = "promotion"
+  spec = "Mixed arithmetic promotes: `interval(1.0, 2.0) + 1` and `2 * a` are `Interval{Float64}`, an `Interval{Float32}` plus an `Int` stays `Interval{Float32}` (as `1.0f0 + 1` stays Float32), plus a Float64 becomes `Interval{Float64}`, and `[a, 3]` is a `Vector{Interval{Float64}}`."
+  hints = [
+    "Julia's `+(x::Number, y::Number)` already calls `promote`; you add the rule and the conversion.",
+    "The element type of the result follows the promotion of the float type with the other number's type.",
+    "`promote_type` on the two element types gives the parameter of the result.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Check the result type of `a + 1`.",
+    "A Float32 interval plus an Int keeps Float32.",
+    "`eltype([a, 3])` shows what a mixed vector becomes.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "generic-zero-sum"
+  kc = "interfaces"
+  spec = "`zero(Interval{Float64})` and `one(Interval{Float64})` are the thin intervals 0 and 1, `sum` of an empty `Vector{Interval{Float64}}` works, `sum(fill(interval(0.1), 10))` contains ten times the double 0.1 exactly, and `evalpoly(interval(1.0, 2.0), (1, -3, 1))` contains 1 - 3x + x^2 for every x in [1, 2]."
+  hints = [
+    "Base's `zero(T)` for a `Number` type calls `convert(T, 0)`.",
+    "Once conversion works, these need no methods of their own.",
+    "If one fails, the error names the conversion it was looking for.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "`sum` of an empty typed vector needs `zero`.",
+    "Compare a sum with the exact BigFloat value.",
+    "`evalpoly` at a few rational points, compared with `in`.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "eq-hash"
+  kc = "interfaces"
+  spec = "`a == b` when the two intervals are the same set of reals, so [-0.0, 1] == [0.0, 1]; `isequal` agrees, and so does `hash`, so a `Set` or `unique` treats them as one element."
+  hints = [
+    "Two objects that are `isequal` must have the same hash, or Sets and Dicts break.",
+    "`-0.0 == 0.0` is true, but their bits differ and so do `hash(-0.0)` and `hash(0.0)`.",
+    "Hash a value of each end from which the sign of zero has been removed.",
+  ]
+  answer_tokens = ["+ zero("]
+  test_hints = [
+    "Compare intervals that differ only in the sign of a zero end.",
+    "Put both in a `Set` and count it.",
+    "And check two different intervals are not equal.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "pow-range"
+  kc = "numerical-honesty"
+  spec = "`a^n` for an integer `n` contains `x^n` for every `x` in `a` and is not wider than that range needs: [-1, 2]^2 has lower end exactly 0 (while [-1, 2] * [-1, 2] is about [-2, 4], since its two factors are independent), odd powers keep the sign, `a^0` is [1, 1], a negative `n` is `1 / a^(-n)`, and `[-1, 1]^-2` throws a `DomainError`."
+  hints = [
+    "Base computes `a^2` as `a * a`, which treats the two factors as different numbers.",
+    "Split by sign: an interval of positive numbers, of negative numbers, or one that contains zero, and even or odd `n`.",
+    "For an even power of an interval around zero the lower end is zero; round only the ends you compute.",
+  ]
+  answer_tokens = ["iseven(n) && return"]
+  test_hints = [
+    "Square an interval that contains zero.",
+    "Cube an interval of negative numbers.",
+    "Check `^0` and a negative power, and the DomainError.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "After you define `promote_rule` and `convert` for intervals, `interval(1.0, 2.0) + 1` works without a method for `+(::Interval, ::Int)`. Why?"
+  choices = [
+    "Base has `+(x::Number, y::Number) = +(promote(x, y)...)`, which uses your rule and conversion",
+    "Julia converts the Int to Float64 before dispatch",
+    "The compiler writes a new method for each pair of argument types it meets, copied from the closest existing one",
+    "`Interval <: Number` makes all of Base's arithmetic accept it",
+  ]
+  answer = 1
+  explain = "The fallback for two Numbers of different types promotes them to a common type and calls `+` again; your `promote_rule` names that type and your `convert` builds it, so the interval method for two intervals runs."
+  misconceptions = [
+    "",
+    "No conversion happens before dispatch; the generic method with abstract `Number` arguments is what is chosen.",
+    "Specialised code is compiled for each call signature, but only for methods that exist; the method used here is Base's fallback.",
+    "Subtyping `Number` makes the fallback applicable, but without your promotion rule it would fail inside `promote`.",
+  ]
+
+[[milestone]]
+id = 4
+title = "Every root, guaranteed"
+min_score = 1.0
+must_cover = ["roots-enclose", "roots-discard", "roots-width", "roots-sorted", "roots-cap", "roots-args"]
+goal = '''
+Use the interval type to find every zero of a function in an interval
+with a proof: split the interval, drop a piece only when `f` of that piece
+excludes zero, and stop when pieces are narrow enough. The answer is a
+list of small intervals that is guaranteed to contain every zero.
+'''
+
+  [[milestone.api]]
+  signature = "roots(f, a::Interval; tol = 1e-8, maxboxes = 10_000) -> Vector{Interval}"
+  doc = "`f` takes an interval and returns one, written with the arithmetic above (such as `x -> x^2 - 2`)."
+
+  [[milestone.behaviour]]
+  id = "roots-enclose"
+  kc = "numerical-honesty"
+  spec = "Every zero of `f` in `a` lies in some returned interval, including a double zero where `f` does not change sign, such as (x - 1)^2 at 1."
+  hints = [
+    "A piece may be dropped only when it provably has no zero.",
+    "`f` of a piece contains every value of `f` on that piece; when it excludes 0, there is no zero there.",
+    "Test the piece itself, not a point in it.",
+  ]
+  answer_tokens = ["in f(J)"]
+  test_hints = [
+    "Check ±√2 for x^2 - 2, compared exactly with `sqrt(big(2))`.",
+    "A double zero, which a sign change test would miss.",
+    "A cubic with three zeros.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "roots-discard"
+  kc = "numerical-honesty"
+  spec = "Pieces where `f` excludes zero are dropped: for x^2 - 2 on [-3, 3] no returned interval meets [-1, 1], at most 8 are returned with `tol = 1e-3`, and x^2 + 1 gives an empty list."
+  hints = [
+    "An enclosure that keeps everything is true and useless.",
+    "Excluding zero means the whole of `f(J)` is on one side of it.",
+    "Use membership of zero in `f(J)` for the decision, both ends included.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "A function with no zeros returns an empty list.",
+    "No returned piece is near a point where `f` is far from zero.",
+    "Count the pieces for a coarse tolerance.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "roots-width"
+  kc = "numerical-honesty"
+  spec = "Every returned interval has `diam` at most `tol` (or cannot be split further, being two adjacent floats)."
+  hints = [
+    "Stop splitting a piece once it is narrow enough.",
+    "Compare the width with `tol` using the `diam` from milestone 1.",
+    "Split at `mid(J)` into two pieces that share the midpoint, so no point falls between them.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "Check `diam(J) <= tol` for every returned piece.",
+    "Try two tolerances.",
+    "A tolerance below one float step still has to terminate.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "roots-sorted"
+  kc = "testing"
+  spec = "The result is a `Vector{Interval{T}}` sorted by lower end."
+  hints = [
+    "The order in which pieces are found depends on how you keep the work list.",
+    "Sort at the end.",
+    "Sort by the lower end.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "`issorted(rs; by = inf)` with several zeros.",
+    "Check the element type.",
+    "A function with three zeros gives at least three pieces.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "roots-cap"
+  kc = "numerical-honesty"
+  spec = "If more than `maxboxes` intervals would be returned, `roots` throws an `ErrorException` instead of running on. `x -> x - x` is zero everywhere and its interval version on [lo, hi] is [lo - hi, hi - lo], which never excludes zero (the dependency problem), so on [0, 1] with `tol = 1e-6` it hits the cap."
+  hints = [
+    "Some functions make every piece look like it may hold a zero.",
+    "Count what you are about to return.",
+    "Throw with `error(...)` and say why in the message.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "`x -> x - x` shows the problem.",
+    "A small `maxboxes` with a real function hits the cap too.",
+    "And a larger cap does not.",
+  ]
+
+  [[milestone.behaviour]]
+  id = "roots-args"
+  kc = "testing"
+  spec = "`tol <= 0` throws an `ArgumentError`."
+  hints = [
+    "A zero tolerance can never be met by a piece of positive width.",
+    "Check the argument first.",
+    "Throw an `ArgumentError` that names the value.",
+  ]
+  answer_tokens = []
+  test_hints = [
+    "`tol = 0`.",
+    "A negative tolerance.",
+    "`@test_throws ArgumentError`.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "`roots(x -> x^2 - 2, interval(-3.0, 3.0))` returns small intervals around ±√2. What does it guarantee?"
+  choices = [
+    "Every zero in [-3, 3] is inside a returned interval; a returned interval may hold no zero",
+    "Each returned interval contains exactly one zero",
+    "Each returned interval contains a zero, and no zero is missed",
+  ]
+  answer = 1
+  explain = "A piece is dropped only with a proof that it has no zero, so none is missed; a piece is kept whenever `f` of it includes zero, which a too-wide enclosure can do without a zero inside."
+  misconceptions = [
+    "",
+    "Pieces are about `tol` wide and a zero may be shared by two neighbouring pieces; nothing counts the zeros in one.",
+    "Keeping a piece proves nothing: `f(J)` can include zero because of overestimation alone, as `x - x` shows.",
+  ]
+
+  [[milestone.question]]
+  kind = "choice"
+  prompt = "Why does `roots(x -> x - x, interval(0.0, 1.0); tol = 1e-6)` hit the cap, while `x -> 0 * x` would also be zero everywhere?"
+  choices = [
+    "Both hit it: interval arithmetic cannot drop a piece of a function that is zero there",
+    "`x - x` treats the two copies of `x` as independent, giving [lo - hi, hi - lo]",
+    "`x - x` rounds to a small nonzero number",
+  ]
+  answer = 1
+  explain = "Both functions are zero on every piece, so no piece can be dropped and both hit the cap. The dependency problem is a separate effect: it makes `x - x` look like [lo - hi, hi - lo] even though it is exactly zero."
+  misconceptions = [
+    "",
+    "That overestimation is real, but here the function really is zero everywhere: no correct method may drop any piece.",
+    "Subtracting a float from itself is exact; the interval result is wide because the copies are treated as independent.",
+  ]

@@ -1,0 +1,30 @@
+== tutor explain: robertson, stage 1 ==
+
+Start here: hole `bs32_step` at src/StiffKin.jl:132
+  why: 2 of the 2 failing testsets depend on it (Ochiai 1.0).
+  Read its docstring: it is the specification. Knowledge component: runge-kutta-stages.
+
+Tests: 6/8 testsets pass
+  FAIL bs32_step: order 3 with a second-order error estimate  [3 failed, 0 errored; depends on: bs32_step]
+       test/runtests.jl:77 FAIL nf == 4  evaluated: 3 == 4
+       test/runtests.jl:77 FAIL nf == 4  evaluated: 3 == 4
+  FAIL integrate: adaptive, lands on T, counts its work  [1 failed, 1 errored; depends on: bs32_step]
+       test/runtests.jl:119 FAIL s.nf == 4 * (s.steps + s.rejected) && s.nj == 0
+       test/runtests.jl:110 ERROR ErrorException("integrate: more than 10000000 attempts")
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. bs32_step          1.0   implemented  failing-deps=2 passing-deps=0  src/StiffKin.jl:132
+  2. rhs                0.0   implemented  failing-deps=0 passing-deps=3  src/StiffKin.jl:55
+  3. jacobian           0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:68
+  4. solve_pivot        0.0   implemented  failing-deps=0 passing-deps=3  src/StiffKin.jl:82
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations bs32_step(Robertson): 8  (reference 9)
+  allocations jacobian(3 species): 6  (reference 6)
+  allocations rhs(3 species): 1  (reference 1)
+  allocations ros2_step(Robertson): 17  (reference 17)
+  allocations solve_pivot(3x3): 2  (reference 2)
+  JET: not used by this project's measurements

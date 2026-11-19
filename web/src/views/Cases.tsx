@@ -14,6 +14,33 @@ export const BUILT_CASES: { id: string; course: string; title: string; summary: 
       "Write Dormand–Prince 5(4) from its tableau and verify it, then measure which integrator keeps a Kepler " +
       "orbit's energy error under budget over 1000 orbits for less work (milestone M4).",
   },
+  {
+    id: "dualad",
+    course: "core",
+    title: "Exact derivatives: dual numbers or central differences?",
+    summary:
+      "Write forward-mode automatic differentiation with dual numbers and multiple dispatch, then measure " +
+      "whether central differences reach twelve digits at any step, and why the usual step rule fails far " +
+      "from the origin.",
+  },
+  {
+    id: "heat",
+    course: "scicomp",
+    title: "The cheapest accurate heat solver: explicit, implicit or Crank-Nicolson?",
+    summary:
+      "Write a 1D heat-equation solver with three time steppers and a tridiagonal solve, verify its orders " +
+      "with a manufactured solution, then measure which method meets a five-digit budget for the least work, " +
+      "and whether that holds for a rough initial profile.",
+  },
+  {
+    id: "robertson",
+    course: "scicomp",
+    title: "Stiff kinetics: when does an implicit method pay for its Jacobian?",
+    summary:
+      "Write Robertson's kinetics, a pivoted solve, an explicit and a Rosenbrock step and one adaptive controller, " +
+      "then measure which integrator meets a four-digit budget for the least work, why the explicit step is " +
+      "pinned by stability, and whether the choice survives slower reactions (it does not).",
+  },
 ];
 
 export const caseHref = (id: string) => `case-${id}.html`;
@@ -43,8 +70,8 @@ export function CasesView() {
           );
         })}
         <p style={{ maxWidth: "48rem", marginBottom: 0 }}>
-          Its software checks are built and verified. Its pilot with learners has not been run yet, so nothing here
-          is evidence that it teaches well. Everything further down is planned (cases, capstones and the full
+          Their software checks are built and verified. Their pilots with learners have not been run yet, so nothing
+          here is evidence that they teach well. Everything further down is planned (cases, capstones and the full
           programs that end each course): it is listed because a course outcome is waiting for it, not because it
           exists.
         </p>

@@ -1,0 +1,70 @@
+---
+title: "Exact derivatives: dual numbers or central differences?"
+author: "Your name"
+format: html
+---
+
+<!--
+How this report is checked (`tutor case check <dir> 3`):
+
+* One `## ` section per step of the method, with exactly these headings
+  (a longer heading that starts with one is fine).
+* Every number you quote from your study is tagged right after it:
+  `1.66e-11{claim:cd_err}`, `dual{claim:choice}`. The checker compares it
+  with what your study() returned: half a unit in the last digit you wrote
+  is allowed, nothing more; integers written without a point must be exact.
+  Write numbers, not inline code: the checker does not run Quarto.
+* Some claims must sit together in one paragraph (the QoI for both methods
+  with its spread, the best step next to the model's, the robustness
+  re-check, the validity range). `tutor case show dualad` lists every
+  claim, its section and the required evidence.
+* Your estimate goes in the Scales section with an {estimate:cd_err} tag.
+  It is never graded; the check prints it next to what you measured.
+
+No software grades the reasoning. The rubric (`tutor case show dualad
+--rubric`) is for you, a peer or an instructor.
+-->
+
+## Question
+
+State the question, the quantity of interest and the accuracy that would
+answer it. Quote the operating point: the interval from ...{claim:x_lo} to
+...{claim:x_hi}, ...{claim:npoints} points, budget ...{claim:target}.
+
+## Scales and estimate
+
+The scales of f, f' and f''' on the interval, the error model, and your
+estimate of the best central-difference error, written before any run:
+...{estimate:cd_err}.
+
+## Model and assumptions
+
+The arithmetic, the ground truth and why its error is negligible, how
+errors are measured, and what could make a relative error meaningless.
+
+## Method choice
+
+For each method, the largest error over the points (and, for central
+differences, the smallest), in one paragraph; which method you choose and
+why; what a gradient costs with each.
+
+## Verification
+
+Is the code right? Exact arithmetic on a polynomial, both branches of the
+central difference's error model with their fit ranges, the best step next
+to the model's optimum.
+
+## Validation
+
+Is the derivative of the code the derivative you want? An iteration that
+has not converged.
+
+## Uncertainty and sensitivity
+
+The spread over the points; the moved interval and whether the conclusion
+holds under it; why the step rule behaves as it does there.
+
+## Claims and limits
+
+Your claims, the evidence for each, the limitations, and the range where
+the conclusion was tested. Nothing beyond it.

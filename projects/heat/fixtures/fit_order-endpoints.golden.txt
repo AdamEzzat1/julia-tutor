@@ -1,0 +1,30 @@
+== tutor explain: heat, stage 2 ==
+
+Start here: hole `fit_order` at src/Heat1D.jl:207
+  why: 1 of the 1 failing testsets depend on it (Ochiai 0.58); 2 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: convergence-order-fit.
+
+Tests: 9/10 testsets pass
+  FAIL fit_order: least squares on log-log  [3 failed, 0 errored; depends on: fit_order]
+       test/runtests.jl:159 FAIL isapprox(fit_order(hs, errs), ls; rtol = 1.0e-12)  evaluated: isapprox(2.0, 1.7857143; rtol = 1.0e-12)
+       test/runtests.jl:160 FAIL !(isapprox(fit_order(hs, errs), (y[3] - y[1]) / (x[3] - x[1]); rtol = 0.01))  evaluated: !(isapprox(2.0, 2.0; rtol = 0.01))
+
+Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
+  1. fit_order          0.58  implemented  failing-deps=1 passing-deps=2  src/Heat1D.jl:207
+  2. second_difference  0.0   implemented  failing-deps=0 passing-deps=7  src/Heat1D.jl:52
+  3. ftcs_step          0.0   implemented  failing-deps=0 passing-deps=4  src/Heat1D.jl:76
+  4. thomas             0.0   implemented  failing-deps=0 passing-deps=5  src/Heat1D.jl:94
+  5. mms_problem        0.0   implemented  failing-deps=0 passing-deps=4  src/Heat1D.jl:192
+  6. theta_step         0.0   implemented  failing-deps=0 passing-deps=4  src/Heat1D.jl:134
+  7. solve_heat         0.0   implemented  failing-deps=0 passing-deps=4  src/Heat1D.jl:160
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations ftcs_step!(63 points): 0  (reference 0)
+  allocations second_difference!(63 points): 0  (reference 0)
+  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)
+  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)
+  allocations thomas!(63 unknowns): 0  (reference 0)
+  JET: not used by this project's measurements

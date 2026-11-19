@@ -1,0 +1,32 @@
+== tutor explain: robertson, stage 2 ==
+
+Start here: hole `integrate` at src/StiffKin.jl:210
+  why: 2 of the 2 failing testsets depend on it (Ochiai 1.0).
+  Read its docstring: it is the specification. Knowledge component: step-size-control.
+
+Tests: 6/8 testsets pass
+  FAIL integrate: adaptive, lands on T, counts its work  [4 failed, 0 errored; depends on: bs32_step, integrate]
+       test/runtests.jl:117 FAIL isapprox(y, [cos(T), -(sin(T))]; atol = 1.0e-5)  evaluated: isapprox([0.99999469, -0.00015046328], [1.0, 2.4492936000000003e-16]; atol = 1.0e-5)
+       test/runtests.jl:118 FAIL isequal(s.t, T)  evaluated: isequal(6.2833356, 6.2831853)
+  FAIL Robertson at t = 40: the published value, mass conserved  [1 failed, 0 errored; depends on: integrate, jacobian, rhs, ros2_step, solve_pivot]
+       test/runtests.jl:143 FAIL all(abs.(y .- yref) ./ yref .<= 1.0e-5)
+
+Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
+  1. integrate          1.0   implemented  failing-deps=2 passing-deps=0  src/StiffKin.jl:210
+  2. jacobian           0.5   implemented  failing-deps=1 passing-deps=1  src/StiffKin.jl:68
+  3. bs32_step          0.5   implemented  failing-deps=1 passing-deps=1  src/StiffKin.jl:132
+  4. ros2_step          0.5   implemented  failing-deps=1 passing-deps=1  src/StiffKin.jl:159
+  5. rhs                0.41  implemented  failing-deps=1 passing-deps=2  src/StiffKin.jl:55
+  6. solve_pivot        0.41  implemented  failing-deps=1 passing-deps=2  src/StiffKin.jl:82
+  7. fit_order          0.0   implemented  failing-deps=0 passing-deps=1  src/StiffKin.jl:244
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations bs32_step(Robertson): 9  (reference 9)
+  allocations jacobian(3 species): 6  (reference 6)
+  allocations rhs(3 species): 1  (reference 1)
+  allocations ros2_step(Robertson): 17  (reference 17)
+  allocations solve_pivot(3x3): 2  (reference 2)
+  JET: not used by this project's measurements

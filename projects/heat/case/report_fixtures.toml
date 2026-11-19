@@ -1,0 +1,96 @@
+# Report fixtures for the claim checker (`tutor case verify heat`).
+# Each is the reference report with `find[i]` replaced by `replace[i]`
+# (first occurrence), checked against the reference study's values. The
+# checker must give exactly the finding codes in `expect`, no more, no
+# fewer. `rerun_differs` names a claim whose value the simulated second
+# run changes by one ulp (or, for a word, to another word).
+
+[[fixture]]
+name = "wrong-integer-cost"
+# A cost off by one step's worth of updates (127): integers must be exact.
+find = ["1016{claim:cost_cn}"]
+replace = ["1143{claim:cost_cn}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "rounded-wrongly"
+# 4.9544e-6 rounds to 4.95e-6; 4.96e-6 is off by more than half a unit.
+find = ["4.95e-6{claim:space_err}"]
+replace = ["4.96e-6{claim:space_err}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "too-coarse"
+# min_digits = 3 for mms_space_order: "2.0" is within half a unit of
+# 2.00095 but has two significant digits.
+find = ["2.001{claim:mms_space_order}"]
+replace = ["2.0{claim:mms_space_order}"]
+expect = ["claim-too-coarse"]
+
+[[fixture]]
+name = "wrong-word"
+find = ["cn{claim:choice}"]
+replace = ["be{claim:choice}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "word-not-allowed"
+find = ["holds{claim:robust_holds}"]
+replace = ["survives{claim:robust_holds}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "value-in-inline-code"
+find = ["7.9e-7{claim:cancel_total_err}"]
+replace = ["`{julia} S[\"cancel_total_err\"]`{claim:cancel_total_err}"]
+expect = ["claim-no-value"]
+
+[[fixture]]
+name = "unknown-claim"
+find = ["128{claim:robust_ns_cn}"]
+replace = ["128{claim:robust_ns_cn} (16 times the smooth case's{claim:robust_step_ratio})"]
+expect = ["claim-unknown"]
+
+[[fixture]]
+name = "missing-section"
+find = ["## Validation"]
+replace = ["### Validation"]
+# The section's text now belongs to Verification: the section is missing
+# and its three claims are in the wrong section.
+expect = ["claim-wrong-section", "section-missing"]
+
+[[fixture]]
+name = "split-evidence"
+# The cancellation's two halves in different paragraphs: a small total
+# error without the space error it hides.
+find = ["7.9e-7{claim:cancel_total_err}, within the budget, while"]
+replace = ["7.9e-7{claim:cancel_total_err}, within the budget.\n\nYet"]
+expect = ["evidence-split"]
+
+[[fixture]]
+name = "missing-claim-and-evidence"
+find = ["keeps 1{claim:be_peaks}."]
+replace = ["keeps one."]
+expect = ["claim-missing", "evidence-missing"]
+
+[[fixture]]
+name = "tag-in-comment-is-not-a-claim"
+find = ["cn{claim:choice}"]
+replace = ["cn <!-- {claim:choice} -->"]
+expect = ["claim-missing"]
+
+[[fixture]]
+name = "rerun-differs"
+# The second run of study() changes the cost ratio by one ulp: a study that
+# is not deterministic is reported even when the written value matches.
+find = []
+replace = []
+rerun_differs = "cost_ratio"
+expect = ["not-reproducible"]
+
+[[fixture]]
+name = "estimate-missing"
+# The estimate is never graded, but the Scales section must contain one.
+find = ["328{estimate:ns_ftcs}"]
+replace = ["328"]
+expect = ["estimate-missing"]

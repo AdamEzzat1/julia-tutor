@@ -7,3 +7,6 @@ web/node_modules/
 site/_site/
 site/.quarto/
 site/assets/app/
+
+# program authoring: plain references, sealed into projects/programs/<p>/sealed.txt (docs/PROGRAMS.md)
+projects/programs/*/private/

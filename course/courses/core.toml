@@ -1,7 +1,7 @@
 # A course: an ordered list of existing units (ids unchanged) plus the projects
 # that assess it. Checked by `tutor course verify` (Course.validate_courses).
 # `assessed_by` names only things that exist (units of this course,
-# "project:<name>", "guided:<name>"); cases and programs not built yet are
+# "project:<name>", "guided:<name>", "program:<name>"); cases and programs not built yet are
 # listed under `planned`, as text.
 id = "core"
 title = "Core Julia"
@@ -14,8 +14,9 @@ units = ["01-first-steps", "02-numbers", "03-strings", "04-control-flow", "05-fu
          "07-broadcasting", "08-types", "09-dispatch", "10-errors", "11-iteration", "12-modules", "13-io",
          "14-performance", "15-generic-programming", "16-metaprogramming", "17-interfaces", "18-concurrency",
          "19-under-the-hood", "20-stdlib-tour"]
-projects = ["symdiff"]
+projects = ["symdiff", "dualad"]
 guided = []
+programs = ["interval"]   # projects/programs/interval (docs/PROGRAMS.md)
 
 [[outcome]]
 text = "Write type-stable, allocation-aware functions and show both by measurement (@allocated, @inferred)."
@@ -23,13 +24,11 @@ assessed_by = ["07-broadcasting", "08-types", "14-performance", "15-generic-prog
 
 [[outcome]]
 text = "Design with multiple dispatch and parametric types instead of if-chains."
-assessed_by = ["08-types", "09-dispatch", "15-generic-programming", "17-interfaces", "project:symdiff"]
-planned = ["dual-number forward AD case"]
+assessed_by = ["08-types", "09-dispatch", "15-generic-programming", "17-interfaces", "project:symdiff", "project:dualad"]
 
 [[outcome]]
 text = "Implement a Base interface (iteration, indexing, show, promotion) so a custom type works with generic code."
-assessed_by = ["11-iteration", "17-interfaces"]
-planned = ["interval arithmetic program"]
+assessed_by = ["11-iteration", "17-interfaces", "program:interval"]
 
 [[outcome]]
 text = "Handle errors deliberately, and read and write data safely."

@@ -1,0 +1,92 @@
+# Report fixtures for the claim checker (`tutor case verify dualad`).
+# Each is the reference report with `find[i]` replaced by `replace[i]`
+# (first occurrence), checked against the reference study's values. The
+# checker must give exactly the finding codes in `expect`, no more, no
+# fewer. `rerun_differs` names a claim whose value the simulated second
+# run changes by one ulp (or, for a word, to another word).
+
+[[fixture]]
+name = "wrong-number"
+find = ["1.66e-11{claim:cd_err}"]
+replace = ["1.72e-11{claim:cd_err}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "rounded-wrongly"
+# 3.548e-5 rounds to 3.5e-5; 3.6e-5 is off by more than half a unit in the last digit.
+find = ["3.5e-5{claim:algo_deriv_err}"]
+replace = ["3.6e-5{claim:algo_deriv_err}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "too-coarse"
+# min_digits = 3 for trunc_order: "2.0" is within half a unit of 1.9956...
+# but has two significant digits.
+find = ["1.996{claim:trunc_order}"]
+replace = ["2.0{claim:trunc_order}"]
+expect = ["claim-too-coarse"]
+
+[[fixture]]
+name = "integer-must-be-exact"
+find = ["10{claim:grad_evals_central}"]
+replace = ["11{claim:grad_evals_central}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "wrong-word"
+find = ["dual{claim:robust_choice}"]
+replace = ["central{claim:robust_choice}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "value-in-inline-code"
+# The checker does not run Quarto: a value written as inline code is no value.
+find = ["2.2e-16{claim:dual_err}"]
+replace = ["`{julia} S[\"dual_err\"]`{claim:dual_err}"]
+expect = ["claim-no-value"]
+
+[[fixture]]
+name = "unknown-claim"
+find = ["1.996{claim:trunc_order}"]
+replace = ["1.996{claim:trunc_order} (about 2{claim:truncation_order})"]
+expect = ["claim-unknown"]
+
+[[fixture]]
+name = "missing-section"
+find = ["## Validation"]
+replace = ["### Validation"]
+# The section's text now belongs to Verification: the section is missing
+# and its three claims are in the wrong section.
+expect = ["claim-wrong-section", "section-missing"]
+
+[[fixture]]
+name = "split-evidence"
+# The model's optimum moved to its own paragraph: the best step without its comparison.
+find = ["7.63e-6{claim:cd_best_h}; the model's"]
+replace = ["7.63e-6{claim:cd_best_h}.\n\nThe model's"]
+expect = ["evidence-split"]
+
+[[fixture]]
+name = "missing-claim-and-evidence"
+find = ["derivative's error is 0{claim:poly_err}."]
+replace = ["derivative has no error."]
+expect = ["claim-missing", "evidence-missing"]
+
+[[fixture]]
+name = "tag-in-comment-is-not-a-claim"
+find = ["dual{claim:choice}"]
+replace = ["dual <!-- {claim:choice} -->"]
+expect = ["claim-missing"]
+
+[[fixture]]
+name = "missing-estimate"
+find = ["4e-11{estimate:cd_err}"]
+replace = ["small"]
+expect = ["estimate-missing"]
+
+[[fixture]]
+name = "not-reproducible"
+find = []
+replace = []
+rerun_differs = "cd_err"
+expect = ["not-reproducible"]

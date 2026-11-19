@@ -1,0 +1,29 @@
+== tutor explain: robertson, stage 1 ==
+
+Start here: hole `jacobian` at src/StiffKin.jl:68
+  why: 2 of the 2 failing testsets depend on it (Ochiai 1.0).
+  Read its docstring: it is the specification. Knowledge component: jacobian.
+
+Tests: 6/8 testsets pass
+  FAIL jacobian: against central differences, columns sum to zero  [6 failed, 0 errored; depends on: jacobian, rhs]
+       test/runtests.jl:45 FAIL isapprox(J[:, j], col; atol = 1.0e-6)  evaluated: isapprox([-0.04, 3000.0, 0.3], [-0.040000001, 0.040000001, 0.0]; atol = 1.0e-6)
+       test/runtests.jl:45 FAIL isapprox(J[:, j], col; atol = 1.0e-6)  evaluated: isapprox([0.04, -4800.0, -0.3], [3000.0, -4800.0, 1800.0]; atol = 1.0e-6)
+  FAIL Robertson at t = 40: the published value, mass conserved  [0 failed, 1 errored; depends on: jacobian, rhs, solve_pivot]
+       test/runtests.jl:134 ERROR ErrorException("integrate: more than 10000000 attempts")
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. jacobian           1.0   implemented  failing-deps=2 passing-deps=0  src/StiffKin.jl:68
+  2. rhs                0.82  implemented  failing-deps=2 passing-deps=1  src/StiffKin.jl:55
+  3. solve_pivot        0.41  implemented  failing-deps=1 passing-deps=2  src/StiffKin.jl:82
+  4. bs32_step          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:132
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations bs32_step(Robertson): 9  (reference 9)
+  allocations jacobian(3 species): 6  (reference 6)
+  allocations rhs(3 species): 1  (reference 1)
+  allocations ros2_step(Robertson): 17  (reference 17)
+  allocations solve_pivot(3x3): 2  (reference 2)
+  JET: not used by this project's measurements

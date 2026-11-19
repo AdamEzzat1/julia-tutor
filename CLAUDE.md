@@ -32,6 +32,9 @@ npm --prefix web test && npm --prefix web run build && quarto render site   # we
 ./tutor guided list | show <p> [m]          # guided build projects (docs/GUIDED.md): student writes code + tests
 ./tutor guided start <p> <dir>; ./tutor guided check <dir> [m]   # check: acceptance + own tests vs reference and mutants
 ./tutor guided verify [p] [--sandbox=docker] # authoring self-test: reference, mutants, exemplars, fixtures
+./tutor program list | show|start|check|quiz ...   # programs (docs/PROGRAMS.md): guided format, sealed reference, hints capped
+./tutor program reveal <dir>                # the reference into <dir>/solution once every milestone passed
+./tutor program seal <p> [--check]; ./tutor program verify [p]   # author: encrypt private/ into sealed.txt; self-test
 ./tutor case list | show <c> [--rubric]     # scientific case projects (docs/CASES.md): question, study, checked report
 ./tutor case start <c> <dir>; ./tutor case check <dir> <m>   # check: hidden acceptance; m3 also study() x2 + claim checker
 ./tutor case estimate <dir> <id> <value> "<how>"   # commit an estimate before computing; m3's check shows it next to the measured value
@@ -84,6 +87,9 @@ docs/DESIGN.md                the four questions, project choice, instability li
 src/guided.jl, guided_driver.jl  guided build projects: job, pure `assess`, hint fading; the driver runs in the sandbox
 projects/guided/<p>/          project.toml (milestones, API, behaviours, hints, questions), reference/{src,test},
                               acceptance/m<k>.jl (hidden), mutants.toml, fixtures/ + fixtures.toml; docs/GUIDED.md
+src/programs.jl               programs: sealed bundle (SHA-256 stream + HMAC), hint cap, reveal; loads as a guided project
+projects/programs/<p>/        project.toml (plain spec), sealed.txt (encrypted reference, acceptance, mutants, fixtures),
+                              private/ (author's plain files, gitignored); self-study.key; docs/PROGRAMS.md
 src/cases.jl                  case projects: brief, report parser, claim checker (pure); runs through the guided driver
 projects/<p>/case/            case.toml (brief, claims, evidence, rubric, mutants), acceptance/m<k>.jl (hidden),
                               reference/{study.jl,report.qmd}, template/, report_fixtures.toml; docs/CASES.md
@@ -244,6 +250,13 @@ every role above has had the chance to object (recorded in the PR).
   *Status:* projects/odeint (8 holes, 2 stages, holemap clean) and its case
   (docs/CASES.md) are built; the numerical analyst's sign-off and the pilot
   with learners are not done.
+* **Base-env cases (docs/COURSES_PLAN.md §5, built 2026-11-18):** `dualad`
+  (core; 8 holes), `heat` (scicomp; 7 holes) and `robertson` (scicomp; 7
+  holes), each a hole project plus a case, holemap clean, every fixture
+  naming its hole, `tutor case verify` green with `--sandbox=none`. Not done:
+  container verify (Docker was down), the numerical analyst's sign-off, any
+  pilot. Robertson's robustness verdict is "fails" on purpose (slower
+  reactions make the explicit method cheaper).
 * **M5 More rules (measured counterparts first):** Core.Box capture (with a JET
   confirmation), `@threads` reduction race, `x == missing`, unseeded RNG in
   tests, `Array{T}(undef)` read-before-write, string byte indexing, `==` defined

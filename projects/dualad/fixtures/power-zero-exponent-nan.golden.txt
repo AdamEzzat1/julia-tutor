@@ -1,0 +1,27 @@
+== tutor explain: dualad, stage 1 ==
+
+Start here: hole `power` at src/DualAD.jl:123
+  why: 1 of the 1 failing testsets depend on it (Ochiai 0.58); 2 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: power-rule.
+
+Tests: 10/11 testsets pass
+  FAIL power: integer exponents  [1 failed, 0 errored; depends on: derivative, power]
+       test/runtests.jl:76 FAIL same(Dual(0.0, 1.0) ^ zero_, Dual(1.0, 0.0))
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. power              0.58  implemented  failing-deps=1 passing-deps=2  src/DualAD.jl:123
+  2. derivative         0.41  implemented  failing-deps=1 passing-deps=5  src/DualAD.jl:137
+  3. mul                0.0   implemented  failing-deps=0 passing-deps=6  src/DualAD.jl:82
+  4. div                0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:93
+  5. chain              0.0   implemented  failing-deps=0 passing-deps=4  src/DualAD.jl:106
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations a * b (Float64 duals): 0  (reference 0)
+  allocations a / b (Float64 duals): 0  (reference 0)
+  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)
+  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)
+  allocations gradient(3 variables): 5  (reference 5)
+  JET: not used by this project's measurements

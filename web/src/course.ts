@@ -298,7 +298,7 @@ export type CourseStatus = "ready" | "in-progress" | "planned";
 
 export interface Outcome {
   text: string;
-  /** units of the course, "project:<p>" or "guided:<p>" */
+  /** units of the course, "project:<p>", "guided:<p>" or "program:<p>" */
   assessed_by: string[];
   /** cases and programs that will assess it, not built yet */
   planned: string[];
@@ -317,6 +317,8 @@ export interface CourseInfo {
   units: string[];
   projects: string[];
   guided: string[];
+  /** programs (docs/PROGRAMS.md): built alone after the course, reference sealed */
+  programs: string[];
   problems: number;
   outcomes: Outcome[];
   /** computed by `Course.time_estimate` from counts at guessed rates: never a measurement */

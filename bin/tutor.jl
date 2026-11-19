@@ -22,6 +22,7 @@
 #   tutor sandbox pull|build|check|measure [course...]  the per-course container images (docs/SANDBOX_IMAGES.md)
 #   tutor guided list|show|start|deps|check|quiz|verify ...  guided build projects (docs/GUIDED.md)
 #   tutor case list|show|start|check|verify|site ...        scientific case projects (docs/CASES.md)
+#   tutor program list|show|start|check|quiz|reveal|seal|verify ...  programs: sealed reference (docs/PROGRAMS.md)
 
 using JuliaTutor
 using JuliaTutor: Checker, Scaffold, Runner, HoleMap, Explain, Lessons, Progress, Fixtures, SiteData,
@@ -107,7 +108,7 @@ end
 function cmd_site_data(args)
     files = [("tutor.json", SiteData.to_json(SiteData.site_data()));
              [(name, SiteData.to_json(d)) for (name, d) in SiteData.course_files()];
-             ("guided.json", SiteData.to_json(JuliaTutor.Guided.site_data()))]
+             ("guided.json", SiteData.to_json(JuliaTutor.Guided.site_data(; programs = JuliaTutor.Programs.load_all_programs())))]
     stale = 0
     # Course data is per course now: a leftover course.json, or a course file
     # for a course that no longer exists, is stale too.
@@ -712,7 +713,10 @@ end
 
 # ---- guided build projects (docs/GUIDED.md) -------------------------------------------
 
-using JuliaTutor: Guided
+using JuliaTutor: Guided, Programs
+
+"""A guided project or a program by name (their names never collide: `tutor program verify` checks)."""
+load_named(name) = Programs.is_program(name) ? Programs.load_program(name) : Guided.load_guided(name)
 
 const GUIDED_USAGE = """
 usage: tutor guided list
@@ -727,7 +731,7 @@ usage: tutor guided list
 function guided_of(dir)
     f = joinpath(dir, ".guided")
     isfile(f) || return nothing
-    return Guided.load_guided(strip(read(f, String)))
+    return load_named(strip(read(f, String)))
 end
 
 # Guided checks default to the container; a plain process only where asked and the env loads on the host.
@@ -750,12 +754,12 @@ function cmd_guided(args)
         end
         return 0
     elseif sub == "show" && length(pos) in (2, 3)
-        p = Guided.load_guided(pos[2])
+        p = load_named(pos[2])
         m = length(pos) == 3 ? parse(Int, pos[3]) : 0
         print(Guided.show_milestone(p, m))
         return 0
     elseif sub == "start" && length(pos) == 3
-        p = Guided.load_guided(pos[2]); dir = pos[3]
+        p = load_named(pos[2]); dir = pos[3]
         isdir(dir) && !isempty(readdir(dir)) && (println("refusing: $dir exists and is not empty"); return 1)
         files = Guided.start_files(p)
         files[".guided"] = p.name * "\n"
@@ -781,7 +785,7 @@ function cmd_guided(args)
         key = Guided.statekey(p, dir)
         m = length(pos) == 3 ? parse(Int, pos[3]) : Guided.next_milestone(p, state, key)
         hints = parse(Int, flag(args, "hints", "0"))
-        r, findings = Guided.check(p, dir, m; levels = Guided.levels_from(state, key), hints)
+        r, findings = (Programs.is_program(p.name) ? Programs.check : Guided.check)(p, dir, m; levels = Guided.levels_from(state, key), hints)
         print(Guided.format_check(r, findings; hints))
         if !hasflag(args, "no-record")
             Guided.save_state(state_path, Guided.record!(state, key, r, p))
@@ -794,7 +798,7 @@ function cmd_guided(args)
         end
         return r["status"] == "passed" ? 0 : 1
     elseif sub == "quiz" && length(pos) == 3
-        p = Guided.load_guided(pos[2])
+        p = load_named(pos[2])
         right, n = Guided.quiz(p, parse(Int, pos[3]))
         println("\n$right of $n right on the first try.")
         return 0
@@ -814,6 +818,75 @@ function cmd_guided(args)
         return bad == 0 ? 0 : 1
     end
     println(GUIDED_USAGE); return 2
+end
+
+# ---- programs (docs/PROGRAMS.md) ------------------------------------------------------
+
+const PROGRAM_USAGE = """
+usage: tutor program list
+       tutor program show <program> [milestone]
+       tutor program start <program> <dir>
+       tutor program check <dir> [milestone] [--sandbox=docker|none] [--no-record] [--state=path]
+       tutor program quiz <program> <milestone>
+       tutor program reveal <dir> [--state=path]      # the reference, once every milestone passed
+       tutor program seal <program> [--check]          # author: encrypt private/ into sealed.txt
+       tutor program verify [program...] [--sandbox=docker|none]"""
+
+function cmd_program(args)
+    pos = positional(args)
+    sub = isempty(pos) ? "" : pos[1]
+    if sub == "list"
+        for p in Programs.load_all_programs()
+            m = Programs.program_meta(p.name)
+            println(rpad(p.name, 12), rpad(m.course, 9), rpad(p.env, 10), rpad("$(length(p.milestones)) milestones", 15),
+                    Guided.host_ok(p) ? "host or container  " : "container only     ", p.title)
+        end
+        return 0
+    elseif sub in ("show", "start", "check", "quiz", "deps")
+        # The same commands as a guided project; `check` caps hints (Programs.check).
+        sub == "check" && length(pos) >= 2 && !(let p = guided_of(pos[2]); p !== nothing && Programs.is_program(p.name) end) &&
+            (println("$(pos[2]) was not created by `tutor program start`"); return 1)
+        return cmd_guided(args)
+    elseif sub == "reveal" && length(pos) == 2
+        dir = pos[2]; p = guided_of(dir)
+        (p === nothing || !Programs.is_program(p.name)) && (println("$dir was not created by `tutor program start`"); return 1)
+        ok, msg = Programs.reveal(p, dir, Guided.load_state(flag(args, "state", Guided.DEFAULT_STATE)))
+        println(msg)
+        return ok ? 0 : 1
+    elseif sub == "seal" && length(pos) == 2
+        name = pos[2]
+        if hasflag(args, "check")
+            ok = Programs.seal_current(name)
+            println(ok ? "$name: sealed.txt matches private/" : "$name: sealed.txt is stale: run `tutor program seal $name`")
+            return ok ? 0 : 1
+        end
+        println("wrote ", relpath(Programs.seal(name), ROOT))
+        return 0
+    elseif sub == "verify"
+        names = length(pos) > 1 ? pos[2:end] : Programs.program_names()
+        guided_sandbox!(args, nothing) || return 2
+        bad = 0
+        for n in names
+            println(n)
+            problems = String[]
+            Programs.seal_current(n) || push!(problems, "$n: sealed.txt is stale: run `tutor program seal $n`")
+            isfile(joinpath(Guided.GUIDED_DIR, n, "project.toml")) &&
+                push!(problems, "$n: a guided project has the same name (student folders record the name only)")
+            p = Programs.load_program(n)
+            m = Programs.program_meta(n)
+            isempty(m.course) && push!(problems, "$n: project.toml needs `course`")
+            1 <= m.hint_cap <= 3 || push!(problems, "$n: [program] hint_cap must be 1, 2 or 3")
+            append!(problems, Guided.verify_project(p))
+            foreach(x -> println("  PROBLEM: ", replace(x, "
+" => "
+    ")), problems)
+            bad += length(problems)
+        end
+        println(bad == 0 ? "programs verified" : "$bad problem(s)")
+        print_peaks("tutor program verify")
+        return bad == 0 ? 0 : 1
+    end
+    println(PROGRAM_USAGE); return 2
 end
 
 # ---- scientific case projects (docs/CASES.md) -----------------------------------------
@@ -899,7 +972,7 @@ function cmd_case(args)
     println(CASE_USAGE); return 2
 end
 
-const COMMANDS = Dict("guided" => cmd_guided, "case" => cmd_case, "check" => cmd_check, "scaffold" => cmd_scaffold, "start" => cmd_start,
+const COMMANDS = Dict("guided" => cmd_guided, "program" => cmd_program, "case" => cmd_case, "check" => cmd_check, "scaffold" => cmd_scaffold, "start" => cmd_start,
                       "test" => cmd_test, "explain" => cmd_explain, "holemap" => cmd_holemap,
                       "baseline" => cmd_baseline, "lessons" => cmd_lessons, "lesson" => cmd_lesson,
                       "rules" => cmd_rules, "progress" => cmd_progress, "fixtures" => cmd_fixtures,

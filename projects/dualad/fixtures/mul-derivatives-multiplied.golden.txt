@@ -1,0 +1,39 @@
+== tutor explain: dualad, stage 1 ==
+
+Start here: hole `mul` at src/DualAD.jl:82
+  why: 5 of the 5 failing testsets depend on it (Ochiai 0.91); 1 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: product-rule.
+
+Tests: 6/11 testsets pass
+  FAIL mul: the product rule  [4 failed, 0 errored; depends on: derivative, mul]
+       test/runtests.jl:40 FAIL same(Dual(3.0, 1.0) * Dual(4.0, 2.0), Dual(12.0, 10.0))
+       test/runtests.jl:41 FAIL same(Dual(3.0, 1.0) * Dual(4.0, 0.0), Dual(12.0, 4.0))
+  FAIL chain: elementary functions  [3 failed, 0 errored; depends on: chain, derivative, mul]
+       test/runtests.jl:61 FAIL isapprox(derivative((t->begin  evaluated: isapprox(0.0, 1.6506712; rtol = 8.8817842e-16)
+       test/runtests.jl:61 FAIL isapprox(derivative((t->begin  evaluated: isapprox(-0.0, -1.9335964; rtol = 8.8817842e-16)
+  FAIL derivative: one evaluation on a seeded dual  [5 failed, 0 errored; depends on: chain, derivative, mul, power]
+       test/runtests.jl:85 FAIL isequal(derivative(p, x), dp(x))  evaluated: isequal(1.5, -4.1289062)
+       test/runtests.jl:85 FAIL isequal(derivative(p, x), dp(x))  evaluated: isequal(-3.0, 52.4375)
+  FAIL gradient: one evaluation per component  [4 failed, 0 errored; depends on: chain, mul, power]
+       test/runtests.jl:99 FAIL isequal(gradient(g, [2.0, 5.0, 1.0]), [4.0, 2.0, 6.0])  evaluated: isequal([-1.0, 0.0, 0.0], [4.0, 2.0, 6.0])
+       test/runtests.jl:100 FAIL isequal(gradient(g, [2, 5, 1]), [4.0, 2.0, 6.0])  evaluated: isequal([-1.0, 0.0, 0.0], [4.0, 2.0, 6.0])
+  FAIL dual numbers vs central differences at the same point  [1 failed, 0 errored; depends on: chain, derivative, mul]
+       test/runtests.jl:144 FAIL isapprox(derivative(f, 0.7), df(0.7); rtol = 8 * EPS)  evaluated: isapprox(1.540203, 2.8374981; rtol = 1.7763568e-15)
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. mul                0.91  implemented  failing-deps=5 passing-deps=1  src/DualAD.jl:82
+  2. chain              0.89  implemented  failing-deps=4 passing-deps=0  src/DualAD.jl:106
+  3. derivative         0.73  implemented  failing-deps=4 passing-deps=2  src/DualAD.jl:138
+  4. power              0.52  implemented  failing-deps=2 passing-deps=1  src/DualAD.jl:123
+  5. div                0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:93
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations a * b (Float64 duals): 0  (reference 0)
+  allocations a / b (Float64 duals): 0  (reference 0)
+  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)
+  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)
+  allocations gradient(3 variables): 5  (reference 5)
+  JET: not used by this project's measurements

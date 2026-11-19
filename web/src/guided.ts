@@ -34,6 +34,8 @@ export interface Milestone {
 
 export interface GuidedProject {
   name: string;
+  /** "program": built alone after a course, reference sealed until every milestone passes (docs/PROGRAMS.md). */
+  kind: "guided" | "program";
   package: string;
   env: string;
   status: "ready" | "planned";
@@ -61,9 +63,12 @@ export function orderedProjects(ps: GuidedProject[] = guided.projects): GuidedPr
 /** The commands a learner runs for a project, from the julia-tutor folder. */
 export function commands(p: GuidedProject): string[] {
   const dir = `work/${p.name}`;
-  return [
-    `./tutor guided start ${p.name} ${dir}`,
-    `./tutor guided show ${p.name} 0`,
-    `./tutor guided check ${dir}` + (p.host_ok ? "" : "          # in the container (the default)"),
+  const cmd = p.kind === "program" ? "program" : "guided";
+  const out = [
+    `./tutor ${cmd} start ${p.name} ${dir}`,
+    `./tutor ${cmd} show ${p.name} 0`,
+    `./tutor ${cmd} check ${dir}` + (p.host_ok ? "" : "          # in the container (the default)"),
   ];
+  if (p.kind === "program") out.push(`./tutor program reveal ${dir}          # the reference, once every milestone passed`);
+  return out;
 }

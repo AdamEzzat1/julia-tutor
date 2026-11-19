@@ -1,0 +1,112 @@
+---
+title: "Exact derivatives: dual numbers or central differences?"
+author: "Reference report (julia-tutor authors)"
+format: html
+---
+
+<!--
+The reference report. `tutor case verify dualad` checks that it has no
+findings against the reference study(), and the report fixtures
+(case/report_fixtures.toml) are small edits of it, each with the findings
+it must produce. Change a number here only after re-running the study.
+-->
+
+## Question
+
+An optimiser's stopping test needs the derivative of f(x) = exp(x) sin(x)
+on the interval from 0.5{claim:x_lo} to 1.0{claim:x_hi}, at
+101{claim:npoints} equally spaced points, each with a relative error below
+1e-12{claim:target}. Can central differences with the usual step deliver
+that, or are dual numbers needed? The quantity of interest is the largest
+relative error of f' over the points, for each method. Only its order of
+magnitude matters: the answer is which method to use.
+
+## Scales and estimate
+
+The interval and f are of order 1, and so are f' and f''' on it, so the
+error model of a central difference needs no other scale: truncation
+h^2 |f'''| / 6 and rounding about eps |f| / h. Balancing the two gives a
+step near eps^(1/3), about 6e-6, and an error near eps^(2/3), about 4e-11.
+My estimate of the best error was 4e-11{estimate:cd_err}. That is above
+the budget, so I expected central differences to fail.
+
+## Model and assumptions
+
+Float64 arithmetic with correctly rounded elementary functions. The ground
+truth is the exact derivative evaluated in 256-bit BigFloat at each Float64
+point, whose own error is negligible. Errors are relative to |f'|, which
+has no zero on the interval (sin x + cos x > 1 there); near a zero of f'
+every relative error would grow without bound and the comparison would
+mean nothing.
+
+## Method choice
+
+At the rule step cbrt(eps) max(1, |x|), which is
+6.06e-6{claim:rule_step} on this interval, central differences reach a
+largest relative error of 1.66e-11{claim:cd_err} over the points, and a
+smallest of 4.6e-13{claim:cd_err_min}; dual numbers reach
+2.2e-16{claim:dual_err}. Central differences miss the budget by more than
+a factor of ten at every step tried (see Verification), so the choice is
+dual{claim:choice}.
+
+For a gradient the costs are also counted: 5{claim:grad_evals_dual}
+evaluations of f on duals for 5 variables by forward mode, against
+10{claim:grad_evals_central} evaluations on floats by central differences.
+A dual evaluation does more arithmetic than a float one, so the counts do
+not say which is faster in seconds.
+
+## Verification
+
+The dual numbers are exact where the arithmetic is: on a degree-5
+polynomial with small integer coefficients at the dyadic point 0.75 the
+derivative's error is 0{claim:poly_err}. A second derivative by nested
+duals has a relative error of 1.1e-16{claim:nested_err}, and a 5-variable
+gradient 5.0e-17{claim:grad_err}.
+
+The central difference behaves as its error model says. At x = 0.7 the
+fitted slope of log error on log h is 1.996{claim:trunc_order} for steps
+from 0.0039{claim:trunc_fit_hmin} to 0.125{claim:trunc_fit_hmax}, where
+truncation dominates (theory 2), and -1.02{claim:round_slope} for steps
+from 2.84e-14{claim:round_fit_hmin} to 9.31e-10{claim:round_fit_hmax},
+where rounding dominates (theory -1).
+
+The best uniform step on a quarter-octave grid, the one with the smallest
+largest error over all 101 points, is 7.63e-6{claim:cd_best_h}; the model's
+optimum at the middle of the interval is 1.66e-5{claim:cd_theory_h}, a
+factor of 2.2 away. At the best step the largest error is
+1.19e-11{claim:cd_best_err}: no step does much better than the rule.
+
+## Validation
+
+Dual numbers give the derivative of the code, which is the derivative
+wanted only if the code computes the function wanted. Three Newton steps
+for sqrt(2) from 1 give the value with a relative error of
+1.5e-6{claim:algo_value_err}, and the dual derivative of those three steps
+is off from 1 / (2 sqrt 2) by 3.5e-5{claim:algo_deriv_err}: the derivative
+of an unconverged iteration is less accurate than its value. After
+5{claim:algo_iters} steps both are at rounding level.
+
+## Uncertainty and sensitivity
+
+Over the points the central difference's error at the rule step spreads
+from 4.6e-13 to 1.66e-11 (Method choice): single points can look good by
+cancellation, and the largest error is the honest number.
+
+The perturbed assumption: the same interval moved by 96 pi, from
+302.09{claim:robust_x_lo} to 302.59{claim:robust_x_hi}. The function has
+the same shape there, but the rule makes the step 300 times larger, and
+central differences reach a largest error of 3.3e-7{claim:robust_cd_err}.
+Dual numbers stay at 2.2e-16{claim:robust_dual_err}, so the choice is
+still dual{claim:robust_choice}, and the conclusion holds{claim:robust_holds}.
+The rule fails because it assumes f varies on the scale of |x|, which
+exp(x) sin(x) does not.
+
+## Claims and limits
+
+For this function and budget, central differences cannot deliver twelve
+digits at any step, and dual numbers deliver them with four orders of
+magnitude to spare. This was tested for x from 0.5{claim:valid_x_min} to
+302.59{claim:valid_x_max}, on two intervals, and is claimed nowhere else:
+not for other functions, not for intervals containing a zero of f', not
+for cost in seconds, and not for many inputs, where forward mode's one
+pass per input becomes the cost that matters.

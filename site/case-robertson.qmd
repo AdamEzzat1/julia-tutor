@@ -1,0 +1,144 @@
+---
+title: "Case: Stiff kinetics: when does an implicit method pay for its Jacobian?"
+subtitle: "A scientific case project in the scicomp course. Generated from projects/robertson/case/case.toml by `tutor case site`; do not edit."
+---
+
+::: {.callout-note}
+This page is the brief. Nothing on it runs in the browser: the checks run on your machine, in the sandbox, with `tutor case check`.
+:::
+
+Write Robertson's reaction kinetics, a pivoted linear solve, an explicit Bogacki-Shampine 3(2) step, a Rosenbrock ROS2 step and one adaptive controller for both. Then measure which integrator delivers the concentrations at t = 40 to four digits for the least work, and whether the choice survives a reaction a thousand times slower.
+
+## The question
+
+Robertson's three-species reaction (A -> B at rate 0.04, B + B -> C + B at 3e7, B + C -> A + C at 1e4) starts with pure A. The three concentrations are needed at t = 40, each with a relative error below 1e-4. Which integrator, the explicit Bogacki-Shampine 3(2) or the linearly implicit Rosenbrock ROS2, delivers that for the least work (right-hand-side evaluations, plus three per Jacobian)? Why, in terms you can measure? Does the choice survive when the two fast reactions are a thousand times slower?
+
+* **Quantity of interest:** The three concentrations at t = 40 and their largest relative error; the work of each integrator in right-hand-side evaluations (a Jacobian counts as 3).
+* **Required accuracy:** The budget is 1e-4 relative in every component, including B's, which is about 1e-5 in absolute terms. Tolerances are searched in steps of sqrt(10), so costs matter to a factor of about 2; the answer is the method cheaper by more than that.
+* **Steps of the method this case stresses:** Method choice, Verification, Validation. The report has a section for each of the eight: Question, Scales and estimate, Model and assumptions, Method choice, Verification, Validation, Uncertainty and sensitivity, Claims and limits.
+* **Estimate first:** Before you run anything, estimate how many steps BS3(2) needs to reach t = 40 if its step is limited only by stability: h |lambda| <= 2.5, with lambda the Jacobian's most negative eigenvalue (about -(k3 y3 + 2 k2 y2), a few thousand). Write the estimate in the report with an {estimate:bs_steps} tag. Commit it before your first `tutor case check <dir> 3` (that check runs your study and shows its values): `tutor case estimate <dir> bs_steps <value> "<how you got it>"`. The check then shows the committed estimate next to what you measured; it is never graded.
+
+## Data
+
+Kind: exact solutions. No dataset. Robertson's problem has no closed-form solution, but its value at t = 40 is published in the IVP test-set literature, and two independent integrations at a tolerance of 1e-10 (one explicit, one implicit) agree with each other and with that value to about 1e-10, far below the budget. A rotation y1' = y2, y2' = -y1 with its exact solution checks the methods' orders. Nothing is random and nothing is downloaded.
+
+Difficulties built in on purpose, each tied to a knowledge component:
+
+* The concentrations differ by five orders of magnitude: B is about 1e-5. An absolute tolerance chosen for A and C (say 1e-4) is above B's whole value, so B's error is invisible to the controller, and so is the instability of an explicit method in B's fast mode: the run blows up with every step accepted. (`step-size-control`)
+* An explicit method's step on a stiff problem is set by stability, not by the tolerance: loosening the tolerance a thousandfold barely changes the number of steps. Its cost has to be explained by the Jacobian's eigenvalues, not by the accuracy asked for. (`stiffness`)
+* The error at the end is not monotone in the tolerance: BS3(2) at rtol 3.2e-3 ends with a smaller error than at 1e-3. The cheapest tolerance that meets the budget has to be found by measuring, and checked against the next looser one. (`step-size-control`)
+* Stiffness is a property of the problem and the interval, not of the equations' look: the same reactions with slower rates are barely stiff, and then the cheaper explicit step wins. (`stiffness`)
+
+## Milestones
+
+1. **The model and the explicit method: rate equations, Jacobian, pivoted solve, one BS3(2) step.** Fill the four stage-1 holes (`tutor start robertson 1 <dir>`) until the visible tests pass, then run `tutor case check <dir> 1`. The hidden acceptance tests use other rate constants, systems and problems, so code fitted to the visible tests does not pass. Method steps: Model and assumptions, Verification.
+2. **The implicit method and the controller: ROS2, adaptive integration, the order fit.** Start stage 2 (`tutor case start robertson <dir>`). It opens all seven holes and adds study.jl and report.qmd. Then run `tutor case check <dir> 2`. Method steps: Method choice, Verification.
+3. **The study and the report.** Write study.jl (its docstrings are the spec) and report.qmd, then run `tutor case check <dir> 3`. This runs the hidden acceptance tests on your study, runs `study()` twice in fresh processes, and checks every tagged number in the report against what your code computed. study() takes about 20 seconds. Method steps: Question, Scales and estimate, Model and assumptions, Method choice, Verification, Validation, Uncertainty and sensitivity, Claims and limits.
+
+## What is checked, and what is not
+
+Checked by software, deterministically, in the sandbox on your machine:
+
+* each milestone's hidden acceptance tests (failures name the behaviour, never the test code);
+* in the report, every number tagged `{claim:<id>}` must equal what your own `study()` computed, to half a unit in the last digit you wrote (deterministic study: half a unit in the last written digit, nothing more);
+* the required evidence is present (below), and a clean re-run of `study()` reproduces every claimed value bit for bit.
+
+**Not checked by any software: the quality of your scientific argument.** No program grades the reasoning. Use the rubric below to judge it yourself, with a peer, or with an instructor.
+
+Required evidence:
+
+* the cost of both methods at their cheapest tolerance, and the ratio: `bs_cost`, `ro_cost`, `cost_ratio` (in one paragraph)
+* the error each method reached: `bs_err`, `ro_err`
+* the explicit method's steps at two very different tolerances: `bs_steps`, `bs_steps_loose` (in one paragraph)
+* the reference's own error, bounded by two independent methods: `ref_diff`
+* the observed orders with their fit range: `bs_order`, `ro_order`, `order_h_min`, `order_h_max`
+* the measured explicit step next to the stability boundary: `stab_hlam`, `stab_boundary` (in one paragraph)
+* an unphysical result that the controller accepted: `naive_bs_t`, `naive_bs_ymin` (in one paragraph)
+* the conclusion re-checked under a perturbed assumption, and whether it holds: `robust_factor`, `robust_bs_cost`, `robust_ro_cost`, `robust_choice`, `robust_holds` (in one paragraph)
+* the range where the conclusion was tested: `valid_t_max`, `valid_target` (in one paragraph)
+
+Robustness: the rate constants are Robertson's: two reactions are fast (3e7 and 1e4), so the problem is stiff is re-checked under the two fast reactions 1000 times slower (k2 = 3e4, k3 = 10): the same chemistry, barely stiff; the report says whether the conclusion still holds.
+
+| claim | section | what it is |
+|---|---|---|
+| `t_final` | Question | the time the concentrations are needed at |
+| `target` | Question | the error budget (largest relative error over the three concentrations) |
+| `y1_ref` | Question | the reference concentration of A at t = 40 |
+| `y2_ref` | Question | the reference concentration of B at t = 40 |
+| `y3_ref` | Question | the reference concentration of C at t = 40 |
+| `lambda_40` | Scales and estimate | the Jacobian's most negative eigenvalue at t = 40 |
+| `ref_diff` | Model and assumptions | the largest relative difference between the two reference integrations |
+| `bs_rtol` | Method choice | BS3(2)'s tolerance: the loosest in the ladder meeting the budget |
+| `bs_err` | Method choice | BS3(2)'s largest relative error there |
+| `bs_cost` | Method choice | BS3(2)'s cost |
+| `bs_steps` | Method choice | BS3(2)'s accepted steps |
+| `bs_steps_loose` | Method choice | BS3(2)'s accepted steps at rtol 1e-2 |
+| `ro_rtol` | Method choice | ROS2's tolerance |
+| `ro_err` | Method choice | ROS2's largest relative error there |
+| `ro_cost` | Method choice | ROS2's cost |
+| `ro_steps` | Method choice | ROS2's accepted steps |
+| `choice` | Method choice | the cheaper method meeting the budget (one of: bs, ros2) |
+| `cost_ratio` | Method choice | BS3(2)'s cost over ROS2's |
+| `bs_order` | Verification | BS3(2)'s observed order with fixed steps on the rotation |
+| `ro_order` | Verification | ROS2's observed order on the same problem |
+| `order_h_min` | Verification | smallest step in the order fits |
+| `order_h_max` | Verification | largest step in the order fits |
+| `stab_boundary` | Verification | where BS3's stability function reaches -1 on the negative real axis (its magnitude) |
+| `stab_hlam` | Verification | BS3(2)'s mean step from t = 20 to 40 times \|lambda\| at t = 30 |
+| `mass_err` | Verification | the largest error in y1 + y2 + y3 = 1 at the chosen settings |
+| `naive_bs_t` | Validation | how far BS3(2) gets with atol = rtol = 1e-4 before its step underflows |
+| `naive_bs_ymin` | Validation | the smallest concentration it accepted |
+| `naive_ro_err` | Validation | ROS2's largest relative error with atol = rtol = 1e-4 |
+| `robust_factor` | Uncertainty and sensitivity | how many times slower the two fast reactions are |
+| `robust_lambda` | Uncertainty and sensitivity | the most negative eigenvalue at t = 40 for the slower reactions |
+| `robust_bs_cost` | Uncertainty and sensitivity | BS3(2)'s cost for the slower reactions |
+| `robust_ro_cost` | Uncertainty and sensitivity | ROS2's cost for the slower reactions |
+| `robust_choice` | Uncertainty and sensitivity | the cheaper method for the slower reactions (one of: bs, ros2) |
+| `robust_holds` | Uncertainty and sensitivity | whether the conclusion holds under the perturbed assumption (one of: holds, fails) |
+| `valid_t_max` | Claims and limits | the latest time the conclusion was tested at |
+| `valid_target` | Claims and limits | the error budget the conclusion was tested at |
+
+## Discussion questions
+
+1. Before measuring: if you loosen BS3(2)'s tolerance by a factor of 1000, how many fewer steps will it take to reach t = 40? *(prediction (measured; it will be graded as a prediction once predictions exist))*
+2. With atol = rtol = 1e-4, will the explicit run be inaccurate, fail with an error, or something else? *(prediction (measured; it will be graded as a prediction once predictions exist))*
+3. The explicit run with atol = 1e-4 accepted every step it took and returned no error. What in your own code would have told you something was wrong, and what would you add to an integrator to catch it? *(for discussion, judged with the rubric)*
+4. Your cost counts a Jacobian as three right-hand sides and ignores the linear solves. For a system of 1000 species, how would both terms scale, and could the choice flip? *(for discussion, judged with the rubric)*
+5. The conclusion failed for slower reactions. Give a rule, in terms you can compute before integrating, for when the implicit method pays. *(for discussion, judged with the rubric)*
+6. Robertson is often integrated to t = 4e10. What would happen to each method's cost, and what would you have to check about the absolute tolerance there? *(for discussion, judged with the rubric)*
+
+## Rubric
+
+For self-assessment, peer review or an instructor. It rewards supported claims; length, code volume and the number of plots earn nothing.
+
+| step | criterion | 0 | 1 | 2 |
+|---|---|---|---|---|
+| Question | States the question, the QoI, the cost measure and the accuracy that would answer it, before any result, including that the budget applies to B. | missing or vague | stated, but the accuracy is not tied to the decision | stated, and the accuracy is justified by the decision it has to support |
+| Scales and estimate | Estimates the stiff eigenvalue and the explicit method's step count from stability before computing, and compares them with the measurement afterwards. | no estimate | an estimate without a method | an estimate from h \|lambda\| <= 2.5, compared with the result and the gap explained |
+| Model and assumptions | States what is assumed: mass-action kinetics, the reference and why its error is negligible, the cost measure and what it leaves out (linear solves), the tolerance ladder. | none listed | listed | listed, with which ones could change the conclusion (for instance a large system where solves dominate) |
+| Method choice | Chooses by measured cost at tolerances that meet the budget, and explains the explicit method's cost by stability, with the evidence that the tolerance barely matters to it. | asserted | measured costs without the explanation | measured, with the stability explanation and its evidence |
+| Verification | Shows the integrators are right: observed orders with their range, the explicit step against the stability boundary, the linear invariant, the reference bounded by two methods; keeps this separate from validation. | none, or mixed with validation | some checks, ranges not stated | all of them, each with its range and the theoretical value |
+| Validation | Checks that the results are physically possible (no negative concentrations) and shows a setting where an accepted result is not, and why the controller could not see it. | absent | numbers without interpretation | the hidden instability identified and the lesson for choosing atol stated |
+| Uncertainty and sensitivity | States the margins under the budget and re-checks the choice for slower reactions, and reports that it fails and why. | absent | stated without the robustness re-check | re-checked, the failure reported and explained by the eigenvalue |
+| Claims and limits | Every claim has its evidence; limitations and the validity range are stated; nothing is claimed for other reactions, larger systems or longer times. Length, code volume and the number of plots earn nothing. | claims without evidence | evidence for most claims | every claim supported, limits and range stated, no extrapolation |
+
+## Pilot
+
+Status: **not run**. Nothing here is evidence that the case teaches well until it has run. It needs:
+
+* one learner who has finished the scientific-computing course's units on ODEs and stiffness and has not seen this case
+* the learner works from `tutor case start` and the brief only; the observer records time per milestone, where they got stuck, every `tutor case check` output and every claim-checker finding
+* an instructor scores the finished report with the rubric, blind to the time data
+* a transfer task afterwards on an unseen problem (a stiff enzyme-kinetics system with its own rates): does the learner measure the stiffness, choose atol by the smallest component's scale, and check plausibility before choosing?
+* decision rule: if the learner cannot finish milestone 3 in two sessions, or the rubric score on the transfer task is at the lowest level for method or validation, the scaffolding is revised
+
+## Commands
+
+```
+tutor start robertson 1 work/m1        # milestone 1: the stage-1 holes
+tutor explain robertson work/m1        # tests, findings, where to start
+tutor case check work/m1 1               # milestone 1's hidden acceptance tests
+tutor case start robertson work/case      # milestones 2 and 3: all holes, study.jl, report.qmd
+tutor case check work/case 2
+tutor case check work/case 3             # acceptance, two clean runs of study(), the claim checker
+```

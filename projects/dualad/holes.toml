@@ -1,0 +1,144 @@
+# Holes for the dualad project (the core course's case, docs/CASES.md), in
+# teaching order.
+# stage: a hole is opened in every starter stage >= its stage. Stage 1 is
+# the dual number's rules (product, quotient, chain, power) and the
+# derivative; stage 2 opens everything: the gradient, the central
+# difference it is compared with, and the order fit.
+# trivial: plausible-but-wrong bodies; `tutor holemap dualad --check`
+#   requires each to make at least one test fail.
+
+project = "dualad"
+package = "DualAD"
+stages = [1, 2]
+
+[[hole]]
+id = "mul"
+stage = 1
+kc = "product-rule"
+file = "src/DualAD.jl"
+summary = "*(a::Dual, b::Dual): the product rule on the derivative part"
+trivial = [
+  # the derivative parts multiplied, like the values
+  "return Dual(a.v * b.v, a.d * b.d)",
+  # one term of the product rule only
+  "return Dual(a.v * b.v, a.d * b.v)",
+]
+
+[[hole]]
+id = "div"
+stage = 1
+kc = "quotient-rule"
+file = "src/DualAD.jl"
+summary = "/(a::Dual, b::Dual): the quotient rule on the derivative part"
+trivial = [
+  "return Dual(a.v / b.v, a.d / b.d)",
+  # the sign of the second term flipped
+  "return Dual(a.v / b.v, (a.d * b.v + a.v * b.d) / (b.v * b.v))",
+  # divided by v instead of v^2
+  "return Dual(a.v / b.v, (a.d * b.v - a.v * b.d) / b.v)",
+]
+
+[[hole]]
+id = "chain"
+stage = 1
+kc = "chain-rule"
+file = "src/DualAD.jl"
+summary = "lift(f, df, x::Dual): the chain rule, used by every elementary function"
+trivial = [
+  # the inner derivative forgotten: right only when x.d == 1
+  "return Dual(f(x.v), df(x.v))",
+  "return Dual(f(x.v), x.d)",
+]
+
+[[hole]]
+id = "power"
+stage = 1
+kc = "power-rule"
+file = "src/DualAD.jl"
+summary = "^(x::Dual, n::Integer): the power rule, with n = 0 at x = 0"
+trivial = [
+  # no special case for n = 0: 0 * 0^-1 = NaN at x = 0
+  "return Dual(x.v^n, n * x.v^(n - 1) * x.d)",
+  # the inner derivative forgotten
+  """
+  n == 0 && return Dual(one(x.v), zero(x.d))
+  return Dual(x.v^n, n * x.v^(n - 1))
+  """,
+]
+
+[[hole]]
+id = "derivative"
+stage = 1
+kc = "seeding"
+file = "src/DualAD.jl"
+summary = "derivative(f, x): one evaluation of f on the seeded dual x + 1 eps"
+trivial = [
+  # seed 0: every derivative is 0
+  """
+  xf = float(x)
+  return partial(f(Dual(xf, zero(xf))))
+  """,
+  # the value part instead of the derivative part
+  """
+  xf = float(x)
+  return value(f(Dual(xf, one(xf))))
+  """,
+]
+
+[[hole]]
+id = "gradient"
+stage = 2
+kc = "seeding"
+file = "src/DualAD.jl"
+summary = "gradient(f, x): one seeded evaluation per component"
+trivial = [
+  # every component seeded at once: the directional derivative along (1, ..., 1), n times
+  """
+  xf = float.(x)
+  s = partial(f([Dual(xi, one(xi)) for xi in xf]))
+  return fill(s, length(xf))
+  """,
+  # the seed on the wrong component (one to the right, wrapping)
+  """
+  xf = float.(x)
+  T = eltype(xf)
+  n = length(xf)
+  g = similar(xf)
+  for i in eachindex(xf)
+      xd = [Dual(xf[j], j == mod1(i + 1, n) ? one(T) : zero(T)) for j in eachindex(xf)]
+      g[i] = partial(f(xd))
+  end
+  return g
+  """,
+]
+
+[[hole]]
+id = "central_diff"
+stage = 2
+kc = "finite-difference-error"
+file = "src/DualAD.jl"
+summary = "central_diff(f, x, h): (f(x + h) - f(x - h)) / 2h"
+trivial = [
+  # the forward difference: order 1
+  "return (f(x + h) - f(x)) / h",
+  # the factor 2 forgotten
+  "return (f(x + h) - f(x - h)) / h",
+]
+
+[[hole]]
+id = "fit_order"
+stage = 2
+kc = "convergence-order-fit"
+file = "src/DualAD.jl"
+summary = "fit_order(hs, errs): the least-squares slope of log(err) on log(h)"
+trivial = [
+  # the end points only
+  "return (log(errs[end]) - log(errs[1])) / (log(hs[end]) - log(hs[1]))",
+  # the slope against h, not log h
+  """
+  x = hs
+  y = log.(errs)
+  xm, ym = sum(x) / length(x), sum(y) / length(y)
+  return sum((x .- xm) .* (y .- ym)) / sum(abs2, x .- xm)
+  """,
+]

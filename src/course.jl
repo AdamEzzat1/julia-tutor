@@ -977,7 +977,7 @@ const COURSE_STATUS = ["ready", "in-progress", "planned"]
 
 struct Outcome
     text::String
-    assessed_by::Vector{String}   # units of the course, "project:<p>", "guided:<p>"
+    assessed_by::Vector{String}   # units of the course, "project:<p>", "guided:<p>", "program:<p>"
     planned::Vector{String}       # cases and programs that will assess it (not built yet)
 end
 
@@ -996,9 +996,13 @@ struct CourseInfo
     download::String              # [setup] download: what `tutor sandbox pull <id>` fetches, e.g. "up to 0.62 GiB"
     download_measured::String     # [setup] measured: where that number was measured (a CI run, a date)
     status_note::String           # why a course is not ready; shown wherever its status is ("" when ready)
+    programs::Vector{String}      # programs (projects/programs/<p>, docs/PROGRAMS.md)
 end
 CourseInfo(id, title, order, status, summary, requires, envs, units, projects, guided, outcomes) =
     CourseInfo(id, title, order, status, summary, requires, envs, units, projects, guided, outcomes, "", "", "")
+CourseInfo(id, title, order, status, summary, requires, envs, units, projects, guided, outcomes, download, measured, note) =
+    CourseInfo(id, title, order, status, summary, requires, envs, units, projects, guided, outcomes, download, measured, note,
+               String[])
 
 function load_course_info(path::String)
     d = normalize_nl(TOML.parsefile(path))
@@ -1008,7 +1012,7 @@ function load_course_info(path::String)
     setup = get(d, "setup", Dict{String,Any}())
     return CourseInfo(d["id"], d["title"], Int(d["order"]), getstr(d, "status", "ready"), d["summary"],
                       strs("requires"), strs("envs"), strs("units"), strs("projects"), strs("guided"), outs,
-                      getstr(setup, "download"), getstr(setup, "measured"), getstr(d, "status_note"))
+                      getstr(setup, "download"), getstr(setup, "measured"), getstr(d, "status_note"), strs("programs"))
 end
 
 # Guessed hours per item, (low, high). Not measured: nobody has taken a course
@@ -1090,12 +1094,13 @@ function prereq_cycle(units::Vector{Unit})
     return nothing
 end
 
-"""Envs a course actually needs: its units' envs, its guided projects' envs, and base."""
-function course_envs(c::CourseInfo, units::Vector{Unit}, guided_env::AbstractDict)
+"""Envs a course actually needs: its units' envs, its guided projects' and programs' envs, and base."""
+function course_envs(c::CourseInfo, units::Vector{Unit}, guided_env::AbstractDict, program_env::AbstractDict = Dict{String,String}())
     byid = Dict(u.id => u for u in units)
     envs = Set(["base"])
     for id in c.units; haskey(byid, id) && push!(envs, byid[id].env); end
     for g in c.guided; haskey(guided_env, g) && push!(envs, guided_env[g]); end
+    for g in c.programs; haskey(program_env, g) && push!(envs, program_env[g]); end
     return sort!(collect(envs))
 end
 
@@ -1106,6 +1111,19 @@ function guided_envs(dir::String = joinpath(PROJECTS_DIR, "guided"))
     isdir(dir) || return Dict{String,String}()
     return Dict(p => String(get(TOML.parsefile(joinpath(dir, p, "project.toml")), "env", "base"))
                 for p in readdir(dir) if isfile(joinpath(dir, p, "project.toml")))
+end
+
+"""Program name => (env, course), from projects/programs/<p>/project.toml (plain; only the reference is sealed)."""
+function program_info(dir::String = joinpath(PROJECTS_DIR, "programs"))
+    out = Dict{String,Tuple{String,String}}()
+    isdir(dir) || return out
+    for p in readdir(dir)
+        f = joinpath(dir, p, "project.toml")
+        isfile(f) || continue
+        d = TOML.parsefile(f)
+        out[p] = (String(get(d, "env", "base")), String(get(d, "course", "")))
+    end
+    return out
 end
 
 """Hole projects (projects/<p>/holes.toml)."""
@@ -1124,7 +1142,8 @@ function state_by_course(state::AbstractDict, guided_state::AbstractDict, course
     cidx = course_index(courses)
     lesson_course = Dict(l => cidx[u.id] for u in units for l in u.lessons if haskey(cidx, u.id))
     project_course = Dict(p => c.id for c in courses for p in c.projects)
-    guided_course = Dict(g => c.id for c in courses for g in c.guided)
+    # Programs keep their checks in .tutor/guided.toml too, under the same "<name>:<dir>" keys.
+    guided_course = Dict(g => c.id for c in courses for g in vcat(c.guided, c.programs))
     out = Dict(c.id => String[] for c in courses)
     unmapped = String[]
     put(c, k) = c === nothing ? push!(unmapped, k) : push!(out[c], k)
@@ -1149,7 +1168,8 @@ course requires ("<course>/<unit>"); no prerequisite cycle; each course's
 project belongs to exactly one course. Returns a list of problems.
 """
 function validate_courses(courses::Vector{CourseInfo}, units::Vector{Unit};
-                          guided_env::AbstractDict = guided_envs(), projects = hole_projects())
+                          guided_env::AbstractDict = guided_envs(), projects = hole_projects(),
+                          programs::AbstractDict = program_info())
     problems = String[]
     byid = Dict(u.id => u for u in units)
     cid = Dict(c.id => c for c in courses)
@@ -1201,11 +1221,18 @@ function validate_courses(courses::Vector{CourseInfo}, units::Vector{Unit};
                 push!(problems, "$id: prerequisite $p is in course $pc, which course $(c.id) does not require")
             end
         end
-        want = course_envs(c, units, guided_env)
+        want = course_envs(c, units, guided_env, Dict(k => v[1] for (k, v) in programs))
         sort(c.envs) == want ||
             push!(problems, "course $(c.id): envs must be exactly what its units and guided projects use: $(want)")
         for g in c.guided
             haskey(guided_env, g) || push!(problems, "course $(c.id): no guided project $g")
+        end
+        for g in c.programs
+            if !haskey(programs, g)
+                push!(problems, "course $(c.id): no program $g")
+            elseif programs[g][2] != c.id
+                push!(problems, "course $(c.id): program $g names course '$(programs[g][2])' in its project.toml")
+            end
         end
         for p in c.projects
             p in projects || push!(problems, "course $(c.id): no project $p")
@@ -1222,7 +1249,8 @@ function validate_courses(courses::Vector{CourseInfo}, units::Vector{Unit};
                 push!(problems, "course $(c.id) outcome $i: nothing assesses it, not even a planned case")
             for a in o.assessed_by
                 ok = startswith(a, "project:") ? a[9:end] in c.projects :
-                     startswith(a, "guided:") ? a[8:end] in c.guided : a in c.units
+                     startswith(a, "guided:") ? a[8:end] in c.guided :
+                     startswith(a, "program:") ? a[9:end] in c.programs : a in c.units
                 ok || push!(problems, "course $(c.id) outcome $i: '$a' is not a unit or project of this course")
             end
         end
@@ -1230,6 +1258,11 @@ function validate_courses(courses::Vector{CourseInfo}, units::Vector{Unit};
     for g in keys(guided_env)
         n = count(c -> g in c.guided, courses)
         n == 1 || push!(problems, "guided project $g belongs to $n courses (must be exactly 1)")
+    end
+    for g in keys(programs)
+        n = count(c -> g in c.programs, courses)
+        n == 1 || push!(problems, "program $g belongs to $n courses (must be exactly 1)")
+        haskey(guided_env, g) && push!(problems, "program $g has the name of a guided project")
     end
     # Each course has its own sandbox image (src/runner.jl, `image_envs`), and
     # the environment picks the image, so an environment other than base may be

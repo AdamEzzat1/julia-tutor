@@ -880,8 +880,9 @@ end
 # questions, and counts. Never the reference, the acceptance tests or what a
 # mutant changes (the site must not hand out what the check keeps hidden).
 
-function site_data(; root::String = GUIDED_DIR)
-    ps = load_all(; root)
+function site_data(; root::String = GUIDED_DIR, programs::Vector{GuidedProject} = GuidedProject[])
+    ps = vcat(load_all(; root), programs)
+    isprog = Set(p.name for p in programs)
     projects = Any[]
     for p in ps
         ms = Any[]
@@ -898,7 +899,9 @@ function site_data(; root::String = GUIDED_DIR)
                                                    "choices" => q.choices, "answer" => q.answer, "explain" => strip(q.explain),
                                                    "misconceptions" => q.misconceptions) for q in m.questions]))
         end
-        push!(projects, Dict("name" => p.name, "package" => p.package, "env" => p.env, "status" => p.status,
+        # kind "program": built alone after a course, reference sealed (docs/PROGRAMS.md).
+        push!(projects, Dict("name" => p.name, "kind" => p.name in isprog ? "program" : "guided",
+                             "package" => p.package, "env" => p.env, "status" => p.status,
                              "title" => p.title, "summary" => p.summary, "kcs" => p.kcs, "reading" => strip(p.reading),
                              "host_ok" => host_ok(p), "packages" => Practice.env_deps(p.env), "milestones" => ms))
     end

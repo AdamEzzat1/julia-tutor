@@ -1,0 +1,125 @@
+---
+title: "The cheapest accurate heat solver"
+author: "Reference report (julia-tutor authors)"
+format: html
+---
+
+<!--
+The reference report. `tutor case verify heat` checks that it has no
+findings against the reference study(), and the report fixtures
+(case/report_fixtures.toml) are small edits of it, each with the findings
+it must produce. Change a number here only after re-running the study.
+-->
+
+## Question
+
+A rod with diffusivity 1.0{claim:kappa}, held at 0 at both ends, starts
+with the profile sin(pi x). Its midpoint temperature is needed at
+t = 0.01{claim:t_final} with a relative error below 1e-5{claim:target};
+the exact value is exp(-pi^2 t) = 0.90602{claim:exact_mid}. Which of
+FTCS, backward Euler and Crank-Nicolson delivers that for the fewest
+grid-point updates (interior points times steps)? The costs only matter to
+a factor of 2, because grids and step counts are searched in powers of 2;
+the answer is the method that is cheapest by more than that.
+
+## Scales and estimate
+
+The slowest mode decays on a time scale 1 / pi^2, about 0.1, so at
+t = 0.01 the solution has barely changed: the budget is on a small change,
+and the space error of a second-order grid, about (pi dx)^2 / 12 relative,
+needs dx near 1e-2, roughly a hundred points. On 127 points dx = 1/128,
+and FTCS is stable only for dt <= dx^2 / 2, so it needs at least
+0.01 / (1 / 32768) = 327.68 steps: my estimate was 328{estimate:ns_ftcs},
+before any run. Crank-Nicolson has no such limit and is second order in
+time, so I expected it to need a handful of steps.
+
+## Model and assumptions
+
+The heat equation u_t = kappa u_xx with constant kappa and fixed boundary
+values 0, a uniform grid of N interior points with the three-point second
+difference, and three time steppers: FTCS (explicit), backward Euler and
+Crank-Nicolson (theta = 1 and 1/2, one tridiagonal solve per step). The
+cost is grid-point updates, which ignores that an implicit step does about
+three times the arithmetic of an explicit one; that factor is far below
+the ratio found here. The exact value is analytic, so its error is
+rounding only. A non-uniform grid, a variable kappa or a cost in wall time
+could change the conclusion and are not tested.
+
+## Method choice
+
+The budget is split: the space error and the time error must each be
+below half of it, so their sum meets it whatever their signs. The coarsest
+grid tried that meets the space half has 127{claim:n_space} interior
+points, with a space error of 4.95e-6{claim:space_err}. On it FTCS needs
+1312{claim:ns_ftcs} steps (four times its stability limit, for accuracy),
+with a time error of 3.71e-6{claim:time_err_ftcs}; backward Euler needs
+1024{claim:ns_be} steps, and Crank-Nicolson 8{claim:ns_cn}, with a time
+error of 1.25e-6{claim:time_err_cn}.
+
+The costs are 166624{claim:cost_ftcs} updates for FTCS,
+130048{claim:cost_be} for backward Euler and 1016{claim:cost_cn} for
+Crank-Nicolson: FTCS costs 164{claim:cost_ratio} times as much. I choose
+cn{claim:choice}.
+
+A single run's total error is not enough to choose a setting, because the
+space and time errors have opposite signs. On 31{claim:cancel_n} points,
+Crank-Nicolson with 1{claim:cancel_ns} step has a total error of
+7.9e-7{claim:cancel_total_err}, within the budget, while the grid alone is
+off by 7.9e-5{claim:cancel_space_err}, eight times the budget: the time
+error cancels the space error at this setting, by accident.
+
+## Verification
+
+On the manufactured solution u = exp(-t) sin(pi x) + x^2 cos(t), the
+observed order in space is 2.001{claim:mms_space_order} for dx from
+0.0078125{claim:mms_dx_min} to 0.0625{claim:mms_dx_max}. The observed
+order in time is 2.0005{claim:mms_time_order_cn} for Crank-Nicolson and
+1.004{claim:mms_time_order_be} for backward Euler, for dt from
+0.00625{claim:mms_dt_min} to 0.05{claim:mms_dt_max}. The theory says 2, 2
+and 1. A steady quadratic, on which the second difference is exact, is
+kept to 2.2e-16{claim:quad_err}.
+
+FTCS's stability limit on 31 points, measured by bisection on the growth
+of the fastest grid mode, is r = 0.50121{claim:cfl_measured}; von
+Neumann's analysis gives 0.50121{claim:cfl_theory}, slightly above 1/2
+because the fastest grid mode is not quite the alternating one.
+
+## Validation
+
+Verification says the code solves the equations; it does not say the
+answer is physical. Heat spreading from a symmetric top hat keeps one
+peak, in the middle. After one Crank-Nicolson step to t = 0.01 on 511
+points the profile has 3{claim:cn_peaks} local maxima, and its highest
+value is 0.0294{claim:cn_peak_excess} above its midpoint value; backward
+Euler's single step keeps 1{claim:be_peaks}. Crank-Nicolson is stable but
+does not damp the fastest modes, so the jumps ring. With the step counts
+of the method choice this does not happen, but it means Crank-Nicolson's
+step must be chosen for the profile, not for stability.
+
+## Uncertainty and sensitivity
+
+The chosen settings meet each half of the budget with margins of about 1%
+(space) and 4 times (Crank-Nicolson's time); the next coarser grid and half as many
+Crank-Nicolson steps both fail it, so the costs are within a factor of 2
+of the true minimum, as the search allows.
+
+For the top hat instead of the smooth profile, the solution has steep
+gradients and the grid has to be finer: 1023{claim:robust_n_space}
+points, with 128{claim:robust_ns_cn} Crank-Nicolson steps, a cost of
+130944{claim:robust_cost_cn}, against 21454356{claim:robust_cost_ftcs}
+for FTCS and 1047552{claim:robust_cost_be} for backward Euler. The
+cheapest is still cn{claim:robust_choice}, by a factor of
+163.84{claim:robust_cost_ratio} over FTCS: the conclusion
+holds{claim:robust_holds}.
+
+## Claims and limits
+
+Crank-Nicolson is the cheapest of the three methods for this question, by
+two orders of magnitude over FTCS, and backward Euler, being first order,
+is not much better than FTCS. The evidence is the measured costs at
+settings that each meet a split budget, the observed orders, the measured
+stability limit and the robustness re-check. The conclusion was tested on
+grids up to 1023{claim:valid_n_max} interior points at a budget of
+1e-5{claim:valid_target}, in one dimension with constant kappa and fixed
+boundary values. It says nothing about other equations, dimensions, cost
+measures or much looser budgets, where FTCS's simplicity may win.

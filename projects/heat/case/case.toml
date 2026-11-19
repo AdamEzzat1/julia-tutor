@@ -1,0 +1,528 @@
+# The heat case project (docs/CASES.md), a scientific-computing course case.
+# It builds on the hole project in projects/heat: milestones 1 and 2 are its
+# two starter stages, milestone 3 is the study and the report.
+
+name = "heat"
+project = "heat"
+course = "scicomp"
+env = "base"
+title = "The cheapest accurate heat solver: explicit, implicit or Crank-Nicolson?"
+summary = "Write a 1D heat-equation solver with three time steppers and a tridiagonal solve, verify it with a manufactured solution, then decide which method delivers the midpoint temperature to five digits for the least work, and whether that holds for a rough initial profile."
+
+question = """
+A rod of unit length with diffusivity kappa = 1 is held at temperature 0 at
+both ends and starts with the profile sin(pi x). Its midpoint temperature
+is needed at t = 0.01 with a relative error below 1e-5. Which time stepper,
+explicit Euler (FTCS), backward Euler or Crank-Nicolson, on a uniform grid
+of N interior points, delivers that for the fewest grid-point updates
+(N times the number of steps)? By how much is it cheaper? Does the choice
+survive when the initial profile is a top hat (1 on the middle half, 0
+outside) instead of a smooth curve?
+"""
+qoi = "The midpoint temperature u(1/2, 0.01) and its relative error; the cost in grid-point updates for each method."
+accuracy = "The budget is 1e-5 relative. The decision is a ratio of costs, so the costs matter to a factor of 2 (the grids and step counts are searched in powers of 2), and the answer is the method whose cost is lowest by more than that."
+emphasised = ["method", "verification", "uncertainty"]
+estimate_prompt = "Before you run anything, estimate how many FTCS steps the grid of 127 interior points needs just to be stable (r = kappa dt / dx^2 <= 1/2). Write the estimate in the report with an {estimate:ns_ftcs} tag."
+
+[data]
+kind = "exact solutions"
+description = """
+No dataset. The ground truth is analytic: for sin(pi x) the midpoint
+temperature is exp(-pi^2 kappa t); for the top hat it is a Fourier series
+whose terms fall below 1e-17 from the 20th on. A manufactured solution,
+u = exp(-t) sin(pi x) + x^2 cos(t), with the source and boundary values it
+implies, checks the solver's order in space and time. Nothing is random
+and nothing is downloaded.
+"""
+
+[[data.difficulty]]
+what = "Space and time errors have opposite signs here, so a single run's total error can be far smaller than either part: on 31 points, one Crank-Nicolson step lands within 8e-7 of the exact value while the grid alone is off by 8e-5. Judging the total error of one run picks a setting that only meets the budget by accident."
+kc = "error-budget"
+
+[[data.difficulty]]
+what = "FTCS's step is limited by stability, not accuracy: r = kappa dt / dx^2 must stay below 1/2, so refining the grid twice quadruples the steps. The limit comes from the fastest grid mode, not from the solution."
+kc = "stability"
+
+[[data.difficulty]]
+what = "Crank-Nicolson is unconditionally stable but not damping: with a long step its factor for the fastest modes is close to -1, so a jump in the initial profile rings instead of smoothing. Stable is not the same as physically plausible."
+kc = "implicit-time-stepping"
+
+[[data.difficulty]]
+what = "A rough initial profile converges more slowly on a grid: the top hat needs about eight times the points of the smooth profile for the same accuracy, which shifts the costs of all three methods."
+kc = "convergence-order-fit"
+
+[[milestone]]
+id = 1
+title = "The kernels: second difference, one explicit step, the tridiagonal solve, a manufactured problem"
+stage = 1
+goal = "Fill the four stage-1 holes (`tutor start heat 1 <dir>`) until the visible tests pass, then run `tutor case check <dir> 1`. The hidden acceptance tests use other grids, boundary values and systems, so code fitted to the visible tests does not pass."
+acceptance = "acceptance/m1.jl"
+steps = ["model", "verification"]
+
+[[milestone]]
+id = 2
+title = "Implicit steps and the time loop: theta method, solve_heat, the order fit"
+stage = 2
+goal = "Start stage 2 (`tutor case start heat <dir>`). It opens all seven holes and adds study.jl and report.qmd. Then run `tutor case check <dir> 2`."
+acceptance = "acceptance/m2.jl"
+steps = ["method", "verification"]
+
+[[milestone]]
+id = 3
+title = "The study and the report"
+stage = 2
+goal = "Write study.jl (its docstrings are the spec) and report.qmd, then run `tutor case check <dir> 3`. This runs the hidden acceptance tests on your study, runs `study()` twice in fresh processes, and checks every tagged number in the report against what your code computed. study() takes about 15 seconds."
+acceptance = "acceptance/m3.jl"
+steps = ["question", "scales", "model", "method", "verification", "validation", "uncertainty", "report"]
+report = true
+
+# ---- the report's checked claims ---------------------------------------------------------------
+#
+# A claim is a value written in report.qmd immediately before a tag:
+# `1016{claim:cost_cn}`, `cn{claim:choice}`. The value must equal what your
+# `study()` returns for that id: within half a unit of the last written
+# digit; integers written without a decimal point must be exact.
+
+[report]
+tolerance = "deterministic study: half a unit in the last written digit, nothing more"
+
+[[claim]]
+id = "kappa"
+section = "question"
+text = "the diffusivity"
+
+[[claim]]
+id = "t_final"
+section = "question"
+text = "the time the midpoint temperature is needed at"
+
+[[claim]]
+id = "target"
+section = "question"
+text = "the error budget (relative error of the midpoint temperature)"
+
+[[claim]]
+id = "exact_mid"
+section = "question"
+min_digits = 4
+text = "the exact midpoint temperature exp(-pi^2 kappa t)"
+
+[[claim]]
+id = "n_space"
+section = "method"
+text = "interior grid points: the coarsest grid tried whose space error meets half the budget"
+
+[[claim]]
+id = "space_err"
+section = "method"
+text = "the space error on that grid"
+
+[[claim]]
+id = "ns_ftcs"
+section = "method"
+text = "FTCS's steps: the fewest meeting half the budget at or below its stability limit"
+
+[[claim]]
+id = "cost_ftcs"
+section = "method"
+text = "FTCS's cost in grid-point updates"
+
+[[claim]]
+id = "time_err_ftcs"
+section = "method"
+text = "FTCS's time error at that step count"
+
+[[claim]]
+id = "ns_be"
+section = "method"
+text = "backward Euler's steps"
+
+[[claim]]
+id = "cost_be"
+section = "method"
+text = "backward Euler's cost"
+
+[[claim]]
+id = "ns_cn"
+section = "method"
+text = "Crank-Nicolson's steps"
+
+[[claim]]
+id = "cost_cn"
+section = "method"
+text = "Crank-Nicolson's cost"
+
+[[claim]]
+id = "time_err_cn"
+section = "method"
+text = "Crank-Nicolson's time error at that step count"
+
+[[claim]]
+id = "choice"
+section = "method"
+kind = "word"
+words = ["ftcs", "be", "cn"]
+text = "the cheapest method meeting the budget"
+
+[[claim]]
+id = "cost_ratio"
+section = "method"
+min_digits = 2
+text = "FTCS's cost over the cheapest method's"
+
+[[claim]]
+id = "cancel_n"
+section = "method"
+text = "the coarse grid used to show cancellation"
+
+[[claim]]
+id = "cancel_ns"
+section = "method"
+text = "the Crank-Nicolson step count with the smallest total error on it"
+
+[[claim]]
+id = "cancel_total_err"
+section = "method"
+text = "that run's total error"
+
+[[claim]]
+id = "cancel_space_err"
+section = "method"
+text = "the space error the same grid has on its own"
+
+[[claim]]
+id = "mms_space_order"
+section = "verification"
+min_digits = 3
+text = "fitted order in space on the manufactured solution"
+
+[[claim]]
+id = "mms_dx_min"
+section = "verification"
+text = "smallest dx in the space fit"
+
+[[claim]]
+id = "mms_dx_max"
+section = "verification"
+text = "largest dx in the space fit"
+
+[[claim]]
+id = "mms_time_order_cn"
+section = "verification"
+min_digits = 3
+text = "fitted order in time of Crank-Nicolson"
+
+[[claim]]
+id = "mms_time_order_be"
+section = "verification"
+min_digits = 3
+text = "fitted order in time of backward Euler"
+
+[[claim]]
+id = "mms_dt_min"
+section = "verification"
+text = "smallest dt in the time fits"
+
+[[claim]]
+id = "mms_dt_max"
+section = "verification"
+text = "largest dt in the time fits"
+
+[[claim]]
+id = "quad_err"
+section = "verification"
+text = "largest error on a steady quadratic (exact for the scheme up to rounding)"
+
+[[claim]]
+id = "cfl_measured"
+section = "verification"
+min_digits = 4
+text = "FTCS's stability limit in r, measured by bisection on 31 points"
+
+[[claim]]
+id = "cfl_theory"
+section = "verification"
+min_digits = 4
+text = "von Neumann's limit 1 / (2 sin^2(N pi dx / 2)) on the same grid"
+
+[[claim]]
+id = "cn_peaks"
+section = "validation"
+text = "local maxima of the top hat after one Crank-Nicolson step to t = 0.01"
+
+[[claim]]
+id = "be_peaks"
+section = "validation"
+text = "local maxima after one backward Euler step"
+
+[[claim]]
+id = "cn_peak_excess"
+section = "validation"
+text = "how far Crank-Nicolson's highest value is above its midpoint value"
+
+[[claim]]
+id = "robust_n_space"
+section = "uncertainty"
+text = "the grid the top hat needs"
+
+[[claim]]
+id = "robust_ns_cn"
+section = "uncertainty"
+text = "Crank-Nicolson's steps for the top hat"
+
+[[claim]]
+id = "robust_cost_cn"
+section = "uncertainty"
+text = "Crank-Nicolson's cost for the top hat"
+
+[[claim]]
+id = "robust_cost_ftcs"
+section = "uncertainty"
+text = "FTCS's cost for the top hat"
+
+[[claim]]
+id = "robust_cost_be"
+section = "uncertainty"
+text = "backward Euler's cost for the top hat"
+
+[[claim]]
+id = "robust_choice"
+section = "uncertainty"
+kind = "word"
+words = ["ftcs", "be", "cn"]
+text = "the cheapest method for the top hat"
+
+[[claim]]
+id = "robust_cost_ratio"
+section = "uncertainty"
+min_digits = 2
+text = "FTCS's cost over the cheapest method's, for the top hat"
+
+[[claim]]
+id = "robust_holds"
+section = "uncertainty"
+kind = "word"
+words = ["holds", "fails"]
+text = "whether the conclusion holds under the perturbed assumption"
+
+[[claim]]
+id = "valid_n_max"
+section = "report"
+text = "the finest grid the conclusion was tested on"
+
+[[claim]]
+id = "valid_target"
+section = "report"
+text = "the error budget the conclusion was tested at"
+
+# ---- required evidence ---------------------------------------------------------------------
+
+[[evidence]]
+id = "costs-of-all-three"
+text = "the cost of every method at its cheapest setting, and the ratio"
+claims = ["cost_ftcs", "cost_be", "cost_cn", "cost_ratio"]
+same_paragraph = true
+
+[[evidence]]
+id = "budget-split"
+text = "the space and time errors, each against half the budget"
+claims = ["space_err", "time_err_cn", "time_err_ftcs"]
+
+[[evidence]]
+id = "cancellation"
+text = "why a single total error cannot be trusted: a total smaller than its own space error"
+claims = ["cancel_total_err", "cancel_space_err"]
+same_paragraph = true
+
+[[evidence]]
+id = "orders-with-ranges"
+text = "the observed orders, each with its fit range"
+claims = ["mms_space_order", "mms_dx_min", "mms_dx_max", "mms_time_order_cn", "mms_time_order_be", "mms_dt_min", "mms_dt_max"]
+
+[[evidence]]
+id = "stability-against-theory"
+text = "the measured stability limit next to von Neumann's"
+claims = ["cfl_measured", "cfl_theory"]
+same_paragraph = true
+
+[[evidence]]
+id = "plausibility"
+text = "a physical check that stability alone does not give"
+claims = ["cn_peaks", "be_peaks"]
+same_paragraph = true
+
+[[evidence]]
+id = "robustness"
+text = "the conclusion re-checked under a perturbed assumption, and whether it holds"
+claims = ["robust_n_space", "robust_cost_cn", "robust_choice", "robust_holds"]
+same_paragraph = true
+
+[[evidence]]
+id = "validity-range"
+text = "the range where the conclusion was tested"
+claims = ["valid_n_max", "valid_target"]
+same_paragraph = true
+
+[[estimate]]
+id = "ns_ftcs"
+section = "scales"
+compare_with = "ns_ftcs"
+
+[robustness]
+assumption = "the initial profile is smooth, sin(pi x)"
+perturbed = "a top hat: 1 on (1/4, 3/4), 0 outside, so the solution has steep gradients at early times"
+claims = ["robust_n_space", "robust_ns_cn", "robust_cost_cn", "robust_cost_ftcs", "robust_cost_be", "robust_choice", "robust_cost_ratio", "robust_holds"]
+
+# ---- discussion --------------------------------------------------------------------------------
+
+[[discussion]]
+kind = "prediction"
+text = "Before measuring: if you halve dx, by what factor must FTCS's number of steps grow to stay stable? And Crank-Nicolson's to keep the same time error?"
+measured_by = "cost_ratio"
+
+[[discussion]]
+kind = "prediction"
+text = "Crank-Nicolson is unconditionally stable. Predict what one step of length 0.01 does to the top hat's jumps."
+measured_by = "cn_peaks"
+
+[[discussion]]
+kind = "rubric"
+text = "Your Crank-Nicolson run is stable and second order. Why can it still be wrong for a rough profile with long steps, and what would you change?"
+
+[[discussion]]
+kind = "rubric"
+text = "The total error of one coarse run met the budget. Why did you not take that run, and what does splitting the budget cost you?"
+
+[[discussion]]
+kind = "rubric"
+text = "The cost here counts grid-point updates. An implicit step also solves a tridiagonal system. Would counting floating-point operations or wall time change the choice? Measure before answering."
+
+[[discussion]]
+kind = "rubric"
+text = "In two or three dimensions the tridiagonal solve becomes a sparse solve. Which part of your conclusion would you re-check first?"
+
+# ---- rubric (no software grades these) --------------------------------------------------------
+
+[[rubric]]
+step = "question"
+criterion = "States the question, the QoI, the cost measure and the accuracy that would answer it, before any result."
+levels = ["missing or vague", "stated, but the cost measure or accuracy is not tied to the decision", "stated, and the accuracy is justified by the decision it has to support"]
+
+[[rubric]]
+step = "scales"
+criterion = "Estimates FTCS's step count from the stability limit before computing, and compares it with the measurement afterwards."
+levels = ["no estimate", "an estimate without a method", "an estimate from r <= 1/2, compared with the result and the gap explained (the accuracy doublings)"]
+
+[[rubric]]
+step = "model"
+criterion = "States what is assumed: constant kappa, fixed boundary values, a uniform grid, the cost measure, and an exact solution whose own error is negligible."
+levels = ["none listed", "listed", "listed, with which ones could change the conclusion (for instance a non-uniform grid or variable kappa)"]
+
+[[rubric]]
+step = "method"
+criterion = "Chooses by measured costs at settings that each meet a split budget, and shows why a single total error is not enough."
+levels = ["asserted", "measured on one run's total error", "measured with the budget split, cancellation shown"]
+
+[[rubric]]
+step = "verification"
+criterion = "Shows the solver is right: observed orders on a manufactured solution with their ranges, an exact steady state, the measured stability limit against theory; keeps this separate from validation."
+levels = ["none, or mixed with validation", "some checks, ranges not stated", "all of them, each with its range and the theoretical value"]
+
+[[rubric]]
+step = "validation"
+criterion = "Checks physical plausibility (one peak, no new maxima) beyond stability, and says what the failure of Crank-Nicolson's long step means for the choice."
+levels = ["absent", "numbers without interpretation", "the non-damping is identified and its consequence for the method choice stated"]
+
+[[rubric]]
+step = "uncertainty"
+criterion = "States the margins under the budget and whether the conclusion survives the rough profile, and explains why the grid has to be finer there."
+levels = ["absent", "stated without the robustness re-check", "stated, re-checked, and the finer grid explained"]
+
+[[rubric]]
+step = "report"
+criterion = "Every claim has its evidence; limitations and the validity range are stated; nothing is claimed for other equations, dimensions or cost measures. Length, code volume and the number of plots earn nothing."
+levels = ["claims without evidence", "evidence for most claims", "every claim supported, limits and range stated, no extrapolation"]
+
+[pilot]
+status = "not run"
+needs = [
+  "one learner who has finished the scientific-computing course's units on ODEs and linear systems and has not seen this case",
+  "the learner works from `tutor case start` and the brief only; the observer records time per milestone, where they got stuck, every `tutor case check` output and every claim-checker finding",
+  "an instructor scores the finished report with the rubric, blind to the time data",
+  "a transfer task afterwards on an unseen problem (an advection-diffusion equation with a given budget): does the learner split the error budget, verify the orders and check plausibility before choosing?",
+  "decision rule: if the learner cannot finish milestone 3 in two sessions, or the rubric score on the transfer task is at the lowest level for method or verification, the scaffolding is revised",
+]
+
+# ---- study mutants: each must fail milestone 3's acceptance tests -----------------------------
+
+[[mutant]]
+id = "choice-most-expensive"
+file = "study.jl"
+find = "by = k -> (costs[k], k)"
+replace = "by = k -> (-costs[k], k)"
+description = "the most expensive method is chosen"
+
+[[mutant]]
+id = "time-error-against-exact"
+file = "study.jl"
+find = "ref = midpoint(ic, N, NFINE, :cn)[1]"
+replace = "ref = exact_mid(ic)"
+description = "the time error measured against the exact value, so it contains the space error"
+
+[[mutant]]
+id = "cancellation-on-fine-grid"
+file = "study.jl"
+find = "cN = 31"
+replace = "cN = 127"
+description = "the cancellation shown on a grid that already meets the space budget, where it proves nothing"
+
+[[mutant]]
+id = "validation-short-steps"
+file = "study.jl"
+find = "_, ucn, _ = solve_heat(tophat(), 511, 1, TFINAL; method = :cn)"
+replace = "_, ucn, _ = solve_heat(tophat(), 511, 64, TFINAL; method = :cn)"
+description = "the validation run with short steps, where Crank-Nicolson's ringing has died out"
+
+[[mutant]]
+id = "robust-not-perturbed"
+file = "study.jl"
+find = "rNc, rnsc, rcc, _, _ = cheapest(:tophat, :cn)"
+replace = "rNc, rnsc, rcc, _, _ = cheapest(:smooth, :cn)"
+description = "the perturbed assumption is not perturbed for the chosen method"
+
+[[mutant]]
+id = "space-order-time-dominated"
+file = "study.jl"
+find = "x, u, _ = solve_heat(p, N, 4096, Ts; method = :cn)"
+replace = "x, u, _ = solve_heat(p, N, 4, Ts; method = :be)"
+description = "the space order measured with a time error that dominates, so the fit does not show order 2"
+
+[[mutant]]
+id = "stability-from-the-solution"
+file = "study.jl"
+find = "p = HeatProblem(KAPPA, x -> sinpi(N * x))"
+replace = "p = HeatProblem(KAPPA, x -> sinpi(x))"
+description = "the stability limit probed with the smooth mode, which decays at any r below 2: the bisection then finds no limit near 1/2"
+
+# ---- what each hidden acceptance testset checks (shown when it fails; the test code is not) ----
+
+[behaviours]
+stencil-exact-on-quadratics-with-boundaries = "The second difference is exact on a quadratic with non-zero boundary values, and only the end points see those values."
+explicit-step-source-and-kappa = "One FTCS step multiplies by kappa, adds the source at the old time, and takes the boundary values at the old time."
+tridiagonal-solve-known-solution = "thomas! solves a non-symmetric, diagonally dominant system to rounding, and eliminates the right-hand side as well as the matrix."
+manufactured-problem-is-consistent = "The manufactured problem's initial and boundary data match its exact solution, and its source makes the residual u_t - kappa u_xx - s vanish, at another kappa."
+theta-step-exact-in-time = "A theta step reproduces a solution linear in time for every theta, with the boundary values at the new time and the source split theta / (1 - theta)."
+time-loop-cost-and-method = "solve_heat counts N times nsteps, ends at T, rejects nsteps = 0, and gives order 2 in time for :cn and order 1 for :be."
+fit-least-squares = "fit_order is the least-squares slope over every point, not the slope between the end points."
+exact-midpoint-values = "exact_mid gives exp(-pi^2 kappa T) for the smooth profile and the Fourier series for the top hat."
+error-split-definitions = "space_error is Crank-Nicolson with many steps against the exact value; time_error is the method against the fine run on the same grid."
+stability-limit-measured = "stability_limit finds von Neumann's limit for the grid's fastest mode by measuring growth."
+study-returns-every-claim = "study() returns a Dict with every claim id of the case."
+operating-point = "study() reports the question's operating point (kappa, t, budget, exact value) unchanged."
+budget-split-and-met = "Each method's reported setting meets half the budget in time, recomputed with your own solver; the grid meets the other half; costs are N times steps; FTCS is within its stability limit."
+settings-near-the-cheapest = "The grid is the coarsest that meets the space half, and Crank-Nicolson's step count cannot be halved."
+the-answer = "Crank-Nicolson is the cheapest, by a factor between 30 and 700 over FTCS, and the ratio matches the reported costs."
+cancellation-shown = "On a grid too coarse for the space budget, a run's total error is at least 10 times smaller than its space error."
+verification-numbers = "The observed orders are within 0.1 of theory with their ranges, the steady quadratic is kept to rounding, and the measured stability limit matches von Neumann's."
+validation-one-peak = "One long Crank-Nicolson step on the top hat gives extra peaks and backward Euler keeps one."
+robustness-rough-profile = "The top hat needs a finer grid and more steps, the verdict is stated, and the validity range covers the grids used."

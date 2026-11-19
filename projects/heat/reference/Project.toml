@@ -1,0 +1,9 @@
+name = "Heat1D"
+uuid = "6d750018-c6ee-45e9-8f0a-ea91c437b4b4"
+version = "0.1.0"
+
+[deps]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+julia = "=1.10.13"
