@@ -1,0 +1,470 @@
+# The dualad case project (docs/CASES.md), the core course's case. It builds
+# on the hole project in projects/dualad: milestones 1 and 2 are its two
+# starter stages, milestone 3 is the study and the report.
+
+name = "dualad"
+project = "dualad"
+course = "core"
+env = "base"
+title = "Exact derivatives: write dual numbers, then decide whether central differences are good enough"
+summary = "Write forward-mode automatic differentiation with dual numbers and multiple dispatch. Then measure whether central differences can deliver a derivative to twelve digits, at what step, and what happens to the usual step rule far from the origin."
+
+question = """
+An optimiser's stopping test needs f'(x) for f(x) = exp(x) sin(x) at 101
+equally spaced points of [0.5, 1], each with a relative error below 1e-12.
+Can central differences with the usual step h = cbrt(eps) max(1, |x|)
+deliver that, or do you need dual numbers? At what step would central
+differences do their best, and how close is that to what their error model
+predicts? Does the answer survive when the same interval is moved 48 periods
+away from the origin?
+"""
+qoi = "The largest relative error of f' over the 101 points, for each method."
+accuracy = "Only the order of magnitude decides the question: an error below the 1e-12 budget passes, and a method that misses it by a factor of ten or more fails. Two significant digits of the largest error are enough."
+emphasised = ["method", "verification"]
+estimate_prompt = "Before you run anything, estimate the largest relative error central differences can reach at their best step. Use the error model: truncation h^2 |f'''| / 6, rounding about eps |f| / h. Write the estimate in the report with an {estimate:cd_err} tag."
+
+[data]
+kind = "exact solutions"
+description = """
+No dataset. The ground truth is analytic: f'(x) = exp(x) (sin x + cos x),
+evaluated in 256-bit BigFloat at each Float64 point, so its own error is
+far below Float64's eps. Polynomials with small integer coefficients at
+dyadic points give derivatives that Float64 computes exactly. Nothing is
+random and nothing is downloaded.
+"""
+
+[[data.difficulty]]
+what = "The smallest error at a single point is luck: rounding errors can cancel, giving an error ten times smaller than at the neighbouring steps (5.9e-13 at h = 2^-17 against 4.5e-12 on both sides, at x = 0.7). The best step has to be judged over all the points."
+kc = "finite-difference-error"
+
+[[data.difficulty]]
+what = "The error curve of a central difference has two branches: slope 2 where truncation dominates and slope -1 where rounding does. A fit range that crosses the bend measures neither."
+kc = "convergence-order-fit"
+
+[[data.difficulty]]
+what = "The usual step rule scales h with |x|. That assumes the function varies on the scale of |x|. Far from the origin exp(x) sin(x) still varies on a scale of 1, so the rule's step is about 300 times too large there."
+kc = "finite-difference-error"
+
+[[data.difficulty]]
+what = "Dual numbers differentiate the code, not the mathematics. The derivative of an unconverged iteration is the derivative of the approximation, and it converges more slowly than the value does."
+kc = "seeding"
+
+[[milestone]]
+id = 1
+title = "The rules: product, quotient, chain, power, and one seeded derivative"
+stage = 1
+goal = "Fill the five stage-1 holes (`tutor start dualad 1 <dir>`) until the visible tests pass, then run `tutor case check <dir> 1`. The hidden acceptance tests use other functions and points, so code that fits the visible tests only does not pass."
+acceptance = "acceptance/m1.jl"
+steps = ["verification"]
+
+[[milestone]]
+id = 2
+title = "Gradients and the competitor: one pass per component, the central difference, the order fit"
+stage = 2
+goal = "Start stage 2 (`tutor case start dualad <dir>`). It opens all eight holes and adds study.jl and report.qmd. Then run `tutor case check <dir> 2`."
+acceptance = "acceptance/m2.jl"
+steps = ["method", "verification"]
+
+[[milestone]]
+id = 3
+title = "The study and the report"
+stage = 2
+goal = "Write study.jl (its docstrings are the spec) and report.qmd, then run `tutor case check <dir> 3`. This runs the hidden acceptance tests on your study, runs `study()` twice in fresh processes, and checks every tagged number in the report against what your code computed."
+acceptance = "acceptance/m3.jl"
+steps = ["question", "scales", "model", "method", "verification", "validation", "uncertainty", "report"]
+report = true
+
+# ---- the report's checked claims ---------------------------------------------------------------
+#
+# A claim is a value written in report.qmd immediately before a tag:
+# `1.66e-11{claim:cd_err}`, `dual{claim:choice}`. The value must equal what
+# your `study()` returns for that id. study() is deterministic, so no
+# tolerance is needed beyond the rounding of what you wrote: a written value
+# w with its last digit in the 10^k place matches the computed c when
+# |w - c| <= 0.5 * 10^k. Integers written without a decimal point must be
+# exact.
+
+[report]
+tolerance = "deterministic study: half a unit in the last written digit, nothing more"
+
+[[claim]]
+id = "x_lo"
+section = "question"
+text = "the left end of the interval"
+
+[[claim]]
+id = "x_hi"
+section = "question"
+text = "the right end of the interval"
+
+[[claim]]
+id = "npoints"
+section = "question"
+text = "the number of points"
+
+[[claim]]
+id = "target"
+section = "question"
+text = "the error budget (max relative error of f')"
+
+[[claim]]
+id = "rule_step"
+section = "method"
+text = "the rule-of-thumb step cbrt(eps) max(1, |x|) on the interval"
+
+[[claim]]
+id = "cd_err"
+section = "method"
+min_digits = 2
+text = "the QoI for central differences: the largest relative error over the points at the rule step"
+
+[[claim]]
+id = "cd_err_min"
+section = "method"
+text = "the smallest relative error over the points at the rule step"
+
+[[claim]]
+id = "dual_err"
+section = "method"
+min_digits = 2
+text = "the QoI for dual numbers: the largest relative error over the points"
+
+[[claim]]
+id = "choice"
+section = "method"
+kind = "word"
+words = ["dual", "central"]
+text = "the method that meets the budget (central if both do)"
+
+[[claim]]
+id = "poly_err"
+section = "verification"
+text = "the dual derivative's error on a polynomial at a dyadic point (exact arithmetic)"
+
+[[claim]]
+id = "trunc_order"
+section = "verification"
+min_digits = 3
+text = "fitted slope of the central difference's error where truncation dominates"
+
+[[claim]]
+id = "trunc_fit_hmin"
+section = "verification"
+text = "smallest step in the truncation fit range"
+
+[[claim]]
+id = "trunc_fit_hmax"
+section = "verification"
+text = "largest step in the truncation fit range"
+
+[[claim]]
+id = "round_slope"
+section = "verification"
+min_digits = 2
+text = "fitted slope where rounding dominates"
+
+[[claim]]
+id = "round_fit_hmin"
+section = "verification"
+text = "smallest step in the rounding fit range"
+
+[[claim]]
+id = "round_fit_hmax"
+section = "verification"
+text = "largest step in the rounding fit range"
+
+[[claim]]
+id = "cd_best_h"
+section = "verification"
+text = "the best uniform step on your grid (smallest largest error over the points)"
+
+[[claim]]
+id = "cd_best_err"
+section = "verification"
+text = "the largest error over the points at that step"
+
+[[claim]]
+id = "cd_theory_h"
+section = "verification"
+text = "the error model's optimal step (3 eps |f| / |f'''|)^(1/3) at the middle of the interval"
+
+[[claim]]
+id = "nested_err"
+section = "verification"
+text = "relative error of the second derivative by nested duals"
+
+[[claim]]
+id = "grad_err"
+section = "verification"
+text = "largest relative error of a 5-variable gradient"
+
+[[claim]]
+id = "grad_evals_dual"
+section = "method"
+text = "function evaluations (on duals) for that gradient by forward mode"
+
+[[claim]]
+id = "grad_evals_central"
+section = "method"
+text = "function evaluations for that gradient by central differences"
+
+[[claim]]
+id = "algo_value_err"
+section = "validation"
+text = "relative error of babylonian_sqrt(2) after 3 steps"
+
+[[claim]]
+id = "algo_deriv_err"
+section = "validation"
+text = "relative error of its dual derivative after 3 steps, against 1 / (2 sqrt 2)"
+
+[[claim]]
+id = "algo_iters"
+section = "validation"
+text = "the fewest steps after which the derivative is at rounding level (4 eps)"
+
+[[claim]]
+id = "robust_x_lo"
+section = "uncertainty"
+text = "the left end of the moved interval"
+
+[[claim]]
+id = "robust_x_hi"
+section = "uncertainty"
+text = "the right end of the moved interval"
+
+[[claim]]
+id = "robust_cd_err"
+section = "uncertainty"
+min_digits = 2
+text = "central differences' largest error on the moved interval, at the rule step"
+
+[[claim]]
+id = "robust_dual_err"
+section = "uncertainty"
+text = "dual numbers' largest error on the moved interval"
+
+[[claim]]
+id = "robust_choice"
+section = "uncertainty"
+kind = "word"
+words = ["dual", "central"]
+text = "the method that meets the budget on the moved interval"
+
+[[claim]]
+id = "robust_holds"
+section = "uncertainty"
+kind = "word"
+words = ["holds", "fails"]
+text = "whether the conclusion holds under the perturbed assumption"
+
+[[claim]]
+id = "valid_x_min"
+section = "report"
+text = "smallest x the conclusion was tested at"
+
+[[claim]]
+id = "valid_x_max"
+section = "report"
+text = "largest x the conclusion was tested at"
+
+# ---- required evidence ---------------------------------------------------------------------
+
+[[evidence]]
+id = "qoi-for-both-methods"
+text = "the quantity of interest for both methods, with the spread over the points"
+claims = ["cd_err", "cd_err_min", "dual_err"]
+same_paragraph = true
+
+[[evidence]]
+id = "error-model-with-ranges"
+text = "both branches of the error model, each with its fit range"
+claims = ["trunc_order", "trunc_fit_hmin", "trunc_fit_hmax", "round_slope", "round_fit_hmin", "round_fit_hmax"]
+
+[[evidence]]
+id = "best-step-against-theory"
+text = "the measured best step next to the model's optimum"
+claims = ["cd_best_h", "cd_theory_h"]
+same_paragraph = true
+
+[[evidence]]
+id = "exact-verification"
+text = "a verification result in exact arithmetic"
+claims = ["poly_err"]
+
+[[evidence]]
+id = "robustness"
+text = "the conclusion re-checked under a perturbed assumption, and whether it holds"
+claims = ["robust_x_lo", "robust_cd_err", "robust_choice", "robust_holds"]
+same_paragraph = true
+
+[[evidence]]
+id = "validity-range"
+text = "the range where the conclusion was tested"
+claims = ["valid_x_min", "valid_x_max"]
+same_paragraph = true
+
+[[estimate]]
+id = "cd_err"
+section = "scales"
+compare_with = "cd_best_err"
+
+[robustness]
+assumption = "the points lie in [0.5, 1], near the origin"
+perturbed = "the same interval moved by 96 pi (48 periods of sin): the function has the same shape, but |x| is about 300"
+claims = ["robust_x_lo", "robust_x_hi", "robust_cd_err", "robust_dual_err", "robust_choice", "robust_holds"]
+
+# ---- discussion --------------------------------------------------------------------------------
+# kind = "prediction": has a measured answer (the claim named in
+# `measured_by`). kind = "rubric": discussed and judged with the rubric,
+# never by software.
+
+[[discussion]]
+kind = "prediction"
+text = "Before measuring: if you halve the step of a central difference where truncation dominates, by what factor does the error change? Where rounding dominates?"
+measured_by = "trunc_order"
+
+[[discussion]]
+kind = "prediction"
+text = "After 3 Newton steps for sqrt(2), is the derivative of the iteration more or less accurate, relatively, than its value?"
+measured_by = "algo_deriv_err"
+
+[[discussion]]
+kind = "rubric"
+text = "Your dual derivative is accurate to rounding. Does that make it correct for a function computed by an iteration that stops early? What did your validation measure?"
+
+[[discussion]]
+kind = "rubric"
+text = "The step rule cbrt(eps) max(1, |x|) failed on the moved interval. What would a correct step rule need to know about f, and why does a dual number need none of it?"
+
+[[discussion]]
+kind = "rubric"
+text = "When would central differences still be the right choice (code you cannot change, functions without a Dual method, a black box)?"
+
+[[discussion]]
+kind = "rubric"
+text = "Forward mode costs one pass per input. For a function of a million inputs and one output, what would you use instead, and why?"
+
+# ---- rubric (no software grades these) --------------------------------------------------------
+
+[[rubric]]
+step = "question"
+criterion = "States the question, the QoI and the accuracy that would answer it, before any result."
+levels = ["missing or vague", "stated, but the accuracy is not tied to the decision", "stated, and the accuracy is justified by the decision it has to support"]
+
+[[rubric]]
+step = "scales"
+criterion = "Estimates the best central-difference error from the error model before computing, and compares it with the measurement afterwards."
+levels = ["no estimate", "an estimate without a method", "an estimate from the error model, compared with the result and the gap explained"]
+
+[[rubric]]
+step = "model"
+criterion = "States what is assumed: Float64 arithmetic, correctly rounded elementary functions, a ground truth whose own error is negligible, and that the error is judged relative to |f'|."
+levels = ["none listed", "listed", "listed, with which ones could change the conclusion (for instance a zero of f' in the interval)"]
+
+[[rubric]]
+step = "method"
+criterion = "Chooses by the measured largest error over the points, not by one lucky point or by reputation."
+levels = ["asserted", "measured at one point", "measured over all the points, with the spread stated"]
+
+[[rubric]]
+step = "verification"
+criterion = "Shows the code is right: exact arithmetic on a polynomial, both branches of the error model with their fit ranges, the best step against the model; keeps this separate from validation."
+levels = ["none, or mixed with validation", "some checks, ranges not stated", "all of them, each with its range and the theoretical value"]
+
+[[rubric]]
+step = "validation"
+criterion = "Tests whether the derivative of the code is the derivative wanted, on an iteration that has not converged, and says what it shows."
+levels = ["absent", "numbers without interpretation", "the gap between code and mathematics is identified and its consequence stated"]
+
+[[rubric]]
+step = "uncertainty"
+criterion = "States the spread of the error over the points and whether the conclusion survives the moved interval, and explains why the step rule fails there."
+levels = ["absent", "stated without the robustness re-check", "stated, re-checked, and the failure of the step rule explained"]
+
+[[rubric]]
+step = "report"
+criterion = "Every claim has its evidence; limitations and the validity range are stated; nothing is claimed for other functions or for reverse mode. Length, code volume and the number of plots earn nothing."
+levels = ["claims without evidence", "evidence for most claims", "every claim supported, limits and range stated, no extrapolation"]
+
+[pilot]
+status = "not run"
+needs = [
+  "one learner who has finished the core course's units on types, dispatch and generic programming and has not seen this case",
+  "the learner works from `tutor case start` and the brief only; the observer records time per milestone, where they got stuck, every `tutor case check` output and every claim-checker finding",
+  "an instructor scores the finished report with the rubric, blind to the time data",
+  "a transfer task afterwards on an unseen problem (the derivative of a function computed by a fixed-point iteration): does the learner verify before trusting, and separate the derivative of the code from the derivative of the mathematics?",
+  "decision rule: if the learner cannot finish milestone 3 in two sessions, or the rubric score on the transfer task is at the lowest level for verification or validation, the scaffolding is revised",
+]
+
+# ---- study mutants: each must fail milestone 3's acceptance tests -----------------------------
+
+[[mutant]]
+id = "error-absolute"
+file = "study.jl"
+find = "relerr(approx, exact::BigFloat) = Float64(abs(big(approx) - exact) / abs(exact))"
+replace = "relerr(approx, exact::BigFloat) = Float64(abs(big(approx) - exact))"
+description = "absolute instead of relative error"
+
+[[mutant]]
+id = "rule-step-not-scaled"
+file = "study.jl"
+find = "rule_step(x) = cbrt(eps()) * max(1.0, abs(x))"
+replace = "rule_step(x) = cbrt(eps())"
+description = "the step rule without the factor max(1, |x|): the moved interval then shows no failure of the rule"
+
+[[mutant]]
+id = "choice-inverted"
+file = "study.jl"
+find = "out[\"choice\"] = out[\"cd_err\"] <= TARGET ? \"central\" : \"dual\""
+replace = "out[\"choice\"] = out[\"cd_err\"] <= TARGET ? \"dual\" : \"central\""
+description = "the method that misses the budget is chosen"
+
+[[mutant]]
+id = "best-step-at-one-point"
+file = "study.jl"
+find = "worst = [maximum(relerr(central_diff(f, x, h), exact_derivative(x)) for x in xs) for h in hs]"
+replace = "worst = [relerr(central_diff(f, xs[1], h), exact_derivative(xs[1])) for h in hs]"
+description = "the best step judged at one point, where cancellation can make it look better than it is"
+
+[[mutant]]
+id = "algorithm-converged"
+file = "study.jl"
+find = "algorithm_derivative(3)"
+replace = "algorithm_derivative(4)"
+description = "the validation run after 4 steps instead of 3, close enough to convergence to hide the gap"
+
+[[mutant]]
+id = "robust-not-moved"
+file = "study.jl"
+find = "rxs = points(X_LO + SHIFT, X_HI + SHIFT)"
+replace = "rxs = points(X_LO, X_HI)"
+description = "the perturbed assumption is not perturbed: the same interval is checked twice"
+
+[[mutant]]
+id = "truncation-fit-in-rounding"
+file = "study.jl"
+find = "ths = [2.0^-k for k in 3:8]"
+replace = "ths = [2.0^-k for k in 15:20]"
+description = "the truncation fit range placed where rounding already matters, so the slope is not 2"
+
+# ---- what each hidden acceptance testset checks (shown when it fails; the test code is not) ----
+
+[behaviours]
+product-rule-both-terms = "The product of two duals has both terms of the product rule, u'v + uv', on cases where each term vanishes in turn."
+quotient-rule-sign-and-square = "The quotient of two duals is (u'v - uv') / v^2: the sign and the square are both checked, and a zero divisor gives Float64's answer, not an error."
+chain-rule-through-compositions = "Compositions of elementary functions get the inner derivative, and lift multiplies by x's derivative part when it is not 1."
+power-rule-edge-exponents = "Integer powers follow n u^(n-1) u', including n = 0 at u = 0 (the constant 1, not NaN) and negative n."
+derivative-one-seeded-pass = "derivative evaluates f once on x + 1 eps, converts an integer x, gives 0 for a constant, and nests for second derivatives."
+gradient-each-component-seeded = "gradient seeds one component per evaluation, evaluates on duals, and returns floating-point components."
+central-difference-symmetric = "central_diff is the symmetric quotient (f(x + h) - f(x - h)) / 2h, exact on a cubic up to its h^2 term, of order 2."
+order-fit-least-squares = "fit_order is the least-squares slope of log(error) on log(h) over every point, slope -1 for a C / h curve."
+error-definition = "max_error returns the largest and the smallest relative error over the points, against the exact derivative, for each method."
+error-model-of-central-differences = "The error curve at x = 0.7 has slope 2 where truncation dominates and slope -1 where rounding does."
+best-uniform-step = "best_uniform_step minimises the largest error over all the points, not the error at one of them."
+study-returns-every-claim = "study() returns a Dict with every claim id of the case."
+operating-point = "study() reports the question's operating point (interval, points, budget, the rule step) unchanged."
+the-answer = "The largest errors over the 101 points agree with an independent recomputation, lie in the error model's range, and the choice follows from them."
+verification-numbers = "The verification numbers are in their theoretical ranges, the fit ranges do not overlap, and the best step is within a factor 4 of the model's."
+validation-the-algorithm = "The derivative of the unconverged iteration is measured after 3 steps, is less accurate than its value, and reaches rounding level after 5."
+robustness-far-from-the-origin = "On the moved interval the rule step fails by orders of magnitude while dual numbers stay at rounding level, and the verdict is stated."

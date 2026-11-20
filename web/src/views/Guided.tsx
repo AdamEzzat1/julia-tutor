@@ -40,7 +40,14 @@ export function GuidedView() {
 }
 
 function StatusChip({ p }: { p: GuidedProject }) {
-  return p.status === "ready" ? <span className="jt-chip pass">ready</span> : <span className="jt-chip">spec only</span>;
+  const status = p.status === "ready" ? <span className="jt-chip pass">ready</span> : <span className="jt-chip">spec only</span>;
+  if (p.kind !== "program") return status;
+  // A program is built alone after its course; checks show hint level 1 only and the reference is sealed.
+  return (
+    <>
+      {status} <span className="jt-chip info" title="Built alone after the course: first hint level only, reference sealed until every milestone passes">program</span>
+    </>
+  );
 }
 
 function Overview({ open }: { open: (n: string) => void }) {

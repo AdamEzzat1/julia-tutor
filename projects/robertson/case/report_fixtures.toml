@@ -1,0 +1,92 @@
+# Report fixtures for the claim checker (`tutor case verify robertson`).
+# Each is the reference report with `find[i]` replaced by `replace[i]`
+# (first occurrence), checked against the reference study's values. The
+# checker must give exactly the finding codes in `expect`, no more, no
+# fewer. `rerun_differs` names a claim whose value the simulated second
+# run changes by one ulp (or, for a word, to another word).
+
+[[fixture]]
+name = "wrong-integer-cost"
+find = ["3465{claim:ro_cost}"]
+replace = ["3466{claim:ro_cost}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "rounded-wrongly"
+# 7.6825e-5 rounds to 7.68e-5; 7.69e-5 is off by more than half a unit.
+find = ["7.68e-5{claim:ro_err}"]
+replace = ["7.69e-5{claim:ro_err}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "too-coarse"
+# min_digits = 6 for y2_ref: 9.19e-6 is within half a unit of 9.1855e-6
+# but has three significant digits.
+find = ["9.185535e-6{claim:y2_ref}"]
+replace = ["9.19e-6{claim:y2_ref}"]
+expect = ["claim-too-coarse"]
+
+[[fixture]]
+name = "wrong-word"
+find = ["fails{claim:robust_holds}"]
+replace = ["holds{claim:robust_holds}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "word-not-allowed"
+find = ["ros2{claim:choice}"]
+replace = ["rosenbrock{claim:choice}"]
+expect = ["claim-mismatch"]
+
+[[fixture]]
+name = "value-in-inline-code"
+find = ["52.6{claim:cost_ratio}"]
+replace = ["`{julia} S[\"cost_ratio\"]`{claim:cost_ratio}"]
+expect = ["claim-no-value"]
+
+[[fixture]]
+name = "unknown-claim"
+find = ["691{claim:ro_steps}"]
+replace = ["691{claim:ro_steps} (66 times fewer{claim:step_ratio})"]
+expect = ["claim-unknown"]
+
+[[fixture]]
+name = "missing-section"
+find = ["## Validation"]
+replace = ["### Validation"]
+# The section's text now belongs to Verification: the section is missing
+# and its three claims are in the wrong section.
+expect = ["claim-wrong-section", "section-missing"]
+
+[[fixture]]
+name = "split-evidence"
+# The stability boundary moved to its own paragraph: the measured step
+# without the theory it should be compared with.
+find = ["2.520{claim:stab_hlam}, and BS3's"]
+replace = ["2.520{claim:stab_hlam}.\n\nBS3's"]
+expect = ["evidence-split"]
+
+[[fixture]]
+name = "missing-claim-and-evidence"
+find = ["at most 6.8e-11{claim:ref_diff}, and"]
+replace = ["very little, and"]
+expect = ["claim-missing", "evidence-missing"]
+
+[[fixture]]
+name = "tag-in-comment-is-not-a-claim"
+find = ["ros2{claim:choice}"]
+replace = ["ros2 <!-- {claim:choice} -->"]
+expect = ["claim-missing"]
+
+[[fixture]]
+name = "estimate-missing"
+find = ["5e4{estimate:bs_steps}"]
+replace = ["5e4"]
+expect = ["estimate-missing"]
+
+[[fixture]]
+name = "not-reproducible"
+find = []
+replace = []
+rerun_differs = "cost_ratio"
+expect = ["not-reproducible"]

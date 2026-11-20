@@ -1,0 +1,30 @@
+== tutor explain: dualad, stage 1 ==
+
+Start here: hole `div` at src/DualAD.jl:93
+  why: 2 of the 2 failing testsets depend on it (Ochiai 1.0).
+  Read its docstring: it is the specification. Knowledge component: quotient-rule.
+
+Tests: 9/11 testsets pass
+  FAIL div: the quotient rule  [3 failed, 0 errored; depends on: derivative, div]
+       test/runtests.jl:48 FAIL same(Dual(1.0, 0.0) / Dual(2.0, 1.0), Dual(0.5, -0.25))
+       test/runtests.jl:50 FAIL same(Dual(4.0, 2.0) / Dual(2.0, 1.0), Dual(2.0, 0.0))
+  FAIL babylonian_sqrt: the derivative of an algorithm  [1 failed, 0 errored; depends on: div, mul]
+       test/runtests.jl:155 FAIL isapprox(partial(d), 1 / (2 * sqrt(2.0)); rtol = 8 * EPS)  evaluated: isapprox(2.2177609, 0.35355339; rtol = 1.7763568e-15)
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. div                1.0   implemented  failing-deps=2 passing-deps=0  src/DualAD.jl:93
+  2. mul                0.29  implemented  failing-deps=1 passing-deps=5  src/DualAD.jl:82
+  3. derivative         0.29  implemented  failing-deps=1 passing-deps=5  src/DualAD.jl:138
+  4. chain              0.0   implemented  failing-deps=0 passing-deps=4  src/DualAD.jl:106
+  5. power              0.0   implemented  failing-deps=0 passing-deps=3  src/DualAD.jl:123
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations a * b (Float64 duals): 0  (reference 0)
+  allocations a / b (Float64 duals): 0  (reference 0)
+  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)
+  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)
+  allocations gradient(3 variables): 5  (reference 5)
+  JET: not used by this project's measurements

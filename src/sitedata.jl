@@ -360,7 +360,7 @@ function course_files()
         "courses" => Any[Dict("id" => c.id, "title" => c.title, "order" => c.order, "status" => c.status,
                               "status_note" => c.status_note,
                               "summary" => c.summary, "requires" => c.requires, "envs" => c.envs, "units" => c.units,
-                              "projects" => c.projects, "guided" => c.guided,
+                              "projects" => c.projects, "guided" => c.guided, "programs" => c.programs,
                               "problems" => sum(length(byid[u]["problems"]) for u in c.units; init = 0),
                               "outcomes" => Any[Dict("text" => o.text, "assessed_by" => o.assessed_by,
                                                      "planned" => o.planned) for o in c.outcomes],

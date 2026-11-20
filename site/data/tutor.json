@@ -546,6 +546,679 @@
     {
       "baseline": {
         "allocations": {
+          "a * b (Float64 duals)": 0,
+          "a / b (Float64 duals)": 0,
+          "central_diff(exp(x) sin(x), 0.7, 1e-5)": 0,
+          "derivative(exp(x) sin(x), 0.7)": 0,
+          "gradient(3 variables)": 5
+        },
+        "inferred": {
+          "central_diff": "Float64",
+          "chain": "Dual{Float64}",
+          "derivative": "Float64",
+          "div": "Dual{Float64}",
+          "fit_order": "Float64",
+          "gradient": "Vector{Float64}",
+          "mul": "Dual{Float64}",
+          "power": "Dual{Float64}"
+        },
+        "jet": {
+          "status": "not used by this project's measurements"
+        }
+      },
+      "deps": {
+        "central_diff": [
+          "central_diff: exact on quadratics, order 2",
+          "dual numbers vs central differences at the same point"
+        ],
+        "chain": [
+          "chain: elementary functions",
+          "derivative: one evaluation on a seeded dual",
+          "dual numbers vs central differences at the same point",
+          "gradient: one evaluation per component"
+        ],
+        "derivative": [
+          "chain: elementary functions",
+          "derivative: one evaluation on a seeded dual",
+          "div: the quotient rule",
+          "dual numbers vs central differences at the same point",
+          "mul: the product rule",
+          "power: integer exponents"
+        ],
+        "div": [
+          "babylonian_sqrt: the derivative of an algorithm",
+          "div: the quotient rule"
+        ],
+        "fit_order": [
+          "central_diff: exact on quadratics, order 2",
+          "fit_order: least squares on log-log"
+        ],
+        "gradient": [
+          "gradient: one evaluation per component"
+        ],
+        "mul": [
+          "babylonian_sqrt: the derivative of an algorithm",
+          "chain: elementary functions",
+          "derivative: one evaluation on a seeded dual",
+          "dual numbers vs central differences at the same point",
+          "gradient: one evaluation per component",
+          "mul: the product rule"
+        ],
+        "power": [
+          "derivative: one evaluation on a seeded dual",
+          "gradient: one evaluation per component",
+          "power: integer exponents"
+        ]
+      },
+      "fixtures": [
+        {
+          "body": "return Dual(a.v * b.v, a.d * b.d)\n",
+          "description": "multiplies the derivative parts as it multiplies the values: (uv)' = u'v' is the classic wrong product rule",
+          "expect_start": "mul",
+          "golden": "== tutor explain: dualad, stage 1 ==\n\nStart here: hole `mul` at src/DualAD.jl:82\n  why: 5 of the 5 failing testsets depend on it (Ochiai 0.91); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: product-rule.\n\nTests: 6/11 testsets pass\n  FAIL mul: the product rule  [4 failed, 0 errored; depends on: derivative, mul]\n       test/runtests.jl:40 FAIL same(Dual(3.0, 1.0) * Dual(4.0, 2.0), Dual(12.0, 10.0))\n       test/runtests.jl:41 FAIL same(Dual(3.0, 1.0) * Dual(4.0, 0.0), Dual(12.0, 4.0))\n  FAIL chain: elementary functions  [3 failed, 0 errored; depends on: chain, derivative, mul]\n       test/runtests.jl:61 FAIL isapprox(derivative((t->begin  evaluated: isapprox(0.0, 1.6506712; rtol = 8.8817842e-16)\n       test/runtests.jl:61 FAIL isapprox(derivative((t->begin  evaluated: isapprox(-0.0, -1.9335964; rtol = 8.8817842e-16)\n  FAIL derivative: one evaluation on a seeded dual  [5 failed, 0 errored; depends on: chain, derivative, mul, power]\n       test/runtests.jl:85 FAIL isequal(derivative(p, x), dp(x))  evaluated: isequal(1.5, -4.1289062)\n       test/runtests.jl:85 FAIL isequal(derivative(p, x), dp(x))  evaluated: isequal(-3.0, 52.4375)\n  FAIL gradient: one evaluation per component  [4 failed, 0 errored; depends on: chain, mul, power]\n       test/runtests.jl:99 FAIL isequal(gradient(g, [2.0, 5.0, 1.0]), [4.0, 2.0, 6.0])  evaluated: isequal([-1.0, 0.0, 0.0], [4.0, 2.0, 6.0])\n       test/runtests.jl:100 FAIL isequal(gradient(g, [2, 5, 1]), [4.0, 2.0, 6.0])  evaluated: isequal([-1.0, 0.0, 0.0], [4.0, 2.0, 6.0])\n  FAIL dual numbers vs central differences at the same point  [1 failed, 0 errored; depends on: chain, derivative, mul]\n       test/runtests.jl:144 FAIL isapprox(derivative(f, 0.7), df(0.7); rtol = 8 * EPS)  evaluated: isapprox(1.540203, 2.8374981; rtol = 1.7763568e-15)\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. mul                0.91  implemented  failing-deps=5 passing-deps=1  src/DualAD.jl:82\n  2. chain              0.89  implemented  failing-deps=4 passing-deps=0  src/DualAD.jl:106\n  3. derivative         0.73  implemented  failing-deps=4 passing-deps=2  src/DualAD.jl:138\n  4. power              0.52  implemented  failing-deps=2 passing-deps=1  src/DualAD.jl:123\n  5. div                0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:93\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations a * b (Float64 duals): 0  (reference 0)\n  allocations a / b (Float64 duals): 0  (reference 0)\n  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)\n  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)\n  allocations gradient(3 variables): 5  (reference 5)\n  JET: not used by this project's measurements\n",
+          "hole": "mul",
+          "misconception": "derivative-is-a-homomorphism",
+          "name": "mul-derivatives-multiplied",
+          "stage": 1
+        },
+        {
+          "body": "return Dual(a.v / b.v, (a.d * b.v + a.v * b.d) / (b.v * b.v))\n",
+          "description": "adds the two terms of the quotient rule: right when either derivative part is 0, wrong otherwise",
+          "expect_start": "div",
+          "golden": "== tutor explain: dualad, stage 1 ==\n\nStart here: hole `div` at src/DualAD.jl:93\n  why: 2 of the 2 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: quotient-rule.\n\nTests: 9/11 testsets pass\n  FAIL div: the quotient rule  [3 failed, 0 errored; depends on: derivative, div]\n       test/runtests.jl:48 FAIL same(Dual(1.0, 0.0) / Dual(2.0, 1.0), Dual(0.5, -0.25))\n       test/runtests.jl:50 FAIL same(Dual(4.0, 2.0) / Dual(2.0, 1.0), Dual(2.0, 0.0))\n  FAIL babylonian_sqrt: the derivative of an algorithm  [1 failed, 0 errored; depends on: div, mul]\n       test/runtests.jl:155 FAIL isapprox(partial(d), 1 / (2 * sqrt(2.0)); rtol = 8 * EPS)  evaluated: isapprox(2.2177609, 0.35355339; rtol = 1.7763568e-15)\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. div                1.0   implemented  failing-deps=2 passing-deps=0  src/DualAD.jl:93\n  2. mul                0.29  implemented  failing-deps=1 passing-deps=5  src/DualAD.jl:82\n  3. derivative         0.29  implemented  failing-deps=1 passing-deps=5  src/DualAD.jl:138\n  4. chain              0.0   implemented  failing-deps=0 passing-deps=4  src/DualAD.jl:106\n  5. power              0.0   implemented  failing-deps=0 passing-deps=3  src/DualAD.jl:123\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations a * b (Float64 duals): 0  (reference 0)\n  allocations a / b (Float64 duals): 0  (reference 0)\n  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)\n  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)\n  allocations gradient(3 variables): 5  (reference 5)\n  JET: not used by this project's measurements\n",
+          "hole": "div",
+          "misconception": "quotient-rule-sign",
+          "name": "div-sign-flipped",
+          "stage": 1
+        },
+        {
+          "body": "return Dual(f(x.v), df(x.v))\n",
+          "description": "returns f'(v) and drops x's derivative part: right for sin(x) with seed 1, wrong for sin(2x)",
+          "expect_start": "chain",
+          "golden": "== tutor explain: dualad, stage 1 ==\n\nStart here: hole `chain` at src/DualAD.jl:106\n  why: 2 of the 2 failing testsets depend on it (Ochiai 0.71); 2 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: chain-rule.\n\nTests: 9/11 testsets pass\n  FAIL chain: elementary functions  [4 failed, 0 errored; depends on: chain, derivative, mul]\n       test/runtests.jl:61 FAIL isapprox(derivative((t->begin  evaluated: isapprox(0.82533561, 1.6506712; rtol = 8.8817842e-16)\n       test/runtests.jl:61 FAIL isapprox(derivative((t->begin  evaluated: isapprox(-0.96679819, -1.9335964; rtol = 8.8817842e-16)\n  FAIL gradient: one evaluation per component  [2 failed, 0 errored; depends on: chain, mul, power]\n       test/runtests.jl:106 FAIL isapprox(gh[1], cos(0.3) * exp(0.2); rtol = 8 * EPS)  evaluated: isapprox(1.5277998, 1.1668506; rtol = 1.7763568e-15)\n       test/runtests.jl:107 FAIL isapprox(gh[2], sin(0.3) * exp(0.2); rtol = 8 * EPS)  evaluated: isapprox(1.5277998, 0.3609492; rtol = 1.7763568e-15)\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. chain              0.71  implemented  failing-deps=2 passing-deps=2  src/DualAD.jl:106\n  2. mul                0.58  implemented  failing-deps=2 passing-deps=4  src/DualAD.jl:82\n  3. power              0.41  implemented  failing-deps=1 passing-deps=2  src/DualAD.jl:123\n  4. derivative         0.29  implemented  failing-deps=1 passing-deps=5  src/DualAD.jl:138\n  5. div                0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:93\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations a * b (Float64 duals): 0  (reference 0)\n  allocations a / b (Float64 duals): 0  (reference 0)\n  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)\n  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)\n  allocations gradient(3 variables): 5  (reference 5)\n  JET: not used by this project's measurements\n",
+          "hole": "chain",
+          "misconception": "chain-rule-outer-only",
+          "name": "chain-inner-derivative-dropped",
+          "stage": 1
+        },
+        {
+          "body": "return Dual(x.v^n, n * x.v^(n - 1) * x.d)\n",
+          "description": "the power rule with no special case for n = 0: at x = 0 it computes 0 * 0^-1 = 0 * Inf = NaN",
+          "expect_start": "power",
+          "golden": "== tutor explain: dualad, stage 1 ==\n\nStart here: hole `power` at src/DualAD.jl:123\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.58); 2 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: power-rule.\n\nTests: 10/11 testsets pass\n  FAIL power: integer exponents  [1 failed, 0 errored; depends on: derivative, power]\n       test/runtests.jl:76 FAIL same(Dual(0.0, 1.0) ^ zero_, Dual(1.0, 0.0))\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. power              0.58  implemented  failing-deps=1 passing-deps=2  src/DualAD.jl:123\n  2. derivative         0.41  implemented  failing-deps=1 passing-deps=5  src/DualAD.jl:137\n  3. mul                0.0   implemented  failing-deps=0 passing-deps=6  src/DualAD.jl:82\n  4. div                0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:93\n  5. chain              0.0   implemented  failing-deps=0 passing-deps=4  src/DualAD.jl:106\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations a * b (Float64 duals): 0  (reference 0)\n  allocations a / b (Float64 duals): 0  (reference 0)\n  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)\n  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)\n  allocations gradient(3 variables): 5  (reference 5)\n  JET: not used by this project's measurements\n",
+          "hole": "power",
+          "misconception": "formula-covers-every-case",
+          "name": "power-zero-exponent-nan",
+          "stage": 1
+        },
+        {
+          "body": "xf = float(x)\nreturn partial(f(Dual(xf, zero(xf))))\n",
+          "description": "seeds the dual with derivative part 0, as for a constant: every derivative comes out 0",
+          "expect_start": "derivative",
+          "golden": "== tutor explain: dualad, stage 1 ==\n\nStart here: hole `derivative` at src/DualAD.jl:138\n  why: 6 of the 6 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: seeding.\n\nTests: 5/11 testsets pass\n  FAIL mul: the product rule  [1 failed, 0 errored; depends on: derivative, mul]\n       test/runtests.jl:43 FAIL isequal(derivative((x->begin  evaluated: isequal(0.0, 12.0)\n  FAIL div: the quotient rule  [1 failed, 0 errored; depends on: derivative, div]\n       test/runtests.jl:51 FAIL isequal(derivative((x->begin  evaluated: isequal(0.0, -0.0625)\n  FAIL chain: elementary functions  [14 failed, 0 errored; depends on: chain, derivative, mul]\n       test/runtests.jl:58 FAIL isapprox(derivative(sin, x), cos(x); rtol = 4 * EPS)  evaluated: isapprox(0.0, 0.95533649; rtol = 8.8817842e-16)\n       test/runtests.jl:59 FAIL isapprox(derivative(cos, x), -(sin(x)); rtol = 4 * EPS)  evaluated: isapprox(-0.0, -0.29552021; rtol = 8.8817842e-16)\n  FAIL power: integer exponents  [1 failed, 0 errored; depends on: derivative, power]\n       test/runtests.jl:78 FAIL isequal(derivative((x->begin  evaluated: isequal(0.0, 6.0)\n  FAIL derivative: one evaluation on a seeded dual  [6 failed, 0 errored; depends on: chain, derivative, mul, power]\n       test/runtests.jl:85 FAIL isequal(derivative(p, x), dp(x))  evaluated: isequal(0.0, -4.1289062)\n       test/runtests.jl:85 FAIL isequal(derivative(p, x), dp(x))  evaluated: isequal(0.0, 52.4375)\n  FAIL dual numbers vs central differences at the same point  [1 failed, 0 errored; depends on: chain, derivative, mul]\n       test/runtests.jl:144 FAIL isapprox(derivative(f, 0.7), df(0.7); rtol = 8 * EPS)  evaluated: isapprox(0.0, 2.8374981; rtol = 1.7763568e-15)\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. derivative         1.0   implemented  failing-deps=6 passing-deps=0  src/DualAD.jl:138\n  2. mul                0.67  implemented  failing-deps=4 passing-deps=2  src/DualAD.jl:82\n  3. chain              0.61  implemented  failing-deps=3 passing-deps=1  src/DualAD.jl:106\n  4. power              0.47  implemented  failing-deps=2 passing-deps=1  src/DualAD.jl:123\n  5. div                0.29  implemented  failing-deps=1 passing-deps=1  src/DualAD.jl:93\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations a * b (Float64 duals): 0  (reference 0)\n  allocations a / b (Float64 duals): 0  (reference 0)\n  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)\n  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)\n  allocations gradient(3 variables): 5  (reference 5)\n  JET: not used by this project's measurements\n",
+          "hole": "derivative",
+          "misconception": "seed-is-a-default",
+          "name": "derivative-seed-zero",
+          "stage": 1
+        },
+        {
+          "body": "xf = float.(x)\ns = partial(f([Dual(xi, one(xi)) for xi in xf]))\nreturn fill(s, length(xf))\n",
+          "description": "seeds every component with 1 in one pass: that is the directional derivative along (1, ..., 1), the sum of the components, not the gradient",
+          "expect_start": "gradient",
+          "golden": "== tutor explain: dualad, stage 2 ==\n\nStart here: hole `gradient` at src/DualAD.jl:151\n  why: 1 of the 1 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: seeding.\n\nTests: 10/11 testsets pass\n  FAIL gradient: one evaluation per component  [5 failed, 0 errored; depends on: chain, gradient, mul, power]\n       test/runtests.jl:99 FAIL isequal(gradient(g, [2.0, 5.0, 1.0]), [4.0, 2.0, 6.0])  evaluated: isequal([12.0, 12.0, 12.0], [4.0, 2.0, 6.0])\n       test/runtests.jl:100 FAIL isequal(gradient(g, [2, 5, 1]), [4.0, 2.0, 6.0])  evaluated: isequal([12.0, 12.0, 12.0], [4.0, 2.0, 6.0])\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. gradient           1.0   implemented  failing-deps=1 passing-deps=0  src/DualAD.jl:151\n  2. power              0.58  implemented  failing-deps=1 passing-deps=2  src/DualAD.jl:123\n  3. chain              0.5   implemented  failing-deps=1 passing-deps=3  src/DualAD.jl:106\n  4. mul                0.41  implemented  failing-deps=1 passing-deps=5  src/DualAD.jl:82\n  5. div                0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:93\n  6. derivative         0.0   implemented  failing-deps=0 passing-deps=6  src/DualAD.jl:138\n  7. central_diff       0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:164\n  8. fit_order          0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:177\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations a * b (Float64 duals): 0  (reference 0)\n  allocations a / b (Float64 duals): 0  (reference 0)\n  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)\n  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)\n  allocations gradient(3 variables): 3  (reference 5)\n  JET: not used by this project's measurements\n",
+          "hole": "gradient",
+          "misconception": "one-pass-gives-the-gradient",
+          "name": "gradient-all-seeded",
+          "stage": 2
+        },
+        {
+          "body": "return (f(x + h) - f(x)) / h\n",
+          "description": "the forward difference (f(x + h) - f(x)) / h: order 1, so the fitted order is 1, not 2",
+          "expect_start": "central_diff",
+          "golden": "== tutor explain: dualad, stage 2 ==\n\nStart here: hole `central_diff` at src/DualAD.jl:168\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.71); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: finite-difference-error.\n\nTests: 10/11 testsets pass\n  FAIL central_diff: exact on quadratics, order 2  [3 failed, 0 errored; depends on: central_diff, fit_order]\n       test/runtests.jl:113 FAIL isequal(central_diff((x->begin  evaluated: isequal(5.25, 5.0)\n       test/runtests.jl:119 FAIL 1.9 <= fit_order(hs, errs) <= 2.1  evaluated: 1.9 <= 1.0065358 <= 2.1\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. central_diff       0.71  implemented  failing-deps=1 passing-deps=1  src/DualAD.jl:168\n  2. fit_order          0.71  implemented  failing-deps=1 passing-deps=1  src/DualAD.jl:181\n  3. mul                0.0   implemented  failing-deps=0 passing-deps=6  src/DualAD.jl:82\n  4. div                0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:93\n  5. chain              0.0   implemented  failing-deps=0 passing-deps=4  src/DualAD.jl:106\n  6. power              0.0   implemented  failing-deps=0 passing-deps=3  src/DualAD.jl:123\n  7. derivative         0.0   implemented  failing-deps=0 passing-deps=6  src/DualAD.jl:138\n  8. gradient           0.0   implemented  failing-deps=0 passing-deps=1  src/DualAD.jl:151\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations a * b (Float64 duals): 0  (reference 0)\n  allocations a / b (Float64 duals): 0  (reference 0)\n  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)\n  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)\n  allocations gradient(3 variables): 5  (reference 5)\n  JET: not used by this project's measurements\n",
+          "hole": "central_diff",
+          "misconception": "any-difference-quotient-is-order-2",
+          "name": "central_diff-forward",
+          "stage": 2
+        },
+        {
+          "body": "return (log(errs[end]) - log(errs[1])) / (log(hs[end]) - log(hs[1]))\n",
+          "description": "the slope between the first and the last point: equal to the least-squares slope only when the points are on a line",
+          "expect_start": "fit_order",
+          "golden": "== tutor explain: dualad, stage 2 ==\n\nStart here: hole `fit_order` at src/DualAD.jl:181\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.71); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: convergence-order-fit.\n\nTests: 10/11 testsets pass\n  FAIL fit_order: least squares on log-log  [4 failed, 0 errored; depends on: fit_order]\n       test/runtests.jl:132 FAIL isapprox(fit_order(hs, errs), ls; rtol = 1.0e-12)  evaluated: isapprox(2.0, 1.7857143; rtol = 1.0e-12)\n       test/runtests.jl:133 FAIL !(isapprox(fit_order(hs, errs), (y[3] - y[1]) / (x[3] - x[1]); rtol = 0.01))  evaluated: !(isapprox(2.0, 2.0; rtol = 0.01))\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. fit_order          0.71  implemented  failing-deps=1 passing-deps=1  src/DualAD.jl:181\n  2. mul                0.0   implemented  failing-deps=0 passing-deps=6  src/DualAD.jl:82\n  3. div                0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:93\n  4. chain              0.0   implemented  failing-deps=0 passing-deps=4  src/DualAD.jl:106\n  5. power              0.0   implemented  failing-deps=0 passing-deps=3  src/DualAD.jl:123\n  6. derivative         0.0   implemented  failing-deps=0 passing-deps=6  src/DualAD.jl:138\n  7. gradient           0.0   implemented  failing-deps=0 passing-deps=1  src/DualAD.jl:151\n  8. central_diff       0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:168\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations a * b (Float64 duals): 0  (reference 0)\n  allocations a / b (Float64 duals): 0  (reference 0)\n  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)\n  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)\n  allocations gradient(3 variables): 5  (reference 5)\n  JET: not used by this project's measurements\n",
+          "hole": "fit_order",
+          "misconception": "slope-from-two-points",
+          "name": "fit_order-endpoints",
+          "stage": 2
+        }
+      ],
+      "holes": [
+        {
+          "file": "src/DualAD.jl",
+          "id": "mul",
+          "kc": "product-rule",
+          "spec": "    *(a::Dual, b::Dual) -> Dual\n\nThe product rule: (u v)' = u' v + u v'. With a = Dual(u, u') and\nb = Dual(v, v'), the value part is u * v.",
+          "stage": 1,
+          "summary": "*(a::Dual, b::Dual): the product rule on the derivative part",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/DualAD.jl",
+          "id": "div",
+          "kc": "quotient-rule",
+          "spec": "    /(a::Dual, b::Dual) -> Dual\n\nThe quotient rule: (u / v)' = (u' v - u v') / v^2. The value part is\nu / v; dividing by a dual whose value is 0 gives what Float64 division\ngives (Inf or NaN), not an error.",
+          "stage": 1,
+          "summary": "/(a::Dual, b::Dual): the quotient rule on the derivative part",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/DualAD.jl",
+          "id": "chain",
+          "kc": "chain-rule",
+          "spec": "    lift(f, df, x::Dual) -> Dual\n\nThe chain rule for a function of one variable: given `f` and its\nderivative `df` (both as functions of a plain number), the value part is\nf(v) and the derivative part is f'(v) times x's derivative part. Every\nelementary function below is defined with it, so sin(2x) at Dual(x, 1)\ncarries 2 cos(2x).",
+          "stage": 1,
+          "summary": "lift(f, df, x::Dual): the chain rule, used by every elementary function",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/DualAD.jl",
+          "id": "power",
+          "kc": "power-rule",
+          "spec": "    ^(x::Dual, n::Integer) -> Dual\n\nThe power rule: (u^n)' = n u^(n-1) u'. For n = 0 the result is the\nconstant 1 with derivative 0, also at u = 0 (where n u^(n-1) would be\n0 * Inf = NaN). Negative n works wherever u != 0.",
+          "stage": 1,
+          "summary": "^(x::Dual, n::Integer): the power rule, with n = 0 at x = 0",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/DualAD.jl",
+          "id": "derivative",
+          "kc": "seeding",
+          "spec": "    derivative(f, x::Real) -> Real\n\nf'(x) by one evaluation of `f` on the dual number x + 1*eps (the seed 1\nsays \"differentiate with respect to x\"). `x` is converted to floating point\nfirst. If `f` returns a plain number (a constant function), the derivative\nis 0.",
+          "stage": 1,
+          "summary": "derivative(f, x): one evaluation of f on the seeded dual x + 1 eps",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/DualAD.jl",
+          "id": "gradient",
+          "kc": "seeding",
+          "spec": "    gradient(f, x::AbstractVector{<:Real}) -> Vector\n\nThe gradient of a scalar function of a vector, by forward mode: one\nevaluation of `f` per component i, on the vector whose j-th entry is\nDual(x[j], 1 if j == i else 0). Costs `length(x)` evaluations, each on\nduals. The result has x's floating-point element type.",
+          "stage": 2,
+          "summary": "gradient(f, x): one seeded evaluation per component",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/DualAD.jl",
+          "id": "central_diff",
+          "kc": "finite-difference-error",
+          "spec": "    central_diff(f, x, h) -> Float64\n\nThe central difference (f(x + h) - f(x - h)) / (2h): two evaluations of\n`f`, truncation error h^2 |f'''| / 6, and a rounding error that grows like\neps |f| / h as h shrinks. The best h balances the two.",
+          "stage": 2,
+          "summary": "central_diff(f, x, h): (f(x + h) - f(x - h)) / 2h",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/DualAD.jl",
+          "id": "fit_order",
+          "kc": "convergence-order-fit",
+          "spec": "    fit_order(hs, errs) -> Float64\n\nThe observed order of convergence: the least-squares slope of `log(errs)`\nagainst `log(hs)` over all the points given (at least two, all positive).\nFor errors that behave like `C * h^p` the slope is `p`; for a rounding\nerror like `C / h` it is -1. Which points to pass (the fit range) is the\ncaller's decision.",
+          "stage": 2,
+          "summary": "fit_order(hs, errs): the least-squares slope of log(err) on log(h)",
+          "trivial_bodies": 2
+        }
+      ],
+      "mutants": {
+        "central_diff": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          }
+        ],
+        "chain": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 4,
+            "trivial": 2
+          }
+        ],
+        "derivative": [
+          {
+            "caught": true,
+            "failing_testsets": 6,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 6,
+            "trivial": 2
+          }
+        ],
+        "div": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 3
+          }
+        ],
+        "fit_order": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          }
+        ],
+        "gradient": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          }
+        ],
+        "mul": [
+          {
+            "caught": true,
+            "failing_testsets": 5,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 5,
+            "trivial": 2
+          }
+        ],
+        "power": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          }
+        ]
+      },
+      "name": "dualad",
+      "package": "DualAD",
+      "problems": [],
+      "stages": [
+        1,
+        2
+      ],
+      "testsets": [
+        "Dual: construction, promotion, comparison",
+        "babylonian_sqrt: the derivative of an algorithm",
+        "central_diff: exact on quadratics, order 2",
+        "chain: elementary functions",
+        "derivative: one evaluation on a seeded dual",
+        "div: the quotient rule",
+        "dual numbers vs central differences at the same point",
+        "fit_order: least squares on log-log",
+        "gradient: one evaluation per component",
+        "mul: the product rule",
+        "power: integer exponents"
+      ]
+    },
+    {
+      "baseline": {
+        "allocations": {
+          "ftcs_step!(63 points)": 0,
+          "second_difference!(63 points)": 0,
+          "solve_heat(63 points, 100 CN steps)": 8,
+          "theta_step!(63 points, Crank-Nicolson)": 0,
+          "thomas!(63 unknowns)": 0
+        },
+        "inferred": {
+          "fit_order": "Float64",
+          "ftcs_step": "Vector{Float64}",
+          "second_difference": "Vector{Float64}",
+          "solve_heat": "Tuple{Vector{Float64}, Vector{Float64}, Int64}",
+          "theta_step": "Vector{Float64}",
+          "thomas": "Vector{Float64}"
+        },
+        "jet": {
+          "status": "not used by this project's measurements"
+        }
+      },
+      "deps": {
+        "fit_order": [
+          "convergence: order 2 (CN) and 1 (BE) in time",
+          "convergence: order 2 in space (manufactured solution)",
+          "fit_order: least squares on log-log"
+        ],
+        "ftcs_step": [
+          "ftcs_step: one explicit step",
+          "solve_heat: lands on T and counts its work",
+          "stability: FTCS's limit is r = 1/(2 sin^2(N pi dx / 2))",
+          "theta_step: the theta method"
+        ],
+        "mms_problem": [
+          "convergence: order 2 (CN) and 1 (BE) in time",
+          "convergence: order 2 in space (manufactured solution)",
+          "mms_problem: the manufactured solution solves its problem",
+          "theta_step: the theta method"
+        ],
+        "second_difference": [
+          "convergence: order 2 (CN) and 1 (BE) in time",
+          "convergence: order 2 in space (manufactured solution)",
+          "ftcs_step: one explicit step",
+          "second_difference: exact on quadratics, uses the boundary values",
+          "solve_heat: lands on T and counts its work",
+          "stability: FTCS's limit is r = 1/(2 sin^2(N pi dx / 2))",
+          "theta_step: the theta method"
+        ],
+        "solve_heat": [
+          "convergence: order 2 (CN) and 1 (BE) in time",
+          "convergence: order 2 in space (manufactured solution)",
+          "solve_heat: lands on T and counts its work",
+          "stability: FTCS's limit is r = 1/(2 sin^2(N pi dx / 2))"
+        ],
+        "theta_step": [
+          "convergence: order 2 (CN) and 1 (BE) in time",
+          "convergence: order 2 in space (manufactured solution)",
+          "solve_heat: lands on T and counts its work",
+          "theta_step: the theta method"
+        ],
+        "thomas": [
+          "convergence: order 2 (CN) and 1 (BE) in time",
+          "convergence: order 2 in space (manufactured solution)",
+          "solve_heat: lands on T and counts its work",
+          "theta_step: the theta method",
+          "thomas: tridiagonal solve"
+        ]
+      },
+      "fixtures": [
+        {
+          "body": "N = length(u)\nw = 1 / dx^2\nfor i in 1:N\n    l = i > 1 ? u[i-1] : 0.0\n    r = i < N ? u[i+1] : 0.0\n    d2[i] = (l - 2u[i] + r) * w\nend\nreturn d2\n",
+          "description": "takes the neighbours of the end points as 0: right for zero boundary values only",
+          "expect_start": "second_difference",
+          "golden": "== tutor explain: heat, stage 1 ==\n\nStart here: hole `second_difference` at src/Heat1D.jl:52\n  why: 6 of the 6 failing testsets depend on it (Ochiai 0.93); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: finite-difference-stencil.\n\nTests: 4/10 testsets pass\n  FAIL second_difference: exact on quadratics, uses the boundary values  [4 failed, 0 errored; depends on: second_difference]\n       test/runtests.jl:25 FAIL isequal(second_difference!(d2, x .^ 2, 0.0, 1.0, dx), fill(2.0, N))  evaluated: isequal([2.0, 2.0, 2.0, 2.0, 2.0, 2.0, -62.0], [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])\n       test/runtests.jl:26 FAIL isequal(second_difference!(d2, 3 .+ x, 3.0, 4.0, dx), zeros(N))  evaluated: isequal([-192.0, 0.0, 0.0, 0.0, 0.0, 0.0, -256.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])\n  FAIL ftcs_step: one explicit step  [1 failed, 0 errored; depends on: ftcs_step, second_difference]\n       test/runtests.jl:39 FAIL isequal(ftcs_step!(unew, x .^ 2, p, 0.0, dt, dx, zeros(N)), x .^ 2)  evaluated: isequal([0.015625, 0.0625, 0.140625, 0.25, 0.390625, 0.5625, 0.265625], [0.015625, 0.0625, 0.140625, 0.25, 0.390625, 0.5625, 0.765625])\n  FAIL theta_step: the theta method  [2 failed, 0 errored; depends on: ftcs_step, mms_problem, second_difference, thomas]\n       test/runtests.jl:93 FAIL isapprox(theta_step!(zeros(N), fill(0.25, N), q, 0.25, dt, dx, th, w), fill(0.25 + dt, N); rtol = 16 * EPS)  evaluated: isapprox([0.19861469, 0.24758376, 0.26047036, 0.26304768, 0.26047036, 0.24758376, 0.19861469], [0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625]; rtol = 3.5527137e-15)\n       test/runtests.jl:97 FAIL isapprox(theta_step!(zeros(N), x .^ 2, s, 0.0, 0.5, dx, 0.5, w), x .^ 2; rtol = 16 * EPS)  evaluated: isapprox([-0.054215335, -0.08154569, -0.086628901, -0.074665481, -0.051743653, -0.025219867, -0.0041785718], [0.015625, 0.0625, 0.140625, 0.25, 0.390625, 0.5625, 0.765625]; rtol = 3.5527137e-15)\n  FAIL solve_heat: lands on T and counts its work  [2 failed, 0 errored; depends on: ftcs_step, second_difference, thomas]\n       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…\n       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…\n  FAIL convergence: order 2 in space (manufactured solution)  [1 failed, 0 errored; depends on: mms_problem, second_difference, thomas]\n       test/runtests.jl:117 FAIL 1.9 <= fit_order(1 ./ (Ns .+ 1), errs) <= 2.1  evaluated: 1.9 <= -0.02385051 <= 2.1\n  FAIL convergence: order 2 (CN) and 1 (BE) in time  [2 failed, 0 errored; depends on: mms_problem, second_difference, thomas]\n       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 1.9 <= 2.3443848 <= 2.1\n       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 0.9 <= -1.8790577e-6 <= 1.1\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. second_difference  0.93  implemented  failing-deps=6 passing-deps=1  src/Heat1D.jl:52\n  2. thomas             0.73  implemented  failing-deps=4 passing-deps=1  src/Heat1D.jl:89\n  3. ftcs_step          0.61  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:71\n  4. mms_problem        0.61  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:187\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations ftcs_step!(63 points): 0  (reference 0)\n  allocations second_difference!(63 points): 0  (reference 0)\n  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)\n  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)\n  allocations thomas!(63 unknowns): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "second_difference",
+          "misconception": "boundary-is-zero",
+          "name": "second_difference-boundaries-ignored",
+          "stage": 1
+        },
+        {
+          "body": "second_difference!(d2, u, p.left(t), p.right(t), dx)\nfor i in eachindex(u)\n    unew[i] = u[i] + dt * p.kappa * d2[i]\nend\nreturn unew\n",
+          "description": "steps u_t = kappa u_xx and drops the source: invisible without one, wrong for every manufactured solution",
+          "expect_start": "ftcs_step",
+          "golden": "== tutor explain: heat, stage 1 ==\n\nStart here: hole `ftcs_step` at src/Heat1D.jl:76\n  why: 3 of the 3 failing testsets depend on it (Ochiai 0.87); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: explicit-time-stepping.\n\nTests: 7/10 testsets pass\n  FAIL ftcs_step: one explicit step  [2 failed, 0 errored; depends on: ftcs_step, second_difference]\n       test/runtests.jl:39 FAIL isequal(ftcs_step!(unew, x .^ 2, p, 0.0, dt, dx, zeros(N)), x .^ 2)  evaluated: isequal([0.03125, 0.078125, 0.15625, 0.265625, 0.40625, 0.578125, 0.78125], [0.015625, 0.0625, 0.140625, 0.25, 0.390625, 0.5625, 0.765625])\n       test/runtests.jl:42 FAIL isequal(ftcs_step!(unew, zeros(N), q, 0.5, dt, dx, zeros(N)), fill(dt / 2, N))  evaluated: isequal([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.001953125, 0.001953125, 0.001953125, 0.001953125, 0.001953125, 0.001953125, 0.001953125])\n  FAIL theta_step: the theta method  [1 failed, 0 errored; depends on: ftcs_step, mms_problem, second_difference, thomas]\n       test/runtests.jl:86 FAIL isapprox(theta_step!(zeros(N), u, p, 0.1, dt, dx, 0.0, w), ftcs_step!(zeros(N), u, p, 0.1, dt, dx, zeros(N)); rtol = 4 * EPS)  evaluated: isapprox([…\n  FAIL solve_heat: lands on T and counts its work  [1 failed, 0 errored; depends on: ftcs_step, second_difference, thomas]\n       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. ftcs_step          0.87  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:76\n  2. second_difference  0.65  implemented  failing-deps=3 passing-deps=4  src/Heat1D.jl:52\n  3. thomas             0.52  implemented  failing-deps=2 passing-deps=3  src/Heat1D.jl:94\n  4. mms_problem        0.29  implemented  failing-deps=1 passing-deps=3  src/Heat1D.jl:192\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations ftcs_step!(63 points): 0  (reference 0)\n  allocations second_difference!(63 points): 0  (reference 0)\n  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)\n  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)\n  allocations thomas!(63 unknowns): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "ftcs_step",
+          "misconception": "source-is-optional",
+          "name": "ftcs_step-source-forgotten",
+          "stage": 1
+        },
+        {
+          "body": "n = length(b)\nc[1] = c[1] / b[1]\nd[1] = d[1] / b[1]\nfor i in 2:n\n    m = b[i] - a[i] * c[i-1]\n    i < n && (c[i] = c[i] / m)\n    d[i] = d[i] / m\nend\nx[n] = d[n]\nfor i in n-1:-1:1\n    x[i] = d[i] - c[i] * x[i+1]\nend\nreturn x\n",
+          "description": "eliminates the sub-diagonal from the matrix but not from the right-hand side",
+          "expect_start": "thomas",
+          "golden": "== tutor explain: heat, stage 1 ==\n\nStart here: hole `thomas` at src/Heat1D.jl:94\n  why: 5 of the 5 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: tridiagonal-solve.\n\nTests: 5/10 testsets pass\n  FAIL thomas: tridiagonal solve  [1 failed, 0 errored; depends on: thomas]\n       test/runtests.jl:59 FAIL isapprox(x, xt; rtol = 16 * EPS)  evaluated: isapprox([0.93737344, 1.7494937, 2.3100953, 3.44395, 4.5411765], [1.0, 2.0, 3.0, 4.0, 5.0]; rtol = 3.5527137e-15)\n  FAIL theta_step: the theta method  [3 failed, 0 errored; depends on: ftcs_step, mms_problem, second_difference, thomas]\n       test/runtests.jl:93 FAIL isapprox(theta_step!(zeros(N), fill(0.25, N), q, 0.25, dt, dx, th, w), fill(0.25 + dt, N); rtol = 16 * EPS)  evaluated: isapprox([0.24760083, 0.19352831, 0.19448116, 0.19481298, 0.19581988, 0.19956103, 0.21352201], [0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625]; rtol = 3.5527137e-15)\n       test/runtests.jl:93 FAIL isapprox(theta_step!(zeros(N), fill(0.25, N), q, 0.25, dt, dx, th, w), fill(0.25 + dt, N); rtol = 16 * EPS)  evaluated: isapprox([0.23085225, 0.16130676, 0.16452637, 0.16625671, 0.16980925, 0.17896648, 0.2029192], [0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625]; rtol = 3.5527137e-15)\n  FAIL solve_heat: lands on T and counts its work  [2 failed, 0 errored; depends on: ftcs_step, second_difference, thomas]\n       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…\n       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…\n  FAIL convergence: order 2 in space (manufactured solution)  [1 failed, 0 errored; depends on: mms_problem, second_difference, thomas]\n       test/runtests.jl:117 FAIL 1.9 <= fit_order(1 ./ (Ns .+ 1), errs) <= 2.1  evaluated: 1.9 <= -0.038386867 <= 2.1\n  FAIL convergence: order 2 (CN) and 1 (BE) in time  [2 failed, 0 errored; depends on: mms_problem, second_difference, thomas]\n       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 1.9 <= -13.647167 <= 2.1\n       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 0.9 <= 0.23369418 <= 1.1\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. thomas             1.0   implemented  failing-deps=5 passing-deps=0  src/Heat1D.jl:94\n  2. second_difference  0.68  implemented  failing-deps=4 passing-deps=3  src/Heat1D.jl:52\n  3. mms_problem        0.67  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:192\n  4. ftcs_step          0.45  implemented  failing-deps=2 passing-deps=2  src/Heat1D.jl:76\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations ftcs_step!(63 points): 0  (reference 0)\n  allocations second_difference!(63 points): 0  (reference 0)\n  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)\n  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)\n  allocations thomas!(63 unknowns): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "thomas",
+          "misconception": "elimination-touches-the-matrix-only",
+          "name": "thomas-rhs-not-eliminated",
+          "stage": 1
+        },
+        {
+          "body": "k = Float64(kappa)\nexact(x, t) = exp(-t) * sinpi(x) + x^2 * cos(t)\nsource(x, t) = -exp(-t) * sinpi(x) - x^2 * sin(t) + k * (-pi^2 * exp(-t) * sinpi(x) + 2 * cos(t))\np = HeatProblem(k, x -> exact(x, 0.0), source, t -> exact(0.0, t), t -> exact(1.0, t))\nreturn p, exact\n",
+          "description": "builds the source as u_t + kappa u_xx: the manufactured solution then solves a different equation",
+          "expect_start": "mms_problem",
+          "golden": "== tutor explain: heat, stage 1 ==\n\nStart here: hole `mms_problem` at src/Heat1D.jl:192\n  why: 3 of the 3 failing testsets depend on it (Ochiai 0.87); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: manufactured-solutions.\n\nTests: 7/10 testsets pass\n  FAIL mms_problem: the manufactured solution solves its problem  [2 failed, 0 errored; depends on: mms_problem]\n       test/runtests.jl:75 FAIL isapprox(p.source(x, t), ut - 0.7uxx; atol = 1.0e-6)  evaluated: isapprox(-3.8842649, 2.5237702; atol = 1.0e-6)\n       test/runtests.jl:75 FAIL isapprox(p.source(x, t), ut - 0.7uxx; atol = 1.0e-6)  evaluated: isapprox(-1.4827329, -0.049325938; atol = 1.0e-6)\n  FAIL convergence: order 2 in space (manufactured solution)  [1 failed, 0 errored; depends on: mms_problem, second_difference, thomas]\n       test/runtests.jl:117 FAIL 1.9 <= fit_order(1 ./ (Ns .+ 1), errs) <= 2.1  evaluated: 1.9 <= 0.0012297475 <= 2.1\n  FAIL convergence: order 2 (CN) and 1 (BE) in time  [1 failed, 0 errored; depends on: mms_problem, second_difference, thomas]\n       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 0.9 <= 1.1183588 <= 1.1\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. mms_problem        0.87  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:192\n  2. thomas             0.52  implemented  failing-deps=2 passing-deps=3  src/Heat1D.jl:94\n  3. second_difference  0.44  implemented  failing-deps=2 passing-deps=5  src/Heat1D.jl:52\n  4. ftcs_step          0.0   implemented  failing-deps=0 passing-deps=4  src/Heat1D.jl:76\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations ftcs_step!(63 points): 0  (reference 0)\n  allocations second_difference!(63 points): 0  (reference 0)\n  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)\n  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)\n  allocations thomas!(63 unknowns): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "mms_problem",
+          "misconception": "source-sign",
+          "name": "mms_problem-diffusion-sign",
+          "stage": 1
+        },
+        {
+          "body": "N = length(u)\nr = p.kappa * dt / dx^2\nsecond_difference!(w.d2, u, p.left(t), p.right(t), dx)\nfor i in 1:N\n    x = i * dx\n    w.a[i] = -theta * r\n    w.b[i] = 1 + 2 * theta * r\n    w.c[i] = -theta * r\n    w.d[i] = u[i] + dt * ((1 - theta) * (p.kappa * w.d2[i] + p.source(x, t)) + theta * p.source(x, t + dt))\nend\nw.d[1] += theta * r * p.left(t)\nw.d[N] += theta * r * p.right(t)\nreturn thomas!(unew, w.a, w.b, w.c, w.d)\n",
+          "description": "moves the boundary values at the old time to the right-hand side: the implicit unknowns need the new time's",
+          "expect_start": "theta_step",
+          "golden": "== tutor explain: heat, stage 2 ==\n\nStart here: hole `theta_step` at src/Heat1D.jl:134\n  why: 4 of the 4 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: implicit-time-stepping.\n\nTests: 6/10 testsets pass\n  FAIL theta_step: the theta method  [2 failed, 0 errored; depends on: ftcs_step, mms_problem, second_difference, theta_step, thomas]\n       test/runtests.jl:93 FAIL isapprox(theta_step!(zeros(N), fill(0.25, N), q, 0.25, dt, dx, th, w), fill(0.25 + dt, N); rtol = 16 * EPS)  evaluated: isapprox([0.26143686, 0.26449742, 0.26530284, 0.26546392, 0.26530284, 0.26449742, 0.26143686], [0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625]; rtol = 3.5527137e-15)\n       test/runtests.jl:93 FAIL isapprox(theta_step!(zeros(N), fill(0.25, N), q, 0.25, dt, dx, th, w), fill(0.25 + dt, N); rtol = 16 * EPS)  evaluated: isapprox([0.25964096, 0.26329787, 0.26462766, 0.26496011, 0.26462766, 0.26329787, 0.25964096], [0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625]; rtol = 3.5527137e-15)\n  FAIL solve_heat: lands on T and counts its work  [2 failed, 0 errored; depends on: ftcs_step, second_difference, solve_heat, theta_step, thomas]\n       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…\n       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…\n  FAIL convergence: order 2 in space (manufactured solution)  [1 failed, 0 errored; depends on: fit_order, mms_problem, second_difference, solve_heat, theta_step, thomas]\n       test/runtests.jl:117 FAIL 1.9 <= fit_order(1 ./ (Ns .+ 1), errs) <= 2.1  evaluated: 1.9 <= 1.8582035 <= 2.1\n  FAIL convergence: order 2 (CN) and 1 (BE) in time  [1 failed, 0 errored; depends on: fit_order, mms_problem, second_difference, solve_heat, theta_step, thomas]\n       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 1.9 <= 1.0023153 <= 2.1\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. theta_step         1.0   implemented  failing-deps=4 passing-deps=0  src/Heat1D.jl:134\n  2. thomas             0.89  implemented  failing-deps=4 passing-deps=1  src/Heat1D.jl:94\n  3. second_difference  0.76  implemented  failing-deps=4 passing-deps=3  src/Heat1D.jl:52\n  4. mms_problem        0.75  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:192\n  5. solve_heat         0.75  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:160\n  6. fit_order          0.58  implemented  failing-deps=2 passing-deps=1  src/Heat1D.jl:207\n  7. ftcs_step          0.5   implemented  failing-deps=2 passing-deps=2  src/Heat1D.jl:76\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations ftcs_step!(63 points): 0  (reference 0)\n  allocations second_difference!(63 points): 0  (reference 0)\n  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)\n  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)\n  allocations thomas!(63 unknowns): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "theta_step",
+          "misconception": "implicit-uses-old-data",
+          "name": "theta_step-old-boundary",
+          "stage": 2
+        },
+        {
+          "body": "x = grid(N)\ndx = 1 / (N + 1)\ndt = T / nsteps\nu = p.u0.(x)\nunew = similar(u)\nw = ThetaWork(N)\ntheta = method === :be ? 1.0 : 0.5\nfor k in 0:nsteps-2\n    t = k * dt\n    method === :ftcs ? ftcs_step!(unew, u, p, t, dt, dx, w.d2) : theta_step!(unew, u, p, t, dt, dx, theta, w)\n    u, unew = unew, u\nend\nreturn x, u, N * nsteps\n",
+          "description": "runs nsteps - 1 steps, so the solution is the one at T - dt",
+          "expect_start": "solve_heat",
+          "golden": "== tutor explain: heat, stage 2 ==\n\nStart here: hole `solve_heat` at src/Heat1D.jl:160\n  why: 4 of the 4 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: explicit-time-stepping.\n\nTests: 6/10 testsets pass\n  FAIL solve_heat: lands on T and counts its work  [4 failed, 0 errored; depends on: ftcs_step, second_difference, solve_heat, theta_step, thomas]\n       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…\n       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…\n  FAIL convergence: order 2 in space (manufactured solution)  [1 failed, 0 errored; depends on: fit_order, mms_problem, second_difference, solve_heat, theta_step, thomas]\n       test/runtests.jl:117 FAIL 1.9 <= fit_order(1 ./ (Ns .+ 1), errs) <= 2.1  evaluated: 1.9 <= 1.4001223 <= 2.1\n  FAIL convergence: order 2 (CN) and 1 (BE) in time  [1 failed, 0 errored; depends on: fit_order, mms_problem, second_difference, solve_heat, theta_step, thomas]\n       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 1.9 <= 1.0057445 <= 2.1\n  FAIL stability: FTCS's limit is r = 1/(2 sin^2(N pi dx / 2))  [1 failed, 0 errored; depends on: ftcs_step, second_difference, solve_heat]\n       test/runtests.jl:149 FAIL isapprox(amp(0.99rstar), abs(g) ^ 100; rtol = 1.0e-10)  evaluated: isapprox(0.13532608, 0.13261956; rtol = 1.0e-10)\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. solve_heat         1.0   implemented  failing-deps=4 passing-deps=0  src/Heat1D.jl:160\n  2. second_difference  0.76  implemented  failing-deps=4 passing-deps=3  src/Heat1D.jl:52\n  3. theta_step         0.75  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:134\n  4. thomas             0.67  implemented  failing-deps=3 passing-deps=2  src/Heat1D.jl:94\n  5. fit_order          0.58  implemented  failing-deps=2 passing-deps=1  src/Heat1D.jl:201\n  6. ftcs_step          0.5   implemented  failing-deps=2 passing-deps=2  src/Heat1D.jl:76\n  7. mms_problem        0.5   implemented  failing-deps=2 passing-deps=2  src/Heat1D.jl:186\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations ftcs_step!(63 points): 0  (reference 0)\n  allocations second_difference!(63 points): 0  (reference 0)\n  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)\n  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)\n  allocations thomas!(63 unknowns): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "solve_heat",
+          "misconception": "off-by-one-time-loop",
+          "name": "solve_heat-one-step-short",
+          "stage": 2
+        },
+        {
+          "body": "return (log(errs[end]) - log(errs[1])) / (log(hs[end]) - log(hs[1]))\n",
+          "description": "the slope between the first and the last point: equal to the least-squares slope only when the points are on a line",
+          "expect_start": "fit_order",
+          "golden": "== tutor explain: heat, stage 2 ==\n\nStart here: hole `fit_order` at src/Heat1D.jl:207\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.58); 2 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: convergence-order-fit.\n\nTests: 9/10 testsets pass\n  FAIL fit_order: least squares on log-log  [3 failed, 0 errored; depends on: fit_order]\n       test/runtests.jl:159 FAIL isapprox(fit_order(hs, errs), ls; rtol = 1.0e-12)  evaluated: isapprox(2.0, 1.7857143; rtol = 1.0e-12)\n       test/runtests.jl:160 FAIL !(isapprox(fit_order(hs, errs), (y[3] - y[1]) / (x[3] - x[1]); rtol = 0.01))  evaluated: !(isapprox(2.0, 2.0; rtol = 0.01))\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. fit_order          0.58  implemented  failing-deps=1 passing-deps=2  src/Heat1D.jl:207\n  2. second_difference  0.0   implemented  failing-deps=0 passing-deps=7  src/Heat1D.jl:52\n  3. ftcs_step          0.0   implemented  failing-deps=0 passing-deps=4  src/Heat1D.jl:76\n  4. thomas             0.0   implemented  failing-deps=0 passing-deps=5  src/Heat1D.jl:94\n  5. mms_problem        0.0   implemented  failing-deps=0 passing-deps=4  src/Heat1D.jl:192\n  6. theta_step         0.0   implemented  failing-deps=0 passing-deps=4  src/Heat1D.jl:134\n  7. solve_heat         0.0   implemented  failing-deps=0 passing-deps=4  src/Heat1D.jl:160\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations ftcs_step!(63 points): 0  (reference 0)\n  allocations second_difference!(63 points): 0  (reference 0)\n  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)\n  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)\n  allocations thomas!(63 unknowns): 0  (reference 0)\n  JET: not used by this project's measurements\n",
+          "hole": "fit_order",
+          "misconception": "slope-from-two-points",
+          "name": "fit_order-endpoints",
+          "stage": 2
+        }
+      ],
+      "holes": [
+        {
+          "file": "src/Heat1D.jl",
+          "id": "second_difference",
+          "kc": "finite-difference-stencil",
+          "spec": "    second_difference!(d2, u, uL, uR, dx) -> d2\n\nThe second difference at every interior point: (u[i-1] - 2u[i] + u[i+1]) /\ndx^2, where the neighbours of the first and the last point are the boundary\nvalues uL and uR. Exact (up to rounding) when u is a quadratic in x.",
+          "stage": 1,
+          "summary": "second_difference!(d2, u, uL, uR, dx): the three-point stencil with the boundary values",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/Heat1D.jl",
+          "id": "ftcs_step",
+          "kc": "explicit-time-stepping",
+          "spec": "    ftcs_step!(unew, u, p::HeatProblem, t, dt, dx, d2) -> unew\n\nOne forward-Euler step from time t: unew = u + dt (kappa u_xx + s(x, t)),\nwith the second difference taken with the boundary values at t and the\nsource at the grid points x_i = i dx at time t. `d2` is work space of\nlength N. Stable only for r = kappa dt / dx^2 <= 1/2 (about).",
+          "stage": 1,
+          "summary": "ftcs_step!(unew, u, p, t, dt, dx, d2): one forward-Euler step",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/Heat1D.jl",
+          "id": "thomas",
+          "kc": "tridiagonal-solve",
+          "spec": "    thomas!(x, a, b, c, d) -> x\n\nSolve the tridiagonal system with sub-diagonal a[2:n], diagonal b[1:n] and\nsuper-diagonal c[1:n-1] (a[1] and c[n] are ignored) for the right-hand side\nd, by Gaussian elimination without pivoting (the Thomas algorithm): a\nforward sweep, then back substitution. O(n) work. `c` and `d` are\noverwritten. Stable without pivoting when the matrix is diagonally\ndominant, as the heat equation's implicit matrices are.",
+          "stage": 1,
+          "summary": "thomas!(x, a, b, c, d): Gaussian elimination on a tridiagonal system",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/Heat1D.jl",
+          "id": "mms_problem",
+          "kc": "manufactured-solutions",
+          "spec": "    mms_problem(kappa) -> (p::HeatProblem, exact)\n\nA manufactured solution: exact(x, t) = exp(-t) sin(pi x) + x^2 cos(t). The\nproblem is built so that `exact` solves it: u0 = exact(x, 0), left(t) =\nexact(0, t), right(t) = exact(1, t), and the source is what is left over,\ns = exact_t - kappa exact_xx. Every term of the scheme (both boundaries,\nthe source, the time dependence) is exercised, and the error of a solver\nagainst `exact` is the discretization error alone.",
+          "stage": 1,
+          "summary": "mms_problem(kappa): the problem a chosen exact solution solves",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/Heat1D.jl",
+          "id": "theta_step",
+          "kc": "implicit-time-stepping",
+          "spec": "    theta_step!(unew, u, p::HeatProblem, t, dt, dx, theta, w::ThetaWork) -> unew\n\nOne theta-method step from t to t + dt:\n\n    (unew - u) / dt = theta (kappa L unew + s(t + dt)) + (1 - theta) (kappa L u + s(t)),\n\nwhere L is the second difference with the boundary values at the new time\nfor unew and at the old time for u. The unknowns satisfy a tridiagonal\nsystem: diagonal 1 + 2 theta r, off-diagonals -theta r (r = kappa dt /\ndx^2), and the boundary values at t + dt move to the right-hand side.\ntheta = 1 is backward Euler (order 1 in time), theta = 1/2 Crank-Nicolson\n(order 2), theta = 0 reproduces ftcs_step!.",
+          "stage": 2,
+          "summary": "theta_step!(unew, u, p, t, dt, dx, theta, w): one theta-method step, a tridiagonal solve",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/Heat1D.jl",
+          "id": "solve_heat",
+          "kc": "explicit-time-stepping",
+          "spec": "    solve_heat(p::HeatProblem, N, nsteps, T; method = :cn) -> (x, u, cost)\n\nIntegrate from t = 0 to T in `nsteps` equal steps on N interior points.\n`method` is `:ftcs` (ftcs_step!), `:be` (theta = 1) or `:cn` (theta =\n1/2). Starts from u0 at the grid points. Returns the grid, the solution at\nT and the cost in grid-point updates, N * nsteps. The time of step k is\ncomputed as k * dt (not by adding dt k times), so the last step ends\nexactly at T.",
+          "stage": 2,
+          "summary": "solve_heat(p, N, nsteps, T; method): the time loop and its cost",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/Heat1D.jl",
+          "id": "fit_order",
+          "kc": "convergence-order-fit",
+          "spec": "    fit_order(hs, errs) -> Float64\n\nThe observed order of convergence: the least-squares slope of `log(errs)`\nagainst `log(hs)` over all the points given (at least two, all positive).\nWhich points to pass (the fit range) is the caller's decision.",
+          "stage": 2,
+          "summary": "fit_order(hs, errs): the least-squares slope of log(err) on log(h)",
+          "trivial_bodies": 2
+        }
+      ],
+      "mutants": {
+        "fit_order": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 2
+          }
+        ],
+        "ftcs_step": [
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 3
+          }
+        ],
+        "mms_problem": [
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 2
+          }
+        ],
+        "second_difference": [
+          {
+            "caught": true,
+            "failing_testsets": 6,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 6,
+            "trivial": 2
+          }
+        ],
+        "solve_heat": [
+          {
+            "caught": true,
+            "failing_testsets": 4,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 3
+          }
+        ],
+        "theta_step": [
+          {
+            "caught": true,
+            "failing_testsets": 4,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 4,
+            "trivial": 3
+          }
+        ],
+        "thomas": [
+          {
+            "caught": true,
+            "failing_testsets": 5,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 5,
+            "trivial": 2
+          }
+        ]
+      },
+      "name": "heat",
+      "package": "Heat1D",
+      "problems": [],
+      "stages": [
+        1,
+        2
+      ],
+      "testsets": [
+        "convergence: order 2 (CN) and 1 (BE) in time",
+        "convergence: order 2 in space (manufactured solution)",
+        "fit_order: least squares on log-log",
+        "ftcs_step: one explicit step",
+        "mms_problem: the manufactured solution solves its problem",
+        "second_difference: exact on quadratics, uses the boundary values",
+        "solve_heat: lands on T and counts its work",
+        "stability: FTCS's limit is r = 1/(2 sin^2(N pi dx / 2))",
+        "theta_step: the theta method",
+        "thomas: tridiagonal solve"
+      ]
+    },
+    {
+      "baseline": {
+        "allocations": {
           "dp54_step!(kepler, h = 0.01)": 0,
           "error_norm(4 components)": 0,
           "solve_adaptive(kepler, one period, tol 1e-8)": 18,
@@ -1642,6 +2315,324 @@
         "QSim/partial trace and Bloch vectors",
         "QSim/three independent gate-application paths agree (property test)",
         "QSim/unitarity preserves the norm; inverse undoes"
+      ]
+    },
+    {
+      "baseline": {
+        "allocations": {
+          "bs32_step(Robertson)": 9,
+          "jacobian(3 species)": 6,
+          "rhs(3 species)": 1,
+          "ros2_step(Robertson)": 17,
+          "solve_pivot(3x3)": 2
+        },
+        "inferred": {
+          "bs32_step": "Tuple{Vector{Float64}, Vector{Float64}, Int64}",
+          "fit_order": "Float64",
+          "jacobian": "Matrix{Float64}",
+          "rhs": "Vector{Float64}",
+          "ros2_step": "Tuple{Vector{Float64}, Vector{Float64}, Int64, Int64}",
+          "solve_pivot": "Vector{Float64}"
+        },
+        "jet": {
+          "status": "not used by this project's measurements"
+        }
+      },
+      "deps": {
+        "bs32_step": [
+          "bs32_step: order 3 with a second-order error estimate",
+          "integrate: adaptive, lands on T, counts its work"
+        ],
+        "fit_order": [
+          "fit_order: least squares on log-log"
+        ],
+        "integrate": [
+          "Robertson at t = 40: the published value, mass conserved",
+          "integrate: adaptive, lands on T, counts its work"
+        ],
+        "jacobian": [
+          "Robertson at t = 40: the published value, mass conserved",
+          "jacobian: against central differences, columns sum to zero"
+        ],
+        "rhs": [
+          "Robertson at t = 40: the published value, mass conserved",
+          "jacobian: against central differences, columns sum to zero",
+          "rhs: Robertson's equations conserve mass"
+        ],
+        "ros2_step": [
+          "Robertson at t = 40: the published value, mass conserved",
+          "ros2_step: L-stable, order 2, exact for constant f"
+        ],
+        "solve_pivot": [
+          "Robertson at t = 40: the published value, mass conserved",
+          "ros2_step: L-stable, order 2, exact for constant f",
+          "solve_pivot: Gaussian elimination with partial pivoting"
+        ]
+      },
+      "fixtures": [
+        {
+          "body": "a = p.k1 * y[1]\nb = p.k3 * y[2] * y[3]\nc = p.k2 * y[2]^2\nreturn [-a - b, a + b - c, c]\n",
+          "description": "B + C -> A + C produces A, but is written as consuming it: mass is still conserved, the kinetics are wrong",
+          "expect_start": "rhs",
+          "golden": "== tutor explain: robertson, stage 1 ==\n\nStart here: hole `rhs` at src/StiffKin.jl:55\n  why: 3 of the 3 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: reaction-kinetics.\n\nTests: 5/8 testsets pass\n  FAIL rhs: Robertson's equations conserve mass  [2 failed, 0 errored; depends on: rhs]\n       test/runtests.jl:24 FAIL isapprox(rhs([0.5, 0.0001, 0.5], ROBERTSON), [0.48, -0.78, 0.3]; rtol = 8 * EPS)  evaluated: isapprox([-0.52, 0.22, 0.3], [0.48, -0.78, 0.3]; rtol = 1.7763568e-15)\n       test/runtests.jl:31 FAIL isapprox(rhs([1.0, 1.0, 1.0], Kinetics(1.0, 2.0, 3.0)), [2.0, -4.0, 2.0]; rtol = 4 * EPS)  evaluated: isapprox([-4.0, 2.0, 2.0], [2.0, -4.0, 2.0]; rtol = 8.8817842e-16)\n  FAIL jacobian: against central differences, columns sum to zero  [2 failed, 0 errored; depends on: jacobian, rhs]\n       test/runtests.jl:45 FAIL isapprox(J[:, j], col; atol = 1.0e-6)  evaluated: isapprox([3000.0, -4800.0, 1800.0], [-3000.0, 1200.0, 1800.0]; atol = 1.0e-6)\n       test/runtests.jl:45 FAIL isapprox(J[:, j], col; atol = 1.0e-6)  evaluated: isapprox([0.3, -0.3, 0.0], [-0.3, 0.3, 0.0]; atol = 1.0e-6)\n  FAIL Robertson at t = 40: the published value, mass conserved  [3 failed, 0 errored; depends on: jacobian, rhs, solve_pivot]\n       test/runtests.jl:143 FAIL all(abs.(y .- yref) ./ yref .<= 1.0e-5)\n       test/runtests.jl:146 FAIL abs(sum(y) - 1) <= 1.0e-12  evaluated: 2.3841858e-5 <= 1.0e-12\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. rhs                1.0   implemented  failing-deps=3 passing-deps=0  src/StiffKin.jl:55\n  2. jacobian           0.82  implemented  failing-deps=2 passing-deps=0  src/StiffKin.jl:68\n  3. solve_pivot        0.33  implemented  failing-deps=1 passing-deps=2  src/StiffKin.jl:82\n  4. bs32_step          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:132\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations bs32_step(Robertson): 9  (reference 9)\n  allocations jacobian(3 species): 6  (reference 6)\n  allocations rhs(3 species): 1  (reference 1)\n  allocations ros2_step(Robertson): 17  (reference 17)\n  allocations solve_pivot(3x3): 2  (reference 2)\n  JET: not used by this project's measurements\n",
+          "hole": "rhs",
+          "misconception": "reaction-direction",
+          "name": "rhs-sign-of-the-back-reaction",
+          "stage": 1
+        },
+        {
+          "body": "return [-p.k1 p.k1 0.0\n        p.k3*y[3] -p.k3*y[3]-2*p.k2*y[2] 2*p.k2*y[2]\n        p.k3*y[2] -p.k3*y[2] 0.0]\n",
+          "description": "J[i, j] written as d rhs_j / d y_i: the transpose, whose rows (not columns) sum to zero",
+          "expect_start": "jacobian",
+          "golden": "== tutor explain: robertson, stage 1 ==\n\nStart here: hole `jacobian` at src/StiffKin.jl:68\n  why: 2 of the 2 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: jacobian.\n\nTests: 6/8 testsets pass\n  FAIL jacobian: against central differences, columns sum to zero  [6 failed, 0 errored; depends on: jacobian, rhs]\n       test/runtests.jl:45 FAIL isapprox(J[:, j], col; atol = 1.0e-6)  evaluated: isapprox([-0.04, 3000.0, 0.3], [-0.040000001, 0.040000001, 0.0]; atol = 1.0e-6)\n       test/runtests.jl:45 FAIL isapprox(J[:, j], col; atol = 1.0e-6)  evaluated: isapprox([0.04, -4800.0, -0.3], [3000.0, -4800.0, 1800.0]; atol = 1.0e-6)\n  FAIL Robertson at t = 40: the published value, mass conserved  [0 failed, 1 errored; depends on: jacobian, rhs, solve_pivot]\n       test/runtests.jl:134 ERROR ErrorException(\"integrate: more than 10000000 attempts\")\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. jacobian           1.0   implemented  failing-deps=2 passing-deps=0  src/StiffKin.jl:68\n  2. rhs                0.82  implemented  failing-deps=2 passing-deps=1  src/StiffKin.jl:55\n  3. solve_pivot        0.41  implemented  failing-deps=1 passing-deps=2  src/StiffKin.jl:82\n  4. bs32_step          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:132\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations bs32_step(Robertson): 9  (reference 9)\n  allocations jacobian(3 species): 6  (reference 6)\n  allocations rhs(3 species): 1  (reference 1)\n  allocations ros2_step(Robertson): 17  (reference 17)\n  allocations solve_pivot(3x3): 2  (reference 2)\n  JET: not used by this project's measurements\n",
+          "hole": "jacobian",
+          "misconception": "jacobian-index-order",
+          "name": "jacobian-row-for-column",
+          "stage": 1
+        },
+        {
+          "body": "n = length(b)\nM = Matrix{Float64}(A)\nx = Vector{Float64}(b)\nfor k in 1:n\n    for i in k+1:n\n        l = M[i, k] / M[k, k]\n        for j in k+1:n\n            M[i, j] -= l * M[k, j]\n        end\n        x[i] -= l * x[k]\n    end\nend\nfor i in n:-1:1\n    s = x[i]\n    for j in i+1:n\n        s -= M[i, j] * x[j]\n    end\n    x[i] = s / M[i, i]\nend\nreturn x\n",
+          "description": "plain Gaussian elimination: right whenever no leading entry is zero or tiny",
+          "expect_start": "solve_pivot",
+          "golden": "== tutor explain: robertson, stage 1 ==\n\nStart here: hole `solve_pivot` at src/StiffKin.jl:82\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.58); 2 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: gaussian-elimination.\n\nTests: 7/8 testsets pass\n  FAIL solve_pivot: Gaussian elimination with partial pivoting  [3 failed, 0 errored; depends on: solve_pivot]\n       test/runtests.jl:54 FAIL isequal(solve_pivot([0.0 1.0; 1.0 1.0], [2.0, 3.0]), [1.0, 2.0])  evaluated: isequal([NaN, NaN], [1.0, 2.0])\n       test/runtests.jl:57 FAIL isapprox(solve_pivot([1.0e-20 1.0; 1.0 1.0], [1.0, 2.0]), [1.0, 1.0]; rtol = 4 * EPS)  evaluated: isapprox([0.0, 1.0], [1.0, 1.0]; rtol = 8.8817842e-16)\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. solve_pivot        0.58  implemented  failing-deps=1 passing-deps=2  src/StiffKin.jl:82\n  2. rhs                0.0   implemented  failing-deps=0 passing-deps=3  src/StiffKin.jl:55\n  3. jacobian           0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:68\n  4. bs32_step          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:121\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations bs32_step(Robertson): 9  (reference 9)\n  allocations jacobian(3 species): 6  (reference 6)\n  allocations rhs(3 species): 1  (reference 1)\n  allocations ros2_step(Robertson): 17  (reference 17)\n  allocations solve_pivot(3x3): 2  (reference 2)\n  JET: not used by this project's measurements\n",
+          "hole": "solve_pivot",
+          "misconception": "pivoting-is-optional",
+          "name": "solve_pivot-no-pivoting",
+          "stage": 1
+        },
+        {
+          "body": "k1 = f(y)\nk2 = f(y .+ (h / 2) .* k1)\nk3 = f(y .+ (3h / 4) .* k2)\nynew = y .+ h .* ((2 / 9) .* k1 .+ (1 / 3) .* k2 .+ (4 / 9) .* k3)\nz = y .+ h .* ((7 / 24) .* k1 .+ (1 / 4) .* k2 .+ (1 / 3) .* k3)\nreturn ynew, ynew .- z, 3\n",
+          "description": "builds the second-order solution without the stage at ynew (k4): the difference is then not an estimate of order h^3",
+          "expect_start": "bs32_step",
+          "golden": "== tutor explain: robertson, stage 1 ==\n\nStart here: hole `bs32_step` at src/StiffKin.jl:132\n  why: 2 of the 2 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: runge-kutta-stages.\n\nTests: 6/8 testsets pass\n  FAIL bs32_step: order 3 with a second-order error estimate  [3 failed, 0 errored; depends on: bs32_step]\n       test/runtests.jl:77 FAIL nf == 4  evaluated: 3 == 4\n       test/runtests.jl:77 FAIL nf == 4  evaluated: 3 == 4\n  FAIL integrate: adaptive, lands on T, counts its work  [1 failed, 1 errored; depends on: bs32_step]\n       test/runtests.jl:119 FAIL s.nf == 4 * (s.steps + s.rejected) && s.nj == 0\n       test/runtests.jl:110 ERROR ErrorException(\"integrate: more than 10000000 attempts\")\n\nHoles at stage 1 (ranked by Ochiai over the measured test-to-hole map):\n  1. bs32_step          1.0   implemented  failing-deps=2 passing-deps=0  src/StiffKin.jl:132\n  2. rhs                0.0   implemented  failing-deps=0 passing-deps=3  src/StiffKin.jl:55\n  3. jacobian           0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:68\n  4. solve_pivot        0.0   implemented  failing-deps=0 passing-deps=3  src/StiffKin.jl:82\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations bs32_step(Robertson): 8  (reference 9)\n  allocations jacobian(3 species): 6  (reference 6)\n  allocations rhs(3 species): 1  (reference 1)\n  allocations ros2_step(Robertson): 17  (reference 17)\n  allocations solve_pivot(3x3): 2  (reference 2)\n  JET: not used by this project's measurements\n",
+          "hole": "bs32_step",
+          "misconception": "error-estimate-is-the-step",
+          "name": "bs32_step-estimate-without-last-stage",
+          "stage": 1
+        },
+        {
+          "body": "J = jac(y)\nn = length(y)\nW = -h .* J\nfor i in 1:n\n    W[i, i] += 1\nend\nk1 = solve_pivot(W, f(y))\nk2 = solve_pivot(W, f(y .+ h .* k1) .- 2 .* k1)\nynew = y .+ (3h / 2) .* k1 .+ (h / 2) .* k2\nreturn ynew, ynew .- (y .+ h .* k1), 2, 1\n",
+          "description": "W = I - h J: still order 1, but neither order 2 nor L-stable",
+          "expect_start": "ros2_step",
+          "golden": "== tutor explain: robertson, stage 2 ==\n\nStart here: hole `ros2_step` at src/StiffKin.jl:159\n  why: 1 of the 1 failing testsets depend on it (Ochiai 0.71); 1 of its dependent testsets pass.\n  Read its docstring: it is the specification. Knowledge component: linearly-implicit-methods.\n\nTests: 7/8 testsets pass\n  FAIL ros2_step: L-stable, order 2, exact for constant f  [1 failed, 0 errored; depends on: ros2_step, solve_pivot]\n       test/runtests.jl:99 FAIL abs(((ros2_step((y->(  evaluated: 0.49999998 <= 1.0e-6\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. ros2_step          0.71  implemented  failing-deps=1 passing-deps=1  src/StiffKin.jl:159\n  2. solve_pivot        0.58  implemented  failing-deps=1 passing-deps=2  src/StiffKin.jl:82\n  3. rhs                0.0   implemented  failing-deps=0 passing-deps=3  src/StiffKin.jl:55\n  4. jacobian           0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:68\n  5. bs32_step          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:132\n  6. integrate          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:210\n  7. fit_order          0.0   implemented  failing-deps=0 passing-deps=1  src/StiffKin.jl:254\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations bs32_step(Robertson): 9  (reference 9)\n  allocations jacobian(3 species): 6  (reference 6)\n  allocations rhs(3 species): 1  (reference 1)\n  allocations ros2_step(Robertson): 17  (reference 17)\n  allocations solve_pivot(3x3): 2  (reference 2)\n  JET: not used by this project's measurements\n",
+          "hole": "ros2_step",
+          "misconception": "w-matrix-without-gamma",
+          "name": "ros2_step-gamma-dropped",
+          "stage": 2
+        },
+        {
+          "body": "s = Stats()\ny = Vector{Float64}(y0)\nt = 0.0\nh = Float64(h0)\nwhile t < T\n    h < 4 * eps(max(abs(t), 1.0)) && break\n    r = step(y, h)\n    ynew, err = r[1], r[2]\n    s.nf += r[3]\n    length(r) >= 4 && (s.nj += r[4])\n    e = sqrt(sum(abs2, err ./ (atol .+ rtol .* max.(abs.(y), abs.(ynew)))) / length(y))\n    isfinite(e) || (e = Inf)\n    if e <= 1\n        t += h\n        y = ynew\n        s.steps += 1\n        s.ymin = min(s.ymin, minimum(y))\n    else\n        s.rejected += 1\n    end\n    h *= iszero(e) ? 5.0 : min(5.0, max(0.2, 0.9 * e^(-1 / order)))\nend\ns.t = t\nreturn y, s\n",
+          "description": "never shortens the last step, so the integration ends past T",
+          "expect_start": "integrate",
+          "golden": "== tutor explain: robertson, stage 2 ==\n\nStart here: hole `integrate` at src/StiffKin.jl:210\n  why: 2 of the 2 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: step-size-control.\n\nTests: 6/8 testsets pass\n  FAIL integrate: adaptive, lands on T, counts its work  [4 failed, 0 errored; depends on: bs32_step, integrate]\n       test/runtests.jl:117 FAIL isapprox(y, [cos(T), -(sin(T))]; atol = 1.0e-5)  evaluated: isapprox([0.99999469, -0.00015046328], [1.0, 2.4492936000000003e-16]; atol = 1.0e-5)\n       test/runtests.jl:118 FAIL isequal(s.t, T)  evaluated: isequal(6.2833356, 6.2831853)\n  FAIL Robertson at t = 40: the published value, mass conserved  [1 failed, 0 errored; depends on: integrate, jacobian, rhs, ros2_step, solve_pivot]\n       test/runtests.jl:143 FAIL all(abs.(y .- yref) ./ yref .<= 1.0e-5)\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. integrate          1.0   implemented  failing-deps=2 passing-deps=0  src/StiffKin.jl:210\n  2. jacobian           0.5   implemented  failing-deps=1 passing-deps=1  src/StiffKin.jl:68\n  3. bs32_step          0.5   implemented  failing-deps=1 passing-deps=1  src/StiffKin.jl:132\n  4. ros2_step          0.5   implemented  failing-deps=1 passing-deps=1  src/StiffKin.jl:159\n  5. rhs                0.41  implemented  failing-deps=1 passing-deps=2  src/StiffKin.jl:55\n  6. solve_pivot        0.41  implemented  failing-deps=1 passing-deps=2  src/StiffKin.jl:82\n  7. fit_order          0.0   implemented  failing-deps=0 passing-deps=1  src/StiffKin.jl:244\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations bs32_step(Robertson): 9  (reference 9)\n  allocations jacobian(3 species): 6  (reference 6)\n  allocations rhs(3 species): 1  (reference 1)\n  allocations ros2_step(Robertson): 17  (reference 17)\n  allocations solve_pivot(3x3): 2  (reference 2)\n  JET: not used by this project's measurements\n",
+          "hole": "integrate",
+          "misconception": "last-step-not-shortened",
+          "name": "integrate-overshoots-the-end",
+          "stage": 2
+        },
+        {
+          "body": "return (log(errs[end]) - log(errs[1])) / (log(hs[end]) - log(hs[1]))\n",
+          "description": "the slope between the first and the last point: equal to the least-squares slope only when the points are on a line",
+          "expect_start": "fit_order",
+          "golden": "== tutor explain: robertson, stage 2 ==\n\nStart here: hole `fit_order` at src/StiffKin.jl:254\n  why: 1 of the 1 failing testsets depend on it (Ochiai 1.0).\n  Read its docstring: it is the specification. Knowledge component: convergence-order-fit.\n\nTests: 7/8 testsets pass\n  FAIL fit_order: least squares on log-log  [1 failed, 0 errored; depends on: fit_order]\n       test/runtests.jl:156 FAIL isapprox(fit_order(hs, errs), sum((x .- xm) .* (y .- ym)) / sum(abs2, x .- xm); rtol = 1.0e-12)  evaluated: isapprox(2.0, 1.7857143; rtol = 1.0e-12)\n\nHoles at stage 2 (ranked by Ochiai over the measured test-to-hole map):\n  1. fit_order          1.0   implemented  failing-deps=1 passing-deps=0  src/StiffKin.jl:254\n  2. rhs                0.0   implemented  failing-deps=0 passing-deps=3  src/StiffKin.jl:55\n  3. jacobian           0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:68\n  4. solve_pivot        0.0   implemented  failing-deps=0 passing-deps=3  src/StiffKin.jl:82\n  5. bs32_step          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:132\n  6. ros2_step          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:159\n  7. integrate          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:210\n\nStatic findings (0):\n  none\n\nMeasurements (fresh process, 1 thread, after warm-up):\n  allocations bs32_step(Robertson): 9  (reference 9)\n  allocations jacobian(3 species): 6  (reference 6)\n  allocations rhs(3 species): 1  (reference 1)\n  allocations ros2_step(Robertson): 17  (reference 17)\n  allocations solve_pivot(3x3): 2  (reference 2)\n  JET: not used by this project's measurements\n",
+          "hole": "fit_order",
+          "misconception": "slope-from-two-points",
+          "name": "fit_order-endpoints",
+          "stage": 2
+        }
+      ],
+      "holes": [
+        {
+          "file": "src/StiffKin.jl",
+          "id": "rhs",
+          "kc": "reaction-kinetics",
+          "spec": "    rhs(y, p::Kinetics) -> Vector{Float64}\n\nThe right-hand side of Robertson's equations at the concentrations\n`y = [y1, y2, y3]`:\n\n    y1' = -k1 y1 + k3 y2 y3\n    y2' =  k1 y1 - k3 y2 y3 - k2 y2^2\n    y3' =  k2 y2^2\n\nThe three components sum to zero (up to rounding): mass is conserved.",
+          "stage": 1,
+          "summary": "rhs(y, p): Robertson's three rate equations",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/StiffKin.jl",
+          "id": "jacobian",
+          "kc": "jacobian",
+          "spec": "    jacobian(y, p::Kinetics) -> Matrix{Float64}\n\nThe 3x3 matrix J[i, j] = d rhs_i / d y_j at `y`. Each column sums to zero,\nbecause the components of rhs do.",
+          "stage": 1,
+          "summary": "jacobian(y, p): the 3x3 matrix of partial derivatives",
+          "trivial_bodies": 2
+        },
+        {
+          "file": "src/StiffKin.jl",
+          "id": "solve_pivot",
+          "kc": "gaussian-elimination",
+          "spec": "    solve_pivot(A, b) -> Vector{Float64}\n\nThe solution x of A x = b by Gaussian elimination with partial pivoting:\nat step k the row with the largest |A[i, k]|, i >= k, becomes the pivot\nrow. Neither A nor b is modified. A zero pivot (a singular matrix) is an\nArgumentError.",
+          "stage": 1,
+          "summary": "solve_pivot(A, b): Gaussian elimination with partial pivoting",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/StiffKin.jl",
+          "id": "bs32_step",
+          "kc": "runge-kutta-stages",
+          "spec": "    bs32_step(f, y, h) -> (ynew, err, nf)\n\nOne Bogacki-Shampine 3(2) step of length `h` for the autonomous system\ny' = f(y):\n\n    k1 = f(y)\n    k2 = f(y + h/2 k1)\n    k3 = f(y + 3h/4 k2)\n    ynew = y + h (2/9 k1 + 1/3 k2 + 4/9 k3)            (order 3)\n    k4 = f(ynew)\n    z = y + h (7/24 k1 + 1/4 k2 + 1/3 k3 + 1/8 k4)     (order 2)\n\n`err = ynew - z` is the error estimate (of order h^3); `nf` = 4 is the\nnumber of evaluations of f.",
+          "stage": 1,
+          "summary": "bs32_step(f, y, h): one Bogacki-Shampine 3(2) step with its error estimate",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/StiffKin.jl",
+          "id": "ros2_step",
+          "kc": "linearly-implicit-methods",
+          "spec": "    ros2_step(f, jac, y, h) -> (ynew, err, nf, nj)\n\nOne step of the Rosenbrock method ROS2 (Verwer et al. 1999) for y' = f(y),\nwith W = I - gamma h J, J = jac(y), gamma = GAMMA:\n\n    W k1 = f(y)\n    W k2 = f(y + h k1) - 2 k1\n    ynew = y + 3h/2 k1 + h/2 k2                        (order 2)\n\nThe embedded first-order solution is y + h k1, so `err = ynew - (y + h k1)`\n(of order h^2). Each linear system is solved with `solve_pivot`. `nf` = 2\nevaluations of f and `nj` = 1 Jacobian.",
+          "stage": 2,
+          "summary": "ros2_step(f, jac, y, h): one Rosenbrock ROS2 step with its error estimate",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/StiffKin.jl",
+          "id": "integrate",
+          "kc": "step-size-control",
+          "spec": "    integrate(step, y0, T; rtol, atol, h0, order, maxsteps = 10^7) -> (y, stats)\n\nIntegrate from t = 0 to exactly t = T with an adaptive step. `step(y, h)`\nreturns `(ynew, err, nf)` or `(ynew, err, nf, nj)`; `order` is the order of\n`err` in h (3 for bs32_step, 2 for ros2_step).\n\nA step is accepted when the scaled error\n\n    e = sqrt(mean((err_i / (atol + rtol max(|y_i|, |ynew_i|)))^2))\n\nis at most 1. After every attempt, accepted or not, the next step is\nh * min(5, max(0.2, 0.9 e^(-1/order))) (5 if e = 0; a NaN or infinite e,\nfrom a step that blew up, is rejected and the step divided by 5). The last step is\nshortened to land on T. Every attempt's evaluations are counted in the\nreturned `Stats`. If the step falls below 4 eps(max(|t|, 1)) the\nintegration stops there: the returned y is the last accepted one and\n`stats.t < T` says how far it got. More than `maxsteps` attempts is an\nerror.",
+          "stage": 2,
+          "summary": "integrate(step, y0, T; rtol, atol, h0, order): the adaptive step-size controller",
+          "trivial_bodies": 3
+        },
+        {
+          "file": "src/StiffKin.jl",
+          "id": "fit_order",
+          "kc": "convergence-order-fit",
+          "spec": "    fit_order(hs, errs) -> Float64\n\nThe least-squares slope of log(errs) against log(hs): the observed order\nof convergence over every point.",
+          "stage": 2,
+          "summary": "fit_order(hs, errs): least-squares slope on log-log axes",
+          "trivial_bodies": 2
+        }
+      ],
+      "mutants": {
+        "bs32_step": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 3
+          }
+        ],
+        "fit_order": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          }
+        ],
+        "integrate": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 3
+          }
+        ],
+        "jacobian": [
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          }
+        ],
+        "rhs": [
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 3,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 3
+          }
+        ],
+        "ros2_step": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 3
+          }
+        ],
+        "solve_pivot": [
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 1
+          },
+          {
+            "caught": true,
+            "failing_testsets": 1,
+            "trivial": 2
+          },
+          {
+            "caught": true,
+            "failing_testsets": 2,
+            "trivial": 3
+          }
+        ]
+      },
+      "name": "robertson",
+      "package": "StiffKin",
+      "problems": [],
+      "stages": [
+        1,
+        2
+      ],
+      "testsets": [
+        "Robertson at t = 40: the published value, mass conserved",
+        "bs32_step: order 3 with a second-order error estimate",
+        "fit_order: least squares on log-log",
+        "integrate: adaptive, lands on T, counts its work",
+        "jacobian: against central differences, columns sum to zero",
+        "rhs: Robertson's equations conserve mass",
+        "ros2_step: L-stable, order 2, exact for constant f",
+        "solve_pivot: Gaussian elimination with partial pivoting"
       ]
     }
   ],

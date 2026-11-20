@@ -1,0 +1,29 @@
+== tutor explain: robertson, stage 2 ==
+
+Start here: hole `fit_order` at src/StiffKin.jl:254
+  why: 1 of the 1 failing testsets depend on it (Ochiai 1.0).
+  Read its docstring: it is the specification. Knowledge component: convergence-order-fit.
+
+Tests: 7/8 testsets pass
+  FAIL fit_order: least squares on log-log  [1 failed, 0 errored; depends on: fit_order]
+       test/runtests.jl:156 FAIL isapprox(fit_order(hs, errs), sum((x .- xm) .* (y .- ym)) / sum(abs2, x .- xm); rtol = 1.0e-12)  evaluated: isapprox(2.0, 1.7857143; rtol = 1.0e-12)
+
+Holes at stage 2 (ranked by Ochiai over the measured test-to-hole map):
+  1. fit_order          1.0   implemented  failing-deps=1 passing-deps=0  src/StiffKin.jl:254
+  2. rhs                0.0   implemented  failing-deps=0 passing-deps=3  src/StiffKin.jl:55
+  3. jacobian           0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:68
+  4. solve_pivot        0.0   implemented  failing-deps=0 passing-deps=3  src/StiffKin.jl:82
+  5. bs32_step          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:132
+  6. ros2_step          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:159
+  7. integrate          0.0   implemented  failing-deps=0 passing-deps=2  src/StiffKin.jl:210
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations bs32_step(Robertson): 9  (reference 9)
+  allocations jacobian(3 species): 6  (reference 6)
+  allocations rhs(3 species): 1  (reference 1)
+  allocations ros2_step(Robertson): 17  (reference 17)
+  allocations solve_pivot(3x3): 2  (reference 2)
+  JET: not used by this project's measurements

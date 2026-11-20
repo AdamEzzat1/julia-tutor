@@ -1,0 +1,31 @@
+== tutor explain: dualad, stage 1 ==
+
+Start here: hole `chain` at src/DualAD.jl:106
+  why: 2 of the 2 failing testsets depend on it (Ochiai 0.71); 2 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: chain-rule.
+
+Tests: 9/11 testsets pass
+  FAIL chain: elementary functions  [4 failed, 0 errored; depends on: chain, derivative, mul]
+       test/runtests.jl:61 FAIL isapprox(derivative((t->begin  evaluated: isapprox(0.82533561, 1.6506712; rtol = 8.8817842e-16)
+       test/runtests.jl:61 FAIL isapprox(derivative((t->begin  evaluated: isapprox(-0.96679819, -1.9335964; rtol = 8.8817842e-16)
+  FAIL gradient: one evaluation per component  [2 failed, 0 errored; depends on: chain, mul, power]
+       test/runtests.jl:106 FAIL isapprox(gh[1], cos(0.3) * exp(0.2); rtol = 8 * EPS)  evaluated: isapprox(1.5277998, 1.1668506; rtol = 1.7763568e-15)
+       test/runtests.jl:107 FAIL isapprox(gh[2], sin(0.3) * exp(0.2); rtol = 8 * EPS)  evaluated: isapprox(1.5277998, 0.3609492; rtol = 1.7763568e-15)
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. chain              0.71  implemented  failing-deps=2 passing-deps=2  src/DualAD.jl:106
+  2. mul                0.58  implemented  failing-deps=2 passing-deps=4  src/DualAD.jl:82
+  3. power              0.41  implemented  failing-deps=1 passing-deps=2  src/DualAD.jl:123
+  4. derivative         0.29  implemented  failing-deps=1 passing-deps=5  src/DualAD.jl:138
+  5. div                0.0   implemented  failing-deps=0 passing-deps=2  src/DualAD.jl:93
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations a * b (Float64 duals): 0  (reference 0)
+  allocations a / b (Float64 duals): 0  (reference 0)
+  allocations central_diff(exp(x) sin(x), 0.7, 1e-5): 0  (reference 0)
+  allocations derivative(exp(x) sin(x), 0.7): 0  (reference 0)
+  allocations gradient(3 variables): 5  (reference 5)
+  JET: not used by this project's measurements

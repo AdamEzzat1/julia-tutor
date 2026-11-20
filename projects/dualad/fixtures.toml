@@ -1,0 +1,97 @@
+# Explain fixtures for dualad: realistic buggy student versions, one bug each.
+#
+# Each fixture is the reference with exactly one hole replaced by `body`, at
+# starter `stage`. `tutor fixtures dualad` runs explain on each and writes
+# fixtures/<name>.golden.txt; `--check` re-runs and diffs (verify_all.sh).
+# expect_start: the hole explain's "Start here" must name.
+
+[[fixture]]
+name = "mul-derivatives-multiplied"
+hole = "mul"
+stage = 1
+expect_start = "mul"
+misconception = "derivative-is-a-homomorphism"
+description = "multiplies the derivative parts as it multiplies the values: (uv)' = u'v' is the classic wrong product rule"
+body = """
+return Dual(a.v * b.v, a.d * b.d)
+"""
+
+[[fixture]]
+name = "div-sign-flipped"
+hole = "div"
+stage = 1
+expect_start = "div"
+misconception = "quotient-rule-sign"
+description = "adds the two terms of the quotient rule: right when either derivative part is 0, wrong otherwise"
+body = """
+return Dual(a.v / b.v, (a.d * b.v + a.v * b.d) / (b.v * b.v))
+"""
+
+[[fixture]]
+name = "chain-inner-derivative-dropped"
+hole = "chain"
+stage = 1
+expect_start = "chain"
+misconception = "chain-rule-outer-only"
+description = "returns f'(v) and drops x's derivative part: right for sin(x) with seed 1, wrong for sin(2x)"
+body = """
+return Dual(f(x.v), df(x.v))
+"""
+
+[[fixture]]
+name = "power-zero-exponent-nan"
+hole = "power"
+stage = 1
+expect_start = "power"
+misconception = "formula-covers-every-case"
+description = "the power rule with no special case for n = 0: at x = 0 it computes 0 * 0^-1 = 0 * Inf = NaN"
+body = """
+return Dual(x.v^n, n * x.v^(n - 1) * x.d)
+"""
+
+[[fixture]]
+name = "derivative-seed-zero"
+hole = "derivative"
+stage = 1
+expect_start = "derivative"
+misconception = "seed-is-a-default"
+description = "seeds the dual with derivative part 0, as for a constant: every derivative comes out 0"
+body = """
+xf = float(x)
+return partial(f(Dual(xf, zero(xf))))
+"""
+
+[[fixture]]
+name = "gradient-all-seeded"
+hole = "gradient"
+stage = 2
+expect_start = "gradient"
+misconception = "one-pass-gives-the-gradient"
+description = "seeds every component with 1 in one pass: that is the directional derivative along (1, ..., 1), the sum of the components, not the gradient"
+body = """
+xf = float.(x)
+s = partial(f([Dual(xi, one(xi)) for xi in xf]))
+return fill(s, length(xf))
+"""
+
+[[fixture]]
+name = "central_diff-forward"
+hole = "central_diff"
+stage = 2
+expect_start = "central_diff"
+misconception = "any-difference-quotient-is-order-2"
+description = "the forward difference (f(x + h) - f(x)) / h: order 1, so the fitted order is 1, not 2"
+body = """
+return (f(x + h) - f(x)) / h
+"""
+
+[[fixture]]
+name = "fit_order-endpoints"
+hole = "fit_order"
+stage = 2
+expect_start = "fit_order"
+misconception = "slope-from-two-points"
+description = "the slope between the first and the last point: equal to the least-squares slope only when the points are on a line"
+body = """
+return (log(errs[end]) - log(errs[1])) / (log(hs[end]) - log(hs[1]))
+"""

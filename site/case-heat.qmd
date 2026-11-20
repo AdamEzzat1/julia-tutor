@@ -1,0 +1,150 @@
+---
+title: "Case: The cheapest accurate heat solver: explicit, implicit or Crank-Nicolson?"
+subtitle: "A scientific case project in the scicomp course. Generated from projects/heat/case/case.toml by `tutor case site`; do not edit."
+---
+
+::: {.callout-note}
+This page is the brief. Nothing on it runs in the browser: the checks run on your machine, in the sandbox, with `tutor case check`.
+:::
+
+Write a 1D heat-equation solver with three time steppers and a tridiagonal solve, verify it with a manufactured solution, then decide which method delivers the midpoint temperature to five digits for the least work, and whether that holds for a rough initial profile.
+
+## The question
+
+A rod of unit length with diffusivity kappa = 1 is held at temperature 0 at both ends and starts with the profile sin(pi x). Its midpoint temperature is needed at t = 0.01 with a relative error below 1e-5. Which time stepper, explicit Euler (FTCS), backward Euler or Crank-Nicolson, on a uniform grid of N interior points, delivers that for the fewest grid-point updates (N times the number of steps)? By how much is it cheaper? Does the choice survive when the initial profile is a top hat (1 on the middle half, 0 outside) instead of a smooth curve?
+
+* **Quantity of interest:** The midpoint temperature u(1/2, 0.01) and its relative error; the cost in grid-point updates for each method.
+* **Required accuracy:** The budget is 1e-5 relative. The decision is a ratio of costs, so the costs matter to a factor of 2 (the grids and step counts are searched in powers of 2), and the answer is the method whose cost is lowest by more than that.
+* **Steps of the method this case stresses:** Method choice, Verification, Uncertainty and sensitivity. The report has a section for each of the eight: Question, Scales and estimate, Model and assumptions, Method choice, Verification, Validation, Uncertainty and sensitivity, Claims and limits.
+* **Estimate first:** Before you run anything, estimate how many FTCS steps the grid of 127 interior points needs just to be stable (r = kappa dt / dx^2 <= 1/2). Write the estimate in the report with an {estimate:ns_ftcs} tag. Commit it before your first `tutor case check <dir> 3` (that check runs your study and shows its values): `tutor case estimate <dir> ns_ftcs <value> "<how you got it>"`. The check then shows the committed estimate next to what you measured; it is never graded.
+
+## Data
+
+Kind: exact solutions. No dataset. The ground truth is analytic: for sin(pi x) the midpoint temperature is exp(-pi^2 kappa t); for the top hat it is a Fourier series whose terms fall below 1e-17 from the 20th on. A manufactured solution, u = exp(-t) sin(pi x) + x^2 cos(t), with the source and boundary values it implies, checks the solver's order in space and time. Nothing is random and nothing is downloaded.
+
+Difficulties built in on purpose, each tied to a knowledge component:
+
+* Space and time errors have opposite signs here, so a single run's total error can be far smaller than either part: on 31 points, one Crank-Nicolson step lands within 8e-7 of the exact value while the grid alone is off by 8e-5. Judging the total error of one run picks a setting that only meets the budget by accident. (`error-budget`)
+* FTCS's step is limited by stability, not accuracy: r = kappa dt / dx^2 must stay below 1/2, so refining the grid twice quadruples the steps. The limit comes from the fastest grid mode, not from the solution. (`stability`)
+* Crank-Nicolson is unconditionally stable but not damping: with a long step its factor for the fastest modes is close to -1, so a jump in the initial profile rings instead of smoothing. Stable is not the same as physically plausible. (`implicit-time-stepping`)
+* A rough initial profile converges more slowly on a grid: the top hat needs about eight times the points of the smooth profile for the same accuracy, which shifts the costs of all three methods. (`convergence-order-fit`)
+
+## Milestones
+
+1. **The kernels: second difference, one explicit step, the tridiagonal solve, a manufactured problem.** Fill the four stage-1 holes (`tutor start heat 1 <dir>`) until the visible tests pass, then run `tutor case check <dir> 1`. The hidden acceptance tests use other grids, boundary values and systems, so code fitted to the visible tests does not pass. Method steps: Model and assumptions, Verification.
+2. **Implicit steps and the time loop: theta method, solve_heat, the order fit.** Start stage 2 (`tutor case start heat <dir>`). It opens all seven holes and adds study.jl and report.qmd. Then run `tutor case check <dir> 2`. Method steps: Method choice, Verification.
+3. **The study and the report.** Write study.jl (its docstrings are the spec) and report.qmd, then run `tutor case check <dir> 3`. This runs the hidden acceptance tests on your study, runs `study()` twice in fresh processes, and checks every tagged number in the report against what your code computed. study() takes about 15 seconds. Method steps: Question, Scales and estimate, Model and assumptions, Method choice, Verification, Validation, Uncertainty and sensitivity, Claims and limits.
+
+## What is checked, and what is not
+
+Checked by software, deterministically, in the sandbox on your machine:
+
+* each milestone's hidden acceptance tests (failures name the behaviour, never the test code);
+* in the report, every number tagged `{claim:<id>}` must equal what your own `study()` computed, to half a unit in the last digit you wrote (deterministic study: half a unit in the last written digit, nothing more);
+* the required evidence is present (below), and a clean re-run of `study()` reproduces every claimed value bit for bit.
+
+**Not checked by any software: the quality of your scientific argument.** No program grades the reasoning. Use the rubric below to judge it yourself, with a peer, or with an instructor.
+
+Required evidence:
+
+* the cost of every method at its cheapest setting, and the ratio: `cost_ftcs`, `cost_be`, `cost_cn`, `cost_ratio` (in one paragraph)
+* the space and time errors, each against half the budget: `space_err`, `time_err_cn`, `time_err_ftcs`
+* why a single total error cannot be trusted: a total smaller than its own space error: `cancel_total_err`, `cancel_space_err` (in one paragraph)
+* the observed orders, each with its fit range: `mms_space_order`, `mms_dx_min`, `mms_dx_max`, `mms_time_order_cn`, `mms_time_order_be`, `mms_dt_min`, `mms_dt_max`
+* the measured stability limit next to von Neumann's: `cfl_measured`, `cfl_theory` (in one paragraph)
+* a physical check that stability alone does not give: `cn_peaks`, `be_peaks` (in one paragraph)
+* the conclusion re-checked under a perturbed assumption, and whether it holds: `robust_n_space`, `robust_cost_cn`, `robust_choice`, `robust_holds` (in one paragraph)
+* the range where the conclusion was tested: `valid_n_max`, `valid_target` (in one paragraph)
+
+Robustness: the initial profile is smooth, sin(pi x) is re-checked under a top hat: 1 on (1/4, 3/4), 0 outside, so the solution has steep gradients at early times; the report says whether the conclusion still holds.
+
+| claim | section | what it is |
+|---|---|---|
+| `kappa` | Question | the diffusivity |
+| `t_final` | Question | the time the midpoint temperature is needed at |
+| `target` | Question | the error budget (relative error of the midpoint temperature) |
+| `exact_mid` | Question | the exact midpoint temperature exp(-pi^2 kappa t) |
+| `n_space` | Method choice | interior grid points: the coarsest grid tried whose space error meets half the budget |
+| `space_err` | Method choice | the space error on that grid |
+| `ns_ftcs` | Method choice | FTCS's steps: the fewest meeting half the budget at or below its stability limit |
+| `cost_ftcs` | Method choice | FTCS's cost in grid-point updates |
+| `time_err_ftcs` | Method choice | FTCS's time error at that step count |
+| `ns_be` | Method choice | backward Euler's steps |
+| `cost_be` | Method choice | backward Euler's cost |
+| `ns_cn` | Method choice | Crank-Nicolson's steps |
+| `cost_cn` | Method choice | Crank-Nicolson's cost |
+| `time_err_cn` | Method choice | Crank-Nicolson's time error at that step count |
+| `choice` | Method choice | the cheapest method meeting the budget (one of: ftcs, be, cn) |
+| `cost_ratio` | Method choice | FTCS's cost over the cheapest method's |
+| `cancel_n` | Method choice | the coarse grid used to show cancellation |
+| `cancel_ns` | Method choice | the Crank-Nicolson step count with the smallest total error on it |
+| `cancel_total_err` | Method choice | that run's total error |
+| `cancel_space_err` | Method choice | the space error the same grid has on its own |
+| `mms_space_order` | Verification | fitted order in space on the manufactured solution |
+| `mms_dx_min` | Verification | smallest dx in the space fit |
+| `mms_dx_max` | Verification | largest dx in the space fit |
+| `mms_time_order_cn` | Verification | fitted order in time of Crank-Nicolson |
+| `mms_time_order_be` | Verification | fitted order in time of backward Euler |
+| `mms_dt_min` | Verification | smallest dt in the time fits |
+| `mms_dt_max` | Verification | largest dt in the time fits |
+| `quad_err` | Verification | largest error on a steady quadratic (exact for the scheme up to rounding) |
+| `cfl_measured` | Verification | FTCS's stability limit in r, measured by bisection on 31 points |
+| `cfl_theory` | Verification | von Neumann's limit 1 / (2 sin^2(N pi dx / 2)) on the same grid |
+| `cn_peaks` | Validation | local maxima of the top hat after one Crank-Nicolson step to t = 0.01 |
+| `be_peaks` | Validation | local maxima after one backward Euler step |
+| `cn_peak_excess` | Validation | how far Crank-Nicolson's highest value is above its midpoint value |
+| `robust_n_space` | Uncertainty and sensitivity | the grid the top hat needs |
+| `robust_ns_cn` | Uncertainty and sensitivity | Crank-Nicolson's steps for the top hat |
+| `robust_cost_cn` | Uncertainty and sensitivity | Crank-Nicolson's cost for the top hat |
+| `robust_cost_ftcs` | Uncertainty and sensitivity | FTCS's cost for the top hat |
+| `robust_cost_be` | Uncertainty and sensitivity | backward Euler's cost for the top hat |
+| `robust_choice` | Uncertainty and sensitivity | the cheapest method for the top hat (one of: ftcs, be, cn) |
+| `robust_cost_ratio` | Uncertainty and sensitivity | FTCS's cost over the cheapest method's, for the top hat |
+| `robust_holds` | Uncertainty and sensitivity | whether the conclusion holds under the perturbed assumption (one of: holds, fails) |
+| `valid_n_max` | Claims and limits | the finest grid the conclusion was tested on |
+| `valid_target` | Claims and limits | the error budget the conclusion was tested at |
+
+## Discussion questions
+
+1. Before measuring: if you halve dx, by what factor must FTCS's number of steps grow to stay stable? And Crank-Nicolson's to keep the same time error? *(prediction (measured; it will be graded as a prediction once predictions exist))*
+2. Crank-Nicolson is unconditionally stable. Predict what one step of length 0.01 does to the top hat's jumps. *(prediction (measured; it will be graded as a prediction once predictions exist))*
+3. Your Crank-Nicolson run is stable and second order. Why can it still be wrong for a rough profile with long steps, and what would you change? *(for discussion, judged with the rubric)*
+4. The total error of one coarse run met the budget. Why did you not take that run, and what does splitting the budget cost you? *(for discussion, judged with the rubric)*
+5. The cost here counts grid-point updates. An implicit step also solves a tridiagonal system. Would counting floating-point operations or wall time change the choice? Measure before answering. *(for discussion, judged with the rubric)*
+6. In two or three dimensions the tridiagonal solve becomes a sparse solve. Which part of your conclusion would you re-check first? *(for discussion, judged with the rubric)*
+
+## Rubric
+
+For self-assessment, peer review or an instructor. It rewards supported claims; length, code volume and the number of plots earn nothing.
+
+| step | criterion | 0 | 1 | 2 |
+|---|---|---|---|---|
+| Question | States the question, the QoI, the cost measure and the accuracy that would answer it, before any result. | missing or vague | stated, but the cost measure or accuracy is not tied to the decision | stated, and the accuracy is justified by the decision it has to support |
+| Scales and estimate | Estimates FTCS's step count from the stability limit before computing, and compares it with the measurement afterwards. | no estimate | an estimate without a method | an estimate from r <= 1/2, compared with the result and the gap explained (the accuracy doublings) |
+| Model and assumptions | States what is assumed: constant kappa, fixed boundary values, a uniform grid, the cost measure, and an exact solution whose own error is negligible. | none listed | listed | listed, with which ones could change the conclusion (for instance a non-uniform grid or variable kappa) |
+| Method choice | Chooses by measured costs at settings that each meet a split budget, and shows why a single total error is not enough. | asserted | measured on one run's total error | measured with the budget split, cancellation shown |
+| Verification | Shows the solver is right: observed orders on a manufactured solution with their ranges, an exact steady state, the measured stability limit against theory; keeps this separate from validation. | none, or mixed with validation | some checks, ranges not stated | all of them, each with its range and the theoretical value |
+| Validation | Checks physical plausibility (one peak, no new maxima) beyond stability, and says what the failure of Crank-Nicolson's long step means for the choice. | absent | numbers without interpretation | the non-damping is identified and its consequence for the method choice stated |
+| Uncertainty and sensitivity | States the margins under the budget and whether the conclusion survives the rough profile, and explains why the grid has to be finer there. | absent | stated without the robustness re-check | stated, re-checked, and the finer grid explained |
+| Claims and limits | Every claim has its evidence; limitations and the validity range are stated; nothing is claimed for other equations, dimensions or cost measures. Length, code volume and the number of plots earn nothing. | claims without evidence | evidence for most claims | every claim supported, limits and range stated, no extrapolation |
+
+## Pilot
+
+Status: **not run**. Nothing here is evidence that the case teaches well until it has run. It needs:
+
+* one learner who has finished the scientific-computing course's units on ODEs and linear systems and has not seen this case
+* the learner works from `tutor case start` and the brief only; the observer records time per milestone, where they got stuck, every `tutor case check` output and every claim-checker finding
+* an instructor scores the finished report with the rubric, blind to the time data
+* a transfer task afterwards on an unseen problem (an advection-diffusion equation with a given budget): does the learner split the error budget, verify the orders and check plausibility before choosing?
+* decision rule: if the learner cannot finish milestone 3 in two sessions, or the rubric score on the transfer task is at the lowest level for method or verification, the scaffolding is revised
+
+## Commands
+
+```
+tutor start heat 1 work/m1        # milestone 1: the stage-1 holes
+tutor explain heat work/m1        # tests, findings, where to start
+tutor case check work/m1 1               # milestone 1's hidden acceptance tests
+tutor case start heat work/case      # milestones 2 and 3: all holes, study.jl, report.qmd
+tutor case check work/case 2
+tutor case check work/case 3             # acceptance, two clean runs of study(), the claim checker
+```

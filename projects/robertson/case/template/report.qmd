@@ -1,0 +1,72 @@
+---
+title: "Stiff kinetics: explicit or implicit?"
+author: "Your name"
+format: html
+---
+
+<!--
+How this report is checked (`tutor case check <dir> 3`):
+
+* One `## ` section per step of the method, with exactly these headings
+  (a longer heading that starts with one is fine).
+* Every number you quote from your study is tagged right after it:
+  `3465{claim:ro_cost}`, `ros2{claim:choice}`. The checker compares it
+  with what your study() returned: half a unit in the last digit you wrote
+  is allowed, nothing more; integers written without a point must be exact.
+  Write numbers, not inline code: the checker does not run Quarto.
+* Some claims must sit together in one paragraph (the two costs and the
+  ratio, the explicit steps at two tolerances, the step against the
+  stability boundary, the naive run, the robustness re-check, the validity
+  range). `tutor case show robertson` lists every claim, its section and
+  the required evidence.
+* Your estimate goes in the Scales section with an {estimate:bs_steps}
+  tag. It is never graded; the check prints it next to what you measured.
+
+No software grades the reasoning. The rubric (`tutor case show robertson
+--rubric`) is for you, a peer or an instructor.
+-->
+
+## Question
+
+State the question, the quantity of interest, the cost measure and the
+accuracy that would answer it. Quote the operating point: time
+...{claim:t_final}, budget ...{claim:target}, and the reference
+concentrations ...{claim:y1_ref}, ...{claim:y2_ref}, ...{claim:y3_ref}.
+
+## Scales and estimate
+
+The scales of the three concentrations, the time scales of the reactions,
+the Jacobian's stiff eigenvalue ...{claim:lambda_40}, and your estimate of
+BS3(2)'s steps from stability, written before any run:
+...{estimate:bs_steps}.
+
+## Model and assumptions
+
+The kinetics, the reference and how you bounded its error, the cost
+measure and what it leaves out, the tolerance ladder and atol.
+
+## Method choice
+
+For each method its tolerance, error, steps and cost; the two costs and the
+ratio in one paragraph; your choice. Why the explicit method costs what it
+does: its steps at two very different tolerances, in one paragraph.
+
+## Verification
+
+Are the integrators right? Observed orders with their range; the explicit
+step next to the stability boundary, in one paragraph; mass conservation.
+
+## Validation
+
+Are the results physically possible? What happens with atol = rtol = 1e-4,
+in one paragraph, and why the controller did not notice.
+
+## Uncertainty and sensitivity
+
+The margins under the budget; the slower reactions, their stiffness, the
+costs and whether the conclusion holds, in one paragraph.
+
+## Claims and limits
+
+Your claims, the evidence for each, the limitations, and the range where
+the conclusion was tested, in one paragraph. Nothing beyond it.

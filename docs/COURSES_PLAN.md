@@ -333,6 +333,17 @@ The Lead re-decides after the slice's pilot.
 | capstone | 2D Poisson at scale: direct vs iterative | scicomp | least scaffolding |
 | capstone | PINN vs finite volume on Burgers | sciml | least scaffolding. Its finite-volume reference is the scicomp program's reference solution (§6), verified once |
 
+**Status (2026-11-18).** Built and verified by `tutor case verify --sandbox=none`
+(Docker was down, so not yet in the container): #2 Robertson (`projects/robertson`),
+#3 heat (`projects/heat`) and #6 dual-number AD (`projects/dualad`), the
+three base-env cases. None has been piloted. One departure from this table:
+Robertson does not reuse odeint. It needs an implicit method, so it has its
+own explicit Bogacki-Shampine 3(2) step, a Rosenbrock ROS2 step and a shared
+controller, and it compares them by measured work (right-hand sides plus 3
+per Jacobian) rather than by step counts alone. The rest (#4, #5, #7, #8 and
+the capstones) need the sciml, science or epidemic environments, or a pilot
+of an earlier case, and are not started.
+
 **Cut, with reasons:**
 
 * *symdiff stage 3 (AC matching or an e-graph).* Symbolic, not scientific
@@ -380,6 +391,9 @@ The Lead re-decides after the slice's pilot.
   bump against accidental spoilers and not security. Cohort mode keeps the
   solutions out of the learner's copy.
 * **CI mode:** decided in Phase 7, either a private submodule or a CI secret.
+* **Decision (Adam, 2026-11-18):** private-solutions mode is the encrypted
+  bundle; build the base-env cases first (dual-number AD, heat in a rod,
+  Robertson). The format and the `interval` program are in docs/PROGRAMS.md.
 
 ## 6a. Concept diagrams (Phase 5 addition)
 

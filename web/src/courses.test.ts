@@ -27,6 +27,13 @@ describe("course site data", () => {
     const ids = new Set(course.units.map((u) => u.id));
     for (const u of course.units) for (const p of u.prerequisites) expect(ids.has(p)).toBe(true);
   });
+  it("puts beside the homepage path only courses that require Core Julia alone", () => {
+    // Hero.tsx shows every course outside core -> science -> {scicomp, sciml} under "Also from Core Julia".
+    const onPath = new Set(["core", "science", "scicomp", "sciml"]);
+    const beside = course.courses.filter((c) => !onPath.has(c.id));
+    expect(beside.map((c) => c.id)).toEqual(["quantum"]);
+    for (const c of beside) expect(c.requires).toEqual(["core"]);
+  });
   it("marks Scientific ML as in progress", () => {
     expect(course.courses.find((c) => c.id === "sciml")?.status).toBe("in-progress");
   });

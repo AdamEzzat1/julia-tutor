@@ -1,0 +1,37 @@
+== tutor explain: heat, stage 1 ==
+
+Start here: hole `thomas` at src/Heat1D.jl:94
+  why: 5 of the 5 failing testsets depend on it (Ochiai 1.0).
+  Read its docstring: it is the specification. Knowledge component: tridiagonal-solve.
+
+Tests: 5/10 testsets pass
+  FAIL thomas: tridiagonal solve  [1 failed, 0 errored; depends on: thomas]
+       test/runtests.jl:59 FAIL isapprox(x, xt; rtol = 16 * EPS)  evaluated: isapprox([0.93737344, 1.7494937, 2.3100953, 3.44395, 4.5411765], [1.0, 2.0, 3.0, 4.0, 5.0]; rtol = 3.5527137e-15)
+  FAIL theta_step: the theta method  [3 failed, 0 errored; depends on: ftcs_step, mms_problem, second_difference, thomas]
+       test/runtests.jl:93 FAIL isapprox(theta_step!(zeros(N), fill(0.25, N), q, 0.25, dt, dx, th, w), fill(0.25 + dt, N); rtol = 16 * EPS)  evaluated: isapprox([0.24760083, 0.19352831, 0.19448116, 0.19481298, 0.19581988, 0.19956103, 0.21352201], [0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625]; rtol = 3.5527137e-15)
+       test/runtests.jl:93 FAIL isapprox(theta_step!(zeros(N), fill(0.25, N), q, 0.25, dt, dx, th, w), fill(0.25 + dt, N); rtol = 16 * EPS)  evaluated: isapprox([0.23085225, 0.16130676, 0.16452637, 0.16625671, 0.16980925, 0.17896648, 0.2029192], [0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625]; rtol = 3.5527137e-15)
+  FAIL solve_heat: lands on T and counts its work  [2 failed, 0 errored; depends on: ftcs_step, second_difference, thomas]
+       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…
+       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…
+  FAIL convergence: order 2 in space (manufactured solution)  [1 failed, 0 errored; depends on: mms_problem, second_difference, thomas]
+       test/runtests.jl:117 FAIL 1.9 <= fit_order(1 ./ (Ns .+ 1), errs) <= 2.1  evaluated: 1.9 <= -0.038386867 <= 2.1
+  FAIL convergence: order 2 (CN) and 1 (BE) in time  [2 failed, 0 errored; depends on: mms_problem, second_difference, thomas]
+       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 1.9 <= -13.647167 <= 2.1
+       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 0.9 <= 0.23369418 <= 1.1
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. thomas             1.0   implemented  failing-deps=5 passing-deps=0  src/Heat1D.jl:94
+  2. second_difference  0.68  implemented  failing-deps=4 passing-deps=3  src/Heat1D.jl:52
+  3. mms_problem        0.67  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:192
+  4. ftcs_step          0.45  implemented  failing-deps=2 passing-deps=2  src/Heat1D.jl:76
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations ftcs_step!(63 points): 0  (reference 0)
+  allocations second_difference!(63 points): 0  (reference 0)
+  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)
+  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)
+  allocations thomas!(63 unknowns): 0  (reference 0)
+  JET: not used by this project's measurements

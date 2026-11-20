@@ -5,9 +5,9 @@
         "base"
       ],
       "estimate": {
-        "basis": "30–60 min per ready unit (20), 10–25 min per practice problem (57), 2–4 h per guided project (0), 4–8 h per hole project (1); guessed rates, not measured",
-        "high_hours": 52,
-        "low_hours": 23
+        "basis": "30–60 min per ready unit (20), 10–25 min per practice problem (57), 2–4 h per guided project (0), 4–8 h per hole project (2); guessed rates, not measured",
+        "high_hours": 60,
+        "low_hours": 27
       },
       "guided": [],
       "id": "core",
@@ -29,21 +29,19 @@
             "09-dispatch",
             "15-generic-programming",
             "17-interfaces",
-            "project:symdiff"
+            "project:symdiff",
+            "project:dualad"
           ],
-          "planned": [
-            "dual-number forward AD case"
-          ],
+          "planned": [],
           "text": "Design with multiple dispatch and parametric types instead of if-chains."
         },
         {
           "assessed_by": [
             "11-iteration",
-            "17-interfaces"
+            "17-interfaces",
+            "program:interval"
           ],
-          "planned": [
-            "interval arithmetic program"
-          ],
+          "planned": [],
           "text": "Implement a Base interface (iteration, indexing, show, promotion) so a custom type works with generic code."
         },
         {
@@ -70,8 +68,12 @@
         }
       ],
       "problems": 57,
+      "programs": [
+        "interval"
+      ],
       "projects": [
-        "symdiff"
+        "symdiff",
+        "dualad"
       ],
       "requires": [],
       "setup": {
@@ -189,6 +191,7 @@
         }
       ],
       "problems": 34,
+      "programs": [],
       "projects": [],
       "requires": [
         "core"
@@ -220,9 +223,9 @@
         "scicomp"
       ],
       "estimate": {
-        "basis": "30–60 min per ready unit (13), 10–25 min per practice problem (46), 2–4 h per guided project (0), 4–8 h per hole project (1); guessed rates, not measured",
-        "high_hours": 41,
-        "low_hours": 18
+        "basis": "30–60 min per ready unit (13), 10–25 min per practice problem (46), 2–4 h per guided project (0), 4–8 h per hole project (3); guessed rates, not measured",
+        "high_hours": 57,
+        "low_hours": 26
       },
       "guided": [],
       "id": "scicomp",
@@ -240,11 +243,10 @@
           "assessed_by": [
             "31-convergence",
             "34-pde-discretization",
-            "project:odeint"
+            "project:odeint",
+            "project:heat"
           ],
-          "planned": [
-            "heat-equation case"
-          ],
+          "planned": [],
           "text": "Measure the convergence order of a method and use it to verify code."
         },
         {
@@ -252,10 +254,11 @@
             "33-sparse-iterative",
             "35-stiffness",
             "36-daes",
-            "project:odeint"
+            "project:odeint",
+            "project:heat",
+            "project:robertson"
           ],
           "planned": [
-            "Robertson case",
             "Poisson capstone"
           ],
           "text": "Choose a linear solver, ODE method or preconditioner and justify the choice with measurements."
@@ -272,10 +275,11 @@
         {
           "assessed_by": [
             "41-case-pharmacokinetics",
-            "project:odeint"
+            "project:odeint",
+            "project:heat",
+            "project:robertson"
           ],
           "planned": [
-            "heat-equation case",
             "identifiability case"
           ],
           "text": "Separate verification (is the code right?) from validation (is the model right?), and do both."
@@ -284,7 +288,9 @@
           "assessed_by": [
             "37-stochastic-delay-uq",
             "41-case-pharmacokinetics",
-            "project:odeint"
+            "project:odeint",
+            "project:heat",
+            "project:robertson"
           ],
           "planned": [
             "identifiability case"
@@ -301,8 +307,11 @@
         }
       ],
       "problems": 46,
+      "programs": [],
       "projects": [
-        "odeint"
+        "odeint",
+        "heat",
+        "robertson"
       ],
       "requires": [
         "core",
@@ -401,6 +410,7 @@
         }
       ],
       "problems": 19,
+      "programs": [],
       "projects": [],
       "requires": [
         "core",
@@ -499,6 +509,7 @@
         }
       ],
       "problems": 39,
+      "programs": [],
       "projects": [
         "qsim"
       ],

@@ -388,6 +388,8 @@ body.quarto-dark {
 .jt-paths-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1.2fr); gap: 0.6rem; align-items: center; }
 .jt-paths-dest { display: grid; gap: 0.6rem; }
 .jt-paths-arrow { font-size: 1.4rem; color: var(--jt-muted); text-align: center; }
+.jt-paths-beside { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 0.6rem; margin-top: 0.9rem; }
+.jt-paths-beside > .jt-eyebrow { grid-column: 1 / -1; }
 @media (max-width: 900px) {
   .jt-paths-row { grid-template-columns: minmax(0, 1fr); }
   .jt-paths-arrow { transform: rotate(90deg); }

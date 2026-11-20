@@ -13,8 +13,10 @@ julia_pinned --project=. --check-bounds=yes test/runtests.jl
 for p in projects/*/; do
   name=$(basename "$p")
   # projects/guided/ holds the guided build projects (their own format and
-  # self-test, run below), not a scaffolded project with reference/ and holes.
+  # self-test, run below), not a scaffolded project with reference/ and holes;
+  # projects/programs/ likewise holds the sealed programs (program verify, below).
   [ "$name" = guided ] && continue
+  [ "$name" = programs ] && continue
   step "$name: reference tests"
   (cd "$p/reference" && julia_pinned --project=. --check-bounds=yes test/runtests.jl)
   step "$name: checker on reference"
@@ -34,6 +36,8 @@ step "course: example outputs, problem samples, grader self-tests (variants)"
 ./tutor course verify --sandbox=docker
 step "guided projects: reference, mutants, exemplary tests, fixtures (docs/GUIDED.md)"
 ./tutor guided verify --sandbox=docker
+step "programs: the seal is current, then the guided self-test on the unsealed bundle (docs/PROGRAMS.md)"
+./tutor program verify --sandbox=docker
 step "case projects: brief, reference study and report, mutants, report fixtures (docs/CASES.md)"
 ./tutor case verify --sandbox=docker
 step "case site pages are generated from case.toml"

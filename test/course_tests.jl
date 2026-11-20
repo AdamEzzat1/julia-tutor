@@ -55,7 +55,7 @@ end
     C(c; units = c.units, requires = c.requires, envs = c.envs, guided = c.guided, outcomes = c.outcomes,
       status = c.status, download = c.download, measured = c.download_measured, note = c.status_note) =
         Course.CourseInfo(c.id, c.title, c.order, status, c.summary, requires, envs, units, c.projects, guided, outcomes,
-                          download, measured, note)
+                          download, measured, note, c.programs)
     swap(i, c) = [j == i ? c : courses[j] for j in eachindex(courses)]
     U(u; pre = u.prerequisites) = Course.Unit(u.id, u.title, u.track, u.env, u.status, u.summary, u.kcs, pre,
                                                u.outline, u.lessons, u.sections, u.problems)

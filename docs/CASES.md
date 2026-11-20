@@ -164,6 +164,22 @@ margin stated, not a failure rate over seeds. Examples:
 * `step-order-nonautonomous` (m1): measured local slopes 4.92 to 4.98; the
   window is 5 +- 0.2, which excludes order 4.
 
+## The built cases
+
+| Case | Course | Question | Its trap | Robustness verdict |
+|---|---|---|---|---|
+| `odeint` | scicomp | Dormand-Prince 5(4) or Stormer-Verlet for long Kepler orbits? | a bounded energy error does not make the orbit accurate (the phase still drifts) | holds (dp54) at eccentricity 0.6 |
+| `dualad` | core | Can central differences give f' to 1e-12, or are dual numbers needed? | the best step at one point is luck; the step rule fails far from 0 | holds (dual) |
+| `heat` | scicomp | FTCS, backward Euler or Crank-Nicolson: the cheapest midpoint temperature to 1e-5? | space and time errors cancel at one setting; CN rings on a jump | holds (cn) |
+| `robertson` | scicomp | BS3(2) or ROS2 for Robertson's kinetics to t = 40 at 1e-4? | atol above B's scale hides an explicit blow-up | fails: slower reactions make the explicit method cheaper |
+
+Each has the same layout (`projects/<p>/case/`) and is checked by the same
+`tutor case verify`: the reference passes every milestone, every hole's
+trivial bodies and every study mutant fail one, and the report fixtures
+give exactly their expected findings. A robustness verdict of "fails" is a
+result, not a defect: the Robertson report has to say that its conclusion
+depends on stiffness.
+
 ## Scope cuts (said plainly)
 
 * The report is not rendered. Quarto is not in the images, and the checker

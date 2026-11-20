@@ -1,0 +1,31 @@
+== tutor explain: heat, stage 1 ==
+
+Start here: hole `mms_problem` at src/Heat1D.jl:192
+  why: 3 of the 3 failing testsets depend on it (Ochiai 0.87); 1 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: manufactured-solutions.
+
+Tests: 7/10 testsets pass
+  FAIL mms_problem: the manufactured solution solves its problem  [2 failed, 0 errored; depends on: mms_problem]
+       test/runtests.jl:75 FAIL isapprox(p.source(x, t), ut - 0.7uxx; atol = 1.0e-6)  evaluated: isapprox(-3.8842649, 2.5237702; atol = 1.0e-6)
+       test/runtests.jl:75 FAIL isapprox(p.source(x, t), ut - 0.7uxx; atol = 1.0e-6)  evaluated: isapprox(-1.4827329, -0.049325938; atol = 1.0e-6)
+  FAIL convergence: order 2 in space (manufactured solution)  [1 failed, 0 errored; depends on: mms_problem, second_difference, thomas]
+       test/runtests.jl:117 FAIL 1.9 <= fit_order(1 ./ (Ns .+ 1), errs) <= 2.1  evaluated: 1.9 <= 0.0012297475 <= 2.1
+  FAIL convergence: order 2 (CN) and 1 (BE) in time  [1 failed, 0 errored; depends on: mms_problem, second_difference, thomas]
+       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 0.9 <= 1.1183588 <= 1.1
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. mms_problem        0.87  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:192
+  2. thomas             0.52  implemented  failing-deps=2 passing-deps=3  src/Heat1D.jl:94
+  3. second_difference  0.44  implemented  failing-deps=2 passing-deps=5  src/Heat1D.jl:52
+  4. ftcs_step          0.0   implemented  failing-deps=0 passing-deps=4  src/Heat1D.jl:76
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations ftcs_step!(63 points): 0  (reference 0)
+  allocations second_difference!(63 points): 0  (reference 0)
+  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)
+  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)
+  allocations thomas!(63 unknowns): 0  (reference 0)
+  JET: not used by this project's measurements

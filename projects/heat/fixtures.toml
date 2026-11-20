@@ -1,0 +1,134 @@
+# Explain fixtures for heat: realistic buggy student versions, one bug each.
+#
+# Each fixture is the reference with exactly one hole replaced by `body`, at
+# starter `stage`. `tutor fixtures heat` runs explain on each and writes
+# fixtures/<name>.golden.txt; `--check` re-runs and diffs (verify_all.sh).
+# expect_start: the hole explain's "Start here" must name.
+
+[[fixture]]
+name = "second_difference-boundaries-ignored"
+hole = "second_difference"
+stage = 1
+expect_start = "second_difference"
+misconception = "boundary-is-zero"
+description = "takes the neighbours of the end points as 0: right for zero boundary values only"
+body = """
+N = length(u)
+w = 1 / dx^2
+for i in 1:N
+    l = i > 1 ? u[i-1] : 0.0
+    r = i < N ? u[i+1] : 0.0
+    d2[i] = (l - 2u[i] + r) * w
+end
+return d2
+"""
+
+[[fixture]]
+name = "ftcs_step-source-forgotten"
+hole = "ftcs_step"
+stage = 1
+expect_start = "ftcs_step"
+misconception = "source-is-optional"
+description = "steps u_t = kappa u_xx and drops the source: invisible without one, wrong for every manufactured solution"
+body = """
+second_difference!(d2, u, p.left(t), p.right(t), dx)
+for i in eachindex(u)
+    unew[i] = u[i] + dt * p.kappa * d2[i]
+end
+return unew
+"""
+
+[[fixture]]
+name = "thomas-rhs-not-eliminated"
+hole = "thomas"
+stage = 1
+expect_start = "thomas"
+misconception = "elimination-touches-the-matrix-only"
+description = "eliminates the sub-diagonal from the matrix but not from the right-hand side"
+body = """
+n = length(b)
+c[1] = c[1] / b[1]
+d[1] = d[1] / b[1]
+for i in 2:n
+    m = b[i] - a[i] * c[i-1]
+    i < n && (c[i] = c[i] / m)
+    d[i] = d[i] / m
+end
+x[n] = d[n]
+for i in n-1:-1:1
+    x[i] = d[i] - c[i] * x[i+1]
+end
+return x
+"""
+
+[[fixture]]
+name = "mms_problem-diffusion-sign"
+hole = "mms_problem"
+stage = 1
+expect_start = "mms_problem"
+misconception = "source-sign"
+description = "builds the source as u_t + kappa u_xx: the manufactured solution then solves a different equation"
+body = """
+k = Float64(kappa)
+exact(x, t) = exp(-t) * sinpi(x) + x^2 * cos(t)
+source(x, t) = -exp(-t) * sinpi(x) - x^2 * sin(t) + k * (-pi^2 * exp(-t) * sinpi(x) + 2 * cos(t))
+p = HeatProblem(k, x -> exact(x, 0.0), source, t -> exact(0.0, t), t -> exact(1.0, t))
+return p, exact
+"""
+
+[[fixture]]
+name = "theta_step-old-boundary"
+hole = "theta_step"
+stage = 2
+expect_start = "theta_step"
+misconception = "implicit-uses-old-data"
+description = "moves the boundary values at the old time to the right-hand side: the implicit unknowns need the new time's"
+body = """
+N = length(u)
+r = p.kappa * dt / dx^2
+second_difference!(w.d2, u, p.left(t), p.right(t), dx)
+for i in 1:N
+    x = i * dx
+    w.a[i] = -theta * r
+    w.b[i] = 1 + 2 * theta * r
+    w.c[i] = -theta * r
+    w.d[i] = u[i] + dt * ((1 - theta) * (p.kappa * w.d2[i] + p.source(x, t)) + theta * p.source(x, t + dt))
+end
+w.d[1] += theta * r * p.left(t)
+w.d[N] += theta * r * p.right(t)
+return thomas!(unew, w.a, w.b, w.c, w.d)
+"""
+
+[[fixture]]
+name = "solve_heat-one-step-short"
+hole = "solve_heat"
+stage = 2
+expect_start = "solve_heat"
+misconception = "off-by-one-time-loop"
+description = "runs nsteps - 1 steps, so the solution is the one at T - dt"
+body = """
+x = grid(N)
+dx = 1 / (N + 1)
+dt = T / nsteps
+u = p.u0.(x)
+unew = similar(u)
+w = ThetaWork(N)
+theta = method === :be ? 1.0 : 0.5
+for k in 0:nsteps-2
+    t = k * dt
+    method === :ftcs ? ftcs_step!(unew, u, p, t, dt, dx, w.d2) : theta_step!(unew, u, p, t, dt, dx, theta, w)
+    u, unew = unew, u
+end
+return x, u, N * nsteps
+"""
+
+[[fixture]]
+name = "fit_order-endpoints"
+hole = "fit_order"
+stage = 2
+expect_start = "fit_order"
+misconception = "slope-from-two-points"
+description = "the slope between the first and the last point: equal to the least-squares slope only when the points are on a line"
+body = """
+return (log(errs[end]) - log(errs[1])) / (log(hs[end]) - log(hs[1]))
+"""

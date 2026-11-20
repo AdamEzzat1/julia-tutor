@@ -1,0 +1,73 @@
+---
+title: "The cheapest accurate heat solver"
+author: "Your name"
+format: html
+---
+
+<!--
+How this report is checked (`tutor case check <dir> 3`):
+
+* One `## ` section per step of the method, with exactly these headings
+  (a longer heading that starts with one is fine).
+* Every number you quote from your study is tagged right after it:
+  `1016{claim:cost_cn}`, `cn{claim:choice}`. The checker compares it with
+  what your study() returned: half a unit in the last digit you wrote is
+  allowed, nothing more; integers written without a point must be exact.
+  Write numbers, not inline code: the checker does not run Quarto.
+* Some claims must sit together in one paragraph (the three costs and the
+  ratio, the cancellation, the stability limit next to theory, the peaks,
+  the robustness re-check, the validity range). `tutor case show heat`
+  lists every claim, its section and the required evidence.
+* Your estimate goes in the Scales section with an {estimate:ns_ftcs} tag.
+  It is never graded; the check prints it next to what you measured.
+
+No software grades the reasoning. The rubric (`tutor case show heat
+--rubric`) is for you, a peer or an instructor.
+-->
+
+## Question
+
+State the question, the quantity of interest, the cost measure and the
+accuracy that would answer it. Quote the operating point: diffusivity
+...{claim:kappa}, time ...{claim:t_final}, budget ...{claim:target}, and
+the exact midpoint temperature ...{claim:exact_mid}.
+
+## Scales and estimate
+
+The time scale of the slowest mode, the grid spacing the budget suggests,
+and your estimate of FTCS's step count on 127 points from its stability
+limit, written before any run: ...{estimate:ns_ftcs}.
+
+## Model and assumptions
+
+The equation, the boundary values, the grid, the cost measure, the exact
+solution and why its error is negligible.
+
+## Method choice
+
+The grid and its space error; for each method its step count, time error
+and cost; the three costs and the ratio in one paragraph; your choice.
+Why you split the budget: a coarse run whose total error is smaller than
+its own space error, in one paragraph.
+
+## Verification
+
+Is the solver right? Observed orders in space and time on the
+manufactured solution, with their ranges; the steady quadratic; the
+measured stability limit next to von Neumann's, in one paragraph.
+
+## Validation
+
+Is the answer physically plausible? The top hat after one long step with
+each implicit method: its peaks, in one paragraph.
+
+## Uncertainty and sensitivity
+
+The margins under the budget; the rough profile, its grid and costs, and
+whether the conclusion holds, in one paragraph.
+
+## Claims and limits
+
+Your claims, the evidence for each, the limitations, and the range where
+the conclusion was tested (finest grid, budget), in one paragraph. Nothing
+beyond it.

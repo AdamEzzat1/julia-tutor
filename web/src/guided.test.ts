@@ -33,6 +33,18 @@ describe("guided projects data", () => {
     expect(text).not.toMatch(/MISSING_MARKERS|DEFAULT_H/); // names that exist only in the references
   });
 
+  it("lists the interval program as a program of the core course, with program commands", () => {
+    const iv = guided.projects.find((p) => p.name === "interval")!;
+    expect(iv.kind).toBe("program");
+    expect(iv.status).toBe("ready");
+    expect(iv.host_ok).toBe(true);
+    expect(commands(iv)[0]).toBe("./tutor program start interval work/interval");
+    expect(commands(iv).some((c) => c.startsWith("./tutor program reveal"))).toBe(true);
+    expect(guided.projects.filter((p) => p.kind === "guided").length).toBeGreaterThanOrEqual(8);
+    // The sealed reference never reaches the site: names that exist only in it.
+    expect(JSON.stringify(iv)).not.toMatch(/pow_down|enclose\(T|prevfloat\(a\.lo/);
+  });
+
   it("orders ready projects first and gives runnable commands", () => {
     const o = orderedProjects();
     const firstPlanned = o.findIndex((p) => p.status === "planned");

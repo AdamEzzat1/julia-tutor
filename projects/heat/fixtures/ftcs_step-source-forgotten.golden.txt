@@ -1,0 +1,31 @@
+== tutor explain: heat, stage 1 ==
+
+Start here: hole `ftcs_step` at src/Heat1D.jl:76
+  why: 3 of the 3 failing testsets depend on it (Ochiai 0.87); 1 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: explicit-time-stepping.
+
+Tests: 7/10 testsets pass
+  FAIL ftcs_step: one explicit step  [2 failed, 0 errored; depends on: ftcs_step, second_difference]
+       test/runtests.jl:39 FAIL isequal(ftcs_step!(unew, x .^ 2, p, 0.0, dt, dx, zeros(N)), x .^ 2)  evaluated: isequal([0.03125, 0.078125, 0.15625, 0.265625, 0.40625, 0.578125, 0.78125], [0.015625, 0.0625, 0.140625, 0.25, 0.390625, 0.5625, 0.765625])
+       test/runtests.jl:42 FAIL isequal(ftcs_step!(unew, zeros(N), q, 0.5, dt, dx, zeros(N)), fill(dt / 2, N))  evaluated: isequal([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.001953125, 0.001953125, 0.001953125, 0.001953125, 0.001953125, 0.001953125, 0.001953125])
+  FAIL theta_step: the theta method  [1 failed, 0 errored; depends on: ftcs_step, mms_problem, second_difference, thomas]
+       test/runtests.jl:86 FAIL isapprox(theta_step!(zeros(N), u, p, 0.1, dt, dx, 0.0, w), ftcs_step!(zeros(N), u, p, 0.1, dt, dx, zeros(N)); rtol = 4 * EPS)  evaluated: isapprox([…
+  FAIL solve_heat: lands on T and counts its work  [1 failed, 0 errored; depends on: ftcs_step, second_difference, thomas]
+       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. ftcs_step          0.87  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:76
+  2. second_difference  0.65  implemented  failing-deps=3 passing-deps=4  src/Heat1D.jl:52
+  3. thomas             0.52  implemented  failing-deps=2 passing-deps=3  src/Heat1D.jl:94
+  4. mms_problem        0.29  implemented  failing-deps=1 passing-deps=3  src/Heat1D.jl:192
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations ftcs_step!(63 points): 0  (reference 0)
+  allocations second_difference!(63 points): 0  (reference 0)
+  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)
+  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)
+  allocations thomas!(63 unknowns): 0  (reference 0)
+  JET: not used by this project's measurements

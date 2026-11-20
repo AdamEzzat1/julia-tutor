@@ -107,6 +107,7 @@ export function CourseLandingView({ mount }: MountProps) {
 function AssessedBy({ a }: { a: string }) {
   if (a.startsWith("project:")) return <a className="jt-chip kc" href="explain.html">project {a.slice(8)}</a>;
   if (a.startsWith("guided:")) return <a className="jt-chip kc" href={`projects.html?project=${a.slice(7)}`}>project {a.slice(7)}</a>;
+  if (a.startsWith("program:")) return <a className="jt-chip kc" href={`projects.html?project=${a.slice(8)}`}>program {a.slice(8)}</a>;
   return <a className="jt-chip kc" href={unitHref(a)}>unit {unitNumber(a)}</a>;
 }
 

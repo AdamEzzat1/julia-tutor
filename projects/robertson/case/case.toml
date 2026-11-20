@@ -1,0 +1,497 @@
+# The robertson case project (docs/CASES.md), a scientific-computing course
+# case on stiffness. It builds on the hole project in projects/robertson:
+# milestones 1 and 2 are its two starter stages, milestone 3 is the study
+# and the report.
+
+name = "robertson"
+project = "robertson"
+course = "scicomp"
+env = "base"
+title = "Stiff kinetics: when does an implicit method pay for its Jacobian?"
+summary = "Write Robertson's reaction kinetics, a pivoted linear solve, an explicit Bogacki-Shampine 3(2) step, a Rosenbrock ROS2 step and one adaptive controller for both. Then measure which integrator delivers the concentrations at t = 40 to four digits for the least work, and whether the choice survives a reaction a thousand times slower."
+
+question = """
+Robertson's three-species reaction (A -> B at rate 0.04, B + B -> C + B at
+3e7, B + C -> A + C at 1e4) starts with pure A. The three concentrations
+are needed at t = 40, each with a relative error below 1e-4. Which
+integrator, the explicit Bogacki-Shampine 3(2) or the linearly implicit
+Rosenbrock ROS2, delivers that for the least work (right-hand-side
+evaluations, plus three per Jacobian)? Why, in terms you can measure? Does
+the choice survive when the two fast reactions are a thousand times slower?
+"""
+qoi = "The three concentrations at t = 40 and their largest relative error; the work of each integrator in right-hand-side evaluations (a Jacobian counts as 3)."
+accuracy = "The budget is 1e-4 relative in every component, including B's, which is about 1e-5 in absolute terms. Tolerances are searched in steps of sqrt(10), so costs matter to a factor of about 2; the answer is the method cheaper by more than that."
+emphasised = ["method", "verification", "validation"]
+estimate_prompt = "Before you run anything, estimate how many steps BS3(2) needs to reach t = 40 if its step is limited only by stability: h |lambda| <= 2.5, with lambda the Jacobian's most negative eigenvalue (about -(k3 y3 + 2 k2 y2), a few thousand). Write the estimate in the report with an {estimate:bs_steps} tag."
+
+[data]
+kind = "exact solutions"
+description = """
+No dataset. Robertson's problem has no closed-form solution, but its value
+at t = 40 is published in the IVP test-set literature, and two independent
+integrations at a tolerance of 1e-10 (one explicit, one implicit) agree
+with each other and with that value to about 1e-10, far below the budget.
+A rotation y1' = y2, y2' = -y1 with its exact solution checks the methods'
+orders. Nothing is random and nothing is downloaded.
+"""
+
+[[data.difficulty]]
+what = "The concentrations differ by five orders of magnitude: B is about 1e-5. An absolute tolerance chosen for A and C (say 1e-4) is above B's whole value, so B's error is invisible to the controller, and so is the instability of an explicit method in B's fast mode: the run blows up with every step accepted."
+kc = "step-size-control"
+
+[[data.difficulty]]
+what = "An explicit method's step on a stiff problem is set by stability, not by the tolerance: loosening the tolerance a thousandfold barely changes the number of steps. Its cost has to be explained by the Jacobian's eigenvalues, not by the accuracy asked for."
+kc = "stiffness"
+
+[[data.difficulty]]
+what = "The error at the end is not monotone in the tolerance: BS3(2) at rtol 3.2e-3 ends with a smaller error than at 1e-3. The cheapest tolerance that meets the budget has to be found by measuring, and checked against the next looser one."
+kc = "step-size-control"
+
+[[data.difficulty]]
+what = "Stiffness is a property of the problem and the interval, not of the equations' look: the same reactions with slower rates are barely stiff, and then the cheaper explicit step wins."
+kc = "stiffness"
+
+[[milestone]]
+id = 1
+title = "The model and the explicit method: rate equations, Jacobian, pivoted solve, one BS3(2) step"
+stage = 1
+goal = "Fill the four stage-1 holes (`tutor start robertson 1 <dir>`) until the visible tests pass, then run `tutor case check <dir> 1`. The hidden acceptance tests use other rate constants, systems and problems, so code fitted to the visible tests does not pass."
+acceptance = "acceptance/m1.jl"
+steps = ["model", "verification"]
+
+[[milestone]]
+id = 2
+title = "The implicit method and the controller: ROS2, adaptive integration, the order fit"
+stage = 2
+goal = "Start stage 2 (`tutor case start robertson <dir>`). It opens all seven holes and adds study.jl and report.qmd. Then run `tutor case check <dir> 2`."
+acceptance = "acceptance/m2.jl"
+steps = ["method", "verification"]
+
+[[milestone]]
+id = 3
+title = "The study and the report"
+stage = 2
+goal = "Write study.jl (its docstrings are the spec) and report.qmd, then run `tutor case check <dir> 3`. This runs the hidden acceptance tests on your study, runs `study()` twice in fresh processes, and checks every tagged number in the report against what your code computed. study() takes about 20 seconds."
+acceptance = "acceptance/m3.jl"
+steps = ["question", "scales", "model", "method", "verification", "validation", "uncertainty", "report"]
+report = true
+
+# ---- the report's checked claims ---------------------------------------------------------------
+#
+# A claim is a value written in report.qmd immediately before a tag:
+# `3465{claim:ro_cost}`, `ros2{claim:choice}`. The value must equal what
+# your `study()` returns for that id: within half a unit of the last
+# written digit; integers written without a decimal point must be exact.
+
+[report]
+tolerance = "deterministic study: half a unit in the last written digit, nothing more"
+
+[[claim]]
+id = "t_final"
+section = "question"
+text = "the time the concentrations are needed at"
+
+[[claim]]
+id = "target"
+section = "question"
+text = "the error budget (largest relative error over the three concentrations)"
+
+[[claim]]
+id = "y1_ref"
+section = "question"
+min_digits = 6
+text = "the reference concentration of A at t = 40"
+
+[[claim]]
+id = "y2_ref"
+section = "question"
+min_digits = 6
+text = "the reference concentration of B at t = 40"
+
+[[claim]]
+id = "y3_ref"
+section = "question"
+min_digits = 6
+text = "the reference concentration of C at t = 40"
+
+[[claim]]
+id = "lambda_40"
+section = "scales"
+min_digits = 3
+text = "the Jacobian's most negative eigenvalue at t = 40"
+
+[[claim]]
+id = "ref_diff"
+section = "model"
+text = "the largest relative difference between the two reference integrations"
+
+[[claim]]
+id = "bs_rtol"
+section = "method"
+text = "BS3(2)'s tolerance: the loosest in the ladder meeting the budget"
+
+[[claim]]
+id = "bs_err"
+section = "method"
+text = "BS3(2)'s largest relative error there"
+
+[[claim]]
+id = "bs_cost"
+section = "method"
+text = "BS3(2)'s cost"
+
+[[claim]]
+id = "bs_steps"
+section = "method"
+text = "BS3(2)'s accepted steps"
+
+[[claim]]
+id = "bs_steps_loose"
+section = "method"
+text = "BS3(2)'s accepted steps at rtol 1e-2"
+
+[[claim]]
+id = "ro_rtol"
+section = "method"
+text = "ROS2's tolerance"
+
+[[claim]]
+id = "ro_err"
+section = "method"
+text = "ROS2's largest relative error there"
+
+[[claim]]
+id = "ro_cost"
+section = "method"
+text = "ROS2's cost"
+
+[[claim]]
+id = "ro_steps"
+section = "method"
+text = "ROS2's accepted steps"
+
+[[claim]]
+id = "choice"
+section = "method"
+kind = "word"
+words = ["bs", "ros2"]
+text = "the cheaper method meeting the budget"
+
+[[claim]]
+id = "cost_ratio"
+section = "method"
+min_digits = 2
+text = "BS3(2)'s cost over ROS2's"
+
+[[claim]]
+id = "bs_order"
+section = "verification"
+min_digits = 3
+text = "BS3(2)'s observed order with fixed steps on the rotation"
+
+[[claim]]
+id = "ro_order"
+section = "verification"
+min_digits = 3
+text = "ROS2's observed order on the same problem"
+
+[[claim]]
+id = "order_h_min"
+section = "verification"
+text = "smallest step in the order fits"
+
+[[claim]]
+id = "order_h_max"
+section = "verification"
+text = "largest step in the order fits"
+
+[[claim]]
+id = "stab_boundary"
+section = "verification"
+min_digits = 4
+text = "where BS3's stability function reaches -1 on the negative real axis (its magnitude)"
+
+[[claim]]
+id = "stab_hlam"
+section = "verification"
+min_digits = 3
+text = "BS3(2)'s mean step from t = 20 to 40 times |lambda| at t = 30"
+
+[[claim]]
+id = "mass_err"
+section = "verification"
+text = "the largest error in y1 + y2 + y3 = 1 at the chosen settings"
+
+[[claim]]
+id = "naive_bs_t"
+section = "validation"
+text = "how far BS3(2) gets with atol = rtol = 1e-4 before its step underflows"
+
+[[claim]]
+id = "naive_bs_ymin"
+section = "validation"
+text = "the smallest concentration it accepted"
+
+[[claim]]
+id = "naive_ro_err"
+section = "validation"
+text = "ROS2's largest relative error with atol = rtol = 1e-4"
+
+[[claim]]
+id = "robust_factor"
+section = "uncertainty"
+text = "how many times slower the two fast reactions are"
+
+[[claim]]
+id = "robust_lambda"
+section = "uncertainty"
+min_digits = 3
+text = "the most negative eigenvalue at t = 40 for the slower reactions"
+
+[[claim]]
+id = "robust_bs_cost"
+section = "uncertainty"
+text = "BS3(2)'s cost for the slower reactions"
+
+[[claim]]
+id = "robust_ro_cost"
+section = "uncertainty"
+text = "ROS2's cost for the slower reactions"
+
+[[claim]]
+id = "robust_choice"
+section = "uncertainty"
+kind = "word"
+words = ["bs", "ros2"]
+text = "the cheaper method for the slower reactions"
+
+[[claim]]
+id = "robust_holds"
+section = "uncertainty"
+kind = "word"
+words = ["holds", "fails"]
+text = "whether the conclusion holds under the perturbed assumption"
+
+[[claim]]
+id = "valid_t_max"
+section = "report"
+text = "the latest time the conclusion was tested at"
+
+[[claim]]
+id = "valid_target"
+section = "report"
+text = "the error budget the conclusion was tested at"
+
+# ---- required evidence ---------------------------------------------------------------------
+
+[[evidence]]
+id = "costs-of-both"
+text = "the cost of both methods at their cheapest tolerance, and the ratio"
+claims = ["bs_cost", "ro_cost", "cost_ratio"]
+same_paragraph = true
+
+[[evidence]]
+id = "budget-met"
+text = "the error each method reached"
+claims = ["bs_err", "ro_err"]
+
+[[evidence]]
+id = "stiffness-shown"
+text = "the explicit method's steps at two very different tolerances"
+claims = ["bs_steps", "bs_steps_loose"]
+same_paragraph = true
+
+[[evidence]]
+id = "reference-checked"
+text = "the reference's own error, bounded by two independent methods"
+claims = ["ref_diff"]
+
+[[evidence]]
+id = "orders-with-ranges"
+text = "the observed orders with their fit range"
+claims = ["bs_order", "ro_order", "order_h_min", "order_h_max"]
+
+[[evidence]]
+id = "stability-against-theory"
+text = "the measured explicit step next to the stability boundary"
+claims = ["stab_hlam", "stab_boundary"]
+same_paragraph = true
+
+[[evidence]]
+id = "plausibility"
+text = "an unphysical result that the controller accepted"
+claims = ["naive_bs_t", "naive_bs_ymin"]
+same_paragraph = true
+
+[[evidence]]
+id = "robustness"
+text = "the conclusion re-checked under a perturbed assumption, and whether it holds"
+claims = ["robust_factor", "robust_bs_cost", "robust_ro_cost", "robust_choice", "robust_holds"]
+same_paragraph = true
+
+[[evidence]]
+id = "validity-range"
+text = "the range where the conclusion was tested"
+claims = ["valid_t_max", "valid_target"]
+same_paragraph = true
+
+[[estimate]]
+id = "bs_steps"
+section = "scales"
+compare_with = "bs_steps"
+
+[robustness]
+assumption = "the rate constants are Robertson's: two reactions are fast (3e7 and 1e4), so the problem is stiff"
+perturbed = "the two fast reactions 1000 times slower (k2 = 3e4, k3 = 10): the same chemistry, barely stiff"
+claims = ["robust_factor", "robust_lambda", "robust_bs_cost", "robust_ro_cost", "robust_choice", "robust_holds"]
+
+# ---- discussion --------------------------------------------------------------------------------
+
+[[discussion]]
+kind = "prediction"
+text = "Before measuring: if you loosen BS3(2)'s tolerance by a factor of 1000, how many fewer steps will it take to reach t = 40?"
+measured_by = "bs_steps_loose"
+
+[[discussion]]
+kind = "prediction"
+text = "With atol = rtol = 1e-4, will the explicit run be inaccurate, fail with an error, or something else?"
+measured_by = "naive_bs_ymin"
+
+[[discussion]]
+kind = "rubric"
+text = "The explicit run with atol = 1e-4 accepted every step it took and returned no error. What in your own code would have told you something was wrong, and what would you add to an integrator to catch it?"
+
+[[discussion]]
+kind = "rubric"
+text = "Your cost counts a Jacobian as three right-hand sides and ignores the linear solves. For a system of 1000 species, how would both terms scale, and could the choice flip?"
+
+[[discussion]]
+kind = "rubric"
+text = "The conclusion failed for slower reactions. Give a rule, in terms you can compute before integrating, for when the implicit method pays."
+
+[[discussion]]
+kind = "rubric"
+text = "Robertson is often integrated to t = 4e10. What would happen to each method's cost, and what would you have to check about the absolute tolerance there?"
+
+# ---- rubric (no software grades these) --------------------------------------------------------
+
+[[rubric]]
+step = "question"
+criterion = "States the question, the QoI, the cost measure and the accuracy that would answer it, before any result, including that the budget applies to B."
+levels = ["missing or vague", "stated, but the accuracy is not tied to the decision", "stated, and the accuracy is justified by the decision it has to support"]
+
+[[rubric]]
+step = "scales"
+criterion = "Estimates the stiff eigenvalue and the explicit method's step count from stability before computing, and compares them with the measurement afterwards."
+levels = ["no estimate", "an estimate without a method", "an estimate from h |lambda| <= 2.5, compared with the result and the gap explained"]
+
+[[rubric]]
+step = "model"
+criterion = "States what is assumed: mass-action kinetics, the reference and why its error is negligible, the cost measure and what it leaves out (linear solves), the tolerance ladder."
+levels = ["none listed", "listed", "listed, with which ones could change the conclusion (for instance a large system where solves dominate)"]
+
+[[rubric]]
+step = "method"
+criterion = "Chooses by measured cost at tolerances that meet the budget, and explains the explicit method's cost by stability, with the evidence that the tolerance barely matters to it."
+levels = ["asserted", "measured costs without the explanation", "measured, with the stability explanation and its evidence"]
+
+[[rubric]]
+step = "verification"
+criterion = "Shows the integrators are right: observed orders with their range, the explicit step against the stability boundary, the linear invariant, the reference bounded by two methods; keeps this separate from validation."
+levels = ["none, or mixed with validation", "some checks, ranges not stated", "all of them, each with its range and the theoretical value"]
+
+[[rubric]]
+step = "validation"
+criterion = "Checks that the results are physically possible (no negative concentrations) and shows a setting where an accepted result is not, and why the controller could not see it."
+levels = ["absent", "numbers without interpretation", "the hidden instability identified and the lesson for choosing atol stated"]
+
+[[rubric]]
+step = "uncertainty"
+criterion = "States the margins under the budget and re-checks the choice for slower reactions, and reports that it fails and why."
+levels = ["absent", "stated without the robustness re-check", "re-checked, the failure reported and explained by the eigenvalue"]
+
+[[rubric]]
+step = "report"
+criterion = "Every claim has its evidence; limitations and the validity range are stated; nothing is claimed for other reactions, larger systems or longer times. Length, code volume and the number of plots earn nothing."
+levels = ["claims without evidence", "evidence for most claims", "every claim supported, limits and range stated, no extrapolation"]
+
+[pilot]
+status = "not run"
+needs = [
+  "one learner who has finished the scientific-computing course's units on ODEs and stiffness and has not seen this case",
+  "the learner works from `tutor case start` and the brief only; the observer records time per milestone, where they got stuck, every `tutor case check` output and every claim-checker finding",
+  "an instructor scores the finished report with the rubric, blind to the time data",
+  "a transfer task afterwards on an unseen problem (a stiff enzyme-kinetics system with its own rates): does the learner measure the stiffness, choose atol by the smallest component's scale, and check plausibility before choosing?",
+  "decision rule: if the learner cannot finish milestone 3 in two sessions, or the rubric score on the transfer task is at the lowest level for method or validation, the scaffolding is revised",
+]
+
+# ---- study mutants: each must fail milestone 3's acceptance tests -----------------------------
+
+[[mutant]]
+id = "atol-equals-rtol"
+file = "study.jl"
+find = "const ATOL_RATIO = 1e-6"
+replace = "const ATOL_RATIO = 1.0"
+description = "atol = rtol, above B's scale: the explicit runs blow up and no tolerance meets the budget"
+
+[[mutant]]
+id = "choice-inverted"
+file = "study.jl"
+find = "out[\"choice\"] = bcost < rcost ? \"bs\" : \"ros2\""
+replace = "out[\"choice\"] = bcost < rcost ? \"ros2\" : \"bs\""
+description = "the more expensive method is chosen"
+
+[[mutant]]
+id = "jacobian-free"
+file = "study.jl"
+find = "cost(s::Stats) = s.nf + 3 * s.nj"
+replace = "cost(s::Stats) = s.nf"
+description = "the Jacobians are not counted, flattering the implicit method"
+
+[[mutant]]
+id = "robust-not-perturbed"
+file = "study.jl"
+find = "q = Kinetics(p.k1, p.k2 / SLOW, p.k3 / SLOW)"
+replace = "q = p"
+description = "the perturbed assumption is not perturbed: the robustness check cannot fail"
+
+[[mutant]]
+id = "stability-from-a-tight-run"
+file = "study.jl"
+find = "_, s2040 = solve(:bs, p, 20.0, brt; y0 = y20)"
+replace = "_, s2040 = solve(:bs, p, 20.0, 1e-10; y0 = y20)"
+description = "the step measured at a tolerance where accuracy, not stability, limits it"
+
+[[mutant]]
+id = "naive-run-not-naive"
+file = "study.jl"
+find = "_, nb = solve(:bs, p, T_END, 1e-4; atol = 1e-4)"
+replace = "_, nb = solve(:bs, p, T_END, 1e-4)"
+description = "the validation run with a proper atol: nothing unphysical to see"
+
+[[mutant]]
+id = "tightest-tolerance-first"
+file = "study.jl"
+find = "for rt in RTOLS"
+replace = "for rt in reverse(RTOLS)"
+description = "the tightest tolerance taken instead of the loosest that meets the budget"
+
+# ---- what each hidden acceptance testset checks (shown when it fails; the test code is not) ----
+
+[behaviours]
+rate-equations-other-constants = "rhs uses the given rate constants, and each reaction runs alone when the others' species are absent."
+jacobian-matches-differences-and-conserves = "The Jacobian matches central differences of rhs at other constants, its columns sum to zero, and it is not its transpose."
+pivoted-solve-larger-system = "solve_pivot solves a 4x4 system needing pivots, a permutation exactly, integer input, and rejects a singular matrix."
+bs32-nonlinear-local-order = "A BS3(2) step on a nonlinear problem has local error of order 4 and an estimate of order 3, works componentwise and leaves y unchanged."
+ros2-nonlinear-and-stiff = "A ROS2 step on a nonlinear problem has local error of order 3 and an estimate of order 2, and damps a stiff mode in one long step."
+controller-rejects-grows-lands = "integrate rejects with the factor capped at 0.2, grows by at most 5, keeps the step when the factor is 1, lands exactly on T, and counts evaluations of every attempt."
+controller-on-robertson-bs = "BS3(2) with the controller reproduces the published value of Robertson at t = 40 to 1e-7."
+fit-least-squares = "fit_order is the least-squares slope over every point, not the slope between the end points."
+helpers-on-their-definitions = "cost counts a Jacobian as three, stiff_eigenvalue is a root of the characteristic polynomial, and stability_boundary is where R(z) = -1."
+study-returns-every-claim = "study() returns a Dict with every claim id of the case."
+operating-point-and-reference = "study() reports the operating point unchanged, and its reference agrees with the published value and with the second method."
+budget-met-and-cheapest = "Each method meets the budget at its reported tolerance, recomputed with your own integrator; costs and steps match; the next looser tolerance fails."
+the-answer = "ROS2 is the cheaper, by a factor between 20 and 150, and the explicit method's steps barely change with the tolerance."
+verification-numbers = "The observed orders are 3 and 2 within 0.1, the explicit step is within 2% of the stability boundary, and mass is conserved to rounding."
+validation-negative-concentrations = "With atol = rtol = 1e-4 the explicit run accepts negative concentrations and stops early, and ROS2 misses the budget."
+robustness-slower-reaction = "For reactions 1000 times slower the problem is barely stiff, the explicit method is the cheaper, and the verdict is stated."

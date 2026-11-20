@@ -1,0 +1,40 @@
+== tutor explain: heat, stage 1 ==
+
+Start here: hole `second_difference` at src/Heat1D.jl:52
+  why: 6 of the 6 failing testsets depend on it (Ochiai 0.93); 1 of its dependent testsets pass.
+  Read its docstring: it is the specification. Knowledge component: finite-difference-stencil.
+
+Tests: 4/10 testsets pass
+  FAIL second_difference: exact on quadratics, uses the boundary values  [4 failed, 0 errored; depends on: second_difference]
+       test/runtests.jl:25 FAIL isequal(second_difference!(d2, x .^ 2, 0.0, 1.0, dx), fill(2.0, N))  evaluated: isequal([2.0, 2.0, 2.0, 2.0, 2.0, 2.0, -62.0], [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
+       test/runtests.jl:26 FAIL isequal(second_difference!(d2, 3 .+ x, 3.0, 4.0, dx), zeros(N))  evaluated: isequal([-192.0, 0.0, 0.0, 0.0, 0.0, 0.0, -256.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+  FAIL ftcs_step: one explicit step  [1 failed, 0 errored; depends on: ftcs_step, second_difference]
+       test/runtests.jl:39 FAIL isequal(ftcs_step!(unew, x .^ 2, p, 0.0, dt, dx, zeros(N)), x .^ 2)  evaluated: isequal([0.015625, 0.0625, 0.140625, 0.25, 0.390625, 0.5625, 0.265625], [0.015625, 0.0625, 0.140625, 0.25, 0.390625, 0.5625, 0.765625])
+  FAIL theta_step: the theta method  [2 failed, 0 errored; depends on: ftcs_step, mms_problem, second_difference, thomas]
+       test/runtests.jl:93 FAIL isapprox(theta_step!(zeros(N), fill(0.25, N), q, 0.25, dt, dx, th, w), fill(0.25 + dt, N); rtol = 16 * EPS)  evaluated: isapprox([0.19861469, 0.24758376, 0.26047036, 0.26304768, 0.26047036, 0.24758376, 0.19861469], [0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625, 0.265625]; rtol = 3.5527137e-15)
+       test/runtests.jl:97 FAIL isapprox(theta_step!(zeros(N), x .^ 2, s, 0.0, 0.5, dx, 0.5, w), x .^ 2; rtol = 16 * EPS)  evaluated: isapprox([-0.054215335, -0.08154569, -0.086628901, -0.074665481, -0.051743653, -0.025219867, -0.0041785718], [0.015625, 0.0625, 0.140625, 0.25, 0.390625, 0.5625, 0.765625]; rtol = 3.5527137e-15)
+  FAIL solve_heat: lands on T and counts its work  [2 failed, 0 errored; depends on: ftcs_step, second_difference, thomas]
+       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…
+       test/runtests.jl:104 FAIL isapprox(u, fill(0.3, 15); rtol = 1.0e-12)  evaluated: isapprox([…
+  FAIL convergence: order 2 in space (manufactured solution)  [1 failed, 0 errored; depends on: mms_problem, second_difference, thomas]
+       test/runtests.jl:117 FAIL 1.9 <= fit_order(1 ./ (Ns .+ 1), errs) <= 2.1  evaluated: 1.9 <= -0.02385051 <= 2.1
+  FAIL convergence: order 2 (CN) and 1 (BE) in time  [2 failed, 0 errored; depends on: mms_problem, second_difference, thomas]
+       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 1.9 <= 2.3443848 <= 2.1
+       test/runtests.jl:128 FAIL order - 0.1 <= fit_order(0.5 ./ ns, errs) <= order + 0.1  evaluated: 0.9 <= -1.8790577e-6 <= 1.1
+
+Holes at stage 1 (ranked by Ochiai over the measured test-to-hole map):
+  1. second_difference  0.93  implemented  failing-deps=6 passing-deps=1  src/Heat1D.jl:52
+  2. thomas             0.73  implemented  failing-deps=4 passing-deps=1  src/Heat1D.jl:89
+  3. ftcs_step          0.61  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:71
+  4. mms_problem        0.61  implemented  failing-deps=3 passing-deps=1  src/Heat1D.jl:187
+
+Static findings (0):
+  none
+
+Measurements (fresh process, 1 thread, after warm-up):
+  allocations ftcs_step!(63 points): 0  (reference 0)
+  allocations second_difference!(63 points): 0  (reference 0)
+  allocations solve_heat(63 points, 100 CN steps): 8  (reference 8)
+  allocations theta_step!(63 points, Crank-Nicolson): 0  (reference 0)
+  allocations thomas!(63 unknowns): 0  (reference 0)
+  JET: not used by this project's measurements
